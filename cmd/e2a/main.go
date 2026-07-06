@@ -24,6 +24,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/jobs"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
@@ -145,10 +146,11 @@ func main() {
 	if err := identity.RunMigrations(ctx, pool, migrations.FS, migrationMode); err != nil {
 		log.Fatalf("Schema migration failed: %v", err)
 	}
-	// River's own schema (job queue) for the sender-identity workers
-	// (decision 4 / Slice 4). Tracked in River's river_migration table,
-	// separate from e2a's schema_migrations; idempotent.
-	if err := senderidentity.Migrate(ctx, pool); err != nil {
+	// River's own schema (the shared job queue, internal/jobs). Tracked in
+	// River's river_migration table, separate from e2a's schema_migrations;
+	// idempotent. Applied unconditionally so river_job exists for every domain
+	// that registers on the shared client.
+	if err := jobs.Migrate(ctx, pool); err != nil {
 		log.Fatalf("River schema migration failed: %v", err)
 	}
 
@@ -256,20 +258,25 @@ func main() {
 		if perr != nil {
 			log.Fatalf("sender identity: build SES provider: %v", perr)
 		}
-		senderMgr, merr := senderidentity.NewManager(
-			pool,
+		senderMgr := senderidentity.NewManager(
 			senderidentity.NewStoreAdapter(store),
 			provider,
 			senderIdentityEventFirer(webhookPublisher),
 			senderidentity.Config{},
 		)
-		if merr != nil {
-			log.Fatalf("sender identity: build manager: %v", merr)
+		// Build the shared River client with senderidentity as its (currently
+		// only) registrar; as outbound/webhook/HITL move onto River they join
+		// this same jobs.New call. Inject the client back so the manager's
+		// Enqueue* methods can insert.
+		jobsClient, jerr := jobs.New(pool, jobs.Config{}, senderMgr)
+		if jerr != nil {
+			log.Fatalf("jobs: build shared river client: %v", jerr)
 		}
-		if serr := senderMgr.Start(ctx); serr != nil {
-			log.Fatalf("sender identity: start manager: %v", serr)
+		senderMgr.SetEnqueuer(jobsClient)
+		if serr := jobsClient.Start(ctx); serr != nil {
+			log.Fatalf("jobs: start shared river client: %v", serr)
 		}
-		defer senderMgr.Stop(context.Background())
+		defer jobsClient.Stop(context.Background())
 		senderEnqueuer = senderMgr
 		log.Printf("[sender-identity] SES provisioning enabled (region=%s)", region)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/jobs"
 	"github.com/Mnexa-AI/e2a/internal/senderidentity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,12 +22,28 @@ import (
 func freshRiver(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	if err := senderidentity.Migrate(ctx, pool); err != nil {
+	if err := jobs.Migrate(ctx, pool); err != nil {
 		t.Fatalf("river migrate: %v", err)
 	}
 	if _, err := pool.Exec(ctx, "TRUNCATE river_job"); err != nil {
 		t.Fatalf("truncate river_job: %v", err)
 	}
+}
+
+// startShared builds the shared jobs client with mgr as its registrar, injects
+// it back, and starts it — the production wiring, so the tests exercise the real
+// shared-client path. Cleanup stops the client.
+func startShared(t *testing.T, pool *pgxpool.Pool, mgr *senderidentity.Manager) {
+	t.Helper()
+	client, err := jobs.New(pool, jobs.Config{}, mgr)
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	mgr.SetEnqueuer(client)
+	if err := client.Start(context.Background()); err != nil {
+		t.Fatalf("jobs start: %v", err)
+	}
+	t.Cleanup(func() { client.Stop(context.Background()) })
 }
 
 // recordingFire captures fired sender-identity events.
@@ -109,14 +126,8 @@ func TestProvisionToVerified(t *testing.T) {
 	fake.SetStatus(domain, senderidentity.Result{Status: senderidentity.StatusVerified})
 
 	rec := &recordingFire{}
-	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, rec.firer(), senderidentity.Config{})
-	if err != nil {
-		t.Fatalf("NewManager: %v", err)
-	}
-	if err := mgr.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer mgr.Stop(context.Background())
+	mgr := senderidentity.NewManager(senderidentity.NewStoreAdapter(store), fake, rec.firer(), senderidentity.Config{})
+	startShared(t, pool, mgr)
 
 	if err := mgr.EnqueueProvision(ctx, domain); err != nil {
 		t.Fatalf("EnqueueProvision: %v", err)
@@ -146,14 +157,8 @@ func TestProvisionFailsClosed(t *testing.T) {
 	fake := senderidentity.NewFakeProvider()
 	fake.SetStatus(domain, senderidentity.Result{Status: senderidentity.StatusFailed, Error: "dkim mismatch"})
 
-	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
-	if err != nil {
-		t.Fatalf("NewManager: %v", err)
-	}
-	if err := mgr.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer mgr.Stop(context.Background())
+	mgr := senderidentity.NewManager(senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
+	startShared(t, pool, mgr)
 
 	if err := mgr.EnqueueProvision(ctx, domain); err != nil {
 		t.Fatalf("EnqueueProvision: %v", err)
@@ -172,14 +177,8 @@ func TestDeprovisionTeardown(t *testing.T) {
 
 	fake := senderidentity.NewFakeProvider()
 	fake.SeedIdentity("teardown.example.com")
-	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
-	if err != nil {
-		t.Fatalf("NewManager: %v", err)
-	}
-	if err := mgr.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer mgr.Stop(context.Background())
+	mgr := senderidentity.NewManager(senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
+	startShared(t, pool, mgr)
 
 	// EnqueueDeprovisionTx requires a tx; use the pool's own.
 	tx, err := pool.Begin(ctx)
@@ -219,14 +218,8 @@ func TestReprovisionAfterFailed(t *testing.T) {
 
 	fake := senderidentity.NewFakeProvider()
 	fake.SetStatus(domain, senderidentity.Result{Status: senderidentity.StatusFailed, Error: "dns not ready"})
-	mgr, err := senderidentity.NewManager(pool, senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
-	if err != nil {
-		t.Fatalf("NewManager: %v", err)
-	}
-	if err := mgr.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer mgr.Stop(context.Background())
+	mgr := senderidentity.NewManager(senderidentity.NewStoreAdapter(store), fake, nil, senderidentity.Config{})
+	startShared(t, pool, mgr)
 
 	if err := mgr.EnqueueProvision(ctx, domain); err != nil {
 		t.Fatalf("EnqueueProvision: %v", err)

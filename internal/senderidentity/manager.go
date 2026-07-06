@@ -2,14 +2,12 @@ package senderidentity
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivermigrate"
+
+	"github.com/Mnexa-AI/e2a/internal/jobs"
 )
 
 // defaultReaperInterval is how often the orphan-identity backstop sweeps.
@@ -17,59 +15,54 @@ import (
 // job; this only catches lost-job edge cases.
 const defaultReaperInterval = time.Hour
 
-// Migrate applies River's own schema (river_job et al.) to the pool. River
-// tracks its migrations in its own river_migration table, separate from e2a's
-// schema_migrations, so this is safe to run alongside identity.RunMigrations
-// and is idempotent. Call once at startup, after the e2a migrations.
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	migrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
-	if err != nil {
-		return fmt.Errorf("river migrator: %w", err)
-	}
-	if _, err := migrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
-		return fmt.Errorf("river migrate: %w", err)
-	}
-	return nil
-}
-
 // Config tunes the Manager. Zero values get sane defaults.
 type Config struct {
 	// MaxReconcileAttempts bounds the pending→failed TTL. 0 → default.
 	MaxReconcileAttempts int
 	// ReaperInterval overrides the orphan-sweep cadence. 0 → default.
 	ReaperInterval time.Duration
-	// MaxWorkers is the default-queue concurrency. 0 → 5.
-	MaxWorkers int
 }
 
-// Manager owns the River client and the sender-identity job lifecycle. It is
-// the single integration point the rest of the app uses: EnqueueProvision on
-// domain verify, EnqueueDeprovisionTx in the domain-delete tx, Start/Stop on
-// the server lifecycle.
+// Manager owns the sender-identity job lifecycle on the SHARED River client
+// (internal/jobs), instead of a private client. It is a jobs.Registrar — it
+// contributes the provision/reconcile/deprovision workers + the periodic orphan
+// reaper — and the app's enqueue entry point: EnqueueProvision on domain verify,
+// EnqueueDeprovisionTx in the domain-delete tx. The shared client is injected via
+// SetEnqueuer after jobs.New has built it (which needs this Manager as a
+// Registrar first — the standard two-phase wiring).
 type Manager struct {
-	client *river.Client[pgx.Tx]
+	store    Store
+	provider Provider
+	fire     EventFirer
+	cfg      Config
+	enq      jobs.Enqueuer
 }
 
-// NewManager builds the River client with the provision/reconcile/deprovision
-// workers + the periodic orphan reaper. The DB must already have River's
-// schema (call Migrate first). fire may be nil (no events).
-func NewManager(pool *pgxpool.Pool, store Store, provider Provider, fire EventFirer, cfg Config) (*Manager, error) {
-	maxWorkers := cfg.MaxWorkers
-	if maxWorkers <= 0 {
-		maxWorkers = 5
-	}
-	reaperInterval := cfg.ReaperInterval
+// NewManager builds the manager with its dependencies. It does NOT build a River
+// client — call jobs.New with this Manager as a Registrar, then SetEnqueuer with
+// the resulting client. fire may be nil (no events).
+func NewManager(store Store, provider Provider, fire EventFirer, cfg Config) *Manager {
+	return &Manager{store: store, provider: provider, fire: fire, cfg: cfg}
+}
+
+// SetEnqueuer injects the shared client so the Enqueue* methods can insert jobs.
+// Must be called (once, at startup) before EnqueueProvision/EnqueueDeprovisionTx.
+func (m *Manager) SetEnqueuer(e jobs.Enqueuer) { m.enq = e }
+
+// RegisterJobs adds the sender-identity workers to the shared client's bundle and
+// returns the periodic orphan reaper. Implements jobs.Registrar. The workers run
+// on the default queue (nil InsertOpts.Queue), preserving prior behavior.
+func (m *Manager) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
+	river.AddWorker(w, &ProvisionWorker{store: m.store, provider: m.provider, fire: m.fire, maxReconcileAttempt: m.cfg.MaxReconcileAttempts})
+	river.AddWorker(w, &ReconcileWorker{store: m.store, provider: m.provider, fire: m.fire})
+	river.AddWorker(w, &DeprovisionWorker{provider: m.provider})
+	river.AddWorker(w, &ReapWorker{store: m.store, provider: m.provider})
+
+	reaperInterval := m.cfg.ReaperInterval
 	if reaperInterval <= 0 {
 		reaperInterval = defaultReaperInterval
 	}
-
-	workers := river.NewWorkers()
-	river.AddWorker(workers, &ProvisionWorker{store: store, provider: provider, fire: fire, maxReconcileAttempt: cfg.MaxReconcileAttempts})
-	river.AddWorker(workers, &ReconcileWorker{store: store, provider: provider, fire: fire})
-	river.AddWorker(workers, &DeprovisionWorker{provider: provider})
-	river.AddWorker(workers, &ReapWorker{store: store, provider: provider})
-
-	periodic := []*river.PeriodicJob{
+	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(reaperInterval),
 			func() (river.JobArgs, *river.InsertOpts) {
@@ -82,23 +75,7 @@ func NewManager(pool *pgxpool.Pool, store Store, provider Provider, fire EventFi
 			&river.PeriodicJobOpts{RunOnStart: false},
 		),
 	}
-
-	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:       map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: maxWorkers}},
-		Workers:      workers,
-		PeriodicJobs: periodic,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("river client: %w", err)
-	}
-	return &Manager{client: client}, nil
 }
-
-// Start begins working jobs. Non-blocking.
-func (m *Manager) Start(ctx context.Context) error { return m.client.Start(ctx) }
-
-// Stop drains in-flight jobs and stops the client.
-func (m *Manager) Stop(ctx context.Context) error { return m.client.Stop(ctx) }
 
 // EnqueueProvision schedules sending-identity provisioning for a domain
 // (called when a domain becomes verified, or on a forced re-check via
@@ -112,7 +89,7 @@ func (m *Manager) Stop(ctx context.Context) error { return m.client.Stop(ctx) }
 // the domain is already verified, and SES CreateEmailIdentity treats an
 // existing identity as success. Concurrent duplicate enqueues are harmless.
 func (m *Manager) EnqueueProvision(ctx context.Context, domain string) error {
-	_, err := m.client.Insert(ctx, ProvisionArgs{Domain: domain}, nil)
+	_, err := m.enq.Insert(ctx, ProvisionArgs{Domain: domain}, nil)
 	return err
 }
 
@@ -120,6 +97,6 @@ func (m *Manager) EnqueueProvision(ctx context.Context, domain string) error {
 // delete transaction, so the job is committed atomically with the domain-row
 // delete — it can never be lost if SES is unreachable at delete time.
 func (m *Manager) EnqueueDeprovisionTx(ctx context.Context, tx pgx.Tx, domain string) error {
-	_, err := m.client.InsertTx(ctx, tx, DeprovisionArgs{Domain: domain}, nil)
+	_, err := m.enq.InsertTx(ctx, tx, DeprovisionArgs{Domain: domain}, nil)
 	return err
 }
