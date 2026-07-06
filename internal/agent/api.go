@@ -208,19 +208,10 @@ type API struct {
 	// configured (the orphan reaper is the backstop either way).
 	domainTeardownHook func(ctx context.Context, tx pgx.Tx, domain string) error
 
-	// publisher routes email.sent / email.pending_review /
-	// email.review_approved / email.review_rejected events to the webhooks
-	// resource — the sole push path since the legacy per-agent
-	// webhook_url was removed in slice 3. Optional — when nil, the
-	// trigger sites silently skip the publish step.
-	publisher webhookpub.Publisher
-	// outbox is the slice-4 transactional publisher for outbound
-	// events. When wired AND its FeatureFlag is enabled, post-side-
-	// effect events (email.sent, email.review_approved) fire via
-	// PublishBestEffortTx so the outbox write never rolls back the
-	// already-committed SES.Send. Pre-side-effect HITL events stay on
-	// the legacy `go publisher.Publish` path per the §5.12 design
-	// limitation ("if we have it, keep it").
+	// outbox is the transactional event log (webhook_events). Outbound events
+	// (email.sent / pending_review / review_approved / review_rejected) fire via
+	// PublishTx / PublishBestEffortTx in the trigger's tx; the outbox drain fans
+	// them out to subscribers and enqueues River delivery jobs.
 	outbox webhookpub.Outbox
 	// eventsPool is the raw pgxpool used by the slice-6 events API.
 	// Optional — when nil, GET/POST /v1/events return 404.
@@ -236,10 +227,6 @@ func (a *API) SetSubscriberStore(s *webhook.SubscriberStore) {
 	a.subscriberStore = s
 }
 
-// SetPublisher wires the LEGACY in-process fan-out publisher. Kept
-// during the slice-4→slice-11 rollout window. Safe to leave nil in
-// tests; trigger sites no-op when it is.
-func (a *API) SetPublisher(p webhookpub.Publisher) { a.publisher = p }
 
 // SetOutbox wires the slice-4 transactional outbox. Used by the
 // outbound /send handler for the email.sent event (post-side-effect:
@@ -262,160 +249,68 @@ func (a *API) emit() telemetry.Metrics {
 	return a.metrics
 }
 
-// publishAsync fires an event in a fresh goroutine so the handler's
-// response is not blocked by webhook routing. Returns immediately.
-// Uses context.Background() to detach from the request — the publisher
-// is a best-effort post-commit fan-out, not part of the handler's
-// success criteria.
-func (a *API) publishAsync(e webhookpub.Event) {
-	if a.publisher == nil {
-		return
-	}
-	go a.publisher.Publish(context.Background(), e)
-}
-
-// publishSent fires email.sent via BOTH the legacy publisher (in a
-// goroutine) AND the slice-4 transactional outbox path. The outbox
-// uses PublishBestEffortTx because SES has already accepted the send —
-// the messages row write + outbox write happen in one tx so the
-// outbox commit is durable, but failure to write to the outbox
-// MUST NOT roll back the already-committed messages row (and the
-// already-sent email).
-//
-// During the rollout window (slice 4 → slice 11) both paths fire in
-// parallel; the partial unique index on
-// webhook_subscriber_deliveries(event_id, webhook_id) is what
-// prevents double delivery once slice 2's worker picks up the new
-// path.
-//
-// outMsg may be nil if CreateOutboundMessage failed earlier — when
-// nil we skip the outbox path because there is no message row to
-// transactionally co-commit with. The legacy goroutine still fires.
-// shouldFireLegacy reports whether the legacy publisher.Publish
-// goroutine MUST fire to deliver this event. Returns true when:
-//
-//   - the outbox is not wired (nil), OR
-//   - the outbox flag is off (legacy is the sole delivery path), OR
-//   - the outbox was the durable path BUT this attempt did not write
-//     (caller passes outboxWrote=false), so legacy is the safety net.
-//
-// Returns false ONLY when the outbox successfully wrote the row —
-// then legacy would produce a duplicate webhook POST that the partial
-// unique index cannot dedupe (legacy writes event_id=NULL).
-//
-// Closes the second half of the C3 audit finding. The first half
-// (suppress on duplicate) was the original concern; the second half
-// surfaced in review: if outbox is enabled and the write FAILED,
-// suppressing legacy too would silently drop the event. The PR
-// description's "treat as ops issue" framing was a hand-wave — for
-// HITL pending/reject events especially, a dropped event means the
-// reviewer's webhook never fires.
-func (a *API) shouldFireLegacy(outboxWrote bool) bool {
-	if a.outbox == nil || !a.outbox.Enabled() {
-		return true // legacy is the sole delivery path
-	}
-	return !outboxWrote // legacy is the fallback when outbox didn't write
-}
-
+// publishSent fires email.sent to the durable outbox (webhook_events). Uses
+// PublishBestEffortTx because SES has already accepted the send — the outbox
+// write must never roll back the already-sent email (post-side-effect).
 func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *identity.Message) {
-	var outboxWrote bool
 	if a.outbox != nil && outMsg != nil {
-		// Use deterministic ID so MTA retries (no analog here for
-		// /send, but rebill of an idempotency key counts as one)
-		// dedupe through ON CONFLICT (id) DO NOTHING.
+		// Deterministic id dedupes a same-key resend through ON CONFLICT DO NOTHING.
 		e.ID = webhookpub.DeterministicEventID(outMsg.ID, e.Type)
-		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
-			// The messages row is already committed (CreateOutbound-
-			// Message ran outside this tx because SES already
-			// accepted the send and the row should be durable even
-			// if the outbox write fails). So this tx only writes the
-			// outbox row — best-effort by contract.
-			outboxWrote = a.outbox.PublishBestEffortTx(ctx, tx, e)
+		// The messages row is already committed (SES accepted the send); this tx
+		// only writes the outbox row — best-effort by contract (post-side-effect).
+		if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			a.outbox.PublishBestEffortTx(ctx, tx, e)
 			return nil
-		})
-		if err != nil {
+		}); err != nil {
 			log.Printf("[api] outbox tx for email.sent err: %v", err)
-			outboxWrote = false // tx-level failure also forces fallback
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	if a.shouldFireLegacy(outboxWrote) {
-		a.publishAsync(e)
-	}
 }
 
-// publishPendingApproval fires email.pending_review (direction=outbound)
-// via the outbox (PublishTx — pre-side-effect: the pending row hasn't been
-// sent to SES yet) AND the legacy goroutine. pendingMsgID seeds the
-// deterministic event id so /send retries with the same idempotency
-// key don't fire duplicate events.
+// publishPendingApproval fires email.pending_review (direction=outbound) via the
+// outbox (PublishTx — pre-side-effect: the pending row hasn't been sent to SES
+// yet). pendingMsgID seeds the deterministic event id so /send retries with the
+// same idempotency key don't fire duplicate events.
 func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pendingMsgID string) {
-	var outboxWrote bool
 	if a.outbox != nil && pendingMsgID != "" {
 		e.ID = webhookpub.DeterministicEventID(pendingMsgID, e.Type)
-		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+		if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
 			return a.outbox.PublishTx(ctx, tx, e)
-		})
-		if err != nil {
+		}); err != nil {
 			log.Printf("[api] outbox tx for email.pending_review err: %v", err)
-		} else {
-			// err==nil means the tx committed AND PublishTx returned
-			// nil — both are required for the row to be durably
-			// recorded. (If the flag was off, PublishTx no-op'd and
-			// returned nil; outbox.Enabled() guards that below in
-			// shouldFireLegacy so we don't suppress legacy in that
-			// case either.)
-			outboxWrote = true
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	if a.shouldFireLegacy(outboxWrote) {
-		a.publishAsync(e)
-	}
 }
 
-// publishApproved fires email.review_approved via the outbox
-// (PublishBestEffortTx — POST-side-effect: SES has already accepted
-// the approved send) AND the legacy goroutine.
+// publishApproved fires email.review_approved via the outbox (PublishBestEffortTx
+// — post-side-effect: SES has already accepted the approved send).
 func (a *API) publishApproved(ctx context.Context, e webhookpub.Event, sentMsg *identity.Message) {
-	var outboxWrote bool
 	if a.outbox != nil && sentMsg != nil {
 		e.ID = webhookpub.DeterministicEventID(sentMsg.ID, e.Type)
-		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
-			outboxWrote = a.outbox.PublishBestEffortTx(ctx, tx, e)
+		if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			a.outbox.PublishBestEffortTx(ctx, tx, e)
 			return nil
-		})
-		if err != nil {
+		}); err != nil {
 			log.Printf("[api] outbox tx for %s err: %v", e.Type, err)
-			outboxWrote = false
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	if a.shouldFireLegacy(outboxWrote) {
-		a.publishAsync(e)
-	}
 }
 
 // publishRejected fires email.review_rejected via the outbox (PublishTx —
-// pre-side-effect: rejection is a row update, no SES involvement) AND
-// the legacy goroutine.
+// pre-side-effect: rejection is a row update, no SES involvement).
 func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedMsgID string) {
-	var outboxWrote bool
 	if a.outbox != nil && rejectedMsgID != "" {
 		e.ID = webhookpub.DeterministicEventID(rejectedMsgID, e.Type)
-		err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+		if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
 			return a.outbox.PublishTx(ctx, tx, e)
-		})
-		if err != nil {
+		}); err != nil {
 			log.Printf("[api] outbox tx for %s err: %v", e.Type, err)
-		} else {
-			outboxWrote = true
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)
-	if a.shouldFireLegacy(outboxWrote) {
-		a.publishAsync(e)
-	}
 }
 
 // SetApprovalSigner wires in the magic-link signer after construction so

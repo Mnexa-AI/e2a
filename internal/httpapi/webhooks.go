@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -297,6 +298,16 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 	deliveryID, err := s.deps.TestWebhookInsert(ctx, wh.ID, event, envelope)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to schedule test delivery")
+	}
+	// River is the sole delivery engine: the direct insert above leaves the row
+	// with no job, so enqueue one now (own tx, stamps job_id) for immediate
+	// delivery. If that fails the row is still durable and the periodic reconciler
+	// (webhookdelivery.ReconcileWorker) re-enqueues it within a minute — so log and
+	// report success rather than 500 (a retry would just create a second test row).
+	if s.deps.EnqueueDelivery != nil {
+		if err := s.deps.EnqueueDelivery(ctx, deliveryID); err != nil {
+			log.Printf("[webhooks] test delivery %s enqueue failed (reconciler will retry): %v", deliveryID, err)
+		}
 	}
 	out := &testWebhookOutput{}
 	out.Body.DeliveryID = deliveryID

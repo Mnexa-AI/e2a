@@ -40,71 +40,6 @@ func NewSubscriberStore(pool *pgxpool.Pool) *SubscriberStore {
 	return &SubscriberStore{pool: pool}
 }
 
-// GetPending leases up to `limit` rows whose next_retry_at is in the
-// past. The lease is implemented as a single CTE that selects-for-update
-// the candidate rows with SKIP LOCKED and pushes their next_retry_at
-// forward by LeaseDuration, so concurrent workers (in-process OR across
-// replicas) never return the same row. Mirrors the legacy
-// DeliveryStore.GetPendingDeliveries pattern.
-//
-// The lease window is what prevents double-POST in multi-replica
-// deployments. If a worker crashes mid-attempt, the row reappears once
-// the lease expires; the caller writing MarkDelivered /
-// RecordAttemptFailure inside the lease window overwrites next_retry_at
-// to the real schedule (or 'failed' status) before the lease expires.
-func (s *SubscriberStore) GetPending(ctx context.Context, limit int) ([]SubscriberDelivery, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	rows, err := tx.Query(ctx,
-		`WITH candidates AS (
-		    SELECT id FROM webhook_subscriber_deliveries
-		    WHERE status = 'pending' AND next_retry_at <= now()
-		    ORDER BY next_retry_at ASC
-		    LIMIT $1
-		    FOR UPDATE SKIP LOCKED
-		 )
-		 UPDATE webhook_subscriber_deliveries d
-		 SET next_retry_at = now() + ($2 * interval '1 second')
-		 FROM candidates c
-		 WHERE d.id = c.id
-		 RETURNING d.id, d.webhook_id, d.event_type, d.event_payload, d.message_id,
-		           d.status, d.attempts, d.max_attempts, d.last_error,
-		           d.last_status_code, d.last_attempt_at, d.next_retry_at,
-		           d.created_at, d.expires_at`,
-		limit, int(LeaseDuration.Seconds()),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	var out []SubscriberDelivery
-	for rows.Next() {
-		var d SubscriberDelivery
-		if err := rows.Scan(
-			&d.ID, &d.WebhookID, &d.EventType, &d.EventPayload, &d.MessageID,
-			&d.Status, &d.Attempts, &d.MaxAttempts, &d.LastError,
-			&d.LastStatusCode, &d.LastAttemptAt, &d.NextRetryAt,
-			&d.CreatedAt, &d.ExpiresAt,
-		); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		out = append(out, d)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	rows.Close()
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // MarkDelivered transitions a row to status='delivered' and stamps
 // last_attempt_at + last_status_code. Also bumps webhooks.last_delivered_at
 // in the same transaction so list views show the freshest activity.
@@ -137,70 +72,57 @@ func (s *SubscriberStore) MarkDelivered(ctx context.Context, deliveryID string, 
 	return tx.Commit(ctx)
 }
 
-// RecordAttemptFailure records a failed attempt, sets the next retry
-// time, and decides whether to keep the row pending (more attempts
-// remain) or transition to 'failed' (exhausted).
-//
-// statusCode is 0 when the failure was a connection error / timeout
-// (no HTTP response received).
-//
-// SELECT and UPDATE run inside a single transaction with FOR UPDATE so
-// two workers can't race on the same row (which could happen if the
-// GetPending lease expires while an attempt is in flight). Without the
-// row lock, the read-then-write pattern under-counts attempts on
-// concurrent failure recording.
-func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, errMsg string, statusCode int) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	var attempts, maxAttempts int
-	if err := tx.QueryRow(ctx,
-		`SELECT attempts, max_attempts FROM webhook_subscriber_deliveries
-		 WHERE id = $1 FOR UPDATE`,
+// GetSubscriberDeliveryByID loads a single delivery row by id — the River
+// DeliverWorker's entry point (it holds only the delivery id and reads the
+// payload + webhook_id here). Returns pgx.ErrNoRows if the row is gone.
+func (s *SubscriberStore) GetSubscriberDeliveryByID(ctx context.Context, deliveryID string) (*SubscriberDelivery, error) {
+	var d SubscriberDelivery
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, webhook_id, event_type, event_payload, message_id,
+		        status, attempts, max_attempts, COALESCE(last_error, ''),
+		        last_status_code, last_attempt_at, next_retry_at, created_at, expires_at
+		   FROM webhook_subscriber_deliveries WHERE id = $1`,
 		deliveryID,
-	).Scan(&attempts, &maxAttempts); err != nil {
-		return err
+	).Scan(&d.ID, &d.WebhookID, &d.EventType, &d.EventPayload, &d.MessageID,
+		&d.Status, &d.Attempts, &d.MaxAttempts, &d.LastError,
+		&d.LastStatusCode, &d.LastAttemptAt, &d.NextRetryAt, &d.CreatedAt, &d.ExpiresAt)
+	if err != nil {
+		return nil, err
 	}
-	newAttempts := attempts + 1
+	return &d, nil
+}
 
-	if newAttempts >= maxAttempts {
-		if _, err := tx.Exec(ctx,
-			`UPDATE webhook_subscriber_deliveries
-			 SET status = 'failed',
-			     attempts = $2,
-			     last_attempt_at = now(),
-			     last_error = $3,
-			     last_status_code = $4
-			 WHERE id = $1`,
-			deliveryID, newAttempts, errMsg, statusCode,
-		); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-
-	nextRetry, ok := nextRetryAt(newAttempts)
-	if !ok {
-		// Defensive: nextRetryAt only fails if attempts exceeds the
-		// backoff slice. The branch above should have caught it.
-		nextRetry = time.Now().Add(1 * time.Hour)
-	}
-	if _, err := tx.Exec(ctx,
+// RecordSubscriberAttempt records ONE failed attempt without deciding retry or
+// terminality — under River the retry schedule and the give-up decision belong to
+// the job, not the store. Status stays 'pending'; attempts/last_error/
+// last_status_code/last_attempt_at are updated. (Contrast RecordAttemptFailure,
+// the hand-rolled path, which also computed next_retry_at and flipped to 'failed'
+// at the cap — retired with the legacy worker.) attemptN is the River job's
+// attempt number, written verbatim so the history API's attempts count matches
+// River's.
+func (s *SubscriberStore) RecordSubscriberAttempt(ctx context.Context, deliveryID string, attemptN int, errMsg string, statusCode int) error {
+	_, err := s.pool.Exec(ctx,
 		`UPDATE webhook_subscriber_deliveries
-		 SET attempts = $2,
-		     last_attempt_at = now(),
-		     last_error = $3,
-		     last_status_code = $4,
-		     next_retry_at = $5
-		 WHERE id = $1`,
-		deliveryID, newAttempts, errMsg, statusCode, nextRetry,
-	); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		    SET status = 'pending', attempts = $2, last_attempt_at = now(),
+		        last_error = $3, last_status_code = $4
+		  WHERE id = $1`,
+		deliveryID, attemptN, errMsg, statusCode,
+	)
+	return err
+}
+
+// MarkSubscriberFailed transitions a delivery to terminal 'failed' — called by
+// the DeliverWorker on the last (River-exhausted) attempt, and as an ErrorHandler
+// backstop on discard. Records the final attempt count + error.
+func (s *SubscriberStore) MarkSubscriberFailed(ctx context.Context, deliveryID string, attemptN int, errMsg string, statusCode int) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE webhook_subscriber_deliveries
+		    SET status = 'failed', attempts = $2, last_attempt_at = now(),
+		        last_error = $3, last_status_code = $4
+		  WHERE id = $1`,
+		deliveryID, attemptN, errMsg, statusCode,
+	)
+	return err
 }
 
 // generateDeliveryID returns a prefixed id of the form whd_<32-hex>.
@@ -235,21 +157,6 @@ func (s *SubscriberStore) InsertPendingForTest(ctx context.Context, webhookID, e
 		return "", fmt.Errorf("insert test delivery: %w", err)
 	}
 	return id, nil
-}
-
-// BumpNextRetry pushes the row's next_retry_at out by `after` so the
-// row doesn't reappear in GetPending on every tick. Used by the worker
-// when it skips a row without attempting delivery (e.g. webhook is
-// disabled, waiting for re-enable). Status stays 'pending' so the row
-// resumes processing once the deferred time arrives.
-func (s *SubscriberStore) BumpNextRetry(ctx context.Context, deliveryID string, after time.Duration) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE webhook_subscriber_deliveries
-		 SET next_retry_at = now() + ($2 * interval '1 second')
-		 WHERE id = $1`,
-		deliveryID, int(after.Seconds()),
-	)
-	return err
 }
 
 // DeleteExpiredSubscriberDeliveries removes rows whose expires_at has

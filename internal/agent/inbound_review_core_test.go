@@ -3,7 +3,6 @@ package agent_test
 import (
 	"context"
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,45 +16,37 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// capturePublisher records published events for assertions.
-type capturePublisher struct {
-	mu     sync.Mutex
-	events []webhookpub.Event
-}
-
-func (c *capturePublisher) Publish(_ context.Context, e webhookpub.Event) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.events = append(c.events, e)
-}
-
-func (c *capturePublisher) waitType(t *testing.T, typ string) {
+// waitForEvent asserts an event of the given type for the user landed in the
+// durable outbox (webhook_events). The approve/reject core writes the event in
+// the same tx via the outbox, so it is durable by the time the call returns; the
+// short poll is belt-and-suspenders.
+func waitForEvent(t *testing.T, pool *pgxpool.Pool, userID, eventType string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		c.mu.Lock()
-		for _, e := range c.events {
-			if e.Type == typ {
-				c.mu.Unlock()
-				return
-			}
+		var n int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM webhook_events WHERE user_id = $1 AND type = $2`,
+			userID, eventType).Scan(&n); err == nil && n >= 1 {
+			return
 		}
-		c.mu.Unlock()
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for %s event", typ)
+	t.Fatalf("timed out waiting for %s event in webhook_events", eventType)
 }
 
-func newReviewAPI(t *testing.T) (*agent.API, *identity.Store, *pgxpool.Pool, *capturePublisher) {
+func newReviewAPI(t *testing.T) (*agent.API, *identity.Store, *pgxpool.Pool) {
 	t.Helper()
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(), "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
-	cap := &capturePublisher{}
-	api.SetPublisher(cap)
-	return api, store, pool, cap
+	// Events flow through the durable outbox (webhook_events) — River is the sole
+	// delivery engine and there is no legacy publisher. Wire the real outbox so the
+	// approve/reject core's publish path fires and the assertions can read the row.
+	api.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
+	return api, store, pool
 }
 
 func seedHeldInbound(t *testing.T, store *identity.Store, ctx context.Context, domain string) (userID, agentID, messageID string) {
@@ -85,9 +76,9 @@ func seedHeldInbound(t *testing.T, store *identity.Store, ctx context.Context, d
 
 // TestApproveInboundReviewCore_ReleasesAndPublishes is the end-to-end core check:
 // the held message transitions to review_approved AND email.review_approved is
-// actually emitted (wired through publishApproved → the legacy publisher).
+// actually emitted (wired through publishApproved → the durable outbox).
 func TestApproveInboundReviewCore_ReleasesAndPublishes(t *testing.T) {
-	api, store, pool, cap := newReviewAPI(t)
+	api, store, pool := newReviewAPI(t)
 	ctx := context.Background()
 	userID, agentID, msgID := seedHeldInbound(t, store, ctx, "approvecore.example.com")
 	meta := &identity.ReviewMessageMeta{ID: msgID, AgentID: agentID, Direction: "inbound", Sender: "evil@x.com", Subject: "held", Type: "received"}
@@ -98,7 +89,7 @@ func TestApproveInboundReviewCore_ReleasesAndPublishes(t *testing.T) {
 	if got := statusOf(t, pool, ctx, msgID); got != identity.MessageStatusReviewApproved {
 		t.Errorf("status = %q, want review_approved", got)
 	}
-	cap.waitType(t, webhookpub.EventEmailReviewApproved)
+	waitForEvent(t, pool, userID, webhookpub.EventEmailReviewApproved)
 
 	// A second approve (already resolved) is a clean 409, not a double release.
 	if derr := api.ApproveInboundReviewCore(ctx, userID, meta); derr == nil || derr.Status != http.StatusConflict || derr.Code != "message_not_pending" {
@@ -108,7 +99,7 @@ func TestApproveInboundReviewCore_ReleasesAndPublishes(t *testing.T) {
 
 // TestRejectInboundReviewCore_DropsAndPublishes mirrors the approve core for reject.
 func TestRejectInboundReviewCore_DropsAndPublishes(t *testing.T) {
-	api, store, pool, cap := newReviewAPI(t)
+	api, store, pool := newReviewAPI(t)
 	ctx := context.Background()
 	userID, agentID, msgID := seedHeldInbound(t, store, ctx, "rejectcore.example.com")
 	meta := &identity.ReviewMessageMeta{ID: msgID, AgentID: agentID, Direction: "inbound", Type: "received"}
@@ -123,7 +114,7 @@ func TestRejectInboundReviewCore_DropsAndPublishes(t *testing.T) {
 	if st != identity.MessageStatusReviewRejected || reason != "prompt injection" {
 		t.Errorf("row = status %q reason %q, want review_rejected/prompt injection", st, reason)
 	}
-	cap.waitType(t, webhookpub.EventEmailReviewRejected)
+	waitForEvent(t, pool, userID, webhookpub.EventEmailReviewRejected)
 }
 
 func statusOf(t *testing.T, pool *pgxpool.Pool, ctx context.Context, msgID string) string {

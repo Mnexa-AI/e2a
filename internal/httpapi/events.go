@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -162,6 +163,14 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 			if derr != nil {
 				return 0, RedeliverView{}, NewError(http.StatusInternalServerError, "internal_error", "failed to schedule replay")
 			}
+			// Enqueue for immediate delivery. If it fails the row is durable and the
+			// periodic reconciler re-drives it within a minute — report pending
+			// (don't 500: a retry would create a duplicate replay row).
+			if s.deps.EnqueueDelivery != nil {
+				if err := s.deps.EnqueueDelivery(ctx, dl); err != nil {
+					log.Printf("[events] replay %s enqueue failed (reconciler will retry): %v", dl, err)
+				}
+			}
 			return http.StatusOK, RedeliverView{DeliveryID: dl, EventID: in.ID, WebhookID: webhookID, Status: "pending"}, nil
 		}
 		// Bulk fan-out to every originally-matched subscriber.
@@ -171,6 +180,13 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 			if derr != nil {
 				deliveries = append(deliveries, RedeliverDelivery{WebhookID: whID, Status: "skipped", Reason: "failed to schedule"})
 				continue
+			}
+			// Enqueue for immediate delivery. On failure the row is durable +
+			// reconciler-backed, so report pending (not skipped) — it will deliver.
+			if s.deps.EnqueueDelivery != nil {
+				if err := s.deps.EnqueueDelivery(ctx, dl); err != nil {
+					log.Printf("[events] bulk replay %s enqueue failed (reconciler will retry): %v", dl, err)
+				}
 			}
 			deliveries = append(deliveries, RedeliverDelivery{WebhookID: whID, DeliveryID: dl, Status: "pending"})
 		}
@@ -201,11 +217,11 @@ func containsStr(ss []string, want string) bool {
 }
 
 // requireEventsEnabled returns a 501 when the durable event log isn't
-// populated on this deployment (WEBHOOKS_OUTBOX_ENABLED off). Without this the
-// list/get/redeliver handlers would query the empty webhook_events table and
-// return "no events" — indistinguishable from a deployment where events simply
-// haven't happened. The explicit error makes the disabled state legible.
-// Webhook *delivery* is unaffected; the legacy publisher handles it.
+// populated on this deployment. Now unconditional in production; the guard
+// remains so that a deployment which disables the outbox returns an explicit
+// error rather than an empty list/get/redeliver — indistinguishable from a
+// deployment where events simply haven't happened. Webhook *delivery* (River)
+// is unaffected either way.
 func (s *Server) requireEventsEnabled() error {
 	if !s.deps.EventsEnabled {
 		return NewError(http.StatusNotImplemented, "events_log_disabled",

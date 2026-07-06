@@ -54,10 +54,10 @@ type Params struct {
 	// are left unwired.
 	SigningSecret string
 
-	// EventsEnabled mirrors WEBHOOKS_OUTBOX_ENABLED (the outbox's flag). When
-	// false the webhook_events durable log is never written, so the events
+	// EventsEnabled mirrors the outbox's flag (now unconditional in production).
+	// When false the webhook_events durable log is never written, so the events
 	// list/get/redeliver endpoints return 501 events_log_disabled instead of an
-	// empty result. Webhook delivery is unaffected.
+	// empty result. Webhook delivery (River) is unaffected.
 	EventsEnabled bool
 
 	// Legacy is the gorilla/mux handler the chi root falls back to for any
@@ -70,6 +70,14 @@ type Params struct {
 	// nil when SES is not configured (dev/self-host), leaving sending_status
 	// at none and the relay From in place. *senderidentity.Manager satisfies it.
 	SenderIdentity SenderIdentityEnqueuer
+
+	// EnqueueDelivery enqueues a River webhook_deliver job for a
+	// webhook_subscriber_deliveries row inserted directly by the /test endpoint
+	// or the event-redelivery API (both bypass the outbox drain). River is the
+	// sole delivery engine, so without this those rows would never deliver.
+	// Wired from *webhookdelivery.Jobs.EnqueueDelivery in the binary. Optional —
+	// nil in minimal test setups with no River client.
+	EnqueueDelivery func(ctx context.Context, deliveryID string) error
 }
 
 // SenderIdentityEnqueuer is the slice of *senderidentity.Manager apiserver
@@ -172,6 +180,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		RotateSecret:      p.Store.RotateSecret,
 		TestWebhookInsert: p.SubscriberStore.InsertPendingForTest,
 		ListDeliveries:    p.SubscriberStore.ListDeliveriesByWebhook,
+		EnqueueDelivery:   p.EnqueueDelivery,
 
 		CreateTemplate:     p.Store.CreateTemplate,
 		ListTemplates:      p.Store.ListTemplatesByUser,

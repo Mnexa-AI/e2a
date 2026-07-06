@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,10 +23,13 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookdelivery"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 )
 
 const TestHMACSecret = "test-hmac-secret-for-testing"
@@ -61,16 +65,55 @@ type E2ATestServer struct {
 	WSHub      *ws.Hub
 	smtpServer *relay.Server
 
-	// Webhooks-as-a-resource wiring (post-PR-180). Tests that exercise
-	// the new path can read these directly without re-deriving them.
-	// Publisher is wired into both the agent API (so /send etc. fire
-	// email.sent) and the SMTP server (so inbound mail fires
-	// email.received). SubscriberStore + Worker let tests insert /
-	// inspect delivery rows and force a drain without waiting on the
-	// 30s production tick.
-	Publisher        webhookpub.Publisher
-	SubscriberStore  *webhook.SubscriberStore
-	SubscriberWorker *webhook.SubscriberRetryWorker
+	// Webhooks-as-a-resource wiring (post-PR-180), now on the outbox + River
+	// delivery path. The outbox is wired into both the agent API (so /send etc.
+	// fire email.sent) and the SMTP server (so inbound mail fires email.received),
+	// committing events to webhook_events. SubscriberStore lets tests insert /
+	// inspect delivery rows. DrainAndDeliver() drives the outbox drain + River
+	// DeliverWorker synchronously so tests get deterministic delivery without
+	// waiting on any production tick.
+	SubscriberStore *webhook.SubscriberStore
+
+	pool          *pgxpool.Pool
+	outboxWorker  *webhookpub.OutboxWorker
+	deliverWorker *webhookdelivery.DeliverWorker
+}
+
+// DrainAndDeliver runs the outbox drain (webhook_events →
+// webhook_subscriber_deliveries) then the River DeliverWorker over every pending
+// delivery row, synchronously. It is the test-side replacement for the retired
+// SubscriberRetryWorker.Tick — production drains via the OutboxWorker's LISTEN/
+// poll loop and River's queue; tests drive both stages by hand for determinism.
+// Per-row Work errors (retryable failures are expected in some tests, e.g. a 503
+// receiver) are ignored so one failing subscriber doesn't stop the rest.
+func (ts *E2ATestServer) DrainAndDeliver(ctx context.Context) {
+	ts.outboxWorker.Tick(ctx)
+	rows, err := ts.pool.Query(ctx,
+		`SELECT id FROM webhook_subscriber_deliveries WHERE status = 'pending'`)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		job := &river.Job[webhookdelivery.WebhookDeliverArgs]{
+			JobRow: &rivertype.JobRow{
+				Attempt:     1,
+				MaxAttempts: webhookdelivery.MaxDeliveryAttempts,
+				Kind:        webhookdelivery.WebhookDeliverArgs{}.Kind(),
+			},
+			Args: webhookdelivery.WebhookDeliverArgs{DeliveryID: id},
+		}
+		_ = ts.deliverWorker.Work(ctx, job)
+	}
 }
 
 func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2ATestServer {
@@ -93,16 +136,18 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	smtpRelay := outbound.NewSMTPRelay(outboundCfg)
 	sender := outbound.NewSender(smtpRelay, fromDomain)
 
-	// Webhooks-resource (PR-180) wiring. The publisher fans events
-	// to enabled subscribers; the subscriber store is what the /test
-	// + /deliveries handlers read. We wire them into both the API
-	// and the relay so trigger sites fire events. The retry worker
-	// is constructed but NOT started — tests call Tick(ctx) directly
-	// for deterministic delivery without the 30s tick.
+	// Webhooks-resource (PR-180) wiring, on the outbox + River delivery path.
+	// Events commit to webhook_events via the outbox; the OutboxWorker drains them
+	// into webhook_subscriber_deliveries and the River DeliverWorker POSTs each
+	// row. The subscriber store is what the /test + /deliveries handlers read. We
+	// wire the outbox into both the API and the relay so trigger sites fire
+	// events. Neither worker is started as a goroutine — tests call
+	// DrainAndDeliver(ctx) directly for deterministic delivery without any tick.
 	subscriberStore := webhook.NewSubscriberStore(pool)
 	subscriberDeliverer := webhook.NewSubscriberDeliverer(false)
-	subscriberWorker := webhook.NewSubscriberRetryWorker(subscriberStore, subscriberDeliverer, store)
-	publisher := webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookpub.StaticFlag(true))
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	outboxWorker := webhookpub.NewOutboxWorker(pool, store)
+	deliverWorker := webhookdelivery.NewDeliverWorker(subscriberStore, subscriberDeliverer, store)
 
 	// HTTP server
 	router := mux.NewRouter()
@@ -117,7 +162,8 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
 	api.SetIdempotencyStore(idempotencyStore)
 	api.SetSubscriberStore(subscriberStore)
-	api.SetPublisher(publisher)
+	api.SetOutbox(outbox)
+	api.SetPoolForEvents(pool)
 	api.SetEnforcer(enforcer)
 	api.SetUsageStore(usageStore)
 	api.RegisterRoutes(router)
@@ -156,7 +202,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		Env: "development",
 	}
 	smtpServer := relay.NewServer(cfg, store, signer, noopUsage, wsHub)
-	smtpServer.SetPublisher(publisher)
+	smtpServer.SetOutbox(outbox)
 
 	go func() {
 		if err := smtpServer.ListenAndServe(); err != nil {
@@ -175,15 +221,16 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	}
 
 	ts := &E2ATestServer{
-		HTTPServer:       httpServer,
-		SMTPAddr:         smtpAddr,
-		Store:            store,
-		Signer:           signer,
-		WSHub:            wsHub,
-		smtpServer:       smtpServer,
-		Publisher:        publisher,
-		SubscriberStore:  subscriberStore,
-		SubscriberWorker: subscriberWorker,
+		HTTPServer:      httpServer,
+		SMTPAddr:        smtpAddr,
+		Store:           store,
+		Signer:          signer,
+		WSHub:           wsHub,
+		smtpServer:      smtpServer,
+		SubscriberStore: subscriberStore,
+		pool:            pool,
+		outboxWorker:    outboxWorker,
+		deliverWorker:   deliverWorker,
 	}
 
 	t.Cleanup(func() {

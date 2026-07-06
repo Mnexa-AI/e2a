@@ -207,13 +207,11 @@ type Deps struct {
 	LoadReplayEvent      func(ctx context.Context, userID, eventID string) (*agent.ReplayEvent, error)
 	InsertReplayDelivery func(ctx context.Context, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error)
 
-	// EventsEnabled reflects whether the durable event log (the
-	// webhook_events outbox) is populated on this deployment — i.e. the
-	// WEBHOOKS_OUTBOX_ENABLED flag. When false the legacy publisher delivers
-	// webhooks straight to webhook_subscriber_deliveries and webhook_events is
-	// never written, so list/get/redeliver would silently return empty. The
-	// events handlers gate on this and return 501 events_log_disabled instead
-	// of masquerading as "no events". Webhook delivery is unaffected either way.
+	// EventsEnabled reflects whether the durable event log (the webhook_events
+	// outbox) is populated on this deployment. Now unconditional in production;
+	// the events handlers still gate on it so a deployment that ever disables the
+	// outbox returns 501 events_log_disabled from list/get/redeliver instead of
+	// masquerading as "no events". Webhook delivery is unaffected either way.
 	EventsEnabled bool
 
 	// webhooks
@@ -228,6 +226,14 @@ type Deps struct {
 	// log (subscriberStore.ListDeliveriesByWebhook).
 	TestWebhookInsert func(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error)
 	ListDeliveries    func(ctx context.Context, webhookID, status string, limit int) ([]webhook.SubscriberDelivery, error)
+	// EnqueueDelivery enqueues a River webhook_deliver job for a
+	// webhook_subscriber_deliveries row that was inserted directly — the /test
+	// endpoint and the event-redelivery API. Those two surfaces bypass the outbox
+	// drain (which enqueues in-tx), so without this call their rows carry no River
+	// job and, now that River is the sole delivery engine, would never deliver.
+	// Wired unconditionally in production. Optional — nil in minimal test setups
+	// with no River client, where a test drains delivery rows by other means.
+	EnqueueDelivery func(ctx context.Context, deliveryID string) error
 
 	// templates (beta). Mirror the like-named identity.Store methods; every
 	// lookup is scoped to the owning user (cross-user reads behave as

@@ -23,6 +23,40 @@ func seedUser(t *testing.T, ctx context.Context, pool interface {
 	return "u_outbox_test"
 }
 
+// TestOutboxPublisher_Integration_WritesToWebhookEvents proves the adapter that
+// routes the previously-bypassing event sources (domain.*, delivery feedback,
+// hitl-TTL) writes them into webhook_events — so they flow through the drain to
+// River/legacy delivery instead of being stranded under engine=river.
+func TestOutboxPublisher_Integration_WritesToWebhookEvents(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	userID := "u_outboxpub_test"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, email, name, google_subject, created_at) VALUES ($1, $2, 'T', $1, now()) ON CONFLICT (id) DO NOTHING`,
+		userID, userID+"@example.com"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id=$1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID)
+	})
+
+	pub := webhookpub.NewOutboxPublisher(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)), pool)
+	e := webhookpub.NewEvent(webhookpub.EventDomainSendingVerified, userID, map[string]any{"domain": "x.example.com"})
+	pub.Publish(ctx, e)
+
+	var n int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM webhook_events WHERE id=$1 AND user_id=$2 AND type=$3`,
+		e.ID, userID, webhookpub.EventDomainSendingVerified,
+	).Scan(&n); err != nil {
+		t.Fatalf("query webhook_events: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("webhook_events rows = %d, want 1 (domain event now flows through the outbox)", n)
+	}
+}
+
 // TestOutbox_Integration_HappyPath_RowCommitsWithExpectedFields exercises
 // the full PublishTx → INSERT → row layout path against a real DB. Acts
 // as a regression guard for migration 026's column shape and the

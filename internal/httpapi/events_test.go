@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -103,6 +104,42 @@ func TestRedeliverEventFanout(t *testing.T) {
 	dels, _ := body["deliveries"].([]any)
 	if len(dels) != 2 {
 		t.Fatalf("want 2 fanout deliveries, got %d", len(dels))
+	}
+}
+
+// TestEnqueueError_ReportsPendingNotFailure pins the reconciler-backed contract:
+// when the River enqueue seam errors, /test and redelivery must still report
+// success/pending (the row is durable and the periodic reconciler will re-drive it),
+// NOT 500 or 'skipped' — a failure response would spawn a duplicate row on retry.
+func TestEnqueueError_ReportsPendingNotFailure(t *testing.T) {
+	boom := func(_ context.Context, _ string) error { return errors.New("river down") }
+	srv := testServer(t, func(d *Deps) { d.EnqueueDelivery = boom })
+
+	// /test → 200 with a delivery_id (not 500).
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{})
+	if code != 200 || body["delivery_id"] == nil || body["delivery_id"] == "" {
+		t.Fatalf("/test on enqueue error: want 200 + delivery_id, got %d %v", code, body)
+	}
+
+	// Targeted redeliver → 200 pending (not 500).
+	code, body = postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{"webhook_id": "wh_1"})
+	if code != 200 || body["status"] != "pending" {
+		t.Fatalf("targeted redeliver on enqueue error: want 200 pending, got %d %v", code, body)
+	}
+
+	// Fanout redeliver → 200, every delivery 'pending' (not 'skipped').
+	code, body = postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{})
+	if code != 200 {
+		t.Fatalf("fanout redeliver on enqueue error: want 200, got %d %v", code, body)
+	}
+	dels, _ := body["deliveries"].([]any)
+	if len(dels) == 0 {
+		t.Fatalf("fanout: no deliveries in %v", body)
+	}
+	for _, d := range dels {
+		if m, _ := d.(map[string]any); m["status"] != "pending" {
+			t.Errorf("fanout delivery status = %v, want pending (reconciler-backed, not skipped): %v", m["status"], m)
+		}
 	}
 }
 

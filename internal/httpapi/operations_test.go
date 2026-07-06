@@ -73,7 +73,7 @@ func sampleTemplate() identity.Template {
 // testServer builds a Server with fake collaborators and a sentinel legacy
 // handler, returning an httptest server so tests exercise the real chi+Huma
 // stack over the wire (transport layer in scope per the implement skill).
-func testServer(t *testing.T) *httptest.Server {
+func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 	t.Helper()
 	deps := Deps{
 		Authenticator: func(r *http.Request) (*identity.User, error) {
@@ -608,6 +608,9 @@ func testServer(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusTeapot)
 			_, _ = w.Write([]byte("legacy:" + r.URL.Path))
 		}),
+	}
+	for _, opt := range opts {
+		opt(&deps)
 	}
 	srv := httptest.NewServer(New(deps))
 	t.Cleanup(srv.Close)

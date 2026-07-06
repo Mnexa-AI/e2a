@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"net/smtp"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,30 +15,21 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// capturePublisher records the event types the relay publishes, so the e2e can
-// assert that a HELD message's email.received was suppressed.
-type capturePublisher struct {
-	mu     sync.Mutex
-	events []string
-}
-
-func (c *capturePublisher) Publish(_ context.Context, e webhookpub.Event) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.events = append(c.events, e.Type)
-}
-
-func (c *capturePublisher) has(typ string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, e := range c.events {
-		if e == typ {
-			return true
-		}
+// hasWebhookEvent reports whether the relay wrote an event of the given type for
+// the user to the durable outbox (webhook_events). Events flow through the outbox
+// now — River is the sole delivery engine and there is no legacy publisher — so
+// the e2e asserts on the outbox row rather than a captured publisher call.
+func hasWebhookEvent(pool *pgxpool.Pool, userID, eventType string) bool {
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM webhook_events WHERE user_id = $1 AND type = $2`,
+		userID, eventType).Scan(&n); err != nil {
+		return false
 	}
-	return false
+	return n >= 1
 }
 
 // TestE2E_InboundInjectionHeldOverSMTP is the over-the-wire end-to-end gate for the
@@ -87,8 +77,7 @@ func TestE2E_InboundInjectionHeldOverSMTP(t *testing.T) {
 	}
 	signer := headers.NewSigner("test-relay-hmac-key-32-bytes-long!")
 	server := relay.NewServer(cfg, store, signer, usage.NewNoopUsageTracker(), ws.NewHub())
-	pub := &capturePublisher{}
-	server.SetPublisher(pub)
+	server.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
 	go func() { _ = server.ListenAndServe() }()
 	t.Cleanup(func() { _ = server.Close() })
 
@@ -116,10 +105,10 @@ func TestE2E_InboundInjectionHeldOverSMTP(t *testing.T) {
 	// The injection is blocked (review_rejected) → email.blocked fires; email.received
 	// for the injection does NOT. (The benign message's email.received is the only
 	// email.received expected.)
-	if !waitFor(func() bool { return pub.has(webhookpub.EventEmailBlocked) }) {
+	if !waitFor(func() bool { return hasWebhookEvent(pool, user.ID, webhookpub.EventEmailBlocked) }) {
 		t.Errorf("expected email.blocked to be published")
 	}
-	if !waitFor(func() bool { return pub.has(webhookpub.EventEmailReceived) }) {
+	if !waitFor(func() bool { return hasWebhookEvent(pool, user.ID, webhookpub.EventEmailReceived) }) {
 		t.Errorf("expected the benign message's email.received")
 	}
 

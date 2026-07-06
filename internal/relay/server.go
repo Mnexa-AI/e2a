@@ -34,23 +34,9 @@ type Server struct {
 	smtpServer *smtp.Server
 	store      *identity.Store
 	signer     *headers.Signer
-	// publisher is the in-process fan-out path for the /v1/webhooks
-	// subscriber resource. Fires email.received events to subscribed
-	// endpoints. Optional — when nil (e.g. tests that don't exercise
-	// the subscriber path) the relay only stores the message and
-	// best-effort WS-notifies any connected agent.
-	//
-	// When `outbox` is wired AND its FeatureFlag is enabled, the
-	// inbound trigger uses the transactional outbox path instead of
-	// firing this goroutine.
-	publisher webhookpub.Publisher
-	// outbox is the slice-1 transactional publisher. When non-nil,
-	// the inbound trigger writes the messages row and the
-	// webhook_events row in a single transaction (per design §4.2).
-	// When nil (the default), the legacy goroutine path runs
-	// instead — preserves the v1 default-off rollout posture even if
-	// a deployment forgets to wire it. The Outbox's own FeatureFlag
-	// is the secondary gate.
+	// outbox is the transactional event log. The inbound trigger writes the
+	// messages row and the webhook_events row in a single transaction (per
+	// design §4.2); the drain fans out to subscribers and enqueues River jobs.
 	outbox   webhookpub.Outbox
 	hub      *ws.Hub
 	usage    usage.UsageTracker
@@ -68,18 +54,9 @@ type Server struct {
 	outboundFromDomain string
 }
 
-// SetPublisher wires the webhooks-as-a-resource publisher — the sole
-// push path since the per-agent webhook was removed in slice 3. Same
-// optional-setter pattern as SetEnforcer — keeps NewServer's signature
-// unchanged for the existing call sites and tests that don't care
-// about the push path.
-func (s *Server) SetPublisher(p webhookpub.Publisher) { s.publisher = p }
-
-// SetOutbox wires the slice-1 transactional outbox. When set AND its
-// FeatureFlag is enabled, the inbound trigger commits the messages row
-// and the webhook_events outbox row in a single transaction (per design
-// §4.2). The non-transactional SetPublisher path remains the default
-// until the outbox FeatureFlag flips on during the rollout window.
+// SetOutbox wires the transactional outbox. The inbound trigger commits the
+// messages row and the webhook_events outbox row in a single transaction (per
+// design §4.2); the drain fans out and enqueues River delivery jobs.
 func (s *Server) SetOutbox(o webhookpub.Outbox) { s.outbox = o }
 
 // SetEnforcer wires in the resource-limits enforcer used to reject
@@ -558,49 +535,15 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q verified=%t",
 		messageID, displaySender, rcpt, slug, conversationID, s.inboundSubject, domainAuth.DomainAuthenticated())
 
-	// Legacy in-process publisher fires ONLY when the outbox is not
-	// the durable fan-out path for this deployment. When outbox is
-	// enabled, the worker draining webhook_events handles fan-out;
-	// firing the legacy goroutine here too would write a SECOND
-	// delivery row (with event_id=NULL, so the partial unique index
-	// idx_wsd_event_webhook_uniq cannot dedupe it against the
-	// outbox-written row that has event_id set). Result pre-C3-fix:
-	// every customer webhook fires twice the moment
-	// WEBHOOKS_OUTBOX_ENABLED flips to true in prod.
-	//
-	// Note on the failure path: when the outbox tx fails, the early
-	// return above means we never reach this block — neither the
-	// outbox worker nor the legacy goroutine fires for that event.
-	// Unlike the agent-side publishX helpers (which fall back to
-	// legacy on outbox failure via shouldFireLegacy), the relay does
-	// NOT compensate. This is a pre-existing silent-drop shape: the
-	// relay's Data() returns nil regardless of per-recipient
-	// delivery errors, so the upstream MTA gets SMTP 250 OK and
-	// will NOT retry. The legacy path has the same shape (a
-	// CreateInboundMessage failure is logged and dropped). Closing
-	// this gap requires propagating the error up to Data() so the
-	// MTA sees 4xx — out of scope for the C3 dedup fix; tracked
-	// separately.
-	if s.relay.publisher != nil && (s.relay.outbox == nil || !s.relay.outbox.Enabled()) {
-		// Held messages are not delivered — suppress the email.received push.
-		if !screenRes.Hold {
-			go s.relay.publisher.Publish(context.Background(), event)
-		}
-		if flaggedEvent != nil {
-			go s.relay.publisher.Publish(context.Background(), *flaggedEvent)
-		}
-		if blockedEvent != nil {
-			go s.relay.publisher.Publish(context.Background(), *blockedEvent)
-		}
-		if pendingReviewEvent != nil {
-			go s.relay.publisher.Publish(context.Background(), *pendingReviewEvent)
-		}
-	}
+	// Inbound events (email.received + flagged/blocked/pending_review variants)
+	// are written to the outbox (webhook_events) above, in the message tx; the
+	// drain fans them out and enqueues River delivery jobs. No in-process
+	// fan-out here.
 
 	// Best-effort WebSocket notification for any connected agent. The
-	// /v1/webhooks subscriber resource (driven by the publisher above)
-	// is the durable push path; WS is an opportunistic live-tail on top
-	// of it, available to every agent regardless of how it's configured.
+	// /v1/webhooks subscriber resource (driven by the outbox drain) is the
+	// durable push path; WS is an opportunistic live-tail on top of it,
+	// available to every agent regardless of how it's configured.
 	if s.relay.hub != nil && !screenRes.Hold && s.relay.hub.IsConnected(agent.ID) {
 		notification := buildWSNotification(inboundMsg)
 		if s.relay.hub.Send(agent.ID, notification) {

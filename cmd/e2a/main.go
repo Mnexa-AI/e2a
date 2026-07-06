@@ -33,6 +33,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookdelivery"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/Mnexa-AI/e2a/migrations"
@@ -41,38 +42,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// @title e2a API
-// @version 1.0
-// @description Email for AI agents. e2a delivers emails to your agent via webhooks or WebSocket and lets your agent send emails back.
-// @description
-// @description ## Authentication
-// @description
-// @description All requests require your API key as a Bearer token:
-// @description
-// @description ```
-// @description Authorization: Bearer e2a_your_api_key
-// @description ```
-// @description
-// @description Create an API key on the API Keys page of the e2a instance you are connecting to.
-// @description
-// @description ## How it works
-// @description
-// @description **Cloud agents** (webhook delivery):
-// @description 1. Register your agent and set a webhook URL
-// @description 2. When someone emails your agent, e2a POSTs a webhook to your endpoint
-// @description 3. Reply via the API or send new emails
-// @description
-// @description **Local agents** (WebSocket delivery):
-// @description 1. Register your agent with a slug on the deployment's shared domain (when slug registration is enabled)
-// @description 2. Connect via WebSocket to receive real-time notifications
-// @description 3. Fetch full message content via the API, reply or send new emails
-// @contact.url https://github.com/Mnexa-AI/e2a
-// @host localhost:8080
-// @BasePath /
-// @securityDefinitions.apikey BearerAuth
-// @in header
-// @name Authorization
-// @description API key from the API Keys page (starts with `e2a_`). Format: `Bearer e2a_your_key`
 // senderIdentityEventFirer adapts the webhooks publisher to the
 // senderidentity.EventFirer hook: it publishes domain.sending_verified /
 // domain.sending_failed to the owning user's webhook subscribers when a
@@ -201,39 +170,34 @@ func main() {
 	// any rows left over from before the cutover.
 	deliveryStore := webhook.NewDeliveryStore(pool)
 
-	// Webhooks-as-a-resource pipeline (the sole push path). The feature
-	// flag E2A_FEATURE_WEBHOOK_RESOURCE (default ON) gates the publisher
-	// only; the subscriber retry worker keeps draining any pending rows
-	// even when the flag is OFF. See tmp/e2a_webhooks_design.md for the
-	// full design.
-	webhookFlag := webhookpub.StaticFlag(os.Getenv("E2A_FEATURE_WEBHOOK_RESOURCE") != "false")
+	// Webhooks-as-a-resource pipeline. Events flow through the outbox
+	// (webhook_events) → drain → River delivery; the legacy in-process
+	// publisher is retired.
 	subscriberStore := webhook.NewSubscriberStore(pool)
 	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
-	webhookPublisher := webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookFlag)
 
-	// WEBHOOKS_OUTBOX_ENABLED controls the slice-1+slice-3 transactional
-	// outbox path. Default off in v1 — see design §7.7. When off, the
-	// outbox is wired but PublishTx is a no-op; the relay still wraps
-	// the messages INSERT in a tx (one extra BEGIN/COMMIT overhead, no
-	// outbox row). When on, the messages INSERT + webhook_events INSERT
-	// commit together, closing the at-least-once publish-loss window.
-	// Flip to true permanently in slice 11 after telemetry validates.
+	// The transactional outbox is now UNCONDITIONAL (webhook-delivery→River
+	// migration): every event commits to webhook_events in the message tx, so
+	// webhook_events is the sole, always-durable event log and at-least-once no
+	// longer depends on a flag. WEBHOOKS_OUTBOX_ENABLED is removed; the legacy
+	// fire-and-forget publisher path never fires (it was only the flag-off
+	// fallback) and is being retired. The outbox drain worker (below) has shipped,
+	// so unconditional is safe.
+	webhookOutbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	// Outbox-backed publisher for the post-side-effect event sources that used to
+	// bypass webhook_events via the legacy publisher (senderidentity domain.*,
+	// SNS delivery feedback email.delivered/bounced/complained, hitlworker TTL
+	// resolution). Routing them through the outbox makes ALL events flow
+	// webhook_events → drain → delivery, so they get a River delivery job like
+	// every other event (previously they bypassed the outbox and were stranded).
+	outboxPublisher := webhookpub.NewOutboxPublisher(webhookOutbox, pool)
+	// Outbox drain worker. Drains webhook_events into
+	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll, enqueuing a
+	// River delivery job in the same tx (WithDeliveryEnqueuer, below).
 	//
-	// Slice 2 (the worker that drains webhook_events) is not in this
-	// commit; until it ships, enabling the flag in prod would let
-	// events accumulate without delivery. Document for operators in
-	// the runbook.
-	outboxFlag := webhookpub.StaticFlag(os.Getenv("WEBHOOKS_OUTBOX_ENABLED") == "true")
-	webhookOutbox := webhookpub.NewOutbox(pool, outboxFlag)
-	// Slice 2: outbox publisher worker. Drains webhook_events into
-	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll. The
-	// retry worker (existing) takes over from there. When the outbox
-	// flag is off (default v1), webhook_events stays empty and this
-	// worker has nothing to do — costs nothing to leave running.
-	// Slice 10: telemetry backend. Log-based by default — operators
-	// can swap to telemetry.NewPrometheus() (future) by changing this
-	// one line. Every instrumented call site reads through this
-	// interface so the switch is non-invasive.
+	// Telemetry backend: log-based by default — operators can swap to a real
+	// backend by changing this one line; every instrumented call site reads
+	// through this interface so the switch is non-invasive.
 	metrics := telemetry.NewLog()
 	outboxWorker := webhookpub.NewOutboxWorker(pool, store).WithMetrics(metrics)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
@@ -253,39 +217,68 @@ func main() {
 	// domain delete enqueues a teardown job in the delete tx. Without SES the
 	// interface stays a true nil (sending_status never leaves "none").
 	var senderEnqueuer apiserver.SenderIdentityEnqueuer
-	// jobsClient is the shared River client. Hoisted so the shutdown sequence
-	// can drain it under the same bounded deadline as the HTTP server + workers
-	// (nil when SES is off — nothing registers on it yet).
+	// jobsClient is the shared River client, built ONCE from whatever registers on
+	// it (senderidentity when SES is configured; webhook delivery when
+	// delivery_engine=river) — no longer gated on any single subsystem. Hoisted so
+	// the shutdown sequence drains it under the shared deadline.
 	var jobsClient *jobs.Client
+	var registrars []jobs.Registrar
+
+	var senderMgr *senderidentity.Manager
 	if region := cfg.SenderIdentity.SESRegion; region != "" {
 		provider, perr := senderidentity.NewSESProviderFromConfig(ctx, region)
 		if perr != nil {
 			log.Fatalf("sender identity: build SES provider: %v", perr)
 		}
-		senderMgr := senderidentity.NewManager(
+		senderMgr = senderidentity.NewManager(
 			senderidentity.NewStoreAdapter(store),
 			provider,
-			senderIdentityEventFirer(webhookPublisher),
+			senderIdentityEventFirer(outboxPublisher),
 			senderidentity.Config{},
 		)
-		// Build the shared River client with senderidentity as its (currently
-		// only) registrar; as outbound/webhook/HITL move onto River they join
-		// this same jobs.New call. Inject the client back so the manager's
-		// Enqueue* methods can insert.
-		jc, jerr := jobs.New(pool, jobs.Config{}, senderMgr)
+		registrars = append(registrars, senderMgr)
+	}
+
+	// Webhook delivery → River (docs/design/webhook-delivery-river-migration.md).
+	// River is now the SOLE delivery engine: the DeliverWorker registers
+	// unconditionally, the outbox drain enqueues delivery jobs transactionally,
+	// and a one-shot cutover drains any pre-existing pending rows. The legacy
+	// hand-rolled SubscriberRetryWorker is gone.
+	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store, pool)
+	registrars = append(registrars, webhookDeliveryJobs)
+
+	// Webhook janitor (auto-disable failing webhooks + clear expired prev secrets)
+	// as a River periodic on QueueMaintenance — replaces the hand-rolled 5-min
+	// ticker. Reuses AutoDisableWorker.Tick as the sweep body.
+	webhookMaint := webhookdelivery.NewMaintenanceJobs(webhook.NewAutoDisableWorker(store))
+	registrars = append(registrars, webhookMaint)
+
+	if len(registrars) > 0 {
+		jc, jerr := jobs.New(pool, jobs.Config{}, registrars...)
 		if jerr != nil {
 			log.Fatalf("jobs: build shared river client: %v", jerr)
 		}
 		jobsClient = jc
-		senderMgr.SetEnqueuer(jobsClient)
+		if senderMgr != nil {
+			senderMgr.SetEnqueuer(jobsClient)
+			senderEnqueuer = senderMgr
+			log.Printf("[sender-identity] SES provisioning enabled (region=%s)", cfg.SenderIdentity.SESRegion)
+		}
+		webhookDeliveryJobs.SetEnqueuer(jobsClient)
+		outboxWorker.WithDeliveryEnqueuer(webhookDeliveryJobs)
+		// One-shot cutover: the legacy SubscriberRetryWorker is gone, so enqueue
+		// every pre-existing pending row now — idempotent (job_id IS NULL guard),
+		// harmless for rows already carrying a job.
+		if n, cerr := webhookDeliveryJobs.ReconcilePending(ctx, pool); cerr != nil {
+			log.Printf("[webhook-delivery] cutover: %v", cerr)
+		} else if n > 0 {
+			log.Printf("[webhook-delivery] cutover enqueued %d pending deliveries", n)
+		}
+		log.Printf("[webhook-delivery] engine=river")
+		// Stop is driven from the shutdown sequence under the shared deadline.
 		if serr := jobsClient.Start(ctx); serr != nil {
 			log.Fatalf("jobs: start shared river client: %v", serr)
 		}
-		// Stop is driven from the shutdown sequence under the shared deadline,
-		// not a context.Background() defer (which would drain unbounded, past
-		// the platform grace period).
-		senderEnqueuer = senderMgr
-		log.Printf("[sender-identity] SES provisioning enabled (region=%s)", region)
 	}
 
 	// User auth (Google OAuth for agent developers)
@@ -408,7 +401,6 @@ func main() {
 	if senderEnqueuer != nil {
 		api.SetDomainTeardownHook(senderEnqueuer.EnqueueDeprovisionTx)
 	}
-	api.SetPublisher(webhookPublisher)
 	api.SetOutbox(webhookOutbox)
 	// Slices 6 + 7: customer-facing events API needs the raw pool to
 	// query webhook_events and write webhook_subscriber_deliveries on
@@ -432,7 +424,7 @@ func main() {
 	// 4b). Fail-closed: the SNS signature is verified and the TopicArn must be
 	// in the configured allow-list (empty allow-list → every message is
 	// rejected, so this is inert until ops wires the topic).
-	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(webhookPublisher))
+	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(outboxPublisher))
 	deliveryVerifier := delivery.NewVerifier(cfg.DeliveryFeedback.SNSTopicARNs, delivery.HTTPCertFetcher)
 	// Public webhook receiver for AWS SNS (SES delivery/bounce/complaint). Named
 	// /webhooks/<provider> — it's an inbound third-party callback, not an internal
@@ -471,6 +463,12 @@ func main() {
 		Legacy:          router,
 		WSHandle:        wsHandler.ServeWithEmail,
 		SenderIdentity:  senderEnqueuer,
+		// River is the sole webhook delivery engine: the /test + redelivery
+		// endpoints insert a delivery row directly (bypassing the outbox drain),
+		// so they must enqueue the River job themselves or the row never delivers.
+		EnqueueDelivery: func(ctx context.Context, deliveryID string) error {
+			return webhookDeliveryJobs.EnqueueDelivery(ctx, pool, deliveryID)
+		},
 	})
 
 	httpServer := &http.Server{
@@ -481,7 +479,6 @@ func main() {
 	// SMTP Relay
 	smtpServer := relay.NewServer(cfg, store, signer, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
-	smtpServer.SetPublisher(webhookPublisher)
 	smtpServer.SetOutbox(webhookOutbox)
 
 	// Graceful shutdown
@@ -517,35 +514,20 @@ func main() {
 	// is a follow-up.
 	var workerWG sync.WaitGroup
 
-	// Webhook subscriber retry worker (the webhooks-as-a-resource path).
-	// Unconditionally started — even with the feature flag OFF (publisher
-	// disabled) this worker keeps draining any rows that were inserted
-	// before the flag flipped, so flipping the flag mid-flight doesn't
-	// leak pending deliveries.
-	subRetryWorker := webhook.NewSubscriberRetryWorker(subscriberStore, subscriberDeliverer, store)
-	subRetryCtx, subRetryCancel := context.WithCancel(context.Background())
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		subRetryWorker.Start(subRetryCtx)
-	}()
+	// Webhook subscriber delivery now runs entirely on River's DeliverWorker
+	// (registered above). The legacy in-process SubscriberRetryWorker is gone.
+	// bgCtx is the shared cancel for the remaining webhook-delivery-adjacent
+	// background worker (the outbox drain) so a single shutdown signal stops it.
+	// (The auto-disable janitor is now a River periodic on QueueMaintenance; the
+	// legacy SubscriberRetryWorker is gone.)
+	bgCtx, bgCancel := context.WithCancel(context.Background())
 
-	// Auto-disable + signing-secret-grace janitor (slice 4). Same
-	// lifecycle as the retry worker — share the same cancel so a
-	// single shutdown signal stops both.
-	autoDisableWorker := webhook.NewAutoDisableWorker(store)
+	// Outbox publisher worker: drains webhook_events → subscriber_deliveries and
+	// enqueues River delivery jobs in-tx.
 	workerWG.Add(1)
 	go func() {
 		defer workerWG.Done()
-		autoDisableWorker.Start(subRetryCtx)
-	}()
-
-	// Slice 2: outbox publisher worker. Shares subRetryCtx so a
-	// single shutdown signal stops the whole webhook-delivery stack.
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		outboxWorker.Start(subRetryCtx)
+		outboxWorker.Start(bgCtx)
 	}()
 
 	// HITL expiration worker: transitions pending_review messages that
@@ -556,7 +538,7 @@ func main() {
 	// resolved by timeout notifies subscribers exactly like a human-resolved one
 	// (same legacy publisher as the agent API). Load-bearing for inbound approve:
 	// a TTL-released inbound message has no other push signal.
-	hitlWorker.SetPublisher(webhookPublisher)
+	hitlWorker.SetPublisher(outboxPublisher)
 	hitlCtx, hitlCancel := context.WithCancel(context.Background())
 	workerWG.Add(1)
 	go func() {
@@ -644,7 +626,7 @@ func main() {
 	// branches return on the next iteration; processBatch / RunOnce
 	// calls already in flight finish their current row before the
 	// goroutine exits.
-	subRetryCancel()
+	bgCancel()
 	hitlCancel()
 	cleanupCancel()
 

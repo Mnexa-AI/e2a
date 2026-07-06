@@ -19,9 +19,10 @@ import (
 
 // OutboxWorker drains webhook_events. For each pending row it reads
 // enabled webhooks for the user, applies filter matching in Go, and
-// inserts one webhook_subscriber_deliveries row per match. The existing
-// SubscriberRetryWorker then drains those rows and POSTs them to
-// customer endpoints. See design §4.4 for the full architecture.
+// inserts one webhook_subscriber_deliveries row per match, enqueuing a
+// River delivery job for each in the same transaction. The River
+// DeliverWorker then POSTs each row to the customer endpoint. See design
+// §4.4 for the full architecture.
 //
 // Wakeup paths:
 //   1. LISTEN webhook_events_new — dedicated connection, sub-50ms
@@ -58,6 +59,27 @@ type OutboxWorker struct {
 	// notifySaw tracks whether a NOTIFY fired since the last Tick.
 	// Used to attribute fallback-poll wakeups vs. NOTIFY wakeups.
 	notifySawLastTick bool
+
+	// enqueuer enqueues a River delivery job for each newly-inserted Layer 2 row
+	// IN THE SAME transaction as the insert (the outbox pattern between Layer 2
+	// and Layer 3). Always wired in production — River is the sole delivery
+	// engine. nil only in narrow tests that drive the DeliverWorker by hand.
+	enqueuer DeliveryEnqueuer
+}
+
+// DeliveryEnqueuer enqueues a webhook delivery job transactionally.
+// *webhookdelivery.Jobs satisfies it. Injected so webhookpub stays decoupled
+// from the River-delivery package and the choice is a wiring decision.
+type DeliveryEnqueuer interface {
+	EnqueueDeliveryTx(ctx context.Context, tx pgx.Tx, deliveryID string) (int64, error)
+}
+
+// WithDeliveryEnqueuer wires River delivery (the production path). Without it,
+// inserted Layer 2 rows have no delivery job — used only in tests that deliver
+// pending rows by hand.
+func (w *OutboxWorker) WithDeliveryEnqueuer(e DeliveryEnqueuer) *OutboxWorker {
+	w.enqueuer = e
+	return w
 }
 
 // identityReader is the subset of identity.Store the worker needs.
@@ -338,8 +360,28 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 	}
 	err = poolBeginFunc(ctx, w.pool, func(tx pgx.Tx) error {
 		if len(matched) > 0 {
-			if err := insertPendingBatchTx(ctx, tx, ev.id, matched, ev.eventType, ev.messageID, ev.envelope); err != nil {
+			inserted, err := insertPendingBatchTx(ctx, tx, ev.id, matched, ev.eventType, ev.messageID, ev.envelope)
+			if err != nil {
 				return err
+			}
+			// Enqueue a River delivery job for each row that ACTUALLY inserted
+			// (dedup no-ops are absent from `inserted`),
+			// in this same tx — the Layer 2 row and its job commit atomically, so
+			// there is never a record without a job, and a deduped event enqueues
+			// nothing. Stamp the row's job_id for the cutover discriminator +
+			// observability.
+			if w.enqueuer != nil {
+				for _, d := range inserted {
+					jobID, err := w.enqueuer.EnqueueDeliveryTx(ctx, tx, d)
+					if err != nil {
+						return err
+					}
+					if _, err := tx.Exec(ctx,
+						`UPDATE webhook_subscriber_deliveries SET job_id = $2 WHERE id = $1`, d, jobID,
+					); err != nil {
+						return err
+					}
+				}
 			}
 		}
 		// Conditional UPDATE: if another worker already processed
@@ -375,9 +417,13 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 // The WHERE predicate is verbatim-matched to the partial unique index
 // in migration 028 — Postgres requires exact predicate matching for
 // ON CONFLICT to bind to a partial index.
-func insertPendingBatchTx(ctx context.Context, tx pgx.Tx, eventID string, webhookIDs []string, eventType string, messageID *string, envelope []byte) error {
+// It RETURNs the ids of the rows that were ACTUALLY inserted (ON CONFLICT skips
+// duplicates from a multi-replica lease race, and those are absent from
+// RETURNING) — so the caller enqueues exactly one River delivery job per real
+// insert, never for a dedup no-op.
+func insertPendingBatchTx(ctx context.Context, tx pgx.Tx, eventID string, webhookIDs []string, eventType string, messageID *string, envelope []byte) ([]string, error) {
 	if len(webhookIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Build multi-row VALUES list. pgx supports parameterized arrays,
@@ -398,15 +444,27 @@ func insertPendingBatchTx(ctx context.Context, tx pgx.Tx, eventID string, webhoo
 	        VALUES ` + strings.Join(values, ", ") + `
 	        ON CONFLICT (event_id, webhook_id)
 	            WHERE event_id IS NOT NULL AND replay_id IS NULL
-	            DO NOTHING`
+	            DO NOTHING
+	        RETURNING id`
 
-	_, err := tx.Exec(ctx, sql, args...)
-	return err
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var inserted []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		inserted = append(inserted, id)
+	}
+	return inserted, rows.Err()
 }
 
-// generateDeliveryID mirrors the format used by the legacy publisher's
-// dbInserter — whd_<32-hex>. The relay's blocker-fix commit moved
-// everyone onto the whd_ prefix, including the /test endpoint path.
+// generateDeliveryID mints a whd_<32-hex> delivery id — the one id format for
+// every webhook_subscriber_deliveries row (outbox fan-out, /test, redelivery).
 func generateDeliveryID() string {
 	// 16 bytes of entropy. The format is enforced by the rest of the
 	// codebase; cryptographic strength is overkill but keeps prefix

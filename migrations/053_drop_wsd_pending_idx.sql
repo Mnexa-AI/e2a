@@ -1,0 +1,15 @@
+-- 053_drop_wsd_pending_idx.sql
+-- e2a:no-transaction
+--
+-- Drop idx_wsd_pending (migration 025) — the index on
+-- webhook_subscriber_deliveries(next_retry_at) WHERE status='pending' that backed
+-- the legacy SubscriberRetryWorker's GetPending leasing query. That worker and
+-- GetPending were deleted when River became the sole delivery engine (River owns
+-- retry scheduling via river_job.scheduled_at now), so nothing reads
+-- webhook_subscriber_deliveries.next_retry_at anymore — the index is pure
+-- write-overhead on a hot table. (The next_retry_at COLUMN stays; only the index
+-- goes. The other next_retry_at query in internal/webhook/store.go is on the
+-- unrelated webhook_deliveries table.)
+--
+-- DROP INDEX CONCURRENTLY so it does not take a lock; requires e2a:no-transaction.
+DROP INDEX CONCURRENTLY IF EXISTS idx_wsd_pending;

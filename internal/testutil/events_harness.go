@@ -43,7 +43,6 @@ func NewEventsAPIHarness(t *testing.T, pool *pgxpool.Pool, store *identity.Store
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
 	api.SetIdempotencyStore(idempotencyStore)
 	api.SetSubscriberStore(subscriberStore)
-	api.SetPublisher(webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookpub.StaticFlag(true)))
 	api.SetEnforcer(enforcer)
 	api.SetUsageStore(usageStore)
 	api.SetOutbox(outbox)
