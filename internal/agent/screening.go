@@ -317,11 +317,10 @@ func (a *API) buildBlockedOutboundEvent(agent *identity.AgentIdentity, messageID
 
 func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
 	e := a.buildBlockedOutboundEvent(agent, messageID, req, v)
-	// Durable emit via the (now unconditional) outbox. An outbound block is
-	// rowless, so the event is written in its own transaction; the deterministic
-	// id dedupes a retried block through ON CONFLICT (id) DO NOTHING. This was the
-	// last legacy-only publishAsync site — routing it through the outbox is what
-	// lets the fire-and-forget path be retired.
+	// Durable emit via the (unconditional) outbox. An outbound block is rowless,
+	// so the event is written in its own transaction; the deterministic id dedupes
+	// a retried block through ON CONFLICT (id) DO NOTHING. Every event now flows
+	// through the outbox; the legacy fire-and-forget publisher is gone.
 	if a.outbox != nil {
 		if err := a.store.WithTx(context.Background(), func(tx pgx.Tx) error {
 			return a.outbox.PublishTx(context.Background(), tx, e)

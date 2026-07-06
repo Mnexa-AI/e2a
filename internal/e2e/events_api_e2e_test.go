@@ -18,9 +18,12 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookdelivery"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 )
 
 // e2e tests covering slices 1-9 work end-to-end against a real DB +
@@ -32,7 +35,7 @@ import (
 //     go test -tags integration -v ./internal/e2e/...
 //
 // Coverage:
-//   * Outbox writer (PublishTx) → worker fan-out → SubscriberRetryWorker
+//   * Outbox writer (PublishTx) → worker fan-out → River DeliverWorker
 //     POST → mock receiver (full round-trip)
 //   * REST API: GET /events with pagination + filters
 //   * REST API: GET /events/{id} happy path + 404 + 410
@@ -50,9 +53,42 @@ type eventsE2EFixture struct {
 	store          *identity.Store
 	outbox         webhookpub.Outbox
 	worker         *webhookpub.OutboxWorker
-	subWorker      *webhook.SubscriberRetryWorker
+	deliverWorker  *webhookdelivery.DeliverWorker
 	httpSrv        *httptest.Server
 	cleanupUserIDs []string
+}
+
+// deliverPending runs the River DeliverWorker over every pending Layer 2 row —
+// the test-side stand-in for the queued delivery jobs. Constructs a job the same
+// way River would (attempt 1) and ignores per-row retryable failures so one
+// failing subscriber doesn't stop the rest.
+func (f *eventsE2EFixture) deliverPending(ctx context.Context) {
+	rows, err := f.pool.Query(ctx,
+		`SELECT id FROM webhook_subscriber_deliveries WHERE status = 'pending'`)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		job := &river.Job[webhookdelivery.WebhookDeliverArgs]{
+			JobRow: &rivertype.JobRow{
+				Attempt:     1,
+				MaxAttempts: webhookdelivery.MaxDeliveryAttempts,
+				Kind:        webhookdelivery.WebhookDeliverArgs{}.Kind(),
+			},
+			Args: webhookdelivery.WebhookDeliverArgs{DeliveryID: id},
+		}
+		_ = f.deliverWorker.Work(ctx, job)
+	}
 }
 
 func newEventsFixture(t *testing.T) *eventsE2EFixture {
@@ -63,7 +99,7 @@ func newEventsFixture(t *testing.T) *eventsE2EFixture {
 	worker := webhookpub.NewOutboxWorker(pool, store)
 	subStore := webhook.NewSubscriberStore(pool)
 	subDeliverer := webhook.NewSubscriberDeliverer(false)
-	subWorker := webhook.NewSubscriberRetryWorker(subStore, subDeliverer, store)
+	deliverWorker := webhookdelivery.NewDeliverWorker(subStore, subDeliverer, store)
 
 	// HTTP server wired with the agent API for the events endpoints.
 	srv := testutil.TestServer(t, pool)
@@ -73,7 +109,7 @@ func newEventsFixture(t *testing.T) *eventsE2EFixture {
 	// Build a minimal agent.API directly so we can wire the outbox and
 	// eventsPool for the slice 6/7 handlers. The existing TestServer
 	// doesn't wire those today.
-	fix := &eventsE2EFixture{t: t, pool: pool, store: store, outbox: outbox, worker: worker, subWorker: subWorker}
+	fix := &eventsE2EFixture{t: t, pool: pool, store: store, outbox: outbox, worker: worker, deliverWorker: deliverWorker}
 	fix.httpSrv = testutil.NewEventsAPIHarness(t, pool, store, outbox)
 	return fix
 }
@@ -178,7 +214,7 @@ func (f *eventsE2EFixture) publishEvent(ctx context.Context, e webhookpub.Event)
 		return err
 	}
 	f.worker.Tick(ctx)
-	f.subWorker.Tick(ctx)
+	f.deliverPending(ctx)
 	return nil
 }
 
@@ -230,7 +266,7 @@ func (f *eventsE2EFixture) countEvents(eventID string) int {
 
 func (f *eventsE2EFixture) drainBoth(ctx context.Context) {
 	f.worker.Tick(ctx)
-	f.subWorker.Tick(ctx)
+	f.deliverPending(ctx)
 }
 
 // captureReceiver records every webhook POST.
@@ -630,7 +666,7 @@ func TestEventsE2E_ConcurrentWorkers(t *testing.T) {
 	go func() { defer wg.Done(); workerB.Tick(ctx) }()
 	wg.Wait()
 
-	fix.subWorker.Tick(ctx)
+	fix.deliverPending(ctx)
 
 	// Exactly one subscriber delivery should have been written.
 	var deliveryCount int

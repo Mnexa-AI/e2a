@@ -70,8 +70,8 @@ func (p *Probe) httpClient() *http.Client {
 }
 
 // roundTripTimeout is the await bound for the inbound round-trip. It must exceed
-// the SubscriberRetryWorker poll interval in production; the prober sets it from
-// E2A_PROBE_TIMEOUT.
+// the outbox drain + River delivery latency in production; the prober sets it
+// from E2A_PROBE_TIMEOUT.
 func (p *Probe) roundTripTimeout() time.Duration {
 	if p.Timeout > 0 {
 		return p.Timeout

@@ -18,13 +18,11 @@ import (
 // publisher worker (slice 2) consumes pending rows and fans out into
 // webhook_subscriber_deliveries.
 //
-// Why this lives alongside Publisher: the legacy Publisher.Publish
-// does in-process fan-out (it reads enabled webhooks and inserts
-// delivery rows directly). The new Outbox.PublishTx writes ONE row
-// to webhook_events and arranges NOTIFY; fan-out is deferred. During
-// the rollout window (controlled by the WEBHOOKS_OUTBOX_ENABLED env
-// var, plumbed into the trigger sites), each trigger picks one path.
-// After slice 11 the legacy Publisher.Publish branch is deleted.
+// Outbox.PublishTx writes ONE row to webhook_events inside the trigger's
+// transaction and arranges NOTIFY; the OutboxWorker (slice 2) fans it out into
+// webhook_subscriber_deliveries and enqueues a River delivery job per row. This
+// is now the sole event path — the legacy in-process fan-out publisher is
+// retired and River is the sole delivery engine.
 //
 // See docs/design/2026-06-01-stripe-tier-webhooks.md §4.2 and Appendix A.
 type Outbox interface {
@@ -45,12 +43,9 @@ type Outbox interface {
 	// and lets the caller's tx commit anyway.
 	//
 	// Returns `wrote=true` iff the row was actually written (flag
-	// enabled AND writeOutboxRow succeeded). Callers use this to
-	// decide whether to fire the legacy publisher.Publish goroutine
-	// as a fallback for at-least-once: when wrote=false, the legacy
-	// path is the safety net so the customer's webhook still gets
-	// the event. Without this signal, an outbox failure under
-	// WEBHOOKS_OUTBOX_ENABLED=true would silently drop the event.
+	// enabled AND writeOutboxRow succeeded). The wrote signal is retained for
+	// observability; with the outbox unconditional there is no legacy fallback
+	// path left to gate.
 	//
 	// Used for POST-side-effect triggers (email.sent, email.review_approved)
 	// where the irreversible action (SES.Send) has already happened
@@ -62,21 +57,11 @@ type Outbox interface {
 	// Called from the hourly cleanup loop in cmd/e2a/main.go.
 	DeleteExpiredWebhookEvents(ctx context.Context) (int, error)
 
-	// Enabled reports whether the outbox is the durable fan-out path
-	// for this deployment. When true, trigger sites (relay + the
-	// publishPendingApproval/publishRejected/publishSent/publishApproved
-	// helpers) MUST skip the legacy `go publisher.Publish(...)`
-	// goroutine — both paths inserting into webhook_subscriber_deliveries
-	// would produce duplicate customer-visible webhook POSTs. When
-	// false, the outbox is a dormant no-op and the legacy goroutine
-	// remains the sole delivery path.
-	//
-	// Closes the C3 audit finding: legacy InsertPending writes rows
-	// with event_id=NULL, falling OUTSIDE the partial unique index
-	// `idx_wsd_event_webhook_uniq` (predicate: WHERE event_id IS NOT
-	// NULL AND replay_id IS NULL). So the index, designed to dedupe
-	// multi-replica outbox workers, cannot dedupe legacy-vs-outbox
-	// rows — they look like distinct deliveries.
+	// Enabled reports whether the outbox writes durable event rows for this
+	// deployment. Now unconditional (StaticFlag(true) in production) — the events
+	// API gates its list/get/redeliver endpoints on this, and the outbox writer
+	// no-ops when false. Retained as a seam; there is no longer a legacy
+	// fan-out path to fall back to.
 	Enabled() bool
 }
 
@@ -96,10 +81,8 @@ type outbox struct {
 
 // NewOutbox constructs the Stripe-tier outbox writer. The FeatureFlag
 // gates writes: when disabled, PublishTx is a no-op (returns nil with
-// no DB write). Slice 4's trigger sites branch on the same flag so
-// the legacy go publisher.Publish(...) path runs instead.
-//
-// Pass StaticFlag(false) in v1 production until slice 11 flips it.
+// no DB write). Production passes StaticFlag(true) — the outbox is now the
+// unconditional, sole event path.
 func NewOutbox(pool *pgxpool.Pool, flag FeatureFlag) Outbox {
 	if flag == nil {
 		flag = StaticFlag(false)

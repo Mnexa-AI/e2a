@@ -125,7 +125,7 @@ type SendingStatusLookup interface {
 }
 
 // SetSendingStatusLookup enables own-address From for sending-verified
-// domains. Optional-setter pattern (cf. relay.SetPublisher) so existing
+// domains. Optional-setter pattern (cf. relay.SetOutbox) so existing
 // NewSender/NewSenderWithDKIM call sites and tests are unaffected.
 func (s *Sender) SetSendingStatusLookup(l SendingStatusLookup) { s.sendingStatus = l }
 

@@ -19,8 +19,8 @@ import (
 )
 
 // defaultRoundTripTimeout bounds how long the inbound round-trip waits for the
-// webhook callback when Probe.Timeout is unset. It must exceed the
-// SubscriberRetryWorker poll interval in production; the prober overrides it via
+// webhook callback when Probe.Timeout is unset. It must exceed the outbox drain
+// + River delivery latency in production; the prober overrides it via
 // E2A_PROBE_TIMEOUT (Probe.Timeout).
 const defaultRoundTripTimeout = 30 * time.Second
 

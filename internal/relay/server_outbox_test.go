@@ -43,15 +43,6 @@ func (f *fakeOutbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error
 // whether to suppress the legacy publisher.Publish goroutine.
 func (f *fakeOutbox) Enabled() bool { return f.enabled }
 
-// fakePublisher records legacy Publish calls.
-type fakePublisher struct {
-	calls []webhookpub.Event
-}
-
-func (f *fakePublisher) Publish(ctx context.Context, e webhookpub.Event) {
-	f.calls = append(f.calls, e)
-}
-
 func TestServer_SetOutbox_AcceptsNilForBackwardCompat(t *testing.T) {
 	// A Server constructed without SetOutbox stays in the legacy path.
 	// This is what makes the dual-mode rollout safe: deployments that
@@ -84,60 +75,6 @@ func TestServer_SetOutbox_WiresFakeForTesting(t *testing.T) {
 	}
 	if fo.calls[0].ID != "evt_x" {
 		t.Errorf("event id = %s, want evt_x", fo.calls[0].ID)
-	}
-}
-
-func TestServer_SetPublisher_RemainsIndependentOfOutbox(t *testing.T) {
-	// The two setters are independent: setting one doesn't affect the
-	// other. This is the dual-path invariant that makes the slice
-	// 3→11 rollout work.
-	s := &Server{}
-	pub := &fakePublisher{}
-	fo := &fakeOutbox{}
-	s.SetPublisher(pub)
-	s.SetOutbox(fo)
-	if s.publisher == nil {
-		t.Errorf("SetPublisher should wire publisher")
-	}
-	if s.outbox == nil {
-		t.Errorf("SetOutbox should wire outbox")
-	}
-	// Both should be addressable separately.
-	if _, ok := s.publisher.(*fakePublisher); !ok {
-		t.Errorf("publisher type mismatch")
-	}
-	if _, ok := s.outbox.(*fakeOutbox); !ok {
-		t.Errorf("outbox type mismatch")
-	}
-}
-
-func TestServer_OutboxNilFallsBackToLegacyOnly(t *testing.T) {
-	// Verifies the "if s.relay.outbox != nil" branch logic via the
-	// Server's struct state. The actual SMTP-handler flow can't be
-	// unit-tested without spinning up the full SMTP backend, but the
-	// branch shape is the load-bearing invariant: outbox=nil →
-	// legacy path; outbox≠nil → tx path.
-	//
-	// This test asserts the precondition that the branch checks
-	// against, so a future maintainer can't accidentally inline the
-	// outbox into a non-nil-safe code path.
-	s := &Server{}
-	if s.outbox != nil {
-		t.Errorf("default outbox should be nil so the legacy path runs")
-	}
-}
-
-func TestServer_OutboxAndPublisherCoexist(t *testing.T) {
-	// During the rollout window (slices 3-11), both the outbox path
-	// and the legacy publisher path fire in parallel. The design
-	// explicitly preserves this so customers don't lose webhook
-	// delivery while slice 2's worker isn't yet draining the new
-	// table.
-	s := &Server{}
-	s.SetPublisher(&fakePublisher{})
-	s.SetOutbox(&fakeOutbox{})
-	if s.publisher == nil || s.outbox == nil {
-		t.Errorf("both publisher and outbox should be wired during rollout window")
 	}
 }
 

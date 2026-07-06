@@ -97,6 +97,33 @@ func (j *Jobs) CutoverPending(ctx context.Context, pool *pgxpool.Pool) (int, err
 	return n, nil
 }
 
+// EnqueueDelivery enqueues a River delivery job for an ALREADY-INSERTED pending
+// Layer 2 row, in its own transaction, and stamps job_id. This is for the direct-
+// insert API surfaces that bypass the outbox drain — the /test webhook endpoint
+// and the redelivery API — which create a subscriber_deliveries row targeting a
+// single webhook. Without this, those rows have no River job and (post
+// SubscriberRetryWorker deletion) would never deliver. Idempotent per row via the
+// job_id IS NULL guard under a row lock.
+func (j *Jobs) EnqueueDelivery(ctx context.Context, pool *pgxpool.Pool, deliveryID string) error {
+	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		var jobID *int64
+		if err := tx.QueryRow(ctx,
+			`SELECT job_id FROM webhook_subscriber_deliveries WHERE id=$1 FOR UPDATE`, deliveryID,
+		).Scan(&jobID); err != nil {
+			return err
+		}
+		if jobID != nil {
+			return nil // already enqueued
+		}
+		newJobID, err := j.EnqueueDeliveryTx(ctx, tx, deliveryID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE webhook_subscriber_deliveries SET job_id=$2 WHERE id=$1`, deliveryID, newJobID)
+		return err
+	})
+}
+
 // EnqueueDeliveryTx enqueues a delivery job WITHIN the caller's transaction — the
 // outbox pattern: the Layer 2 row insert and this job commit together, so a
 // delivery record can never exist without a job (or vice versa). The caller only

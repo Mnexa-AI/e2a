@@ -202,15 +202,11 @@ func main() {
 	// any rows left over from before the cutover.
 	deliveryStore := webhook.NewDeliveryStore(pool)
 
-	// Webhooks-as-a-resource pipeline (the sole push path). The feature
-	// flag E2A_FEATURE_WEBHOOK_RESOURCE (default ON) gates the publisher
-	// only; the subscriber retry worker keeps draining any pending rows
-	// even when the flag is OFF. See tmp/e2a_webhooks_design.md for the
-	// full design.
-	webhookFlag := webhookpub.StaticFlag(os.Getenv("E2A_FEATURE_WEBHOOK_RESOURCE") != "false")
+	// Webhooks-as-a-resource pipeline. Events flow through the outbox
+	// (webhook_events) → drain → River delivery; the legacy in-process
+	// publisher is retired.
 	subscriberStore := webhook.NewSubscriberStore(pool)
 	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
-	webhookPublisher := webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookFlag)
 
 	// The transactional outbox is now UNCONDITIONAL (webhook-delivery→River
 	// migration): every event commits to webhook_events in the message tx, so
@@ -279,16 +275,12 @@ func main() {
 	}
 
 	// Webhook delivery → River (docs/design/webhook-delivery-river-migration.md).
-	// Gated by E2A_WEBHOOK_DELIVERY_ENGINE=river; default (legacy) keeps the
-	// hand-rolled SubscriberRetryWorker (skipped below when river). When river: the
-	// DeliverWorker registers, the outbox drain enqueues delivery jobs
-	// transactionally, and a one-shot cutover drains pre-existing pending rows.
-	webhookDeliveryRiver := os.Getenv("E2A_WEBHOOK_DELIVERY_ENGINE") == "river"
-	var webhookDeliveryJobs *webhookdelivery.Jobs
-	if webhookDeliveryRiver {
-		webhookDeliveryJobs = webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store)
-		registrars = append(registrars, webhookDeliveryJobs)
-	}
+	// River is now the SOLE delivery engine: the DeliverWorker registers
+	// unconditionally, the outbox drain enqueues delivery jobs transactionally,
+	// and a one-shot cutover drains any pre-existing pending rows. The legacy
+	// hand-rolled SubscriberRetryWorker is gone.
+	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store)
+	registrars = append(registrars, webhookDeliveryJobs)
 
 	if len(registrars) > 0 {
 		jc, jerr := jobs.New(pool, jobs.Config{}, registrars...)
@@ -301,20 +293,17 @@ func main() {
 			senderEnqueuer = senderMgr
 			log.Printf("[sender-identity] SES provisioning enabled (region=%s)", cfg.SenderIdentity.SESRegion)
 		}
-		if webhookDeliveryJobs != nil {
-			webhookDeliveryJobs.SetEnqueuer(jobsClient)
-			outboxWorker.WithDeliveryEnqueuer(webhookDeliveryJobs)
-			// One-shot cutover: the legacy SubscriberRetryWorker is NOT started
-			// (below) when river, so enqueue every pre-existing pending row now —
-			// idempotent (job_id IS NULL guard), safe because the legacy worker is
-			// absent.
-			if n, cerr := webhookDeliveryJobs.CutoverPending(ctx, pool); cerr != nil {
-				log.Printf("[webhook-delivery] cutover: %v", cerr)
-			} else if n > 0 {
-				log.Printf("[webhook-delivery] cutover enqueued %d pending deliveries", n)
-			}
-			log.Printf("[webhook-delivery] engine=river")
+		webhookDeliveryJobs.SetEnqueuer(jobsClient)
+		outboxWorker.WithDeliveryEnqueuer(webhookDeliveryJobs)
+		// One-shot cutover: the legacy SubscriberRetryWorker is gone, so enqueue
+		// every pre-existing pending row now — idempotent (job_id IS NULL guard),
+		// harmless for rows already carrying a job.
+		if n, cerr := webhookDeliveryJobs.CutoverPending(ctx, pool); cerr != nil {
+			log.Printf("[webhook-delivery] cutover: %v", cerr)
+		} else if n > 0 {
+			log.Printf("[webhook-delivery] cutover enqueued %d pending deliveries", n)
 		}
+		log.Printf("[webhook-delivery] engine=river")
 		// Stop is driven from the shutdown sequence under the shared deadline.
 		if serr := jobsClient.Start(ctx); serr != nil {
 			log.Fatalf("jobs: start shared river client: %v", serr)
@@ -441,7 +430,6 @@ func main() {
 	if senderEnqueuer != nil {
 		api.SetDomainTeardownHook(senderEnqueuer.EnqueueDeprovisionTx)
 	}
-	api.SetPublisher(webhookPublisher)
 	api.SetOutbox(webhookOutbox)
 	// Slices 6 + 7: customer-facing events API needs the raw pool to
 	// query webhook_events and write webhook_subscriber_deliveries on
@@ -504,6 +492,12 @@ func main() {
 		Legacy:          router,
 		WSHandle:        wsHandler.ServeWithEmail,
 		SenderIdentity:  senderEnqueuer,
+		// River is the sole webhook delivery engine: the /test + redelivery
+		// endpoints insert a delivery row directly (bypassing the outbox drain),
+		// so they must enqueue the River job themselves or the row never delivers.
+		EnqueueDelivery: func(ctx context.Context, deliveryID string) error {
+			return webhookDeliveryJobs.EnqueueDelivery(ctx, pool, deliveryID)
+		},
 	})
 
 	httpServer := &http.Server{
@@ -514,7 +508,6 @@ func main() {
 	// SMTP Relay
 	smtpServer := relay.NewServer(cfg, store, signer, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
-	smtpServer.SetPublisher(webhookPublisher)
 	smtpServer.SetOutbox(webhookOutbox)
 
 	// Graceful shutdown
@@ -550,20 +543,12 @@ func main() {
 	// is a follow-up.
 	var workerWG sync.WaitGroup
 
-	// Webhook subscriber retry worker (the legacy delivery engine). Started ONLY
-	// when delivery_engine=legacy (the default). Under river it is NOT started —
-	// River's DeliverWorker delivers, and starting both would double-deliver every
-	// row. The one-shot cutover above already enqueued any pre-existing pending
-	// rows into River, so nothing is stranded.
+	// Webhook subscriber delivery now runs entirely on River's DeliverWorker
+	// (registered above). The legacy in-process SubscriberRetryWorker is gone.
+	// subRetryCtx remains the shared cancel for the webhook-delivery-adjacent
+	// background workers below (auto-disable janitor + outbox drain) so a single
+	// shutdown signal stops the whole stack.
 	subRetryCtx, subRetryCancel := context.WithCancel(context.Background())
-	if !webhookDeliveryRiver {
-		subRetryWorker := webhook.NewSubscriberRetryWorker(subscriberStore, subscriberDeliverer, store)
-		workerWG.Add(1)
-		go func() {
-			defer workerWG.Done()
-			subRetryWorker.Start(subRetryCtx)
-		}()
-	}
 
 	// Auto-disable + signing-secret-grace janitor (slice 4). Same
 	// lifecycle as the retry worker — share the same cancel so a

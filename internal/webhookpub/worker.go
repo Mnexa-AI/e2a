@@ -19,9 +19,10 @@ import (
 
 // OutboxWorker drains webhook_events. For each pending row it reads
 // enabled webhooks for the user, applies filter matching in Go, and
-// inserts one webhook_subscriber_deliveries row per match. The existing
-// SubscriberRetryWorker then drains those rows and POSTs them to
-// customer endpoints. See design §4.4 for the full architecture.
+// inserts one webhook_subscriber_deliveries row per match, enqueuing a
+// River delivery job for each in the same transaction. The River
+// DeliverWorker then POSTs each row to the customer endpoint. See design
+// §4.4 for the full architecture.
 //
 // Wakeup paths:
 //   1. LISTEN webhook_events_new — dedicated connection, sub-50ms
@@ -59,10 +60,10 @@ type OutboxWorker struct {
 	// Used to attribute fallback-poll wakeups vs. NOTIFY wakeups.
 	notifySawLastTick bool
 
-	// enqueuer, when wired (delivery_engine=river), enqueues a River delivery
-	// job for each newly-inserted Layer 2 row IN THE SAME transaction as the
-	// insert (the outbox pattern between Layer 2 and Layer 3). nil ⇒ legacy path:
-	// the hand-rolled SubscriberRetryWorker claims the pending rows instead.
+	// enqueuer enqueues a River delivery job for each newly-inserted Layer 2 row
+	// IN THE SAME transaction as the insert (the outbox pattern between Layer 2
+	// and Layer 3). Always wired in production — River is the sole delivery
+	// engine. nil only in narrow tests that drive the DeliverWorker by hand.
 	enqueuer DeliveryEnqueuer
 }
 
@@ -73,8 +74,9 @@ type DeliveryEnqueuer interface {
 	EnqueueDeliveryTx(ctx context.Context, tx pgx.Tx, deliveryID string) (int64, error)
 }
 
-// WithDeliveryEnqueuer wires River delivery (the delivery_engine=river path).
-// Without it, inserted Layer 2 rows are left for the legacy retry worker.
+// WithDeliveryEnqueuer wires River delivery (the production path). Without it,
+// inserted Layer 2 rows have no delivery job — used only in tests that deliver
+// pending rows by hand.
 func (w *OutboxWorker) WithDeliveryEnqueuer(e DeliveryEnqueuer) *OutboxWorker {
 	w.enqueuer = e
 	return w
@@ -362,8 +364,8 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 			if err != nil {
 				return err
 			}
-			// delivery_engine=river: enqueue a River delivery job for each row
-			// that ACTUALLY inserted (dedup no-ops are absent from `inserted`),
+			// Enqueue a River delivery job for each row that ACTUALLY inserted
+			// (dedup no-ops are absent from `inserted`),
 			// in this same tx — the Layer 2 row and its job commit atomically, so
 			// there is never a record without a job, and a deduped event enqueues
 			// nothing. Stamp the row's job_id for the cutover discriminator +
@@ -461,9 +463,8 @@ func insertPendingBatchTx(ctx context.Context, tx pgx.Tx, eventID string, webhoo
 	return inserted, rows.Err()
 }
 
-// generateDeliveryID mirrors the format used by the legacy publisher's
-// dbInserter — whd_<32-hex>. The relay's blocker-fix commit moved
-// everyone onto the whd_ prefix, including the /test endpoint path.
+// generateDeliveryID mints a whd_<32-hex> delivery id — the one id format for
+// every webhook_subscriber_deliveries row (outbox fan-out, /test, redelivery).
 func generateDeliveryID() string {
 	// 16 bytes of entropy. The format is enforced by the rest of the
 	// codebase; cryptographic strength is overkill but keeps prefix

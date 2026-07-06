@@ -18,7 +18,8 @@ import (
 // TestSelftestAll_AgainstRealServer boots a real in-process server (HTTP + SMTP
 // + subscriber worker) and runs the full battery against it through a synthetic
 // system-class probe agent — the same way the shipped prober runs against prod.
-// A background ticker stands in for the always-on production SubscriberRetryWorker.
+// A background ticker stands in for the always-on production outbox drain +
+// River delivery workers.
 func TestSelftestAll_AgainstRealServer(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ts := testutil.TestServer(t, pool, testutil.WithOutboundSMTP("127.0.0.1", 1025, "test.e2a.dev"))
@@ -59,7 +60,7 @@ func TestSelftestAll_AgainstRealServer(t *testing.T) {
 		t.Fatalf("CreateWebhook: %v", err)
 	}
 
-	// --- stand in for the always-on subscriber worker ---
+	// --- stand in for the always-on outbox drain + River delivery workers ---
 	tickCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	go func() {
@@ -70,7 +71,7 @@ func TestSelftestAll_AgainstRealServer(t *testing.T) {
 			case <-tickCtx.Done():
 				return
 			case <-tk.C:
-				ts.SubscriberWorker.Tick(tickCtx)
+				ts.DrainAndDeliver(tickCtx)
 			}
 		}
 	}()

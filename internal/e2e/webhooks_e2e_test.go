@@ -48,9 +48,9 @@ func sendURL(base, agentEmail string) string {
 //      (SSRF guard); the only way to test the worker hitting a local
 //      receiver is to bypass the handler-side validator. The handler
 //      itself has unit-test coverage at internal/agent/webhooks_api_test.go.
-//   2) Worker timing: we call SubscriberWorker.Tick(ctx) directly instead
-//      of waiting on the 30s production interval. That keeps the suite
-//      deterministic and under 60s.
+//   2) Worker timing: we call ts.DrainAndDeliver(ctx) directly (outbox drain +
+//      River DeliverWorker) instead of waiting on any production interval. That
+//      keeps the suite deterministic and under 60s.
 
 // authedJSON wraps an authenticated JSON request and returns the
 // response status + body. Tests assert against both.
@@ -187,14 +187,12 @@ func registerWebhook(t *testing.T, ts *testutil.E2ATestServer, userID, url strin
 	return wh
 }
 
-// tick drains the subscriber worker once. Tests call this between
-// trigger and assertion so they don't wait on the 30s production tick.
+// tick drains the outbox (webhook_events → subscriber_deliveries) and runs the
+// River DeliverWorker over every pending row, synchronously. Tests call this
+// between trigger and assertion so they don't wait on any production tick.
 func tick(t *testing.T, ts *testutil.E2ATestServer) {
 	t.Helper()
-	// publishAsync uses a goroutine — give it a beat to land the
-	// delivery row before we drain.
-	time.Sleep(50 * time.Millisecond)
-	ts.SubscriberWorker.Tick(context.Background())
+	ts.DrainAndDeliver(context.Background())
 }
 
 // ----------------------------------------------------------------------
@@ -210,7 +208,7 @@ func TestWebhooksE2E_EmailSent(t *testing.T) {
 	wh := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/sent",
 		[]string{"email.sent"}, identity.WebhookFilters{})
 
-	// Trigger /send through the real HTTP API so publishAsync fires
+	// Trigger /send through the real HTTP API so the event fires
 	// from the actual handler, not a hand-crafted publisher call.
 	body := `{"to":["alice@example.com"],"subject":"hi","body":"hello"}`
 	status, _ := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey, body)

@@ -298,6 +298,14 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to schedule test delivery")
 	}
+	// River is the sole delivery engine: the direct insert above leaves the row
+	// with no job, so enqueue one now (own tx, stamps job_id). Without this the
+	// test delivery would never be POSTed.
+	if s.deps.EnqueueDelivery != nil {
+		if err := s.deps.EnqueueDelivery(ctx, deliveryID); err != nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to enqueue test delivery")
+		}
+	}
 	out := &testWebhookOutput{}
 	out.Body.DeliveryID = deliveryID
 	return out, nil

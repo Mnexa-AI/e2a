@@ -347,7 +347,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // SetDKIMCipher enables envelope encryption of DKIM private keys at rest (#144).
-// Optional-setter (matches SetEnforcer/SetPublisher) so NewStore's signature —
+// Optional-setter (matches SetEnforcer) so NewStore's signature —
 // and the many tests that call NewStore(pool) — stay unchanged. When unset, keys
 // are stored as plaintext DER. cmd/e2a always sets it in production, where
 // Signing.HMACSecret is enforced ≥32 bytes.
