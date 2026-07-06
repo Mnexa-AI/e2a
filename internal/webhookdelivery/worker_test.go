@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
@@ -130,6 +131,72 @@ func TestDeliverWorker_DeletedWebhookCancels(t *testing.T) {
 	}
 	if d := statusOf(t, sub, id); d.Status != "failed" {
 		t.Errorf("status = %q, want failed", d.Status)
+	}
+}
+
+// fakeEnq is a jobs.Enqueuer that hands back monotonic job ids.
+type fakeEnq struct{ n int64 }
+
+func (f *fakeEnq) Insert(_ context.Context, _ river.JobArgs, _ *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	f.n++
+	return &rivertype.JobInsertResult{Job: &rivertype.JobRow{ID: f.n}}, nil
+}
+func (f *fakeEnq) InsertTx(_ context.Context, _ pgx.Tx, _ river.JobArgs, _ *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	f.n++
+	return &rivertype.JobInsertResult{Job: &rivertype.JobRow{ID: f.n}}, nil
+}
+
+// TestCutoverPending: the one-shot migration enqueues a job + stamps job_id for
+// every pending row with no job, and a re-run is idempotent (no double-enqueue).
+func TestCutoverPending(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, err := store.CreateOrGetUser(ctx, "owner-cutover@example.com", "Owner", "google-cutover")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	wh, err := store.CreateWebhook(ctx, user.ID, "https://example.com/hook", "", []string{"email.received"}, identity.WebhookFilters{})
+	if err != nil {
+		t.Fatalf("CreateWebhook: %v", err)
+	}
+	sub := webhook.NewSubscriberStore(pool)
+	var ids []string
+	for i := 0; i < 3; i++ {
+		id, err := sub.InsertPendingForTest(ctx, wh.ID, "email.received", []byte(`{}`))
+		if err != nil {
+			t.Fatalf("InsertPendingForTest: %v", err)
+		}
+		ids = append(ids, id)
+	}
+
+	j := webhookdelivery.NewJobs(sub, fakeDeliverer{}, fakeWebhooks{wh: wh})
+	j.SetEnqueuer(&fakeEnq{})
+
+	n, err := j.CutoverPending(ctx, pool)
+	if err != nil {
+		t.Fatalf("CutoverPending: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("cutover enqueued %d, want 3", n)
+	}
+	// Every row got a job_id.
+	for _, id := range ids {
+		var jobID *int64
+		if err := pool.QueryRow(ctx, `SELECT job_id FROM webhook_subscriber_deliveries WHERE id=$1`, id).Scan(&jobID); err != nil {
+			t.Fatalf("read job_id: %v", err)
+		}
+		if jobID == nil {
+			t.Errorf("row %s has no job_id after cutover", id)
+		}
+	}
+	// Idempotent: a re-run enqueues nothing.
+	n2, err := j.CutoverPending(ctx, pool)
+	if err != nil {
+		t.Fatalf("CutoverPending re-run: %v", err)
+	}
+	if n2 != 0 {
+		t.Errorf("cutover re-run enqueued %d, want 0 (idempotent)", n2)
 	}
 }
 

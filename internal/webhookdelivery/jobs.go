@@ -2,8 +2,10 @@ package webhookdelivery
 
 import (
 	"context"
+	"log"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/Mnexa-AI/e2a/internal/jobs"
@@ -34,6 +36,65 @@ func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, NewDeliverWorker(j.subStore, j.deliverer, j.webhooks))
 	return nil
+}
+
+// CutoverPending is the one-shot migration from the legacy queue (design §8):
+// enqueue a River delivery job for every pending Layer 2 row that has no job yet
+// (job_id IS NULL). Idempotent — the per-row FOR UPDATE + job_id IS NULL guard
+// means a re-run (or a crashed-and-restarted startup) never double-enqueues.
+//
+// CORRECTNESS-CRITICAL ORDERING: this MUST run after the legacy
+// SubscriberRetryWorker is stopped (not wired). If both the legacy worker and the
+// enqueued River jobs deliver the same rows, every in-flight event double-delivers.
+// Returns the number of rows enqueued.
+func (j *Jobs) CutoverPending(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT id FROM webhook_subscriber_deliveries WHERE status='pending' AND job_id IS NULL`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	n := 0
+	for _, id := range ids {
+		if err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+			// Re-check under a row lock: another process (or a prior run) may have
+			// enqueued it already. Skip if job_id is now set.
+			var jobID *int64
+			if err := tx.QueryRow(ctx,
+				`SELECT job_id FROM webhook_subscriber_deliveries WHERE id=$1 FOR UPDATE`, id,
+			).Scan(&jobID); err != nil {
+				return err
+			}
+			if jobID != nil {
+				return nil // already enqueued
+			}
+			newJobID, err := j.EnqueueDeliveryTx(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			_, err = tx.Exec(ctx, `UPDATE webhook_subscriber_deliveries SET job_id=$2 WHERE id=$1`, id, newJobID)
+			if err == nil {
+				n++
+			}
+			return err
+		}); err != nil {
+			log.Printf("[webhook-delivery] cutover enqueue %s: %v", id, err)
+		}
+	}
+	return n, nil
 }
 
 // EnqueueDeliveryTx enqueues a delivery job WITHIN the caller's transaction — the

@@ -33,6 +33,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookdelivery"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"github.com/Mnexa-AI/e2a/internal/ws"
 	"github.com/Mnexa-AI/e2a/migrations"
@@ -247,39 +248,69 @@ func main() {
 	// domain delete enqueues a teardown job in the delete tx. Without SES the
 	// interface stays a true nil (sending_status never leaves "none").
 	var senderEnqueuer apiserver.SenderIdentityEnqueuer
-	// jobsClient is the shared River client. Hoisted so the shutdown sequence
-	// can drain it under the same bounded deadline as the HTTP server + workers
-	// (nil when SES is off — nothing registers on it yet).
+	// jobsClient is the shared River client, built ONCE from whatever registers on
+	// it (senderidentity when SES is configured; webhook delivery when
+	// delivery_engine=river) — no longer gated on any single subsystem. Hoisted so
+	// the shutdown sequence drains it under the shared deadline.
 	var jobsClient *jobs.Client
+	var registrars []jobs.Registrar
+
+	var senderMgr *senderidentity.Manager
 	if region := cfg.SenderIdentity.SESRegion; region != "" {
 		provider, perr := senderidentity.NewSESProviderFromConfig(ctx, region)
 		if perr != nil {
 			log.Fatalf("sender identity: build SES provider: %v", perr)
 		}
-		senderMgr := senderidentity.NewManager(
+		senderMgr = senderidentity.NewManager(
 			senderidentity.NewStoreAdapter(store),
 			provider,
 			senderIdentityEventFirer(webhookPublisher),
 			senderidentity.Config{},
 		)
-		// Build the shared River client with senderidentity as its (currently
-		// only) registrar; as outbound/webhook/HITL move onto River they join
-		// this same jobs.New call. Inject the client back so the manager's
-		// Enqueue* methods can insert.
-		jc, jerr := jobs.New(pool, jobs.Config{}, senderMgr)
+		registrars = append(registrars, senderMgr)
+	}
+
+	// Webhook delivery → River (docs/design/webhook-delivery-river-migration.md).
+	// Gated by E2A_WEBHOOK_DELIVERY_ENGINE=river; default (legacy) keeps the
+	// hand-rolled SubscriberRetryWorker (skipped below when river). When river: the
+	// DeliverWorker registers, the outbox drain enqueues delivery jobs
+	// transactionally, and a one-shot cutover drains pre-existing pending rows.
+	webhookDeliveryRiver := os.Getenv("E2A_WEBHOOK_DELIVERY_ENGINE") == "river"
+	var webhookDeliveryJobs *webhookdelivery.Jobs
+	if webhookDeliveryRiver {
+		webhookDeliveryJobs = webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store)
+		registrars = append(registrars, webhookDeliveryJobs)
+	}
+
+	if len(registrars) > 0 {
+		jc, jerr := jobs.New(pool, jobs.Config{}, registrars...)
 		if jerr != nil {
 			log.Fatalf("jobs: build shared river client: %v", jerr)
 		}
 		jobsClient = jc
-		senderMgr.SetEnqueuer(jobsClient)
+		if senderMgr != nil {
+			senderMgr.SetEnqueuer(jobsClient)
+			senderEnqueuer = senderMgr
+			log.Printf("[sender-identity] SES provisioning enabled (region=%s)", cfg.SenderIdentity.SESRegion)
+		}
+		if webhookDeliveryJobs != nil {
+			webhookDeliveryJobs.SetEnqueuer(jobsClient)
+			outboxWorker.WithDeliveryEnqueuer(webhookDeliveryJobs)
+			// One-shot cutover: the legacy SubscriberRetryWorker is NOT started
+			// (below) when river, so enqueue every pre-existing pending row now —
+			// idempotent (job_id IS NULL guard), safe because the legacy worker is
+			// absent.
+			if n, cerr := webhookDeliveryJobs.CutoverPending(ctx, pool); cerr != nil {
+				log.Printf("[webhook-delivery] cutover: %v", cerr)
+			} else if n > 0 {
+				log.Printf("[webhook-delivery] cutover enqueued %d pending deliveries", n)
+			}
+			log.Printf("[webhook-delivery] engine=river")
+		}
+		// Stop is driven from the shutdown sequence under the shared deadline.
 		if serr := jobsClient.Start(ctx); serr != nil {
 			log.Fatalf("jobs: start shared river client: %v", serr)
 		}
-		// Stop is driven from the shutdown sequence under the shared deadline,
-		// not a context.Background() defer (which would drain unbounded, past
-		// the platform grace period).
-		senderEnqueuer = senderMgr
-		log.Printf("[sender-identity] SES provisioning enabled (region=%s)", region)
 	}
 
 	// User auth (Google OAuth for agent developers)
@@ -511,18 +542,20 @@ func main() {
 	// is a follow-up.
 	var workerWG sync.WaitGroup
 
-	// Webhook subscriber retry worker (the webhooks-as-a-resource path).
-	// Unconditionally started — even with the feature flag OFF (publisher
-	// disabled) this worker keeps draining any rows that were inserted
-	// before the flag flipped, so flipping the flag mid-flight doesn't
-	// leak pending deliveries.
-	subRetryWorker := webhook.NewSubscriberRetryWorker(subscriberStore, subscriberDeliverer, store)
+	// Webhook subscriber retry worker (the legacy delivery engine). Started ONLY
+	// when delivery_engine=legacy (the default). Under river it is NOT started —
+	// River's DeliverWorker delivers, and starting both would double-deliver every
+	// row. The one-shot cutover above already enqueued any pre-existing pending
+	// rows into River, so nothing is stranded.
 	subRetryCtx, subRetryCancel := context.WithCancel(context.Background())
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		subRetryWorker.Start(subRetryCtx)
-	}()
+	if !webhookDeliveryRiver {
+		subRetryWorker := webhook.NewSubscriberRetryWorker(subscriberStore, subscriberDeliverer, store)
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			subRetryWorker.Start(subRetryCtx)
+		}()
+	}
 
 	// Auto-disable + signing-secret-grace janitor (slice 4). Same
 	// lifecycle as the retry worker — share the same cancel so a
