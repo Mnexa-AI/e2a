@@ -220,6 +220,14 @@ func main() {
 	// fallback) and is being retired. The outbox drain worker (below) has shipped,
 	// so unconditional is safe.
 	webhookOutbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	// Outbox-backed publisher for the post-side-effect event sources that used to
+	// bypass webhook_events via the legacy publisher (senderidentity domain.*,
+	// SNS delivery feedback email.delivered/bounced/complained, hitlworker TTL
+	// resolution). Routing them through the outbox makes ALL events flow
+	// webhook_events → drain → delivery, so they get a River job under
+	// engine=river (previously they were stranded). Engine-agnostic: the drain
+	// feeds whichever delivery worker runs.
+	outboxPublisher := webhookpub.NewOutboxPublisher(webhookOutbox, pool)
 	// Slice 2: outbox publisher worker. Drains webhook_events into
 	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll. The
 	// retry worker (existing) takes over from there. When the outbox
@@ -264,7 +272,7 @@ func main() {
 		senderMgr = senderidentity.NewManager(
 			senderidentity.NewStoreAdapter(store),
 			provider,
-			senderIdentityEventFirer(webhookPublisher),
+			senderIdentityEventFirer(outboxPublisher),
 			senderidentity.Config{},
 		)
 		registrars = append(registrars, senderMgr)
@@ -457,7 +465,7 @@ func main() {
 	// 4b). Fail-closed: the SNS signature is verified and the TopicArn must be
 	// in the configured allow-list (empty allow-list → every message is
 	// rejected, so this is inert until ops wires the topic).
-	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(webhookPublisher))
+	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(outboxPublisher))
 	deliveryVerifier := delivery.NewVerifier(cfg.DeliveryFeedback.SNSTopicARNs, delivery.HTTPCertFetcher)
 	// Public webhook receiver for AWS SNS (SES delivery/bounce/complaint). Named
 	// /webhooks/<provider> — it's an inbound third-party callback, not an internal
@@ -583,7 +591,7 @@ func main() {
 	// resolved by timeout notifies subscribers exactly like a human-resolved one
 	// (same legacy publisher as the agent API). Load-bearing for inbound approve:
 	// a TTL-released inbound message has no other push signal.
-	hitlWorker.SetPublisher(webhookPublisher)
+	hitlWorker.SetPublisher(outboxPublisher)
 	hitlCtx, hitlCancel := context.WithCancel(context.Background())
 	workerWG.Add(1)
 	go func() {

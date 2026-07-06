@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,6 +28,37 @@ import (
 // as the "post-commit async" trade-off.
 type Publisher interface {
 	Publish(ctx context.Context, e Event)
+}
+
+// OutboxPublisher is a Publisher that writes events to the durable outbox
+// (webhook_events) in their own transaction, instead of inserting delivery rows
+// directly like the legacy publisher. It is used for post-side-effect standalone
+// events that have no business tx to join — domain.sending_* (senderidentity),
+// email.delivered/bounced/complained + domain.suppression_added (SNS delivery
+// feedback), and hitlworker TTL-resolution events. Routing these through the
+// outbox is the fix for the webhook-delivery→River gap: those sources previously
+// bypassed webhook_events via the legacy publisher, so under engine=river their
+// delivery rows got no River job and were never delivered. Now they fan out +
+// enqueue like every other event (via the outbox drain), and the same path serves
+// the legacy engine too (the drain feeds whichever worker runs). Best-effort by
+// the Publisher contract (fire-after-the-fact): a write failure is logged.
+type OutboxPublisher struct {
+	outbox Outbox
+	pool   *pgxpool.Pool
+}
+
+// NewOutboxPublisher builds the adapter. outbox must be the (now unconditional)
+// webhook_events outbox; pool opens the per-event transaction.
+func NewOutboxPublisher(outbox Outbox, pool *pgxpool.Pool) *OutboxPublisher {
+	return &OutboxPublisher{outbox: outbox, pool: pool}
+}
+
+func (p *OutboxPublisher) Publish(ctx context.Context, e Event) {
+	if err := poolBeginFunc(ctx, p.pool, func(tx pgx.Tx) error {
+		return p.outbox.PublishTx(ctx, tx, e)
+	}); err != nil {
+		log.Printf("[outbox-publisher] publish type=%s id=%s: %v", e.Type, e.ID, err)
+	}
 }
 
 // store is the subset of identity.Store the publisher needs. Keeping
