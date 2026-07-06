@@ -211,20 +211,14 @@ func main() {
 	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
 	webhookPublisher := webhookpub.New(store, webhookpub.NewDBInserter(pool), webhookFlag)
 
-	// WEBHOOKS_OUTBOX_ENABLED controls the slice-1+slice-3 transactional
-	// outbox path. Default off in v1 — see design §7.7. When off, the
-	// outbox is wired but PublishTx is a no-op; the relay still wraps
-	// the messages INSERT in a tx (one extra BEGIN/COMMIT overhead, no
-	// outbox row). When on, the messages INSERT + webhook_events INSERT
-	// commit together, closing the at-least-once publish-loss window.
-	// Flip to true permanently in slice 11 after telemetry validates.
-	//
-	// Slice 2 (the worker that drains webhook_events) is not in this
-	// commit; until it ships, enabling the flag in prod would let
-	// events accumulate without delivery. Document for operators in
-	// the runbook.
-	outboxFlag := webhookpub.StaticFlag(os.Getenv("WEBHOOKS_OUTBOX_ENABLED") == "true")
-	webhookOutbox := webhookpub.NewOutbox(pool, outboxFlag)
+	// The transactional outbox is now UNCONDITIONAL (webhook-delivery→River
+	// migration): every event commits to webhook_events in the message tx, so
+	// webhook_events is the sole, always-durable event log and at-least-once no
+	// longer depends on a flag. WEBHOOKS_OUTBOX_ENABLED is removed; the legacy
+	// fire-and-forget publisher path never fires (it was only the flag-off
+	// fallback) and is being retired. The outbox drain worker (below) has shipped,
+	// so unconditional is safe.
+	webhookOutbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
 	// Slice 2: outbox publisher worker. Drains webhook_events into
 	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll. The
 	// retry worker (existing) takes over from there. When the outbox

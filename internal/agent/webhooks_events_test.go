@@ -162,17 +162,16 @@ func TestBuildRejectedEvent(t *testing.T) {
 }
 
 func TestEmitBlockedOutbound(t *testing.T) {
-	fp := &fakePublisher{}
-	a := &API{publisher: fp}
+	// email.blocked now emits through the (unconditional) outbox, not the legacy
+	// publisher, so assert the built event's shape/routing directly.
+	a := &API{}
 	agent := &identity.AgentIdentity{ID: "bot@x.example.com", Domain: "x.example.com", UserID: "u_1"}
 	req := outbound.SendRequest{To: []string{"alice@evil.com"}, Subject: "blocked one", ConversationID: "conv_9"}
 	v := outboundVerdict{Applied: "block", ReviewReason: "recipient_gate", Reason: "recipient not in allowlist"}
 	softRef := blockAuditID(agent.ID, req)
 
-	a.emitBlockedOutbound(agent, softRef, req, v)
-	fp.wait(t, 1)
+	ev := a.buildBlockedOutboundEvent(agent, softRef, req, v)
 
-	ev := fp.events[0]
 	if ev.Type != webhookpub.EventEmailBlocked {
 		t.Errorf("Type = %q, want email.blocked", ev.Type)
 	}

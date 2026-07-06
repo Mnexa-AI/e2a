@@ -12,6 +12,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/piguard"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
+	"github.com/jackc/pgx/v5"
 )
 
 // outboundVerdict is the outcome of screening one outbound send: the applied
@@ -297,7 +298,7 @@ func (a *API) auditRowless(ctx context.Context, agent *identity.AgentIdentity, m
 // soft-ref (blockAuditID) since no message row is persisted, so the deterministic id
 // keeps retries idempotent. reason_source mirrors the protection_events vocabulary
 // (recipient_gate / outbound_scan).
-func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
+func (a *API) buildBlockedOutboundEvent(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) webhookpub.Event {
 	e := webhookpub.NewEvent(webhookpub.EventEmailBlocked, agent.UserID, map[string]interface{}{
 		"message_id":    messageID,
 		"agent":         map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
@@ -311,5 +312,21 @@ func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID strin
 	e.ConversationID = req.ConversationID
 	e.MessageID = messageID
 	e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailBlocked)
-	a.publishAsync(e)
+	return e
+}
+
+func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
+	e := a.buildBlockedOutboundEvent(agent, messageID, req, v)
+	// Durable emit via the (now unconditional) outbox. An outbound block is
+	// rowless, so the event is written in its own transaction; the deterministic
+	// id dedupes a retried block through ON CONFLICT (id) DO NOTHING. This was the
+	// last legacy-only publishAsync site — routing it through the outbox is what
+	// lets the fire-and-forget path be retired.
+	if a.outbox != nil {
+		if err := a.store.WithTx(context.Background(), func(tx pgx.Tx) error {
+			return a.outbox.PublishTx(context.Background(), tx, e)
+		}); err != nil {
+			log.Printf("[api] outbox tx for email.blocked err: %v", err)
+		}
+	}
 }
