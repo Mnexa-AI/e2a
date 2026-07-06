@@ -20,6 +20,12 @@ import (
 // re-driven within this bound rather than waiting for a process restart.
 const reconcileInterval = 1 * time.Minute
 
+// reconcileBatch bounds one reconcile tick's scan. In steady state the stranded
+// set is ~empty; under a systemic enqueue failure it caps how many rows one tick
+// re-drives (one tx each), so an unhealthy River can't be amplified by fanning the
+// whole backlog every minute. The remainder is picked up on the next tick.
+const reconcileBatch = 1000
+
 // Jobs is the webhook-delivery integration on the shared River client: a
 // jobs.Registrar (contributes DeliverWorker + the reconcile periodic) plus the
 // transactional enqueue entry point the outbox drain + redelivery API call. The
@@ -93,7 +99,7 @@ func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[WebhookReconcil
 // the number of rows enqueued.
 func (j *Jobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id FROM webhook_subscriber_deliveries WHERE status='pending' AND job_id IS NULL`)
+		`SELECT id FROM webhook_subscriber_deliveries WHERE status='pending' AND job_id IS NULL LIMIT $1`, reconcileBatch)
 	if err != nil {
 		return 0, err
 	}
@@ -135,7 +141,7 @@ func (j *Jobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, e
 			}
 			return err
 		}); err != nil {
-			log.Printf("[webhook-delivery] cutover enqueue %s: %v", id, err)
+			log.Printf("[webhook-reconcile] enqueue %s: %v", id, err)
 		}
 	}
 	return n, nil

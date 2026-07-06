@@ -42,38 +42,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// @title e2a API
-// @version 1.0
-// @description Email for AI agents. e2a delivers emails to your agent via webhooks or WebSocket and lets your agent send emails back.
-// @description
-// @description ## Authentication
-// @description
-// @description All requests require your API key as a Bearer token:
-// @description
-// @description ```
-// @description Authorization: Bearer e2a_your_api_key
-// @description ```
-// @description
-// @description Create an API key on the API Keys page of the e2a instance you are connecting to.
-// @description
-// @description ## How it works
-// @description
-// @description **Cloud agents** (webhook delivery):
-// @description 1. Register your agent and set a webhook URL
-// @description 2. When someone emails your agent, e2a POSTs a webhook to your endpoint
-// @description 3. Reply via the API or send new emails
-// @description
-// @description **Local agents** (WebSocket delivery):
-// @description 1. Register your agent with a slug on the deployment's shared domain (when slug registration is enabled)
-// @description 2. Connect via WebSocket to receive real-time notifications
-// @description 3. Fetch full message content via the API, reply or send new emails
-// @contact.url https://github.com/Mnexa-AI/e2a
-// @host localhost:8080
-// @BasePath /
-// @securityDefinitions.apikey BearerAuth
-// @in header
-// @name Authorization
-// @description API key from the API Keys page (starts with `e2a_`). Format: `Bearer e2a_your_key`
 // senderIdentityEventFirer adapts the webhooks publisher to the
 // senderidentity.EventFirer hook: it publishes domain.sending_verified /
 // domain.sending_failed to the owning user's webhook subscribers when a
@@ -220,19 +188,16 @@ func main() {
 	// bypass webhook_events via the legacy publisher (senderidentity domain.*,
 	// SNS delivery feedback email.delivered/bounced/complained, hitlworker TTL
 	// resolution). Routing them through the outbox makes ALL events flow
-	// webhook_events → drain → delivery, so they get a River job under
-	// engine=river (previously they were stranded). Engine-agnostic: the drain
-	// feeds whichever delivery worker runs.
+	// webhook_events → drain → delivery, so they get a River delivery job like
+	// every other event (previously they bypassed the outbox and were stranded).
 	outboxPublisher := webhookpub.NewOutboxPublisher(webhookOutbox, pool)
-	// Slice 2: outbox publisher worker. Drains webhook_events into
-	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll. The
-	// retry worker (existing) takes over from there. When the outbox
-	// flag is off (default v1), webhook_events stays empty and this
-	// worker has nothing to do — costs nothing to leave running.
-	// Slice 10: telemetry backend. Log-based by default — operators
-	// can swap to telemetry.NewPrometheus() (future) by changing this
-	// one line. Every instrumented call site reads through this
-	// interface so the switch is non-invasive.
+	// Outbox drain worker. Drains webhook_events into
+	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll, enqueuing a
+	// River delivery job in the same tx (WithDeliveryEnqueuer, below).
+	//
+	// Telemetry backend: log-based by default — operators can swap to a real
+	// backend by changing this one line; every instrumented call site reads
+	// through this interface so the switch is non-invasive.
 	metrics := telemetry.NewLog()
 	outboxWorker := webhookpub.NewOutboxWorker(pool, store).WithMetrics(metrics)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)

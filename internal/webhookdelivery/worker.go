@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -104,8 +105,13 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 
 	wh, err := w.webhooks.GetWebhookByIDInternal(ctx, d.WebhookID)
 	if err != nil {
-		// Webhook deleted — terminal, no retries.
-		_ = w.subStore.MarkSubscriberFailed(ctx, d.ID, job.Attempt, "webhook not found", 0)
+		// Webhook deleted — terminal. Write the terminal status; if that write
+		// fails, return the error (retryable) rather than cancelling with an
+		// unmarked row — a JobCancel here would strand the row 'pending' with a
+		// dead job that the reconciler (keyed on job_id IS NULL) can't recover.
+		if merr := w.markFailedReliably(ctx, d.ID, job.Attempt, "webhook not found", 0); merr != nil {
+			return merr
+		}
 		return river.JobCancel(fmt.Errorf("webhook %s not found: %w", d.WebhookID, err))
 	}
 	if !wh.Enabled {
@@ -125,8 +131,13 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 	}
 
 	if job.Attempt >= MaxDeliveryAttempts {
-		// Last attempt — write terminal 'failed' and return an error so River discards.
-		_ = w.subStore.MarkSubscriberFailed(ctx, d.ID, job.Attempt, out.Error, out.StatusCode)
+		// Last attempt — River discards after this regardless of return value, so the
+		// terminal 'failed' write is the row's last chance. markFailedReliably retries
+		// it; only a sustained DB outage in this exact window leaves the row stranded
+		// (logged CRITICAL — not reachable via any normal River transition).
+		if merr := w.markFailedReliably(ctx, d.ID, job.Attempt, out.Error, out.StatusCode); merr != nil {
+			log.Printf("[webhook-deliver] CRITICAL: terminal 'failed' write for delivery %s failed after retries (row stays pending, needs manual reconcile): %v", d.ID, merr)
+		}
 		return fmt.Errorf("webhook delivery failed (final attempt %d, status %d): %s", job.Attempt, out.StatusCode, out.Error)
 	}
 	// Retryable failure — record the attempt (status stays pending) and return an
@@ -135,4 +146,24 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 		return rerr
 	}
 	return fmt.Errorf("webhook delivery attempt %d failed (status %d): %s", job.Attempt, out.StatusCode, out.Error)
+}
+
+// markFailedReliably writes the terminal 'failed' status, retrying a transient DB
+// error a few times. The terminal write is what keeps a row's status in sync with
+// its (about-to-be-terminal) River job; if it were lost, the row would sit
+// 'pending' with a dead job_id — invisible to the reconciler, which keys on
+// job_id IS NULL. Bounded, short backoff so the (rare) failure case adds < ~1s.
+func (w *DeliverWorker) markFailedReliably(ctx context.Context, id string, attempt int, errMsg string, statusCode int) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		if err = w.subStore.MarkSubscriberFailed(ctx, id, attempt, errMsg, statusCode); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(i+1) * 150 * time.Millisecond):
+		}
+	}
+	return err
 }
