@@ -203,6 +203,59 @@ func (s *SubscriberStore) RecordAttemptFailure(ctx context.Context, deliveryID, 
 	return tx.Commit(ctx)
 }
 
+// GetSubscriberDeliveryByID loads a single delivery row by id — the River
+// DeliverWorker's entry point (it holds only the delivery id and reads the
+// payload + webhook_id here). Returns pgx.ErrNoRows if the row is gone.
+func (s *SubscriberStore) GetSubscriberDeliveryByID(ctx context.Context, deliveryID string) (*SubscriberDelivery, error) {
+	var d SubscriberDelivery
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, webhook_id, event_type, event_payload, message_id,
+		        status, attempts, max_attempts, COALESCE(last_error, ''),
+		        last_status_code, last_attempt_at, next_retry_at, created_at, expires_at
+		   FROM webhook_subscriber_deliveries WHERE id = $1`,
+		deliveryID,
+	).Scan(&d.ID, &d.WebhookID, &d.EventType, &d.EventPayload, &d.MessageID,
+		&d.Status, &d.Attempts, &d.MaxAttempts, &d.LastError,
+		&d.LastStatusCode, &d.LastAttemptAt, &d.NextRetryAt, &d.CreatedAt, &d.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// RecordSubscriberAttempt records ONE failed attempt without deciding retry or
+// terminality — under River the retry schedule and the give-up decision belong to
+// the job, not the store. Status stays 'pending'; attempts/last_error/
+// last_status_code/last_attempt_at are updated. (Contrast RecordAttemptFailure,
+// the hand-rolled path, which also computed next_retry_at and flipped to 'failed'
+// at the cap — retired with the legacy worker.) attemptN is the River job's
+// attempt number, written verbatim so the history API's attempts count matches
+// River's.
+func (s *SubscriberStore) RecordSubscriberAttempt(ctx context.Context, deliveryID string, attemptN int, errMsg string, statusCode int) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE webhook_subscriber_deliveries
+		    SET status = 'pending', attempts = $2, last_attempt_at = now(),
+		        last_error = $3, last_status_code = $4
+		  WHERE id = $1`,
+		deliveryID, attemptN, errMsg, statusCode,
+	)
+	return err
+}
+
+// MarkSubscriberFailed transitions a delivery to terminal 'failed' — called by
+// the DeliverWorker on the last (River-exhausted) attempt, and as an ErrorHandler
+// backstop on discard. Records the final attempt count + error.
+func (s *SubscriberStore) MarkSubscriberFailed(ctx context.Context, deliveryID string, attemptN int, errMsg string, statusCode int) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE webhook_subscriber_deliveries
+		    SET status = 'failed', attempts = $2, last_attempt_at = now(),
+		        last_error = $3, last_status_code = $4
+		  WHERE id = $1`,
+		deliveryID, attemptN, errMsg, statusCode,
+	)
+	return err
+}
+
 // generateDeliveryID returns a prefixed id of the form whd_<32-hex>.
 // 16 bytes of entropy is more than enough — the row is short-lived
 // (30-day expiry), and the prefix follows the rest of the e2a id
