@@ -21,7 +21,7 @@ test-integration:
 	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 ./internal/identity/ ./internal/agent/ ./internal/hitlworker/ ./internal/hitlnotify/ ./internal/limits/ ./internal/relay/
 
 test-e2e:
-	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 ./internal/e2e/
+	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 ./internal/e2e/ ./internal/senderidentity/
 
 # cover writes a coverage profile across the internal packages (needs Postgres
 # on :5433, like `make test`; -p 1 avoids cross-package test-DB contention).

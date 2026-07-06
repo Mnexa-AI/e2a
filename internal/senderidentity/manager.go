@@ -66,11 +66,13 @@ func (m *Manager) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 		river.NewPeriodicJob(
 			river.PeriodicInterval(reaperInterval),
 			func() (river.JobArgs, *river.InsertOpts) {
-				// No UniqueOpts: River's periodic scheduler already inserts at
-				// most one per interval, and a completed reap must not dedup-
-				// block the next scheduled run (River can't drop `completed`
-				// from a unique state set). The reaper is idempotent anyway.
-				return ReapArgs{}, nil
+				// Route to the maintenance lane (low-urgency janitor work), not
+				// the default queue. No UniqueOpts: River's periodic scheduler
+				// already inserts at most one per interval, and a completed reap
+				// must not dedup-block the next scheduled run (River can't drop
+				// `completed` from a unique state set). The reaper is idempotent
+				// anyway.
+				return ReapArgs{}, &river.InsertOpts{Queue: jobs.QueueMaintenance}
 			},
 			&river.PeriodicJobOpts{RunOnStart: false},
 		),

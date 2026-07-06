@@ -253,6 +253,10 @@ func main() {
 	// domain delete enqueues a teardown job in the delete tx. Without SES the
 	// interface stays a true nil (sending_status never leaves "none").
 	var senderEnqueuer apiserver.SenderIdentityEnqueuer
+	// jobsClient is the shared River client. Hoisted so the shutdown sequence
+	// can drain it under the same bounded deadline as the HTTP server + workers
+	// (nil when SES is off — nothing registers on it yet).
+	var jobsClient *jobs.Client
 	if region := cfg.SenderIdentity.SESRegion; region != "" {
 		provider, perr := senderidentity.NewSESProviderFromConfig(ctx, region)
 		if perr != nil {
@@ -268,15 +272,18 @@ func main() {
 		// only) registrar; as outbound/webhook/HITL move onto River they join
 		// this same jobs.New call. Inject the client back so the manager's
 		// Enqueue* methods can insert.
-		jobsClient, jerr := jobs.New(pool, jobs.Config{}, senderMgr)
+		jc, jerr := jobs.New(pool, jobs.Config{}, senderMgr)
 		if jerr != nil {
 			log.Fatalf("jobs: build shared river client: %v", jerr)
 		}
+		jobsClient = jc
 		senderMgr.SetEnqueuer(jobsClient)
 		if serr := jobsClient.Start(ctx); serr != nil {
 			log.Fatalf("jobs: start shared river client: %v", serr)
 		}
-		defer jobsClient.Stop(context.Background())
+		// Stop is driven from the shutdown sequence under the shared deadline,
+		// not a context.Background() defer (which would drain unbounded, past
+		// the platform grace period).
 		senderEnqueuer = senderMgr
 		log.Printf("[sender-identity] SES provisioning enabled (region=%s)", region)
 	}
@@ -662,6 +669,22 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownBudget)
 	defer shutdownCancel()
 
+	// Drain the shared River client concurrently with HTTP shutdown, under the
+	// SAME deadline. Stop() halts claiming new jobs immediately (so a
+	// terminating replica stops picking up fresh work, like the cancelled
+	// workers above) and drains in-flight jobs; bounding it by shutdownCtx means
+	// a job stuck in an SES/network call is abandoned when the shared budget
+	// expires rather than blocking process exit past the platform grace period.
+	riverDone := make(chan struct{})
+	go func() {
+		if jobsClient != nil {
+			if err := jobsClient.Stop(shutdownCtx); err != nil && shutdownCtx.Err() == nil {
+				log.Printf("River client stop: %v", err)
+			}
+		}
+		close(riverDone)
+	}()
+
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}
@@ -681,4 +704,7 @@ func main() {
 	case <-shutdownCtx.Done():
 		log.Println("Background workers did not drain within shutdown budget; exiting anyway.")
 	}
+	// River drain is bounded by the same shutdownCtx, so this returns by the
+	// deadline regardless.
+	<-riverDone
 }
