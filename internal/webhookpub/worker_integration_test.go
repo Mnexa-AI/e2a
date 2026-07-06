@@ -3,14 +3,88 @@ package webhookpub_test
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// fakeDeliveryEnqueuer records the delivery ids it was asked to enqueue and
+// hands back monotonically increasing job ids — no real River client needed.
+type fakeDeliveryEnqueuer struct {
+	mu   sync.Mutex
+	ids  []string
+	next int64
+}
+
+func (f *fakeDeliveryEnqueuer) EnqueueDeliveryTx(_ context.Context, _ pgx.Tx, deliveryID string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ids = append(f.ids, deliveryID)
+	f.next++
+	return f.next, nil
+}
+
+// TestOutboxWorker_Integration_EnqueuesRiverJob covers the atomic-enqueue path
+// (delivery_engine=river): the fan-out inserts the Layer 2 row AND enqueues a
+// River job in one tx, stamps job_id, and a re-run (dedup) enqueues nothing.
+func TestOutboxWorker_Integration_EnqueuesRiverJob(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	userID, _, webhookID := seedWebhookFixture(t, ctx, pool, store, "wkr_enq")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM webhook_subscriber_deliveries WHERE webhook_id = $1`, webhookID)
+		_, _ = pool.Exec(ctx, `DELETE FROM webhook_events WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM webhooks WHERE id = $1`, webhookID)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_identities WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM domains WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	eventID := webhookpub.DeterministicEventID("msg_enq_1", webhookpub.EventEmailReceived)
+	env, _ := json.Marshal(webhookpub.Envelope{Type: webhookpub.EventEmailReceived, ID: eventID, CreatedAt: time.Now().UTC()})
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO webhook_events (id, user_id, type, envelope, status) VALUES ($1, $2, $3, $4, 'pending')`,
+		eventID, userID, webhookpub.EventEmailReceived, env); err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+
+	enq := &fakeDeliveryEnqueuer{}
+	worker := webhookpub.NewOutboxWorker(pool, store).WithDeliveryEnqueuer(enq)
+	worker.Tick(ctx)
+
+	// One delivery row, one enqueue call, job_id stamped.
+	var deliveryID string
+	var jobID *int64
+	if err := pool.QueryRow(ctx,
+		`SELECT id, job_id FROM webhook_subscriber_deliveries WHERE event_id = $1 AND webhook_id = $2`,
+		eventID, webhookID,
+	).Scan(&deliveryID, &jobID); err != nil {
+		t.Fatalf("read delivery: %v", err)
+	}
+	if len(enq.ids) != 1 || enq.ids[0] != deliveryID {
+		t.Fatalf("enqueued ids = %v, want [%s]", enq.ids, deliveryID)
+	}
+	if jobID == nil || *jobID != 1 {
+		t.Errorf("job_id = %v, want 1 (stamped from the enqueue)", jobID)
+	}
+
+	// Re-drain the same event (reset it to pending): dedup → no row, no enqueue.
+	if _, err := pool.Exec(ctx, `UPDATE webhook_events SET status='pending', next_poll_at=now() WHERE id=$1`, eventID); err != nil {
+		t.Fatalf("reset event: %v", err)
+	}
+	worker.Tick(ctx)
+	if len(enq.ids) != 1 {
+		t.Errorf("after dedup re-drain, enqueue calls = %d, want 1 (no duplicate job)", len(enq.ids))
+	}
+}
 
 // seedWebhookFixture creates the full chain (user, domain, agent,
 // webhook) needed to test slice-2 fan-out from a webhook_events row
