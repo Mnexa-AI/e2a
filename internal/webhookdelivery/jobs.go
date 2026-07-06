@@ -3,6 +3,7 @@ package webhookdelivery
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,42 +13,85 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/webhook"
 )
 
+// reconcileInterval is how often the live reconciler re-enqueues any pending
+// delivery row that has no River job. Frequent + cheap (a partial index backs the
+// job_id IS NULL scan), so a delivery whose in-tx enqueue never happened — the
+// separate-tx /test + redelivery paths, or an outbox-drain crash window — is
+// re-driven within this bound rather than waiting for a process restart.
+const reconcileInterval = 1 * time.Minute
+
 // Jobs is the webhook-delivery integration on the shared River client: a
-// jobs.Registrar (contributes DeliverWorker) plus the transactional enqueue entry
-// point the outbox drain + redelivery API call. The shared client is injected via
-// SetEnqueuer after jobs.New builds it (two-phase wiring, same as senderidentity).
+// jobs.Registrar (contributes DeliverWorker + the reconcile periodic) plus the
+// transactional enqueue entry point the outbox drain + redelivery API call. The
+// shared client is injected via SetEnqueuer after jobs.New builds it (two-phase
+// wiring, same as senderidentity).
 type Jobs struct {
 	subStore  *webhook.SubscriberStore
 	deliverer Deliverer
 	webhooks  WebhookReader
+	pool      *pgxpool.Pool
 	enq       jobs.Enqueuer
 }
 
-// NewJobs builds the integration with its dependencies (no client yet).
-func NewJobs(subStore *webhook.SubscriberStore, deliverer Deliverer, webhooks WebhookReader) *Jobs {
-	return &Jobs{subStore: subStore, deliverer: deliverer, webhooks: webhooks}
+// NewJobs builds the integration with its dependencies (no client yet). pool backs
+// the periodic reconciler's scan.
+func NewJobs(subStore *webhook.SubscriberStore, deliverer Deliverer, webhooks WebhookReader, pool *pgxpool.Pool) *Jobs {
+	return &Jobs{subStore: subStore, deliverer: deliverer, webhooks: webhooks, pool: pool}
 }
 
 // SetEnqueuer injects the shared client so EnqueueDeliveryTx can insert jobs.
 func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 
-// RegisterJobs adds the DeliverWorker to the shared client's bundle. Implements
-// jobs.Registrar. No periodic jobs (auto-disable folds in with slice 3/4).
+// RegisterJobs adds the DeliverWorker + the reconcile worker, and returns the
+// reconcile periodic. Implements jobs.Registrar.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, NewDeliverWorker(j.subStore, j.deliverer, j.webhooks))
+	river.AddWorker(w, &ReconcileWorker{jobs: j})
+	return []*river.PeriodicJob{
+		river.NewPeriodicJob(
+			river.PeriodicInterval(reconcileInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return WebhookReconcileArgs{}, &river.InsertOpts{Queue: jobs.QueueMaintenance}
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
+		),
+	}
+}
+
+// WebhookReconcileArgs drives the periodic stranded-delivery reconciler.
+type WebhookReconcileArgs struct{}
+
+func (WebhookReconcileArgs) Kind() string { return "webhook_reconcile" }
+
+// ReconcileWorker re-enqueues any pending delivery row with no River job. It is
+// the LIVE backstop for the separate-tx enqueue paths (/test, redelivery) and any
+// outbox-drain crash window — turning "recovered only on restart" into "recovered
+// within reconcileInterval". Idempotent (ReconcilePending's job_id IS NULL guard).
+type ReconcileWorker struct {
+	river.WorkerDefaults[WebhookReconcileArgs]
+	jobs *Jobs
+}
+
+func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[WebhookReconcileArgs]) error {
+	n, err := w.jobs.ReconcilePending(ctx, w.jobs.pool)
+	if err != nil {
+		return err // River retries the reconcile job — transient DB blip is fine
+	}
+	if n > 0 {
+		log.Printf("[webhook-reconcile] re-enqueued %d stranded deliveries", n)
+	}
 	return nil
 }
 
-// CutoverPending is the one-shot migration from the legacy queue (design §8):
-// enqueue a River delivery job for every pending Layer 2 row that has no job yet
-// (job_id IS NULL). Idempotent — the per-row FOR UPDATE + job_id IS NULL guard
-// means a re-run (or a crashed-and-restarted startup) never double-enqueues.
-//
-// CORRECTNESS-CRITICAL ORDERING: this MUST run after the legacy
-// SubscriberRetryWorker is stopped (not wired). If both the legacy worker and the
-// enqueued River jobs deliver the same rows, every in-flight event double-delivers.
-// Returns the number of rows enqueued.
-func (j *Jobs) CutoverPending(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+// ReconcilePending enqueues a River delivery job for every pending Layer 2 row
+// that has no job yet (job_id IS NULL). It runs BOTH at startup (the one-shot
+// cutover from the legacy queue) AND on a live schedule (ReconcileWorker) so a
+// stranded row — from the separate-tx /test/redelivery enqueue paths or an
+// outbox-drain crash window — is re-driven within reconcileInterval rather than
+// only on the next restart. Idempotent: the per-row FOR UPDATE + job_id IS NULL
+// guard means a re-run (or a concurrent replica) never double-enqueues. Returns
+// the number of rows enqueued.
+func (j *Jobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT id FROM webhook_subscriber_deliveries WHERE status='pending' AND job_id IS NULL`)
 	if err != nil {

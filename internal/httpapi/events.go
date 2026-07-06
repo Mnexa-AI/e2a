@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -162,12 +163,12 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 			if derr != nil {
 				return 0, RedeliverView{}, NewError(http.StatusInternalServerError, "internal_error", "failed to schedule replay")
 			}
-			// River is the sole delivery engine: the direct insert above leaves the
-			// row with no job, so enqueue one now. Without this the replay would
-			// never be POSTed.
+			// Enqueue for immediate delivery. If it fails the row is durable and the
+			// periodic reconciler re-drives it within a minute — report pending
+			// (don't 500: a retry would create a duplicate replay row).
 			if s.deps.EnqueueDelivery != nil {
 				if err := s.deps.EnqueueDelivery(ctx, dl); err != nil {
-					return 0, RedeliverView{}, NewError(http.StatusInternalServerError, "internal_error", "failed to enqueue replay")
+					log.Printf("[events] replay %s enqueue failed (reconciler will retry): %v", dl, err)
 				}
 			}
 			return http.StatusOK, RedeliverView{DeliveryID: dl, EventID: in.ID, WebhookID: webhookID, Status: "pending"}, nil
@@ -180,11 +181,11 @@ func (s *Server) handleRedeliverEvent(ctx context.Context, in *RedeliverEventInp
 				deliveries = append(deliveries, RedeliverDelivery{WebhookID: whID, Status: "skipped", Reason: "failed to schedule"})
 				continue
 			}
-			// Enqueue the River delivery job for this freshly-inserted row.
+			// Enqueue for immediate delivery. On failure the row is durable +
+			// reconciler-backed, so report pending (not skipped) — it will deliver.
 			if s.deps.EnqueueDelivery != nil {
 				if err := s.deps.EnqueueDelivery(ctx, dl); err != nil {
-					deliveries = append(deliveries, RedeliverDelivery{WebhookID: whID, Status: "skipped", Reason: "failed to enqueue"})
-					continue
+					log.Printf("[events] bulk replay %s enqueue failed (reconciler will retry): %v", dl, err)
 				}
 			}
 			deliveries = append(deliveries, RedeliverDelivery{WebhookID: whID, DeliveryID: dl, Status: "pending"})

@@ -146,9 +146,9 @@ func (f *fakeEnq) InsertTx(_ context.Context, _ pgx.Tx, _ river.JobArgs, _ *rive
 	return &rivertype.JobInsertResult{Job: &rivertype.JobRow{ID: f.n}}, nil
 }
 
-// TestCutoverPending: the one-shot migration enqueues a job + stamps job_id for
+// TestReconcilePending: the one-shot migration enqueues a job + stamps job_id for
 // every pending row with no job, and a re-run is idempotent (no double-enqueue).
-func TestCutoverPending(t *testing.T) {
+func TestReconcilePending(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ctx := context.Background()
 	store := identity.NewStore(pool)
@@ -170,12 +170,12 @@ func TestCutoverPending(t *testing.T) {
 		ids = append(ids, id)
 	}
 
-	j := webhookdelivery.NewJobs(sub, fakeDeliverer{}, fakeWebhooks{wh: wh})
+	j := webhookdelivery.NewJobs(sub, fakeDeliverer{}, fakeWebhooks{wh: wh}, pool)
 	j.SetEnqueuer(&fakeEnq{})
 
-	n, err := j.CutoverPending(ctx, pool)
+	n, err := j.ReconcilePending(ctx, pool)
 	if err != nil {
-		t.Fatalf("CutoverPending: %v", err)
+		t.Fatalf("ReconcilePending: %v", err)
 	}
 	if n != 3 {
 		t.Errorf("cutover enqueued %d, want 3", n)
@@ -191,9 +191,9 @@ func TestCutoverPending(t *testing.T) {
 		}
 	}
 	// Idempotent: a re-run enqueues nothing.
-	n2, err := j.CutoverPending(ctx, pool)
+	n2, err := j.ReconcilePending(ctx, pool)
 	if err != nil {
-		t.Fatalf("CutoverPending re-run: %v", err)
+		t.Fatalf("ReconcilePending re-run: %v", err)
 	}
 	if n2 != 0 {
 		t.Errorf("cutover re-run enqueued %d, want 0 (idempotent)", n2)

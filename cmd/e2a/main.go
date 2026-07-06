@@ -279,8 +279,14 @@ func main() {
 	// unconditionally, the outbox drain enqueues delivery jobs transactionally,
 	// and a one-shot cutover drains any pre-existing pending rows. The legacy
 	// hand-rolled SubscriberRetryWorker is gone.
-	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store)
+	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store, pool)
 	registrars = append(registrars, webhookDeliveryJobs)
+
+	// Webhook janitor (auto-disable failing webhooks + clear expired prev secrets)
+	// as a River periodic on QueueMaintenance — replaces the hand-rolled 5-min
+	// ticker. Reuses AutoDisableWorker.Tick as the sweep body.
+	webhookMaint := webhookdelivery.NewMaintenanceJobs(webhook.NewAutoDisableWorker(store))
+	registrars = append(registrars, webhookMaint)
 
 	if len(registrars) > 0 {
 		jc, jerr := jobs.New(pool, jobs.Config{}, registrars...)
@@ -298,7 +304,7 @@ func main() {
 		// One-shot cutover: the legacy SubscriberRetryWorker is gone, so enqueue
 		// every pre-existing pending row now — idempotent (job_id IS NULL guard),
 		// harmless for rows already carrying a job.
-		if n, cerr := webhookDeliveryJobs.CutoverPending(ctx, pool); cerr != nil {
+		if n, cerr := webhookDeliveryJobs.ReconcilePending(ctx, pool); cerr != nil {
 			log.Printf("[webhook-delivery] cutover: %v", cerr)
 		} else if n > 0 {
 			log.Printf("[webhook-delivery] cutover enqueued %d pending deliveries", n)
@@ -545,27 +551,18 @@ func main() {
 
 	// Webhook subscriber delivery now runs entirely on River's DeliverWorker
 	// (registered above). The legacy in-process SubscriberRetryWorker is gone.
-	// subRetryCtx remains the shared cancel for the webhook-delivery-adjacent
-	// background workers below (auto-disable janitor + outbox drain) so a single
-	// shutdown signal stops the whole stack.
-	subRetryCtx, subRetryCancel := context.WithCancel(context.Background())
+	// bgCtx is the shared cancel for the remaining webhook-delivery-adjacent
+	// background worker (the outbox drain) so a single shutdown signal stops it.
+	// (The auto-disable janitor is now a River periodic on QueueMaintenance; the
+	// legacy SubscriberRetryWorker is gone.)
+	bgCtx, bgCancel := context.WithCancel(context.Background())
 
-	// Auto-disable + signing-secret-grace janitor (slice 4). Same
-	// lifecycle as the retry worker — share the same cancel so a
-	// single shutdown signal stops both.
-	autoDisableWorker := webhook.NewAutoDisableWorker(store)
+	// Outbox publisher worker: drains webhook_events → subscriber_deliveries and
+	// enqueues River delivery jobs in-tx.
 	workerWG.Add(1)
 	go func() {
 		defer workerWG.Done()
-		autoDisableWorker.Start(subRetryCtx)
-	}()
-
-	// Slice 2: outbox publisher worker. Shares subRetryCtx so a
-	// single shutdown signal stops the whole webhook-delivery stack.
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		outboxWorker.Start(subRetryCtx)
+		outboxWorker.Start(bgCtx)
 	}()
 
 	// HITL expiration worker: transitions pending_review messages that
@@ -664,7 +661,7 @@ func main() {
 	// branches return on the next iteration; processBatch / RunOnce
 	// calls already in flight finish their current row before the
 	// goroutine exits.
-	subRetryCancel()
+	bgCancel()
 	hitlCancel()
 	cleanupCancel()
 

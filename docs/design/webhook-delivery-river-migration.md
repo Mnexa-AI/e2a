@@ -4,6 +4,20 @@
 
 **Decided:** three-layer model (facts / delivery-state / River execution); the event outbox is made **unconditional** (remove `WEBHOOKS_OUTBOX_ENABLED`, delete the legacy fire-and-forget path); **one-shot** cutover (stop legacy worker → enqueue pending → start River); at-least-once is the target semantic (unconditional, no flag). Implementation order: (0) make outbox unconditional + delete legacy path, (1) migration + `DeliverWorker` + retry policy behind `delivery_engine=river`, (2) one-shot cutover, (3) delete the legacy `SubscriberRetryWorker`.
 
+---
+
+## ⟳ SUPERSEDED BY SLICE 3b (SHIPPED — reconciled to reality)
+
+The migration shipped over slices 1–3b. Three things diverged from the plan above; this section is authoritative where it conflicts:
+
+1. **No `delivery_engine=river` flag.** River is the **sole, unconditional** delivery engine. The flag existed only during slices 1–4 for the flag-gated cutover; slice 3b removed it and deleted the legacy `SubscriberRetryWorker`, `retry.go`, and the legacy in-process publisher. There is nothing to flip.
+2. **THREE enqueue sites, not two.** §4's "just two sites" (outbox drain + redelivery) missed a third: the **`/test` webhook endpoint** (`InsertPendingForTest`) also inserts a delivery row directly and must enqueue. All three now call River enqueue: the outbox drain (`EnqueueDeliveryTx`, in-tx with the row) and the `/test` + redelivery handlers (`EnqueueDelivery`, own tx after the committed insert).
+3. **The one-shot cutover became a live reconciler.** `ReconcilePending` (née `CutoverPending`) still runs once at startup, but it is ALSO driven by a **periodic `ReconcileWorker` every 1 min** (`QueueMaintenance`). This is the fix for the review finding that a startup-only backstop leaves the separate-tx `/test`/redelivery paths (and any outbox-drain crash window) stranded until the next restart. Now any `status='pending' AND job_id IS NULL` row is re-driven within a minute. Migration `052` adds a partial index backing that scan. Consequence: the `/test` + redelivery handlers no longer 500 / report `skipped` on an enqueue failure — the row is durable and reconciler-backed, so they log and report `pending` (a 500 would just spawn duplicate rows on retry).
+
+**Known residual (accepted, LOW):** a row whose `job_id` is stamped but whose River job died *without* writing a terminal status (e.g. manual `river_job` deletion, or a crash on the final attempt between River's attempt-bump and `MarkSubscriberFailed`) is not re-driven — the reconciler gates on `job_id IS NULL`. River persists jobs in Postgres and resumes them on restart, so this only bites on manual job deletion; not worth a stale-job sweep at current scale.
+
+**Also deferred:** the webhook auto-disable + signing-grace janitor moved from a `time.Ticker` to a River periodic (`webhookdelivery.MaintenanceJobs`, `QueueMaintenance`) — the last webhook-adjacent worker off a hand-rolled loop.
+
 ## 1. Problem statement
 
 Webhook delivery today conflates two responsibilities on one table. `webhook_subscriber_deliveries` is **both** the customer-visible delivery record (backs `GET /v1/webhooks/{id}/deliveries`) **and** the execution queue (the `SubscriberRetryWorker` does `SKIP LOCKED` leases, a hand-rolled 72h/8-attempt backoff, a per-webhook inflight cap, and disabled/deleted-webhook handling — all on the same rows). We want the queue mechanics on River (the consolidation goal), without changing the customer-facing delivery record, retry timing, or history API.

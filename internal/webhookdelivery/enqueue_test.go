@@ -40,7 +40,7 @@ func TestEnqueueDelivery_StampsRiverJob(t *testing.T) {
 
 	// Build the Jobs integration on a real shared River client so EnqueueDelivery
 	// inserts an actual river_job row.
-	j := webhookdelivery.NewJobs(sub, fakeDeliverer{}, fakeWebhooks{wh: wh})
+	j := webhookdelivery.NewJobs(sub, fakeDeliverer{}, fakeWebhooks{wh: wh}, pool)
 	client, err := jobs.New(pool, jobs.Config{}, j)
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
