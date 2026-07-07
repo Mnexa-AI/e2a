@@ -11,7 +11,7 @@ import (
 )
 
 // TestCreateOutboundMessageTx_AcceptedRow pins the async accept-tx store shape
-// (async-send-pipeline.md, slice C): the row lands with delivery_status='accepted',
+// (async-message-pipeline.md, slice C): the row lands with delivery_status='accepted',
 // status='sent' (the two-column model: lifecycle vs send-progression), an EMPTY
 // provider_message_id, and the envelope_from / sent_as decided at compose time;
 // StampSendJobIDTx records the River job id in the same spirit.

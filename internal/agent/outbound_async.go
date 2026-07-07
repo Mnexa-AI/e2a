@@ -14,7 +14,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
 
-// --- Async outbound send adapters (async-send-pipeline.md, slice C) ---
+// --- Async outbound send adapters (async-message-pipeline.md, slice C) ---
 //
 // These bridge internal/outboundsend's Store/Deliverer interfaces onto the
 // concrete identity.Store + webhookpub.Outbox + outbound.Sender. They live in the
@@ -95,7 +95,11 @@ func (a *outboundSendStore) MarkSent(ctx context.Context, messageID, providerMes
 	}
 	// Meter after the send is durable (side-effect only — never block on quota;
 	// the accept-time cap pre-check is the gate). Mirrors the synchronous path,
-	// which meters only once the message row exists.
+	// which meters only once the message row exists. KNOWN best-effort window: a
+	// crash between the 'sent' commit above and this call drops the meter (the
+	// re-drive no-ops on 'sent'), so a durably-sent message can go unmetered. Rare
+	// + customer-favoring; fold into the MarkSent tx if billing accuracy ever
+	// demands it (post-GA, with the terminal-failure guard work).
 	if a.usage != nil {
 		if _, err := a.usage.RecordAndCheck(ctx, info.UserID, info.Message.AgentID, info.Domain, "outbound"); err != nil {
 			log.Printf("[outbound-send] usage recording error for %s: %v", messageID, err)

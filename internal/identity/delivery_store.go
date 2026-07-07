@@ -187,7 +187,7 @@ func (s *Store) MarkMessageSent(ctx context.Context, messageID, sentAs string, t
 	return tx.Commit(ctx)
 }
 
-// --- Async outbound send (async-send-pipeline.md, slice C) ---
+// --- Async outbound send (async-message-pipeline.md, slice C) ---
 
 // OutboundSendPayload is the async worker's view of an accepted outbound message
 // (the LoadOutboundForSend result). Recipients is the SMTP envelope (to+cc+bcc);

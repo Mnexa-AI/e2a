@@ -62,7 +62,7 @@ outbound_smtp:
   password: ""
   from_domain: "relay.example.com"
 
-# Outbound send execution model (async-send-pipeline.md, slice C).
+# Outbound send execution model (async-message-pipeline.md, slice C).
 #   sync  (default): the send API submits to the upstream relay inline and returns
 #          200 sent — the historical behavior.
 #   async: the send API durably persists the message + enqueues a River send job in

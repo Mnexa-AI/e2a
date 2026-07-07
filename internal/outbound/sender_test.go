@@ -8,7 +8,58 @@ import (
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/dkim"
+	"github.com/Mnexa-AI/e2a/internal/identity"
 )
+
+// TestComposeForAccept_MatchesSyncComposeBytes pins the load-bearing async/sync
+// invariant: the accept path (ComposeForAccept) stores the SAME Sent-folder bytes
+// the sync path stores (Send returns compose().sentBody as Raw), and the SES
+// config-set header lives only on the wire, never in the stored copy — on BOTH
+// paths. A drift here would send different bytes than we retained (or vice-versa).
+func TestComposeForAccept_MatchesSyncComposeBytes(t *testing.T) {
+	s := NewSender(nil, "example.com")
+	agent := &identity.AgentIdentity{ID: "bot@example.com", Domain: "example.com"}
+	req := SendRequest{To: []string{"x@y.com"}, Subject: "hi", Body: "body text"}
+
+	c, err := s.compose(agent, req) // the shared compose path
+	if err != nil {
+		t.Fatalf("compose: %v", err)
+	}
+	cr, err := s.ComposeForAccept(agent, req)
+	if err != nil {
+		t.Fatalf("ComposeForAccept: %v", err)
+	}
+	if !bytes.Equal(cr.Raw, c.sentBody) {
+		t.Errorf("ComposeForAccept.Raw (%d B) != compose().sentBody (%d B) — async/sync stored-bytes drift", len(cr.Raw), len(c.sentBody))
+	}
+	if cr.EnvelopeFrom != c.envelopeFrom || cr.SentAs != c.sentAs {
+		t.Errorf("envelope/sentAs drift: %q/%q vs %q/%q", cr.EnvelopeFrom, cr.SentAs, c.envelopeFrom, c.sentAs)
+	}
+	if !bytes.Equal(c.wire, c.sentBody) {
+		t.Error("no SES config-set → wire must equal the stored sentBody")
+	}
+
+	// With a config-set: the wire gains the header, the stored copy does NOT — on
+	// both paths. SubmitOnce re-attaches the same header at submit time.
+	s.SetSESConfigurationSet("cfg-set-1")
+	c2, err := s.compose(agent, req)
+	if err != nil {
+		t.Fatalf("compose (cfg): %v", err)
+	}
+	cr2, err := s.ComposeForAccept(agent, req)
+	if err != nil {
+		t.Fatalf("ComposeForAccept (cfg): %v", err)
+	}
+	if !bytes.Equal(cr2.Raw, c2.sentBody) {
+		t.Error("with config-set, ComposeForAccept.Raw must still equal the header-free sentBody")
+	}
+	if bytes.Equal(c2.wire, c2.sentBody) {
+		t.Error("with config-set, the wire must carry the X-SES-CONFIGURATION-SET header (differ from stored)")
+	}
+	if !bytes.Contains(c2.wire, []byte("cfg-set-1")) {
+		t.Error("wire missing the config-set header value")
+	}
+}
 
 func TestNormalizeAddrs(t *testing.T) {
 	got, err := normalizeAddrs([]string{"Alice@Gmail.COM", " bob@test.com ", ""})

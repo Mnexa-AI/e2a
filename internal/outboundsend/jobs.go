@@ -36,18 +36,29 @@ func NewJobs(store Store, deliverer Deliverer) *Jobs {
 func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 
 // RegisterJobs adds the SendWorker to the shared client's bundle. Implements
-// jobs.Registrar. (The periodic reconciler is slice D.)
+// jobs.Registrar.
+//
+// No live periodic reconciler yet (slice D). The one residual it would close: if a
+// job's terminal write (markFailed) fails on all its retries, the worker still
+// cancels/discards the River job, leaving the row `accepted` with a stamped-but-dead
+// job — which ReconcilePending (keyed on send_job_id IS NULL) does not catch. That
+// needs 3+ consecutive DB failures on the terminal write (very rare); a slice-D
+// periodic keyed on `accepted AND the job is terminal/absent` closes it.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, NewSendWorker(j.store, j.deliverer))
 	return nil
 }
 
 // ReconcilePending enqueues an outbound_send job for every accepted message that
-// has no send job yet (send_job_id IS NULL). Slice C runs it ONCE at startup — the
-// cutover that re-drives any row stranded by an accept-tx that inserted the message
-// but crashed before the job committed (or a pre-async row, though none exist yet).
-// The live periodic reconciler is slice D. Idempotent: the per-row FOR UPDATE +
-// send_job_id IS NULL guard means a re-run (or concurrent replica) never
+// has no send job yet (send_job_id IS NULL). Run ONCE at startup as the cutover.
+//
+// Because the accept-tx is a single transaction (message insert + job enqueue +
+// send_job_id stamp all commit together), a committed `accepted` row in steady
+// state ALWAYS has send_job_id set — so the send_job_id IS NULL set is normally
+// empty. This exists to enqueue (a) any pre-async `accepted` rows at the moment the
+// mode is first flipped on, and (b) rows from a future accept-tx variant that
+// doesn't stamp atomically. Idempotent: the per-row FOR UPDATE + send_job_id IS NULL
+// guard means a re-run (or concurrent replica) never
 // double-enqueues. Mirrors webhookdelivery.ReconcilePending. Returns the count
 // enqueued.
 func (j *Jobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, error) {

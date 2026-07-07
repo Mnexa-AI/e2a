@@ -221,7 +221,7 @@ type API struct {
 	metrics telemetry.Metrics
 
 	// outboundEnq is the async-send accept-tx's handle on the shared River client
-	// (async-send-pipeline.md, slice C). Non-nil ONLY when E2A_OUTBOUND_MODE=async:
+	// (async-message-pipeline.md, slice C). Non-nil ONLY when E2A_OUTBOUND_MODE=async:
 	// DeliverOutbound then persists the message + enqueues the outbound_send job in
 	// one transaction and returns 200 accepted instead of submitting inline. nil
 	// (the default) leaves the synchronous SES path byte-for-byte unchanged.
@@ -998,7 +998,7 @@ type OutboundResult struct {
 	// Status is the send progression the wire maps to `status`. Empty on the
 	// synchronous path (the caller renders "sent"); "accepted" on the async path
 	// (durably persisted + queued; the terminal outcome arrives via email.sent /
-	// email.failed). See async-send-pipeline.md, slice C.
+	// email.failed). See async-message-pipeline.md, slice C.
 	Status string
 }
 
@@ -1134,7 +1134,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return &OutboundResult{MessageID: providerID, Method: "loopback"}, nil
 	}
 
-	// Async accept path (async-send-pipeline.md, slice C), gated by
+	// Async accept path (async-message-pipeline.md, slice C), gated by
 	// E2A_OUTBOUND_MODE=async (⇒ outboundEnq wired). We are past self-send / hold /
 	// block, so this is the real SES path. Instead of submitting inline, compose
 	// once and durably persist the message (delivery_status='accepted') + enqueue

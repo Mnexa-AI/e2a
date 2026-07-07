@@ -237,7 +237,7 @@ func main() {
 		log.Printf("Usage tracking enabled (writing to usage_events + usage_summaries)")
 	}
 
-	// Async outbound send pipeline (async-send-pipeline.md, slice C), gated by
+	// Async outbound send pipeline (async-message-pipeline.md, slice C), gated by
 	// E2A_OUTBOUND_MODE=async. The SendWorker registers on the shared River client;
 	// the accept-tx enqueues an outbound_send job in the same transaction as the
 	// message row. Left nil (⇒ synchronous submit-inline path unchanged) otherwise.

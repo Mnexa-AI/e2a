@@ -26,3 +26,6 @@ override:
   # /v1 HTTP handlers (includes the webhook endpoints + idempotency).
   - threshold: 73
     path: ^internal/httpapi$
+  # Outbound send on River — the at-least-once send worker + accept-tx enqueue.
+  - threshold: 75
+    path: ^internal/outboundsend$

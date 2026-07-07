@@ -1,6 +1,6 @@
 -- 055_messages_envelope_from.sql
 --
--- Async outbound pipeline (docs/design/async-send-pipeline.md), slice C. The
+-- Async outbound pipeline (docs/design/async-message-pipeline.md), slice C. The
 -- accept-tx composes the message once and persists the exact wire bytes
 -- (messages.raw_message) plus the SMTP envelope MAIL FROM so the River send
 -- worker (internal/outboundsend) can submit the message WITHOUT re-composing

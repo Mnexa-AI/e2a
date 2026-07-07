@@ -2,10 +2,12 @@ package outbound
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -89,28 +91,38 @@ func IsTransientSMTPError(err error) bool { return isTransientSMTPError(err) }
 // provider accepts. (Provider-outage snooze — deferring an outage instead of
 // spending retries — is slice D.)
 func IsPermanentSMTPError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return len(msg) >= 3 && msg[0] == '5'
+	code, ok := smtpCode(err)
+	return ok && code >= 500 && code < 600
 }
 
 // IsConnectionError reports whether err is a provider-CONNECTION failure (the relay
-// is unreachable / misconfigured) rather than a per-message rejection — a dial
-// timeout, connection refused, DNS failure, reset/EOF, or a not-configured relay.
-// The River worker snoozes these (design §8 circuit breaker): a regional SES/SNS
-// outage should DEFER the whole queue without spending each job's retry budget and
-// mass-firing false email.failed, whereas a per-recipient 4xx uses the bounded retry.
+// is unreachable / misconfigured) rather than a per-message SMTP rejection. The
+// River worker snoozes these (design §8 circuit breaker): a regional SES/SNS outage
+// should DEFER the whole queue without spending each job's retry budget and
+// mass-firing false email.failed, whereas a per-message 4xx/5xx uses the
+// bounded-retry / terminal path.
+//
+// CRITICAL: an error carrying an SMTP code is a per-message verdict, NEVER an
+// outage — even if its text contains "tls"/"timeout"/"eof" (e.g. "550 5.7.1 TLS
+// required"). We check the code first and bail; only codeless network-level
+// failures (dial/timeout/reset/refused, or our own not-configured relay) are
+// outages. (Earlier substring matching mis-classified a permanent 5xx-with-"tls"
+// as a 72h outage snooze — adversarial review of #388.)
 func IsConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if _, ok := smtpCode(err); ok {
+		return false // a real SMTP reply is a per-message verdict, not an outage
+	}
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return true // dial/read/write timeout, connection refused, etc.
+	}
 	m := strings.ToLower(err.Error())
 	for _, s := range []string{
-		"dial ", "connection refused", "connection reset", "no such host",
-		"i/o timeout", "timeout", "eof", "broken pipe", "network is unreachable",
-		"not configured", "no route to host", "tls",
+		"not configured", "connection refused", "connection reset", "no such host",
+		"no route to host", "broken pipe", "network is unreachable", "i/o timeout",
 	} {
 		if strings.Contains(m, s) {
 			return true
@@ -243,18 +255,28 @@ func parseMessageIDFromResponse(resp string) string {
 	return "<" + trimmed + ">"
 }
 
-// isTransientSMTPError returns true for SMTP 4xx errors that are worth retrying.
+// smtpCode extracts the SMTP response code if err wraps a *textproto.Error (which
+// net/smtp returns for any non-2xx/3xx reply, preserved through sendOnce's %w
+// wrapping). Classifying on the real code — not first-char / substring of the
+// wrapped string — is essential: production errors are wrapped ("rcpt to x: 550
+// 5.1.1 User unknown"), so string heuristics on the whole message mis-fire.
+func smtpCode(err error) (int, bool) {
+	var te *textproto.Error
+	if errors.As(err, &te) {
+		return te.Code, true
+	}
+	return 0, false
+}
+
+// isTransientSMTPError returns true for SMTP 4xx replies that are worth retrying.
 func isTransientSMTPError(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	// SMTP 4xx errors start with "4" in the response code
-	// net/smtp returns errors like "450 ..." or "421 ..."
-	if len(msg) >= 3 && msg[0] == '4' {
-		return true
+	if code, ok := smtpCode(err); ok {
+		return code >= 400 && code < 500
 	}
-	// Some relay providers return rate limit messages
-	lower := strings.ToLower(msg)
-	return strings.Contains(lower, "throttl") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "try again")
+	// Some providers phrase throttling without a clean 4xx code.
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "throttl") || strings.Contains(lower, "rate limit")
 }

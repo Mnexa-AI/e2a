@@ -1482,7 +1482,7 @@ func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRec
 }
 
 // CreateOutboundMessageTx is CreateOutboundMessage on the caller's transaction,
-// for the async accept path (async-send-pipeline.md, slice C). It persists the
+// for the async accept path (async-message-pipeline.md, slice C). It persists the
 // two-column model: status=MessageStatusSent (the hold/lifecycle column — this row
 // is not held) while delivery_status carries the send progression (the accept-tx
 // passes 'accepted'; the send worker later advances it to 'sent'/'failed'). It

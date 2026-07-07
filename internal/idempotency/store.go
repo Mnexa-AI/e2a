@@ -259,7 +259,7 @@ func (s *Store) Complete(ctx context.Context, userID, key string, resp CachedRes
 }
 
 // CompleteTx is Complete on the caller's transaction — for the async accept path
-// (async-send-pipeline.md, slice C), which commits the idempotency-key completion
+// (async-message-pipeline.md, slice C), which commits the idempotency-key completion
 // atomically with the message-row insert + send-job enqueue. Committing the
 // completion IN the accept-tx closes the crash window that Complete (run AFTER the
 // side effect) leaves open: if the process dies after the accept-tx commits but

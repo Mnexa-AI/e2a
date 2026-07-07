@@ -6,8 +6,10 @@
 //
 // Delivery is at-least-once: River re-drives a crashed job, so the provider may
 // receive a duplicate if the SMTP submit is accepted but the worker crashes before
-// marking the message sent. The X-E2A-Message-ID header (slice C) makes that
-// reconcilable via SNS feedback.
+// marking the message sent. This is the irreducible residual. NOTE: the
+// X-E2A-Message-ID header + SNS-based reconciliation of that duplicate (and the
+// terminal-failure guard / delivery.Merge exception) are POST-GA — not implemented
+// here; see async-message-pipeline.md §7 "out of scope".
 //
 // One SMTP attempt per job attempt — River owns the multi-attempt envelope via
 // NextRetry, so Work() stays short (the deliverer does a single submit, not an
