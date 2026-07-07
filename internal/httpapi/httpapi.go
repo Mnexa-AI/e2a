@@ -142,6 +142,9 @@ type Deps struct {
 	// outbound (the shared live delivery path extracted from agent.API)
 	DeliverOutbound func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message, idemCompleteTx agent.AcceptIdemCompleter) (*agent.OutboundResult, *agent.OutboundError)
 	SendTest        func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError)
+	// PollSendOutcome reads an async send's current delivery_status for wait=sent.
+	// Optional — nil disables the wait valve (accepted is returned immediately).
+	PollSendOutcome func(ctx context.Context, messageID string) (identity.SendOutcome, error)
 	// HITL approve/reject (the held-draft decision)
 	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError)
 	RejectPending      func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError)

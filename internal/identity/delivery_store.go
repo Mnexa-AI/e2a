@@ -211,6 +211,35 @@ type OutboundSentInfo struct {
 	Domain  string
 }
 
+// SendOutcome is the current terminal-ish state of an async send, for wait=sent
+// polling. DeliveryStatus is "" when the row is gone.
+type SendOutcome struct {
+	DeliveryStatus    string
+	ProviderMessageID string
+	SentAs            string
+	DeliveryDetail    string
+}
+
+// GetSendOutcome reads the current delivery_status + provider id + sent_as + detail
+// for an outbound message — the wait=sent poll. Returns a zero-value outcome (empty
+// DeliveryStatus) if the row is gone, never an error for a missing row.
+func (s *Store) GetSendOutcome(ctx context.Context, messageID string) (SendOutcome, error) {
+	var o SendOutcome
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(delivery_status,''), COALESCE(provider_message_id,''),
+		        COALESCE(sent_as,''), COALESCE(delivery_detail,'')
+		   FROM messages WHERE id = $1 AND direction = 'outbound'`,
+		messageID,
+	).Scan(&o.DeliveryStatus, &o.ProviderMessageID, &o.SentAs, &o.DeliveryDetail)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SendOutcome{}, nil
+	}
+	if err != nil {
+		return SendOutcome{}, err
+	}
+	return o, nil
+}
+
 // LoadOutboundForSend returns the payload the async send worker submits, or nil if
 // the row is gone (agent-delete cascade / TTL) — the worker treats that as a
 // no-op. Reads the envelope (to+cc+bcc) and the persisted wire bytes; does not

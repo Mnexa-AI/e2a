@@ -315,7 +315,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	if env := recipientCountError(req.To, req.CC, req.BCC); env != nil {
 		return nil, env
 	}
-	return s.deliver(ctx, user, ag, literalRequest(req), "reply", parentMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
+	return s.deliver(ctx, user, ag, literalRequest(req), "reply", parentMessageID, "/v1/reply/"+in.ID, in.IdempotencyKey, in.Wait, in.RawBody, msg)
 }
 
 // replyRecipients resolves a reply's To/CC from the referenced message,
@@ -400,7 +400,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
-	return s.deliver(ctx, user, ag, literalRequest(req), "forward", msg.ThreadMessageID(), "/v1/forward/"+in.ID, in.IdempotencyKey, in.RawBody, msg)
+	return s.deliver(ctx, user, ag, literalRequest(req), "forward", msg.ThreadMessageID(), "/v1/forward/"+in.ID, in.IdempotencyKey, in.Wait, in.RawBody, msg)
 }
 
 // validateOutboundBody runs the shared pre-send validation.
@@ -465,7 +465,7 @@ func validateAttachments(atts []outbound.Attachment) *ErrorEnvelope {
 // Failures inside the closure happen strictly before the DeliverOutbound
 // side effect, so runIdempotent releases the key and a retry can proceed —
 // exactly fn's documented contract.
-func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, prepare func() (outbound.SendRequest, *ErrorEnvelope), msgType, replyTo, route, idemKey string, rawBody []byte, referenced *identity.Message) (*sendOutput, error) {
+func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, prepare func() (outbound.SendRequest, *ErrorEnvelope), msgType, replyTo, route, idemKey, wait string, rawBody []byte, referenced *identity.Message) (*sendOutput, error) {
 	if s.deps.DeliverOutbound == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "outbound delivery unavailable")
 	}
@@ -533,7 +533,43 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 	if err != nil {
 		return nil, err
 	}
+	// wait=sent (contract §2): after an async accept, hold the request until the
+	// send reaches sent/failed or the ceiling, then return that state. The
+	// idempotency cache already holds the accept-time 'accepted' body (§2.4), so a
+	// replay does NOT re-wait — only this live caller sees the polled outcome.
+	if wait == "sent" && view.Status == "accepted" && s.deps.PollSendOutcome != nil {
+		status, view = s.waitForSent(ctx, status, view)
+	}
 	return &sendOutput{Status: status, Body: view}, nil
+}
+
+const (
+	waitSentCeiling = 15 * time.Second // below the 20s contract ceiling (§2.3) + proxy timeouts
+	waitSentPoll    = 250 * time.Millisecond
+)
+
+// waitForSent polls the async send's delivery_status until sent/failed or the
+// ceiling. Timeout → the accepted view (the caller polls GET / waits for the event).
+func (s *Server) waitForSent(ctx context.Context, acceptedStatus int, accepted SendResultView) (int, SendResultView) {
+	deadline := time.Now().Add(waitSentCeiling)
+	for {
+		if o, err := s.deps.PollSendOutcome(ctx, accepted.MessageID); err == nil {
+			switch o.DeliveryStatus {
+			case "sent", "delivered", "deferred", "bounced", "complained":
+				return http.StatusOK, SendResultView{Status: "sent", MessageID: accepted.MessageID, ProviderMessageID: o.ProviderMessageID, SentAs: o.SentAs, Method: accepted.Method}
+			case "failed":
+				return http.StatusOK, SendResultView{Status: "failed", MessageID: accepted.MessageID, Method: accepted.Method}
+			}
+		}
+		if time.Now().After(deadline) {
+			return acceptedStatus, accepted // still in flight
+		}
+		select {
+		case <-ctx.Done():
+			return acceptedStatus, accepted
+		case <-time.After(waitSentPoll):
+		}
+	}
 }
 
 // acceptedView is the single source of the async-accept wire body (slice C). Both
@@ -616,5 +652,5 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 		}, nil
 	}
 	// A cold send has no referenced inbound (nil) — it's not a reply/forward.
-	return s.deliver(ctx, user, ag, prepare, "send", "", route, in.IdempotencyKey, in.RawBody, nil)
+	return s.deliver(ctx, user, ag, prepare, "send", "", route, in.IdempotencyKey, in.Wait, in.RawBody, nil)
 }

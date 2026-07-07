@@ -124,6 +124,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		Idempotency:          p.Idempotency,
 		DeliverOutbound:      p.API.DeliverOutbound,
 		SendTest:             p.API.SendTestCore,
+		PollSendOutcome:      p.Store.GetSendOutcome,
 		ApprovePending:       p.API.ApprovePendingCore,
 		SendLimit:            p.API.SendLimitAllow,
 		PollLimit:            p.API.PollLimitAllow,
