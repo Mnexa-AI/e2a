@@ -96,6 +96,29 @@ func IsPermanentSMTPError(err error) bool {
 	return len(msg) >= 3 && msg[0] == '5'
 }
 
+// IsConnectionError reports whether err is a provider-CONNECTION failure (the relay
+// is unreachable / misconfigured) rather than a per-message rejection — a dial
+// timeout, connection refused, DNS failure, reset/EOF, or a not-configured relay.
+// The River worker snoozes these (design §8 circuit breaker): a regional SES/SNS
+// outage should DEFER the whole queue without spending each job's retry budget and
+// mass-firing false email.failed, whereas a per-recipient 4xx uses the bounded retry.
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := strings.ToLower(err.Error())
+	for _, s := range []string{
+		"dial ", "connection refused", "connection reset", "no such host",
+		"i/o timeout", "timeout", "eof", "broken pipe", "network is unreachable",
+		"not configured", "no route to host", "tls",
+	} {
+		if strings.Contains(m, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // sendOnce performs a single SMTP send using smtp.Client for the handshake,
 // then drives the DATA command manually via c.Text to capture the response.
 // Issues RCPT TO for each recipient; aborts if any is rejected.

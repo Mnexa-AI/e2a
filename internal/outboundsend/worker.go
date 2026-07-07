@@ -36,8 +36,19 @@ var sendRetryBackoffs = []time.Duration{
 	4 * time.Hour,
 }
 
-// MaxSendAttempts caps app/permanent-error retries.
+// MaxSendAttempts caps app/permanent-error retries (bounded 4xx/unknown tail).
 const MaxSendAttempts = 6
+
+// outageSnoozeInterval is how long a provider-outage job snoozes between probes.
+// JobSnooze does NOT count an attempt, so an outage defers rather than exhausting
+// MaxSendAttempts (design §8 circuit breaker).
+const outageSnoozeInterval = 5 * time.Minute
+
+// sendRetryHorizon bounds the outage-tolerant tail: past this age (from accept) an
+// outage-snoozing job stops deferring and is declared terminally failed. 72h matches
+// the industry MTA retry horizon (and the webhook deliverer's envelope) — long enough
+// to ride out a multi-hour regional SES incident, not forever.
+const sendRetryHorizon = 72 * time.Hour
 
 // OutboundSendArgs drives one outbound send. Args carry only the message id; the
 // worker re-reads the messages row (the source of truth) each attempt.
@@ -55,6 +66,16 @@ type SendJob struct {
 	Recipients   []string
 	RawMessage   []byte // composed MIME
 	SentAs       string // From identity decided at accept ("own_address"|"relay")
+	// AcceptedAt is messages.created_at — the outage tail's clock, so a job that has
+	// been snoozing through an outage past sendRetryHorizon can be terminated.
+	AcceptedAt time.Time
+}
+
+// pastRetryHorizon reports whether the accept is older than the outage-tolerant
+// retry horizon. Zero AcceptedAt (unknown) is treated as not-past so an outage keeps
+// deferring rather than being falsely terminated on a missing timestamp.
+func (j *SendJob) pastRetryHorizon() bool {
+	return !j.AcceptedAt.IsZero() && time.Since(j.AcceptedAt) > sendRetryHorizon
 }
 
 // alreadyDone reports whether the message has already been submitted to the
@@ -77,6 +98,10 @@ type DeliverOutcome struct {
 	// Permanent marks a non-retryable failure (validation / permanent 5xx): the
 	// worker fails the message terminally instead of retrying.
 	Permanent bool
+	// Outage marks a provider-connection failure (relay unreachable/misconfigured):
+	// the worker snoozes without burning an attempt (design §8), up to the retry
+	// horizon. Mutually exclusive with Permanent in practice.
+	Outage bool
 }
 
 // Deliverer performs a SINGLE SMTP submit — River owns re-attempts. Implemented in
@@ -143,6 +168,17 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	if out.Permanent {
 		w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error())
 		return river.JobCancel(out.Err)
+	}
+	// Provider outage (relay unreachable) — snooze WITHOUT burning an attempt so a
+	// multi-hour SES incident defers instead of exhausting MaxSendAttempts and
+	// mass-firing false email.failed (§8 circuit breaker). Bounded by the retry
+	// horizon: once the accept is older than sendRetryHorizon, give up terminally.
+	if out.Outage {
+		if j.pastRetryHorizon() {
+			w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error())
+			return fmt.Errorf("outbound send failed (provider outage past %s horizon): %w", sendRetryHorizon, out.Err)
+		}
+		return river.JobSnooze(outageSnoozeInterval)
 	}
 	// Last attempt — River discards after this, so the terminal 'failed' write is
 	// the row's last chance (markFailed retries it).

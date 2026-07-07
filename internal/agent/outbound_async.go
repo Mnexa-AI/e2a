@@ -64,6 +64,7 @@ func (a *outboundSendStore) LoadForSend(ctx context.Context, messageID string) (
 		Recipients:   p.Recipients,
 		RawMessage:   p.Raw,
 		SentAs:       p.SentAs,
+		AcceptedAt:   p.CreatedAt,
 	}, nil
 }
 
@@ -189,11 +190,16 @@ func NewOutboundDeliverer(sender *outbound.Sender) outboundsend.Deliverer {
 func (d *outboundDeliverer) Deliver(ctx context.Context, j *outboundsend.SendJob) outboundsend.DeliverOutcome {
 	providerID, err := d.sender.SubmitOnce(j.EnvelopeFrom, j.Recipients, j.RawMessage)
 	if err != nil {
-		// Only a DEFINITELY-permanent 5xx is terminal (JobCancel). Transient 4xx,
-		// connection errors (dial timeout/refused), a misconfigured relay, and any
-		// unclassified error RETRY — terminal-failing a send that could still
-		// succeed would violate at-least-once. (SES-outage snooze is slice D.)
-		return outboundsend.DeliverOutcome{Err: err, Permanent: outbound.IsPermanentSMTPError(err)}
+		// Classify (design §8): a definitely-permanent 5xx is terminal (JobCancel);
+		// a provider-connection failure (relay unreachable/misconfigured) is an
+		// outage → snooze without burning an attempt; everything else (4xx/unknown)
+		// takes the bounded retry. Terminal-failing a send that could still succeed
+		// would violate at-least-once.
+		return outboundsend.DeliverOutcome{
+			Err:       err,
+			Permanent: outbound.IsPermanentSMTPError(err),
+			Outage:    outbound.IsConnectionError(err),
+		}
 	}
 	return outboundsend.DeliverOutcome{ProviderMessageID: providerID, SentAs: j.SentAs}
 }

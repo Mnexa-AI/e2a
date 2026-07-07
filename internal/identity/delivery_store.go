@@ -199,6 +199,7 @@ type OutboundSendPayload struct {
 	SentAs         string
 	Recipients     []string
 	Raw            []byte
+	CreatedAt      time.Time // accept time — the outage-tail retry-horizon clock
 }
 
 // OutboundSentInfo carries the fields the async worker's MarkSent/MarkFailed
@@ -221,14 +222,15 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 		sentAs         string
 		to, cc, bcc    []string
 		raw            []byte
+		createdAt      time.Time
 	)
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(delivery_status,''), COALESCE(envelope_from,''), COALESCE(sent_as,''),
-		        to_recipients, cc, bcc, raw_message
+		        to_recipients, cc, bcc, raw_message, created_at
 		   FROM messages
 		  WHERE id = $1 AND direction = 'outbound'`,
 		messageID,
-	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &to, &cc, &bcc, &raw)
+	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &to, &cc, &bcc, &raw, &createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -246,6 +248,7 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 		SentAs:         sentAs,
 		Recipients:     recipients,
 		Raw:            raw,
+		CreatedAt:      createdAt,
 	}, nil
 }
 

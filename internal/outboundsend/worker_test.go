@@ -136,6 +136,40 @@ func TestSendWorker_RetryableFailureDoesNotMarkFailed(t *testing.T) {
 	}
 }
 
+func TestSendWorker_OutageSnoozesWithoutBurningAttempt(t *testing.T) {
+	j := acceptedJob("msg_1")
+	j.AcceptedAt = time.Now() // fresh accept — within the retry horizon
+	st := &fakeStore{job: j}
+	dl := fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("dial tcp 1.2.3.4:587: i/o timeout"), Outage: true}}
+	w := outboundsend.NewSendWorker(st, dl)
+	// Even at a high attempt number, an outage must snooze (not terminal-fail):
+	// JobSnooze doesn't count the attempt, so MaxSendAttempts is never reached.
+	err := w.Work(context.Background(), job("msg_1", outboundsend.MaxSendAttempts))
+	if err == nil {
+		t.Fatal("provider outage should snooze (non-nil JobSnooze error)")
+	}
+	if len(st.failed) != 0 {
+		t.Errorf("an outage within the horizon must NOT MarkFailed, got %+v", st.failed)
+	}
+	if len(st.sent) != 0 {
+		t.Errorf("an outage must not MarkSent")
+	}
+}
+
+func TestSendWorker_OutagePastHorizonFailsTerminally(t *testing.T) {
+	j := acceptedJob("msg_1")
+	j.AcceptedAt = time.Now().Add(-73 * time.Hour) // past the 72h horizon
+	st := &fakeStore{job: j}
+	dl := fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("connection refused"), Outage: true}}
+	w := outboundsend.NewSendWorker(st, dl)
+	if err := w.Work(context.Background(), job("msg_1", 2)); err == nil {
+		t.Fatal("an outage past the retry horizon should fail terminally")
+	}
+	if len(st.failed) != 1 {
+		t.Errorf("an outage past the horizon must MarkFailed, got %+v", st.failed)
+	}
+}
+
 func TestSendWorker_NextRetryMatchesEnvelope(t *testing.T) {
 	w := outboundsend.NewSendWorker(nil, nil)
 	want := []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, 1 * time.Hour, 4 * time.Hour}
