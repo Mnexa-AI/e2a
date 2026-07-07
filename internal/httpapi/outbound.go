@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -10,9 +11,11 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/jackc/pgx/v5"
 )
 
 // jsonResponse builds an extra OpenAPI response entry for an operation whose
@@ -466,6 +469,30 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 	if s.deps.DeliverOutbound == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "outbound delivery unavailable")
 	}
+	// idemCompleteTx lets the async accept-tx (agent.DeliverOutbound) commit this
+	// request's idempotency-key completion in the SAME transaction as the message
+	// insert + send-job enqueue — so a crash after that commit replays 'accepted'
+	// instead of re-persisting. It caches the EXACT wire body deliver() returns for
+	// an accepted result (built below), keeping replay byte-faithful. nil when the
+	// request carries no Idempotency-Key or no store is wired (then agent skips it,
+	// and the synchronous path is unaffected). Uses the same user namespace + key
+	// runIdempotent Claims/Completes under, so its in-tx Complete and runIdempotent's
+	// post-hoc Complete address the same row (the latter no-ops on the in_progress
+	// guard once this has run).
+	var idemCompleteTx agent.AcceptIdemCompleter
+	if idemKey != "" && s.deps.Idempotency != nil {
+		nsKey := idemUserNS + idemKey
+		uid := user.ID
+		idemCompleteTx = func(ctx context.Context, tx pgx.Tx, messageID string) error {
+			raw, mErr := json.Marshal(acceptedView(messageID))
+			if mErr != nil {
+				raw = []byte("{}")
+			}
+			return s.deps.Idempotency.CompleteTx(ctx, tx, uid, nsKey, idempotency.CachedResponse{
+				StatusCode: http.StatusOK, ContentType: "application/json", Body: raw,
+			})
+		}
+	}
 	status, view, err := runIdempotent(s, ctx, user.ID, idemKey, route, rawBody, func() (int, SendResultView, error) {
 		req, env := prepare()
 		if env != nil {
@@ -488,12 +515,18 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 				return 0, SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "limits check failed")
 			}
 		}
-		res, derr := s.deps.DeliverOutbound(ctx, user, ag, req, msgType, replyTo, referenced)
+		res, derr := s.deps.DeliverOutbound(ctx, user, ag, req, msgType, replyTo, referenced, idemCompleteTx)
 		if derr != nil {
 			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
 		if res.Held {
 			return http.StatusAccepted, SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil
+		}
+		// Async accept (slice C): 200 with status=accepted. The body MUST match
+		// acceptedView (the idempotency cache is keyed to it) — no provider id /
+		// sent_as yet (the send hasn't happened; they surface via GET / webhooks).
+		if res.Status == "accepted" {
+			return http.StatusOK, acceptedView(res.MessageID), nil
 		}
 		return http.StatusOK, SendResultView{Status: "sent", MessageID: res.MessageID, ProviderMessageID: res.ProviderMessageID, SentAs: res.SentAs, Method: res.Method}, nil
 	})
@@ -501,6 +534,15 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		return nil, err
 	}
 	return &sendOutput{Status: status, Body: view}, nil
+}
+
+// acceptedView is the single source of the async-accept wire body (slice C). Both
+// the live response and the idempotency cache entry are built from it, so a replay
+// is byte-identical. Deliberately minimal — status + message_id + method; the
+// provider id / sent_as / delivery outcome are not known at accept time and surface
+// later via GET /v1/messages/{id} and the email.sent / email.failed webhooks.
+func acceptedView(messageID string) SendResultView {
+	return SendResultView{Status: "accepted", MessageID: messageID, Method: "smtp"}
 }
 
 // literalRequest wraps an already-built SendRequest as a deliver prepare

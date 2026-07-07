@@ -553,7 +553,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
-		DeliverOutbound: func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo string, referenced *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
+		DeliverOutbound: func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyTo string, referenced *identity.Message, ic agent.AcceptIdemCompleter) (*agent.OutboundResult, *agent.OutboundError) {
 			recordDelivered(req)
 			switch {
 			case strings.Contains(req.Subject, "HOLD"):

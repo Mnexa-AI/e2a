@@ -1,8 +1,34 @@
 package outbound
 
 import (
+	"errors"
 	"testing"
 )
+
+// TestIsPermanentSMTPError guards the at-least-once-critical classification: only a
+// 5xx is permanent (terminal); 4xx, connection errors, and unknowns must retry.
+func TestIsPermanentSMTPError(t *testing.T) {
+	cases := []struct {
+		msg  string
+		want bool
+	}{
+		{"550 recipient rejected", true},
+		{"554 message refused", true},
+		{"421 too many connections", false}, // transient 4xx
+		{"450 mailbox busy", false},
+		{"dial tcp 1.2.3.4:587: i/o timeout", false}, // connection — MUST retry
+		{"connection refused", false},
+		{"outbound SMTP relay not configured", false}, // ops error — retry, don't terminal-fail
+	}
+	for _, c := range cases {
+		if got := IsPermanentSMTPError(errors.New(c.msg)); got != c.want {
+			t.Errorf("IsPermanentSMTPError(%q) = %v, want %v", c.msg, got, c.want)
+		}
+	}
+	if IsPermanentSMTPError(nil) {
+		t.Error("nil error must not be permanent")
+	}
+}
 
 func TestIsTransientSMTPError_4xx(t *testing.T) {
 	tests := []struct {

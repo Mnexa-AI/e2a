@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
@@ -48,6 +50,10 @@ func (m *statefulIdem) Complete(_ context.Context, _, key string, resp idempoten
 	m.cached[key] = resp
 	delete(m.inflight, key)
 	return nil
+}
+
+func (m *statefulIdem) CompleteTx(_ context.Context, _ pgx.Tx, uid, key string, resp idempotency.CachedResponse) error {
+	return m.Complete(context.Background(), uid, key, resp)
 }
 
 func (m *statefulIdem) Release(_ context.Context, _, key string) error {

@@ -172,10 +172,118 @@ func NewSenderWithDKIM(smtpRelay *SMTPRelay, fromDomain string, dkimLookup DKIMK
 	}
 }
 
-// Send normalizes recipients, composes, and sends an email via SMTP relay.
-// Returns a ValidationError for caller errors (bad addresses, no visible recipients)
-// and a plain error for transport failures.
+// composed is the full result of composing an outbound message, up to (but not
+// including) the SMTP submit. Shared by Send (looping submit), SendOnce (single
+// submit), and the async accept path (persist bytes; River worker submits) so
+// every path puts byte-identical mail on the wire.
+type composed struct {
+	envelopeFrom string   // SMTP MAIL FROM (Return-Path)
+	envelope     []string // to+cc+bcc — the RCPT TO set
+	wire         []byte   // DKIM-signed + X-SES-CONFIGURATION-SET header (what SES receives)
+	sentBody     []byte   // DKIM-signed, NO SES header (the retained Sent-folder copy)
+	sentAs       string   // "own_address" | "relay"
+	to, cc, bcc  []string // canonicalized visible/blind recipients
+}
+
+// ComposeResult is the public view of a composed-but-not-yet-sent message, for
+// the async accept path (internal/agent's DeliverOutbound). The accept-tx
+// persists Raw as messages.raw_message and EnvelopeFrom/SentAs on the row; the
+// River worker (internal/outboundsend) reloads them and submits via SubmitOnce.
+// Raw is the Sent-folder copy (no SES config-set header) — SubmitOnce re-attaches
+// that header at submit time, exactly as Send does, so the recipient copy and the
+// stored copy stay identical to the synchronous path.
+type ComposeResult struct {
+	EnvelopeFrom string
+	Recipients   []string // envelope (to+cc+bcc) for RCPT TO
+	SentAs       string
+	Method       string // always "smtp"
+	Raw          []byte // Sent-folder bytes (DKIM-signed, no SES header)
+	To, CC, BCC  []string
+}
+
+// Send normalizes recipients, composes, and sends an email via SMTP relay
+// (the historical retrying submit). Returns a ValidationError for caller errors
+// (bad addresses, no visible recipients) and a plain error for transport failures.
 func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResult, error) {
+	c, err := s.compose(agent, req)
+	if err != nil {
+		return nil, err
+	}
+	sesMessageID, err := s.smtpRelay.Send(c.envelopeFrom, c.envelope, c.wire)
+	if err != nil {
+		return nil, fmt.Errorf("smtp relay: %w", err)
+	}
+	return &SendResult{
+		MessageID: sesMessageID,
+		Method:    "smtp",
+		SentAs:    c.sentAs,
+		To:        c.to,
+		CC:        c.cc,
+		BCC:       c.bcc,
+		Raw:       c.sentBody,
+	}, nil
+}
+
+// SendOnce is Send with a SINGLE SMTP submit and no internal retry loop — the
+// entry point for a caller that owns its own retry envelope. Behaviorally
+// identical to Send except it calls smtpRelay.SendOnce. (The async pipeline does
+// NOT use this — it persists ComposeForAccept's bytes and the River worker
+// submits them via SubmitOnce — but it is the direct single-attempt analogue.)
+func (s *Sender) SendOnce(agent *identity.AgentIdentity, req SendRequest) (*SendResult, error) {
+	c, err := s.compose(agent, req)
+	if err != nil {
+		return nil, err
+	}
+	sesMessageID, err := s.smtpRelay.SendOnce(c.envelopeFrom, c.envelope, c.wire)
+	if err != nil {
+		return nil, fmt.Errorf("smtp relay: %w", err)
+	}
+	return &SendResult{
+		MessageID: sesMessageID,
+		Method:    "smtp",
+		SentAs:    c.sentAs,
+		To:        c.to,
+		CC:        c.cc,
+		BCC:       c.bcc,
+		Raw:       c.sentBody,
+	}, nil
+}
+
+// ComposeForAccept composes an outbound message for the async accept path WITHOUT
+// submitting it. The accept-tx persists the returned bytes + envelope so the River
+// worker owns the actual SMTP submit; it reuses Send's exact compose stage (same
+// recipient normalization, From gating, DKIM) so sync and async are wire-identical.
+func (s *Sender) ComposeForAccept(agent *identity.AgentIdentity, req SendRequest) (*ComposeResult, error) {
+	c, err := s.compose(agent, req)
+	if err != nil {
+		return nil, err
+	}
+	return &ComposeResult{
+		EnvelopeFrom: c.envelopeFrom,
+		Recipients:   c.envelope,
+		SentAs:       c.sentAs,
+		Method:       "smtp",
+		Raw:          c.sentBody,
+		To:           c.to,
+		CC:           c.cc,
+		BCC:          c.bcc,
+	}, nil
+}
+
+// SubmitOnce submits the persisted Sent-folder bytes in a SINGLE SMTP attempt
+// (River owns retries) and returns the provider Message-ID. It re-attaches the
+// X-SES-CONFIGURATION-SET header that Send prepends post-DKIM — raw_message is
+// stored WITHOUT it (SES strips it before delivery; the recipient/Sent-folder copy
+// must not carry it), so it is re-added here at submit time. Keeping the header
+// logic here (not in the worker) means Send and the async path share one source of
+// truth for what SES actually receives.
+func (s *Sender) SubmitOnce(envelopeFrom string, recipients []string, sentBody []byte) (string, error) {
+	return s.smtpRelay.SendOnce(envelopeFrom, recipients, s.applySESConfigSet(sentBody))
+}
+
+// compose runs the full recipient-normalization + From-gating + MIME-compose +
+// DKIM + SES-header stage shared by Send / SendOnce / ComposeForAccept.
+func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*composed, error) {
 	agentAddr := strings.ToLower(agent.EmailAddress())
 	agentAliases := []string{
 		agentAddr,
@@ -288,24 +396,29 @@ func (s *Sender) Send(agent *identity.AgentIdentity, req SendRequest) (*SendResu
 	// AFTER DKIM signing so it is never in the signed header set (SES strips it
 	// before delivery; signing it would break the signature). Empty when SES
 	// event publishing is not configured (dev/self-host) — no header, no events.
-	if s.sesConfigSet != "" {
-		message = append([]byte("X-SES-CONFIGURATION-SET: "+s.sesConfigSet+"\r\n"), message...)
-	}
+	message = s.applySESConfigSet(message)
 
-	sesMessageID, err := s.smtpRelay.Send(envelopeFrom, envelope, message)
-	if err != nil {
-		return nil, fmt.Errorf("smtp relay: %w", err)
-	}
-
-	return &SendResult{
-		MessageID: sesMessageID,
-		Method:    "smtp",
-		SentAs:    sentAs,
-		To:        to,
-		CC:        cc,
-		BCC:       bcc,
-		Raw:       sentBody,
+	return &composed{
+		envelopeFrom: envelopeFrom,
+		envelope:     envelope,
+		wire:         message,
+		sentBody:     sentBody,
+		sentAs:       sentAs,
+		to:           to,
+		cc:           cc,
+		bcc:          bcc,
 	}, nil
+}
+
+// applySESConfigSet prepends the X-SES-CONFIGURATION-SET header when configured,
+// returning the wire bytes SES receives. Prepended AFTER DKIM signing so it is
+// never in the signed header set (SES strips it before delivery; signing it would
+// break the signature). Empty config = no header (dev/self-host without SES).
+func (s *Sender) applySESConfigSet(message []byte) []byte {
+	if s.sesConfigSet == "" {
+		return message
+	}
+	return append([]byte("X-SES-CONFIGURATION-SET: "+s.sesConfigSet+"\r\n"), message...)
 }
 
 // signMessage looks up a DKIM keypair for the given domain and returns

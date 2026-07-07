@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 )
 
@@ -12,6 +14,10 @@ import (
 type IdemStore interface {
 	Claim(ctx context.Context, userID, key, path, bodyHash string) (idempotency.ClaimResult, error)
 	Complete(ctx context.Context, userID, key string, resp idempotency.CachedResponse) error
+	// CompleteTx records the completion inside the caller's transaction — used by
+	// the async accept path to commit the idempotency key atomically with the
+	// message insert + send-job enqueue. See idempotency.Store.CompleteTx.
+	CompleteTx(ctx context.Context, tx pgx.Tx, userID, key string, resp idempotency.CachedResponse) error
 	Release(ctx context.Context, userID, key string) error
 }
 

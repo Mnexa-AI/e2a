@@ -219,14 +219,25 @@ type API struct {
 	// metrics is the slice 10 observability surface. Defaulted to
 	// NoOp; production wires telemetry.Log or a real backend.
 	metrics telemetry.Metrics
+
+	// outboundEnq is the async-send accept-tx's handle on the shared River client
+	// (async-send-pipeline.md, slice C). Non-nil ONLY when E2A_OUTBOUND_MODE=async:
+	// DeliverOutbound then persists the message + enqueues the outbound_send job in
+	// one transaction and returns 200 accepted instead of submitting inline. nil
+	// (the default) leaves the synchronous SES path byte-for-byte unchanged.
+	outboundEnq OutboundEnqueuer
 }
+
+// SetOutboundEnqueuer opts the send path into the async pipeline (slice C). Wired
+// by main.go only when E2A_OUTBOUND_MODE=async; leaving it unset keeps
+// DeliverOutbound on the synchronous submit-inline path.
+func (a *API) SetOutboundEnqueuer(e OutboundEnqueuer) { a.outboundEnq = e }
 
 // SetSubscriberStore wires the subscriber-store dependency after
 // NewAPI. Same optional-setter convention as SetEnforcer / etc.
 func (a *API) SetSubscriberStore(s *webhook.SubscriberStore) {
 	a.subscriberStore = s
 }
-
 
 // SetOutbox wires the slice-4 transactional outbox. Used by the
 // outbound /send handler for the email.sent event (post-side-effect:
@@ -984,6 +995,11 @@ type OutboundResult struct {
 	ProviderMessageID string // provider/SES id when sent via smtp
 	SentAs            string // "own_address" | "relay" (decision 4)
 	Method            string // "smtp" | "loopback"
+	// Status is the send progression the wire maps to `status`. Empty on the
+	// synchronous path (the caller renders "sent"); "accepted" on the async path
+	// (durably persisted + queued; the terminal outcome arrives via email.sent /
+	// email.failed). See async-send-pipeline.md, slice C.
+	Status string
 }
 
 // OutboundError carries an HTTP status + message so both the legacy handler
@@ -1051,7 +1067,7 @@ func resolveOutboundConversationID(explicit, msgType string, referenced *identit
 	return identity.NewConversationID()
 }
 
-func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message) (*OutboundResult, *OutboundError) {
+func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message, idemCompleteTx AcceptIdemCompleter) (*OutboundResult, *OutboundError) {
 	// Suppression enforcement (decision 9 / Slice 4b): fail fast if any
 	// recipient is on this tenant's suppression list. Enforced fresh on every
 	// attempt and NOT cached under the idempotency key (it's a clearable state,
@@ -1116,6 +1132,63 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 		log.Printf("[mail] dir=outbound type=%s method=loopback from=%s to=%s slug=%s conv_id=%s subject=%q provider_id=%s", msgType, agent.EmailAddress(), agent.EmailAddress(), slug, req.ConversationID, req.Subject, providerID)
 		return &OutboundResult{MessageID: providerID, Method: "loopback"}, nil
+	}
+
+	// Async accept path (async-send-pipeline.md, slice C), gated by
+	// E2A_OUTBOUND_MODE=async (⇒ outboundEnq wired). We are past self-send / hold /
+	// block, so this is the real SES path. Instead of submitting inline, compose
+	// once and durably persist the message (delivery_status='accepted') + enqueue
+	// the outbound_send job + complete the idempotency key, all in ONE transaction:
+	// an accepted row can never exist without a send job, and a retry replays the
+	// cached 'accepted' response rather than re-persisting. The River worker
+	// (internal/outboundsend) then submits to SES and records the terminal outcome
+	// (email.sent / email.failed + metering). Sync mode (outboundEnq == nil) falls
+	// through to the unchanged submit-inline tail below.
+	if a.outboundEnq != nil {
+		comp, cerr := a.sender.ComposeForAccept(agent, req)
+		if cerr != nil {
+			if outbound.IsValidationError(cerr) {
+				return nil, &OutboundError{http.StatusBadRequest, "invalid_request", cerr.Error()}
+			}
+			log.Printf("[api] async compose failed: agent=%s to=%v error=%v", agent.Domain, req.To, cerr)
+			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("compose failed: %v", cerr)}
+		}
+		var accepted *identity.Message
+		if txErr := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			msg, err := a.store.CreateOutboundMessageTx(ctx, tx, agent.ID, comp.To, comp.CC, comp.BCC, req.Subject, msgType, comp.Method, "", req.ConversationID, comp.Raw, "accepted", comp.EnvelopeFrom, comp.SentAs)
+			if err != nil {
+				return err
+			}
+			jobID, err := a.outboundEnq.EnqueueSendTx(ctx, tx, msg.ID)
+			if err != nil {
+				return err
+			}
+			if err := a.store.StampSendJobIDTx(ctx, tx, msg.ID, jobID); err != nil {
+				return err
+			}
+			// Commit the idempotency-key completion in the SAME tx so a crash after
+			// commit still replays 'accepted' (never re-persists / double-sends). nil
+			// when the request carried no Idempotency-Key.
+			if idemCompleteTx != nil {
+				if err := idemCompleteTx(ctx, tx, msg.ID); err != nil {
+					return err
+				}
+			}
+			accepted = msg
+			return nil
+		}); txErr != nil {
+			log.Printf("[api] async accept tx failed: agent=%s to=%v error=%v", agent.Domain, req.To, txErr)
+			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to accept message for send"}
+		}
+		// flag verdict: annotate + audit AFTER the row is durable (post-persist,
+		// mirrors the synchronous ordering). Metering + publishSent belong to the
+		// worker (the message is not "sent" yet), so they are intentionally absent here.
+		if verdict.Annotate() {
+			a.annotateAndAudit(ctx, agent, accepted.ID, req, verdict)
+		}
+		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+		log.Printf("[mail:%s] dir=outbound type=%s status=accepted from=%s to=%v slug=%s conv_id=%s subject=%q", accepted.ID, msgType, agent.EmailAddress(), comp.To, slug, req.ConversationID, req.Subject)
+		return &OutboundResult{MessageID: accepted.ID, Status: "accepted", SentAs: comp.SentAs, Method: comp.Method}, nil
 	}
 
 	result, err := a.sender.Send(agent, req)

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -26,6 +28,9 @@ func (f *pathRecordingIdem) Claim(ctx context.Context, userID, key, path, bodyHa
 	return idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}, nil
 }
 func (f *pathRecordingIdem) Complete(ctx context.Context, userID, key string, resp idempotency.CachedResponse) error {
+	return nil
+}
+func (f *pathRecordingIdem) CompleteTx(ctx context.Context, tx pgx.Tx, userID, key string, resp idempotency.CachedResponse) error {
 	return nil
 }
 func (f *pathRecordingIdem) Release(ctx context.Context, userID, key string) error { return nil }
@@ -53,7 +58,7 @@ func TestSendIdempotencyRouteIncludesAgent(t *testing.T) {
 			return nil, errors.New("not found")
 		},
 		Idempotency: rec,
-		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
+		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message, ic agent.AcceptIdemCompleter) (*agent.OutboundResult, *agent.OutboundError) {
 			return &agent.OutboundResult{MessageID: "m", Method: "smtp"}, nil
 		},
 	}))
@@ -128,6 +133,13 @@ func (m *memIdem) Complete(ctx context.Context, userID, key string, resp idempot
 	return nil
 }
 
+// CompleteTx mirrors Complete for the in-memory fake (tx is irrelevant here); the
+// in_progress→completed transition is the same, so a later post-hoc Complete with
+// the same body is a harmless idempotent overwrite.
+func (m *memIdem) CompleteTx(ctx context.Context, tx pgx.Tx, userID, key string, resp idempotency.CachedResponse) error {
+	return m.Complete(ctx, userID, key, resp)
+}
+
 func (m *memIdem) Release(ctx context.Context, userID, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -162,7 +174,7 @@ func TestSendTemplateIdempotentRetryAfterTemplateDelete(t *testing.T) {
 			return nil, identity.ErrTemplateNotFound
 		},
 		Idempotency: newMemIdem(),
-		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
+		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message, ic agent.AcceptIdemCompleter) (*agent.OutboundResult, *agent.OutboundError) {
 			deliveries++
 			return &agent.OutboundResult{MessageID: "msg_first", Method: "smtp"}, nil
 		},

@@ -101,7 +101,7 @@ func TestSelfSend_HappyPath(t *testing.T) {
 
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
 		To: []string{ag.EmailAddress()}, Subject: "note to self", Body: "remember to refill coffee",
-	}, "send", "", nil)
+	}, "send", "", nil, nil)
 	if oerr != nil {
 		t.Fatalf("DeliverOutbound: status=%d code=%s msg=%s", oerr.Status, oerr.Code, oerr.Msg)
 	}
@@ -161,7 +161,7 @@ func TestSelfSend_PreservesAttachmentsInMIME(t *testing.T) {
 		Attachments: []outbound.Attachment{{
 			Filename: "note.txt", ContentType: "text/plain", Data: "aGVsbG8gZmlsZQ==",
 		}},
-	}, "send", "", nil)
+	}, "send", "", nil, nil)
 	if oerr != nil {
 		t.Fatalf("DeliverOutbound: status=%d msg=%s", oerr.Status, oerr.Msg)
 	}
@@ -210,7 +210,7 @@ func TestSelfSend_NoAttachmentsUsesSinglePart(t *testing.T) {
 
 	if _, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
 		To: []string{ag.EmailAddress()}, Subject: "plain", Body: "hi me",
-	}, "send", "", nil); oerr != nil {
+	}, "send", "", nil, nil); oerr != nil {
 		t.Fatalf("DeliverOutbound: status=%d msg=%s", oerr.Status, oerr.Msg)
 	}
 

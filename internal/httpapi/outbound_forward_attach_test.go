@@ -57,7 +57,7 @@ func TestForwardCarriesOriginalAttachments(t *testing.T) {
 			}
 			return nil, errors.New("not found")
 		},
-		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message) (*agent.OutboundResult, *agent.OutboundError) {
+		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message, ic agent.AcceptIdemCompleter) (*agent.OutboundResult, *agent.OutboundError) {
 			captured = req
 			return &agent.OutboundResult{MessageID: "msg_sent_1", Method: "smtp"}, nil
 		},

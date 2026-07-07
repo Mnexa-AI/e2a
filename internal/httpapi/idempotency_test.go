@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 )
 
@@ -21,6 +23,10 @@ func (f *fakeIdem) Claim(ctx context.Context, userID, key, path, bodyHash string
 	return f.claim, f.claimErr
 }
 func (f *fakeIdem) Complete(ctx context.Context, userID, key string, resp idempotency.CachedResponse) error {
+	f.completed = &resp
+	return nil
+}
+func (f *fakeIdem) CompleteTx(ctx context.Context, tx pgx.Tx, userID, key string, resp idempotency.CachedResponse) error {
 	f.completed = &resp
 	return nil
 }

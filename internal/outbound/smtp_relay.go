@@ -78,6 +78,24 @@ func (r *SMTPRelay) SendOnce(envelopeFrom string, recipients []string, message [
 // DeliverOutcome.Permanent. Nil is not transient.
 func IsTransientSMTPError(err error) bool { return isTransientSMTPError(err) }
 
+// IsPermanentSMTPError reports whether err is a DEFINITELY-permanent SMTP failure —
+// a 5xx response (recipient rejected, message refused) that must not be retried.
+// The River worker's deliverer uses this to set DeliverOutcome.Permanent.
+//
+// It is deliberately conservative: ONLY a 5xx is permanent. Connection errors (dial
+// timeout, connection refused), 4xx, and any unclassified error are NOT permanent —
+// they retry. This matters for at-least-once: mis-classifying a transient network
+// error as permanent would terminal-fail a send that should retry until the
+// provider accepts. (Provider-outage snooze — deferring an outage instead of
+// spending retries — is slice D.)
+func IsPermanentSMTPError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return len(msg) >= 3 && msg[0] == '5'
+}
+
 // sendOnce performs a single SMTP send using smtp.Client for the handshake,
 // then drives the DATA command manually via c.Text to capture the response.
 // Issues RCPT TO for each recipient; aborts if any is rejected.

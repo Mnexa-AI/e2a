@@ -28,6 +28,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/outboundsend"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/senderidentity"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
@@ -224,6 +225,31 @@ func main() {
 	var jobsClient *jobs.Client
 	var registrars []jobs.Registrar
 
+	// Usage tracking is hosted-deployment infrastructure (counts every
+	// inbound/outbound message into usage_events + usage_summaries for downstream
+	// billing reconciliation). Self-hosters get the no-op tracker by default — the
+	// writes are dead weight without an external reader. Set E2A_USAGE_TRACKING=true
+	// to enable. Built here (before the River registrars) because the async-send
+	// worker's store adapter meters through it.
+	var usageTracker usage.UsageTracker = usage.NewNoopUsageTracker()
+	if os.Getenv("E2A_USAGE_TRACKING") == "true" {
+		usageTracker = usage.NewUsageTracker(usage.NewStore(pool))
+		log.Printf("Usage tracking enabled (writing to usage_events + usage_summaries)")
+	}
+
+	// Async outbound send pipeline (async-send-pipeline.md, slice C), gated by
+	// E2A_OUTBOUND_MODE=async. The SendWorker registers on the shared River client;
+	// the accept-tx enqueues an outbound_send job in the same transaction as the
+	// message row. Left nil (⇒ synchronous submit-inline path unchanged) otherwise.
+	var outboundJobs *outboundsend.Jobs
+	if cfg.Outbound.Mode == "async" {
+		outboundJobs = outboundsend.NewJobs(
+			agent.NewOutboundSendStore(store, webhookOutbox, usageTracker),
+			agent.NewOutboundDeliverer(sender),
+		)
+		registrars = append(registrars, outboundJobs)
+	}
+
 	var senderMgr *senderidentity.Manager
 	if region := cfg.SenderIdentity.SESRegion; region != "" {
 		provider, perr := senderidentity.NewSESProviderFromConfig(ctx, region)
@@ -275,6 +301,18 @@ func main() {
 			log.Printf("[webhook-delivery] cutover enqueued %d pending deliveries", n)
 		}
 		log.Printf("[webhook-delivery] engine=river")
+		// Async outbound send cutover (slice C): wire the shared client into the
+		// accept-tx enqueuer and re-drive any accepted-but-unenqueued rows (stranded
+		// by an accept-tx that crashed between message insert and job commit).
+		if outboundJobs != nil {
+			outboundJobs.SetEnqueuer(jobsClient)
+			if n, cerr := outboundJobs.ReconcilePending(ctx, pool); cerr != nil {
+				log.Printf("[outbound-send] cutover: %v", cerr)
+			} else if n > 0 {
+				log.Printf("[outbound-send] cutover enqueued %d stranded sends", n)
+			}
+			log.Printf("[outbound-send] engine=river (async accept, E2A_OUTBOUND_MODE=async)")
+		}
 		// Stop is driven from the shutdown sequence under the shared deadline.
 		if serr := jobsClient.Start(ctx); serr != nil {
 			log.Fatalf("jobs: start shared river client: %v", serr)
@@ -283,17 +321,6 @@ func main() {
 
 	// User auth (Google OAuth for agent developers)
 	userAuth := auth.NewUserAuth(&cfg.OAuth, store, cfg.IsProduction())
-
-	// Usage tracking is hosted-deployment infrastructure (counts every
-	// inbound/outbound message into usage_events + usage_summaries for
-	// downstream billing reconciliation). Self-hosters get the no-op
-	// tracker by default — the writes are dead weight without an
-	// external reader. Set E2A_USAGE_TRACKING=true to enable.
-	var usageTracker usage.UsageTracker = usage.NewNoopUsageTracker()
-	if os.Getenv("E2A_USAGE_TRACKING") == "true" {
-		usageTracker = usage.NewUsageTracker(usage.NewStore(pool))
-		log.Printf("Usage tracking enabled (writing to usage_events + usage_summaries)")
-	}
 
 	// HTTP API
 	router := mux.NewRouter()
@@ -402,6 +429,13 @@ func main() {
 		api.SetDomainTeardownHook(senderEnqueuer.EnqueueDeprovisionTx)
 	}
 	api.SetOutbox(webhookOutbox)
+	// Async outbound send (slice C): give the send path the accept-tx enqueuer so
+	// DeliverOutbound persists+enqueues+returns 200 accepted instead of submitting
+	// inline. Only wired when E2A_OUTBOUND_MODE=async (outboundJobs != nil); nil
+	// keeps the synchronous path byte-for-byte unchanged.
+	if outboundJobs != nil {
+		api.SetOutboundEnqueuer(outboundJobs)
+	}
 	// Slices 6 + 7: customer-facing events API needs the raw pool to
 	// query webhook_events and write webhook_subscriber_deliveries on
 	// replay. Kept as a separate setter so a future refactor can route

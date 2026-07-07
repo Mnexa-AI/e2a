@@ -187,6 +187,151 @@ func (s *Store) MarkMessageSent(ctx context.Context, messageID, sentAs string, t
 	return tx.Commit(ctx)
 }
 
+// --- Async outbound send (async-send-pipeline.md, slice C) ---
+
+// OutboundSendPayload is the async worker's view of an accepted outbound message
+// (the LoadOutboundForSend result). Recipients is the SMTP envelope (to+cc+bcc);
+// Raw is the persisted Sent-folder bytes the worker submits via Sender.SubmitOnce.
+type OutboundSendPayload struct {
+	ID             string
+	DeliveryStatus string
+	EnvelopeFrom   string
+	SentAs         string
+	Recipients     []string
+	Raw            []byte
+}
+
+// OutboundSentInfo carries the fields the async worker's MarkSent/MarkFailed
+// adapters need to build the email.sent / email.failed event and meter usage,
+// resolved from the row + its owning agent in one transaction.
+type OutboundSentInfo struct {
+	Message *Message
+	UserID  string
+	Domain  string
+}
+
+// LoadOutboundForSend returns the payload the async send worker submits, or nil if
+// the row is gone (agent-delete cascade / TTL) — the worker treats that as a
+// no-op. Reads the envelope (to+cc+bcc) and the persisted wire bytes; does not
+// touch message_recipients (those are written at MarkSent).
+func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*OutboundSendPayload, error) {
+	var (
+		deliveryStatus string
+		envelopeFrom   string
+		sentAs         string
+		to, cc, bcc    []string
+		raw            []byte
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(delivery_status,''), COALESCE(envelope_from,''), COALESCE(sent_as,''),
+		        to_recipients, cc, bcc, raw_message
+		   FROM messages
+		  WHERE id = $1 AND direction = 'outbound'`,
+		messageID,
+	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &to, &cc, &bcc, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	recipients := make([]string, 0, len(to)+len(cc)+len(bcc))
+	recipients = append(recipients, to...)
+	recipients = append(recipients, cc...)
+	recipients = append(recipients, bcc...)
+	return &OutboundSendPayload{
+		ID:             messageID,
+		DeliveryStatus: deliveryStatus,
+		EnvelopeFrom:   envelopeFrom,
+		SentAs:         sentAs,
+		Recipients:     recipients,
+		Raw:            raw,
+	}, nil
+}
+
+// MarkOutboundSentTx records, within the caller's transaction, that an accepted
+// outbound message was submitted to the provider: delivery_status='sent',
+// provider_message_id, and one message_recipients row per recipient at 'sent'
+// (mirrors MarkMessageSent's recipient shape). sent_as is left as the accept-time
+// value. Returns the row + owning user/domain for the caller to emit email.sent +
+// meter usage, or nil if the row is gone (deleted between load and mark).
+func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, providerMessageID string) (*OutboundSentInfo, error) {
+	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent", ProviderMessageID: providerMessageID}
+	err := tx.QueryRow(ctx,
+		`UPDATE messages
+		    SET delivery_status = 'sent', provider_message_id = $2
+		  WHERE id = $1 AND direction = 'outbound'
+		 RETURNING agent_id, subject, message_type, method, conversation_id, sender, to_recipients, cc, bcc`,
+		messageID, providerMessageID,
+	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	add := func(addrs []string, kind string) error {
+		for _, a := range addrs {
+			addr := NormalizeEmail(a)
+			if addr == "" {
+				continue
+			}
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO message_recipients (id, message_id, address, kind, status)
+				 VALUES ($1, $2, $3, $4, 'sent')
+				 ON CONFLICT (message_id, address) DO NOTHING`,
+				"rcpt_"+generateID(), messageID, addr, kind,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := add(m.ToRecipients, "to"); err != nil {
+		return nil, err
+	}
+	if err := add(m.CC, "cc"); err != nil {
+		return nil, err
+	}
+	if err := add(m.BCC, "bcc"); err != nil {
+		return nil, err
+	}
+	info := &OutboundSentInfo{Message: m}
+	if err := tx.QueryRow(ctx,
+		`SELECT user_id, domain FROM agent_identities WHERE id = $1`, m.AgentID,
+	).Scan(&info.UserID, &info.Domain); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+// MarkOutboundFailedTx records, within the caller's transaction, a terminal
+// outbound send failure: delivery_status='failed' + delivery_detail. Returns the
+// row + owning user for the caller to emit email.failed, or nil if the row is gone.
+func (s *Store) MarkOutboundFailedTx(ctx context.Context, tx pgx.Tx, messageID, detail string) (*OutboundSentInfo, error) {
+	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "failed", DeliveryDetail: detail}
+	err := tx.QueryRow(ctx,
+		`UPDATE messages
+		    SET delivery_status = 'failed', delivery_detail = $2
+		  WHERE id = $1 AND direction = 'outbound'
+		 RETURNING agent_id, subject, message_type, method, conversation_id, sender, to_recipients, cc, bcc`,
+		messageID, nullIfEmpty(detail),
+	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	info := &OutboundSentInfo{Message: m}
+	if err := tx.QueryRow(ctx,
+		`SELECT user_id, domain FROM agent_identities WHERE id = $1`, m.AgentID,
+	).Scan(&info.UserID, &info.Domain); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
 // --- Suppression list ---
 
 // Suppression is one (user, address) entry on the per-tenant suppression list.

@@ -54,6 +54,7 @@ type SendJob struct {
 	EnvelopeFrom string
 	Recipients   []string
 	RawMessage   []byte // composed MIME
+	SentAs       string // From identity decided at accept ("own_address"|"relay")
 }
 
 // alreadyDone reports whether the message has already been submitted to the

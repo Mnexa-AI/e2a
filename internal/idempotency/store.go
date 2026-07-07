@@ -258,6 +258,29 @@ func (s *Store) Complete(ctx context.Context, userID, key string, resp CachedRes
 	return err
 }
 
+// CompleteTx is Complete on the caller's transaction — for the async accept path
+// (async-send-pipeline.md, slice C), which commits the idempotency-key completion
+// atomically with the message-row insert + send-job enqueue. Committing the
+// completion IN the accept-tx closes the crash window that Complete (run AFTER the
+// side effect) leaves open: if the process dies after the accept-tx commits but
+// before a post-hoc Complete, the key stays in_progress and a retry past the stale
+// window re-runs the send. With CompleteTx the key is 'completed' the instant the
+// message is durable, so every retry replays. Same in_progress guard as Complete,
+// so a later post-hoc Complete is a harmless no-op.
+func (s *Store) CompleteTx(ctx context.Context, tx pgx.Tx, userID, key string, resp CachedResponse) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE idempotency_keys
+		    SET status                = 'completed',
+		        response_status       = $3,
+		        response_content_type = $4,
+		        response_body         = $5,
+		        completed_at          = now()
+		  WHERE user_id = $1 AND key = $2 AND status = 'in_progress'`,
+		userID, key, resp.StatusCode, resp.ContentType, resp.Body,
+	)
+	return err
+}
+
 // Release drops an OutcomeAcquired claim without recording a response.
 // Use when the caller decided not to perform the side effect (e.g.
 // the request failed validation before any external work happened),

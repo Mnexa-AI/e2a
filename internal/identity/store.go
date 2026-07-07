@@ -1481,6 +1481,64 @@ func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRec
 	return m, nil
 }
 
+// CreateOutboundMessageTx is CreateOutboundMessage on the caller's transaction,
+// for the async accept path (async-send-pipeline.md, slice C). It persists the
+// two-column model: status=MessageStatusSent (the hold/lifecycle column — this row
+// is not held) while delivery_status carries the send progression (the accept-tx
+// passes 'accepted'; the send worker later advances it to 'sent'/'failed'). It
+// also stamps envelope_from + sent_as, decided once at compose time, so the worker
+// can submit the persisted bytes without re-composing. provider_message_id is
+// empty until the worker records the SES id in MarkOutboundSentTx.
+func (s *Store) CreateOutboundMessageTx(ctx context.Context, tx pgx.Tx, agentID string, toRecipients, cc, bcc []string, subject, msgType, method, providerMessageID, conversationID string, rawMessage []byte, deliveryStatus, envelopeFrom, sentAs string) (*Message, error) {
+	id := "msg_" + generateID()
+	now := time.Now()
+
+	var recipient string
+	if len(toRecipients) > 0 {
+		recipient = toRecipients[0]
+	}
+
+	m := &Message{
+		ID:                id,
+		AgentID:           agentID,
+		Direction:         "outbound",
+		Recipient:         recipient,
+		Subject:           subject,
+		Type:              msgType,
+		Method:            method,
+		ProviderMessageID: providerMessageID,
+		ConversationID:    conversationID,
+		CreatedAt:         now,
+		ExpiresAt:         now.Add(MessageTTL),
+		ToRecipients:      toRecipients,
+		CC:                cc,
+		BCC:               bcc,
+		RawMessage:        rawMessage,
+		Sender:            agentID,
+		DeliveryStatus:    deliveryStatus,
+		SentAs:            sentAs,
+	}
+	_, err := tx.Exec(ctx,
+		`INSERT INTO messages (id, agent_id, direction, recipient, subject, message_type, method, provider_message_id, conversation_id, created_at, expires_at, to_recipients, cc, bcc, status, sender, raw_message, delivery_status, sent_as, envelope_from)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.Type, m.Method, m.ProviderMessageID, m.ConversationID, m.CreatedAt, m.ExpiresAt, m.ToRecipients, m.CC, m.BCC, MessageStatusSent, m.Sender, nullIfEmptyBytes(m.RawMessage), nullIfEmpty(deliveryStatus), nullIfEmpty(sentAs), nullIfEmpty(envelopeFrom),
+	)
+	if err != nil {
+		return nil, err
+	}
+	m.Status = MessageStatusSent
+	return m, nil
+}
+
+// StampSendJobIDTx records the River outbound_send job id on the accepted message,
+// within the accept-tx, so the async-send reconciler can find stranded rows
+// ('accepted' with send_job_id IS NULL). Mirrors the webhook_subscriber_deliveries
+// .job_id stamp.
+func (s *Store) StampSendJobIDTx(ctx context.Context, tx pgx.Tx, messageID string, jobID int64) error {
+	_, err := tx.Exec(ctx, `UPDATE messages SET send_job_id = $2 WHERE id = $1`, messageID, jobID)
+	return err
+}
+
 // CreatePendingOutboundMessage stores a fully composed outbound email in
 // pending_review status, including body_text, body_html, and attachments so
 // that approval can reconstruct the original SendRequest (or accept edits)

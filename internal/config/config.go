@@ -40,6 +40,7 @@ type Config struct {
 	OAuth            OAuthConfig            `yaml:"oauth"`
 	Signing          SigningConfig          `yaml:"signing"`
 	OutboundSMTP     OutboundSMTPConfig     `yaml:"outbound_smtp"`
+	Outbound         OutboundConfig         `yaml:"outbound"`
 	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
 	Limits           LimitsConfig           `yaml:"limits"`
@@ -120,6 +121,18 @@ type OutboundSMTPConfig struct {
 	// off for dev relays (e.g. Mailpit on :1025 with no TLS). Regardless
 	// of this flag, PLAIN auth is never sent over a cleartext connection.
 	RequireTLS *bool `yaml:"require_tls"`
+}
+
+// OutboundConfig selects the outbound send execution model (async-send
+// pipeline, slice C). Mode="sync" (the default) is the historical path:
+// DeliverOutbound submits to SES inline and returns 200 sent. Mode="async"
+// opts into the River pipeline: the accept-tx durably persists the message
+// (delivery_status='accepted') + enqueues a send job atomically and returns
+// 200 accepted; the internal/outboundsend worker submits to SES and records
+// the terminal outcome. Override with E2A_OUTBOUND_MODE. Any value other than
+// "async" is treated as "sync" (fail-safe to the unchanged path).
+type OutboundConfig struct {
+	Mode string `yaml:"mode"`
 }
 
 // DeliveryFeedbackConfig controls outbound delivery feedback (decision 9 /
@@ -207,7 +220,8 @@ func Load(path string) (*Config, error) {
 			MaxStorageBytes:  1 << 50, // 1 PiB
 			CacheTTLSeconds:  60,
 		},
-		Env: "development",
+		Outbound: OutboundConfig{Mode: "sync"},
+		Env:      "development",
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
@@ -255,6 +269,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_FROM_DOMAIN"); v != "" {
 		cfg.OutboundSMTP.FromDomain = v
+	}
+	if v := os.Getenv("E2A_OUTBOUND_MODE"); v != "" {
+		cfg.Outbound.Mode = v
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_REQUIRE_TLS"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
