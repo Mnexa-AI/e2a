@@ -82,6 +82,11 @@ export function PendingRow({
 }) {
   const agentEmail = summary.agent_email;
   const id = summary.id;
+  // "Why held" line, computed once (pure; stable within a render).
+  const reasonLabel = reviewReasonLabel(
+    summary.review_reason,
+    summary.scan_score,
+  );
   // Inbound holds are screened *incoming* messages: approve = release to
   // the inbox, reject = block. They aren't editable drafts, so the editor
   // and "& send" wording are outbound-only.
@@ -233,16 +238,14 @@ export function PendingRow({
           {/* Why this message is held — the coded screening verdict rendered as
               a reader-friendly line (+ scan confidence when present). Omitted
               when the queue row carries no reason. */}
-          {reviewReasonLabel(summary.review_reason, summary.scan_score) && (
+          {reasonLabel && (
             <span
               className="flex items-center gap-1 text-[11px] mt-0.5 truncate"
-              style={{ color: "var(--warn, #b45309)" }}
-              title={reviewReasonLabel(summary.review_reason, summary.scan_score) ?? undefined}
+              style={{ color: "var(--warn-strong)" }}
+              title={reasonLabel}
             >
               <span aria-hidden>⚑</span>
-              <span className="truncate">
-                {reviewReasonLabel(summary.review_reason, summary.scan_score)}
-              </span>
+              <span className="truncate">{reasonLabel}</span>
             </span>
           )}
         </span>

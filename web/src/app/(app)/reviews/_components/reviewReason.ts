@@ -26,7 +26,13 @@ export function reviewReasonLabel(
   score?: number | null,
 ): string | null {
   if (!reason) return null;
-  const base = REVIEW_REASON_LABELS[reason] ?? humanizeCode(reason);
+  // typeof guard, not `?? humanizeCode`: REVIEW_REASON_LABELS is a plain object,
+  // so a coded reason that collides with an Object.prototype key ("constructor",
+  // "toString", …) would otherwise resolve to an inherited function/object and
+  // crash the React render. review_reason is server-assigned from a fixed set
+  // today, but the field is documented open-set, so stay defensive.
+  const mapped = REVIEW_REASON_LABELS[reason];
+  const base = typeof mapped === "string" ? mapped : humanizeCode(reason);
   if (typeof score === "number" && Number.isFinite(score)) {
     return `${base} (${score.toFixed(2)})`;
   }

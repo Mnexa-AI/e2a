@@ -50,4 +50,37 @@ describe("reviewReasonLabel", () => {
       "Some new reason (0.50)",
     );
   });
+
+  it("never returns a non-string for Object.prototype-key codes", () => {
+    // A coded reason colliding with a prototype key must not resolve to the
+    // inherited function/object (which would crash the React render) — it must
+    // fall through to the humanized string.
+    for (const key of ["constructor", "toString", "valueOf", "hasOwnProperty"]) {
+      const label = reviewReasonLabel(key);
+      expect(typeof label).toBe("string");
+    }
+    expect(reviewReasonLabel("constructor")).toBe("Constructor");
+    expect(reviewReasonLabel("__proto__")).toBe("Proto");
+  });
+
+  it("renders a legitimate zero score, and would show a score even on a gate reason", () => {
+    // 0 is a finite score, not 'absent' — it renders.
+    expect(reviewReasonLabel("inbound_scan", 0)).toBe(
+      "Content flagged by screening scan (0.00)",
+    );
+    // The helper is contract-agnostic: if the backend ever attaches a score to
+    // a gate reason, it's appended (the backend, not this fn, decides when).
+    expect(reviewReasonLabel("sender_gate", 0.4)).toBe(
+      "Sender blocked by inbound policy (0.40)",
+    );
+  });
+
+  it("drops non-finite scores (NaN / Infinity)", () => {
+    expect(reviewReasonLabel("inbound_scan", NaN)).toBe(
+      "Content flagged by screening scan",
+    );
+    expect(reviewReasonLabel("inbound_scan", Infinity)).toBe(
+      "Content flagged by screening scan",
+    );
+  });
 });
