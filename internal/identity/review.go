@@ -22,6 +22,16 @@ type ReviewListItem struct {
 	CreatedAt      time.Time
 	Flagged        bool
 	FlagReason     string
+	// ReviewReason is the coded screening verdict that held this message
+	// (sender_gate|recipient_gate|inbound_scan|outbound_scan|outbound_send).
+	// Unlike FlagReason (inbound ingestion-gate only) it is populated for every
+	// hold path — both directions, gate and scan — so it is the reason a reviewer
+	// should see. See identity.Message.ReviewReason (migration 037/040).
+	ReviewReason string
+	// ScanScore is the aggregate content-scan score (0..1) that drove a scan
+	// hold; nil for gate-only holds (sender_gate/recipient_gate), where no scan
+	// ran. Lets the review row show a confidence alongside a scan reason.
+	ScanScore *float64
 }
 
 // ListReviews returns one page of held (pending_review) messages — BOTH
@@ -38,7 +48,8 @@ func (s *Store) ListReviews(ctx context.Context, userID string, limit int, after
 	q := `SELECT m.id, m.agent_id, m.direction, m.sender, m.to_recipients,
 	        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
 	        COALESCE(m.status, ''), m.created_at,
-	        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
+	        COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''),
+	        COALESCE(m.review_reason, ''), m.scan_score
 	   FROM messages m
 	   JOIN agent_identities a ON a.id = m.agent_id
 	  WHERE a.user_id = $1 AND a.deleted_at IS NULL
@@ -64,7 +75,7 @@ func (s *Store) ListReviews(ctx context.Context, userID string, limit int, after
 		var it ReviewListItem
 		if err := rows.Scan(&it.ID, &it.AgentID, &it.Direction, &it.Sender, &it.To,
 			&it.Subject, &it.ConversationID, &it.Status, &it.CreatedAt,
-			&it.Flagged, &it.FlagReason); err != nil {
+			&it.Flagged, &it.FlagReason, &it.ReviewReason, &it.ScanScore); err != nil {
 			return nil, err
 		}
 		out = append(out, it)
@@ -85,13 +96,13 @@ func (s *Store) GetReviewWithContent(ctx context.Context, userID, messageID stri
 	var authVerdict []byte
 	var outboundDeliveryStatus string
 	err := s.pool.QueryRow(ctx,
-		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), m.raw_message, m.auth_headers, m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''), m.created_at, m.expires_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), COALESCE(m.body_text, ''), COALESCE(m.body_html, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
+		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), m.raw_message, m.auth_headers, m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''), COALESCE(m.review_reason, ''), m.scan_score, m.created_at, m.expires_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), COALESCE(m.body_text, ''), COALESCE(m.body_html, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
 		   FROM messages m
 		   JOIN agent_identities a ON a.id = m.agent_id
 		   LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		  WHERE m.id = $1 AND a.user_id = $2 AND a.deleted_at IS NULL AND m.expires_at > now()`,
 		messageID, userID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.ReviewReason, &m.ScanScore, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
 	if err != nil {
 		return nil, err
 	}

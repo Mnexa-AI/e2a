@@ -72,9 +72,18 @@ type MessageView struct {
 	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
 	// Slice 7): true when the agent's inbound_policy gate flagged this message
 	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
-	Flagged    bool     `json:"flagged,omitempty"`
-	FlagReason string   `json:"flag_reason,omitempty"`
-	Labels     []string `json:"labels" nullable:"false"`
+	Flagged    bool   `json:"flagged,omitempty"`
+	FlagReason string `json:"flag_reason,omitempty"`
+	// ReviewReason is the coded screening verdict that held this message for
+	// review. Populated only on the review-detail surface (GET /v1/reviews/{id});
+	// the agent /messages read paths never return held rows, so it stays empty
+	// there. One of sender_gate|recipient_gate|inbound_scan|outbound_scan|
+	// outbound_send. Open set; tolerate unknown values.
+	ReviewReason string `json:"review_reason,omitempty" doc:"Coded reason this message was held for review (review surface only). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send."`
+	// ScanScore is the aggregate content-scan score (0..1) behind a scan hold;
+	// review surface only, omitted for gate-only holds.
+	ScanScore *float64 `json:"scan_score,omitempty" doc:"Aggregate content-scan score (0..1) that drove a scan hold (review surface only). Omitted for gate-only holds."`
+	Labels    []string `json:"labels" nullable:"false"`
 	// CreatedAt is emitted as a full-precision RFC3339Nano date-time (time.Time),
 	// consistent with every other timestamp in the surface. This is the keyset
 	// pagination ORDERING key, so it must NOT be truncated to whole seconds —

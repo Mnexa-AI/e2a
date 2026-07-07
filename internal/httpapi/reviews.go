@@ -37,7 +37,16 @@ type ReviewView struct {
 	ReviewStatus   string    `json:"review_status" doc:"Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items)."`
 	Flagged        bool      `json:"flagged,omitempty"`
 	FlagReason     string    `json:"flag_reason,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	// ReviewReason is the coded screening verdict that held this item — one of
+	// sender_gate|recipient_gate|inbound_scan|outbound_scan|outbound_send. It is
+	// populated for every hold (both directions, gate and scan), so it is the
+	// authoritative "why held". Prefer it over flag_reason (inbound-gate only).
+	// Open set; tolerate unknown values.
+	ReviewReason string    `json:"review_reason,omitempty" doc:"Coded reason this message was held for review. Populated for every hold (both directions, gate and scan). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send."`
+	// ScanScore is the aggregate content-scan score (0..1) behind a scan hold;
+	// omitted for gate-only holds (no scan ran). Pairs with a scan review_reason.
+	ScanScore *float64  `json:"scan_score,omitempty" doc:"Aggregate content-scan score (0..1) that drove a scan hold. Omitted for gate-only holds."`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func reviewView(it identity.ReviewListItem) ReviewView {
@@ -52,6 +61,8 @@ func reviewView(it identity.ReviewListItem) ReviewView {
 		ReviewStatus:   it.Status,
 		Flagged:        it.Flagged,
 		FlagReason:     it.FlagReason,
+		ReviewReason:   it.ReviewReason,
+		ScanScore:      it.ScanScore,
 		CreatedAt:      it.CreatedAt,
 	}
 }
@@ -197,6 +208,12 @@ func (s *Server) handleGetReview(ctx context.Context, in *getReviewInput) (*revi
 	// lives in m.Status — surface it so clients see pending_review on inbound
 	// holds too.
 	view.HITLStatus = msg.Status
+	// review_reason / scan_score are review-only fields: messageViewFromIdentity
+	// leaves them empty so they never ride along on the agent /messages surface.
+	// Surface the coded hold reason (+ scan confidence) here so a reviewer sees
+	// why every held message (both directions, gate and scan) is in the queue.
+	view.ReviewReason = msg.ReviewReason
+	view.ScanScore = msg.ScanScore
 	return &reviewDetailOutput{Body: view}, nil
 }
 

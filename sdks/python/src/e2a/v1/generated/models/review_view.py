@@ -18,8 +18,8 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -35,11 +35,13 @@ class ReviewView(BaseModel):
     flagged: Optional[StrictBool] = None
     from_: StrictStr = Field(alias="from")
     id: StrictStr = Field(description="The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.")
+    review_reason: Optional[StrictStr] = Field(default=None, description="Coded reason this message was held for review. Populated for every hold (both directions, gate and scan). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send.")
     review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")
+    scan_score: Optional[Union[StrictFloat, StrictInt]] = Field(default=None, description="Aggregate content-scan score (0..1) that drove a scan hold. Omitted for gate-only holds.")
     subject: StrictStr
     to: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "id", "review_status", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "id", "review_reason", "review_status", "scan_score", "subject", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -107,7 +109,9 @@ class ReviewView(BaseModel):
             "flagged": obj.get("flagged"),
             "from": obj.get("from"),
             "id": obj.get("id"),
+            "review_reason": obj.get("review_reason"),
             "review_status": obj.get("review_status"),
+            "scan_score": obj.get("scan_score"),
             "subject": obj.get("subject"),
             "to": obj.get("to")
         })

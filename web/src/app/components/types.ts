@@ -48,6 +48,14 @@ export type PendingMessageSummary = {
   bcc?: string[];
   status: string;
   created_at: string;
+  // Coded screening verdict that held this message for review — one of
+  // sender_gate | recipient_gate | inbound_scan | outbound_scan | outbound_send.
+  // Populated for every hold (both directions, gate and scan); the review row
+  // renders a reader-friendly label from it. Open set — tolerate unknown values.
+  review_reason?: string;
+  // Aggregate content-scan score (0..1) behind a scan hold; absent for gate-only
+  // holds. Rendered as a confidence next to a scan reason.
+  scan_score?: number | null;
 };
 
 export type PendingAttachment = {

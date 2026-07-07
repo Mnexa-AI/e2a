@@ -27,6 +27,7 @@ import type {
 } from "../../../components/types";
 import { Chip, Dot } from "@e2a/ui";
 import { diffApproveEdits, joinCSV } from "./edits";
+import { reviewReasonLabel } from "./reviewReason";
 
 function formatQueuedAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -229,6 +230,21 @@ export function PendingRow({
               </>
             )}
           </span>
+          {/* Why this message is held — the coded screening verdict rendered as
+              a reader-friendly line (+ scan confidence when present). Omitted
+              when the queue row carries no reason. */}
+          {reviewReasonLabel(summary.review_reason, summary.scan_score) && (
+            <span
+              className="flex items-center gap-1 text-[11px] mt-0.5 truncate"
+              style={{ color: "var(--warn, #b45309)" }}
+              title={reviewReasonLabel(summary.review_reason, summary.scan_score) ?? undefined}
+            >
+              <span aria-hidden>⚑</span>
+              <span className="truncate">
+                {reviewReasonLabel(summary.review_reason, summary.scan_score)}
+              </span>
+            </span>
+          )}
         </span>
         <Chip tone={summary.direction === "inbound" ? "info" : "neutral"}>
           {summary.direction === "inbound" ? "Inbound" : "Outbound"}

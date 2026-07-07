@@ -332,6 +332,10 @@ type MessageViewWire = {
   delivery_status?: string;
   review_status?: string;
   read_status?: string;
+  // Coded hold reason — populated only on the review-detail surface
+  // (GET /v1/reviews/{id}); the agent /messages read paths never return holds.
+  review_reason?: string;
+  scan_score?: number | null;
   created_at: string;
   auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
@@ -363,6 +367,8 @@ function projectPending(
     // the delivery rollup is empty until it's approved + sent.
     status: w.review_status ?? "",
     created_at: w.created_at,
+    review_reason: w.review_reason,
+    scan_score: w.scan_score,
     // Outbound drafts carry an editable `body`; sent outbound and inbound holds
     // carry the content as `parsed` (the draft columns are scrubbed at send).
     // Fall back so the body shows either way.
@@ -568,6 +574,8 @@ type ReviewWire = {
   subject: string;
   conversation_id?: string;
   review_status: string;
+  review_reason?: string;
+  scan_score?: number | null;
   created_at: string;
 };
 
@@ -588,6 +596,8 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
     to: r.to ?? [],
     status: r.review_status,
     created_at: r.created_at,
+    review_reason: r.review_reason,
+    scan_score: r.scan_score,
   }));
 }
 
