@@ -59,6 +59,25 @@ func (r *SMTPRelay) SendWithEnvelope(envelopeFrom string, recipients []string, m
 	return "", lastErr
 }
 
+// SendOnce performs a SINGLE SMTP submit — no internal retry loop — and returns
+// the provider Message-ID. This is the entry point for the River outbound worker
+// (internal/outboundsend), which owns the retry envelope: River reschedules the
+// next attempt per the worker's NextRetry, so the relay must NOT loop (a loop here
+// would hide the envelope from river_job and make each Work() run up to ~6.5 min).
+// Classify the returned error with IsTransientSMTPError — transient (4xx/throttle)
+// → let River retry; permanent (5xx/validation) → fail the message terminally.
+func (r *SMTPRelay) SendOnce(envelopeFrom string, recipients []string, message []byte) (string, error) {
+	if !r.Configured() {
+		return "", fmt.Errorf("outbound SMTP relay not configured")
+	}
+	return r.sendOnce(envelopeFrom, recipients, message)
+}
+
+// IsTransientSMTPError reports whether err is a retryable SMTP failure (4xx /
+// throttle) vs a permanent one. Exported so the River worker's deliverer can set
+// DeliverOutcome.Permanent. Nil is not transient.
+func IsTransientSMTPError(err error) bool { return isTransientSMTPError(err) }
+
 // sendOnce performs a single SMTP send using smtp.Client for the handshake,
 // then drives the DATA command manually via c.Text to capture the response.
 // Issues RCPT TO for each recipient; aborts if any is rejected.
