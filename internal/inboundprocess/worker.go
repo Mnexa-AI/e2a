@@ -21,6 +21,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -57,12 +58,15 @@ type Processor interface {
 	ProcessIntake(ctx context.Context, intake *identity.InboundIntake) error
 }
 
-// Store is the intake surface the worker needs. Implemented over internal/identity.
+// Store is the intake surface the worker + reconciler need. Implemented over
+// internal/identity.
 type Store interface {
 	// LoadInboundIntake returns the row, or (nil, nil) if pruned — a no-op.
 	LoadInboundIntake(ctx context.Context, intakeID string) (*identity.InboundIntake, error)
 	// MarkInboundIntakeFailed records a terminal failure after the retry tail.
 	MarkInboundIntakeFailed(ctx context.Context, intakeID, detail string) error
+	// StampInboundIntakeJobIDTx records the job id on a reconciled row.
+	StampInboundIntakeJobIDTx(ctx context.Context, tx pgx.Tx, intakeID string, jobID int64) error
 }
 
 // InboundProcessWorker processes an accepted intake row. Mirrors

@@ -537,6 +537,15 @@ func main() {
 		inboundJobs.SetProcessor(smtpServer)
 		inboundJobs.SetEnqueuer(jobsClient)
 		smtpServer.SetInboundEnqueuer(inboundJobs)
+		// Cutover: enqueue any accepted-but-unenqueued intake rows (pre-async rows at
+		// the mode-flip, or rows stranded by a crash between insert and enqueue).
+		// Idempotent (process_job_id IS NULL guard). Runs after SetProcessor so the
+		// re-driven jobs find a wired processor.
+		if n, cerr := inboundJobs.ReconcilePending(ctx, pool); cerr != nil {
+			log.Printf("[inbound-process] cutover: %v", cerr)
+		} else if n > 0 {
+			log.Printf("[inbound-process] cutover enqueued %d stranded intakes", n)
+		}
 		log.Printf("[inbound-process] engine=river (async accept, E2A_INBOUND_MODE=async)")
 	}
 

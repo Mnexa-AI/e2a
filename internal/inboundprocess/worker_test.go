@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
@@ -24,6 +25,10 @@ func (f *fakeStore) LoadInboundIntake(_ context.Context, _ string) (*identity.In
 
 func (f *fakeStore) MarkInboundIntakeFailed(_ context.Context, id, _ string) error {
 	f.failed = append(f.failed, id)
+	return nil
+}
+
+func (f *fakeStore) StampInboundIntakeJobIDTx(_ context.Context, _ pgx.Tx, _ string, _ int64) error {
 	return nil
 }
 
