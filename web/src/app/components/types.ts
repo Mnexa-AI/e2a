@@ -80,6 +80,18 @@ export type AttachmentMeta = {
   content_id?: string;
 };
 
+// One screening producer's verdict behind a hold (review detail only, beta).
+// A gate finding names the trust policy that tripped; a scan finding carries the
+// content detector's threat categories + a short natural-language rationale.
+export type ProtectionFinding = {
+  source: string; // gate | scan
+  action?: string; // flag | review | block
+  detector?: string;
+  score?: number | null;
+  categories?: { name: string; score?: number }[];
+  summary?: string; // the detector's short rationale
+};
+
 export type PendingMessageDetail = PendingMessageSummary & {
   email_message_id?: string;
   body_text?: string;
@@ -95,6 +107,10 @@ export type PendingMessageDetail = PendingMessageSummary & {
   rejection_reason?: string;
   provider_message_id?: string;
   method?: string;
+  // Screening breakdown behind the hold — detector categories + rationale that
+  // explain review_reason. Review detail only; absent on gate-only holds with
+  // no scan detail. Beta.
+  protection?: ProtectionFinding[];
   // Attached when this is a reply — the inbound message being replied
   // to. Drives the review panel's "In reply to" provenance pane
   // (SPF/DKIM/DMARC from auth_headers). Null on send/test messages.

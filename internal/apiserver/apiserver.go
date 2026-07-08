@@ -173,6 +173,8 @@ func BuildDeps(p Params) httpapi.Deps {
 		RejectInboundReview:  p.API.RejectInboundReviewCore,
 		ListReviews:          p.Store.ListReviews,
 		GetReviewWithContent: p.Store.GetReviewWithContent,
+
+		ListProtectionEventsByMessage: p.Store.ListProtectionEventsByMessage,
 		EnforceMessageSend:   p.Enforcer.CheckMessageSend,
 		GetRepliableMessage:  p.Store.GetRepliableMessage,
 		GetLimits:            p.Enforcer.Get,

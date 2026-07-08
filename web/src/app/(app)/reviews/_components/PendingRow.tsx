@@ -177,6 +177,10 @@ export function PendingRow({
 
   const hue = hueFor(agentEmail);
   const notPending = !!msg && msg.status !== "pending_review";
+  // Rich "why held" for the expanded panel: the scan detector's top category +
+  // rationale (falls back to null → the coarse collapsed label stays the source
+  // of truth). Only present once the lazy detail (msg.protection) has loaded.
+  const protection = protectionHeadline(msg?.protection);
 
   return (
     <div
@@ -298,6 +302,29 @@ export function PendingRow({
                   This message is no longer pending ({msg.status}). It may
                   have been resolved elsewhere or its review hold expired.
                 </p>
+              )}
+
+              {/* Why held — the detector's threat category + rationale. Shown
+                  when the scan breakdown is available; gate-only holds have no
+                  scan detail and rely on the coarse collapsed-row label. */}
+              {protection && (
+                <div
+                  className="text-[12px] px-4 py-2 flex items-baseline gap-1.5"
+                  style={{
+                    background: "var(--warn-bg)",
+                    color: "var(--warn-strong)",
+                  }}
+                >
+                  <span aria-hidden>⚑</span>
+                  <span>
+                    <strong>{protection.category}</strong>
+                    {protection.summary ? <> — {protection.summary}</> : null}
+                    {typeof protection.score === "number" &&
+                    Number.isFinite(protection.score)
+                      ? ` (${protection.score.toFixed(2)})`
+                      : null}
+                  </span>
+                </div>
               )}
 
               {!editing ? (

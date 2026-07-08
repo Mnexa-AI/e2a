@@ -202,6 +202,14 @@ func (s *Server) handleGetReview(ctx context.Context, in *getReviewInput) (*revi
 	// The hold explanation is review-only: messageViewFromIdentity leaves it nil
 	// so it never rides along on the agent /messages surface.
 	view.HoldReason = baseHoldReason(msg.ReviewReason)
+	// Detector breakdown (categories + rationale) behind the hold — best-effort:
+	// a missing/failed events fetch just omits `protection`, leaving hold_reason
+	// as the fallback. Ownership is already proven above.
+	if s.deps.ListProtectionEventsByMessage != nil {
+		if events, err := s.deps.ListProtectionEventsByMessage(ctx, in.ID); err == nil && len(events) > 0 {
+			view.Protection = protectionFindings(events)
+		}
+	}
 	return &reviewDetailOutput{Body: view}, nil
 }
 

@@ -2125,6 +2125,13 @@ components:
           type: array
         parsed:
           $ref: "#/components/schemas/MessageParsedView"
+        protection:
+          description: Screening breakdown behind the hold — detector categories + rationale (review surface only, beta).
+          items:
+            $ref: "#/components/schemas/ProtectionFindingView"
+          type:
+            - array
+            - "null"
         raw_message:
           contentEncoding: base64
           description: Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.
@@ -2500,6 +2507,35 @@ components:
         - created_at
       type: object
       x-stability-level: beta
+    ProtectionFindingView:
+      additionalProperties: true
+      properties:
+        action:
+          description: "Applied action for this finding. Open set. Known values: flag, review, block."
+          type: string
+        categories:
+          description: Detected threat categories, highest-confidence first (scan findings only).
+          items:
+            $ref: "#/components/schemas/ThreatCategoryView"
+          type:
+            - array
+            - "null"
+        detector:
+          description: Content-scan detector(s) that contributed (scan findings only), e.g. "gemini".
+          type: string
+        score:
+          description: Aggregate content-scan score 0..1 (scan findings only).
+          format: double
+          type: number
+        source:
+          description: "Which producer flagged the message. Open set; tolerate unknown values. Known values: gate, scan."
+          type: string
+        summary:
+          description: Short natural-language rationale for a scan finding (curated; never the raw provider payload).
+          type: string
+      required:
+        - source
+      type: object
     ProtectionGateRequest:
       additionalProperties: false
       properties:
@@ -3197,6 +3233,17 @@ components:
           type: string
       required:
         - delivery_id
+      type: object
+    ThreatCategoryView:
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        score:
+          format: double
+          type: number
+      required:
+        - name
       type: object
     TooManyRecipientsDetails:
       additionalProperties: true
