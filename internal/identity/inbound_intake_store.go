@@ -1,0 +1,112 @@
+package identity
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// --- Inbound intake (queue-first inbound pipeline, Layer 1) ---
+//
+// inbound_intake is the durable landing pad the SMTP session writes before 250 (see
+// inbound-message-pipeline-river.md). The internal/inboundprocess River worker reads
+// a row by id, parses/screens/persists a messages row, and marks the intake
+// processed. These methods are the store surface for both sides; the worker's Store
+// adapter (in internal/agent) bridges onto them.
+
+// IntakeStatus values (mirrors migration 056's CHECK).
+const (
+	IntakeStatusAccepted  = "accepted"
+	IntakeStatusProcessed = "processed"
+	IntakeStatusFailed    = "failed"
+)
+
+// NewInboundIntakeID mints an intake row id.
+func NewInboundIntakeID() string {
+	return "intk_" + generateID()
+}
+
+// InboundIntake is the worker's view of an accepted inbound message — the raw MIME
+// plus the connection facts (envelope + remote IP) it needs to run SPF/DKIM and
+// screening, which cannot be recomputed outside the SMTP session.
+type InboundIntake struct {
+	ID           string
+	Recipient    string
+	EnvelopeFrom string
+	RemoteIP     string
+	Raw          []byte
+	MessageID    string // sender's RFC 5322 Message-ID
+	ContentHash  string
+	Status       string
+	CreatedAt    time.Time
+}
+
+// InsertInboundIntakeTx writes an accepted intake row inside the accept-tx. It
+// returns inserted=false (no error) when the row is a duplicate — the dedup unique
+// index (recipient, message_id, content_hash) suppressed it — so the caller knows
+// NOT to enqueue a second job and to still answer 250 (idempotent accept).
+func (s *Store) InsertInboundIntakeTx(ctx context.Context, tx pgx.Tx, id, recipient, envelopeFrom, remoteIP, messageID, contentHash string, raw []byte) (inserted bool, err error) {
+	var returnedID string
+	err = tx.QueryRow(ctx,
+		`INSERT INTO inbound_intake (id, recipient, envelope_from, remote_ip, raw_message, message_id, content_hash, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'accepted')
+		 ON CONFLICT (recipient, message_id, content_hash) DO NOTHING
+		 RETURNING id`,
+		id, recipient, envelopeFrom, remoteIP, raw, messageID, contentHash,
+	).Scan(&returnedID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // duplicate — dedup index suppressed the insert
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// StampInboundIntakeJobIDTx records the River job id on the intake row, in the same
+// accept-tx as the insert + enqueue (so a committed accepted row always has its job).
+func (s *Store) StampInboundIntakeJobIDTx(ctx context.Context, tx pgx.Tx, intakeID string, jobID int64) error {
+	_, err := tx.Exec(ctx, `UPDATE inbound_intake SET process_job_id = $2 WHERE id = $1`, intakeID, jobID)
+	return err
+}
+
+// LoadInboundIntake reads an intake row for the worker. Returns (nil, nil) when the
+// row is gone (pruned) so the worker treats it as a no-op.
+func (s *Store) LoadInboundIntake(ctx context.Context, intakeID string) (*InboundIntake, error) {
+	var it InboundIntake
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, recipient, envelope_from, remote_ip, raw_message, message_id, content_hash, status, created_at
+		   FROM inbound_intake WHERE id = $1`,
+		intakeID,
+	).Scan(&it.ID, &it.Recipient, &it.EnvelopeFrom, &it.RemoteIP, &it.Raw, &it.MessageID, &it.ContentHash, &it.Status, &it.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &it, nil
+}
+
+// MarkInboundIntakeProcessedTx flips the intake to 'processed' and links the created
+// messages row, in the worker's terminal tx (same tx as the messages insert + outbox
+// publish). This is the worker's idempotency gate: a re-drive that finds 'processed'
+// no-ops instead of re-creating the message.
+func (s *Store) MarkInboundIntakeProcessedTx(ctx context.Context, tx pgx.Tx, intakeID, messageFK string) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE inbound_intake SET status = 'processed', message_fk = $2, processed_at = now() WHERE id = $1`,
+		intakeID, messageFK)
+	return err
+}
+
+// MarkInboundIntakeFailed marks an intake terminally failed (unparseable body /
+// exhausted retries) with a diagnostic detail. Own transaction — a terminal record
+// for ops visibility; the message is dropped (we already 250'd).
+func (s *Store) MarkInboundIntakeFailed(ctx context.Context, intakeID, detail string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE inbound_intake SET status = 'failed', detail = $2, processed_at = now() WHERE id = $1`,
+		intakeID, detail)
+	return err
+}
