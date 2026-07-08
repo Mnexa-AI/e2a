@@ -24,11 +24,11 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/inboundprocess"
 	"github.com/Mnexa-AI/e2a/internal/jobs"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
-	"github.com/Mnexa-AI/e2a/internal/inboundprocess"
 	"github.com/Mnexa-AI/e2a/internal/outboundsend"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/senderidentity"
@@ -263,6 +263,20 @@ func main() {
 		registrars = append(registrars, inboundJobs)
 	}
 
+	// Durable HITL approval-notification on River (docs/design/hitl-notify-river.md).
+	// The NotifyWorker registers on the shared client; the hold accept-tx enqueues a
+	// hitl_notify job in the same tx as the pending_review row. The concrete Deliverer
+	// (the Notifier, which needs the relay + signer gating resolved below) is injected
+	// later via SetDeliverer — mirrors inbound's late-bound Processor. Gated on the
+	// same relay+public-URL config as the notifier itself; when unconfigured, no jobs
+	// register and the hold takes the plain path (no notification).
+	var notifyJobs *hitlnotify.Jobs
+	notifierEnabled := cfg.OutboundSMTP.FromDomain != "" && cfg.HTTP.PublicURL != ""
+	if notifierEnabled {
+		notifyJobs = hitlnotify.NewJobs(store)
+		registrars = append(registrars, notifyJobs)
+	}
+
 	var senderMgr *senderidentity.Manager
 	if region := cfg.SenderIdentity.SESRegion; region != "" {
 		provider, perr := senderidentity.NewSESProviderFromConfig(ctx, region)
@@ -326,6 +340,20 @@ func main() {
 			}
 			log.Printf("[outbound-send] engine=river (async accept, E2A_OUTBOUND_MODE=async)")
 		}
+		// HITL approval-notification cutover: wire the shared client into the hold
+		// accept-tx enqueuer and re-drive any pending_review rows without a
+		// notification job (rows held before this shipped, or stranded by a crash
+		// between message insert and job commit). Idempotent (notify_job_id IS NULL
+		// guard). The concrete Deliverer is bound just below at the notifier gating.
+		if notifyJobs != nil {
+			notifyJobs.SetEnqueuer(jobsClient)
+			if n, cerr := notifyJobs.ReconcilePending(ctx, pool); cerr != nil {
+				log.Printf("[hitl-notify] cutover: %v", cerr)
+			} else if n > 0 {
+				log.Printf("[hitl-notify] cutover enqueued %d un-notified holds", n)
+			}
+			log.Printf("[hitl-notify] engine=river")
+		}
 		// Stop is driven from the shutdown sequence under the shared deadline.
 		if serr := jobsClient.Start(ctx); serr != nil {
 			log.Fatalf("jobs: start shared river client: %v", serr)
@@ -370,8 +398,18 @@ func main() {
 		log.Printf("[hitl] notifier disabled: outbound_smtp.from_domain is not set")
 	} else if cfg.HTTP.PublicURL == "" {
 		log.Printf("[hitl] notifier disabled: http.public_url is not set (magic links require an absolute base URL)")
+	} else if notifyJobs == nil {
+		// notifierEnabled matches these same two config checks, so this is
+		// unreachable in practice — kept as a defensive guard against future drift.
+		log.Printf("[hitl] notifier disabled: notification job pipeline not registered")
 	} else {
-		api.SetNotifier(hitlnotify.New(store, smtpRelay, approvalSigner, cfg.OutboundSMTP.FromDomain, cfg.HTTP.PublicURL))
+		notifier := hitlnotify.New(store, smtpRelay, approvalSigner, cfg.OutboundSMTP.FromDomain, cfg.HTTP.PublicURL)
+		// Late-bind the concrete Deliverer onto the registered NotifyWorker (which
+		// has been running since jobsClient.Start; jobs enqueued before this bind
+		// simply retry) and give the hold path its accept-tx enqueuer. The HTTP
+		// server isn't accepting requests yet, so no hold can miss the enqueuer.
+		notifyJobs.SetDeliverer(notifier)
+		api.SetNotifyEnqueuer(notifyJobs)
 	}
 
 	// OAuth 2.1 / fosite-backed authorization server. Needs the same
@@ -574,12 +612,9 @@ func main() {
 	// stop; wg.Wait() at the end of shutdown blocks for the current
 	// iteration to settle.
 	//
-	// Known gap: NotifyPendingApprovalAsync goroutines are detached
-	// (context.Background, no handle) and remain at risk. Operators
-	// running rolling deploys should ensure SMTP is reachable from
-	// the new replica before reaping the old one so notifications
-	// have somewhere to land. Threading the wg through the notifier
-	// is a follow-up.
+	// (The HITL approval-notification email is no longer a detached
+	// goroutine — it's a durable River job on QueueNotify, drained by the
+	// shared jobsClient under the shutdown deadline. See hitl-notify-river.md.)
 	var workerWG sync.WaitGroup
 
 	// Webhook subscriber delivery now runs entirely on River's DeliverWorker

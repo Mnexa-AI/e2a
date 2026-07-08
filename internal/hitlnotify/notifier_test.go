@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/config"
@@ -111,8 +110,8 @@ func TestNotifierSendsEmailToOwner(t *testing.T) {
 		"alice@example.com",            // recipient
 		"carol@example.com",            // cc
 		"Important draft",              // subject
-		"/v1/approve?t=",           // magic approve link
-		"/v1/reject?t=",            // magic reject link
+		"/v1/approve?t=",               // magic approve link
+		"/v1/reject?t=",                // magic reject link
 		"/dashboard/pending/" + msg.ID, // dashboard link
 	} {
 		if !strings.Contains(data, needle) {
@@ -209,30 +208,32 @@ func TestNotifierRejectsMessageWithNilApprovalExpiresAt(t *testing.T) {
 	}
 }
 
-func TestNotifierAsyncFireAndForget(t *testing.T) {
+func TestNotifierDeliver(t *testing.T) {
 	n, store, _, smtpDone := newNotifier(t)
-	agent, msg := setupPendingMessage(t, store, "async")
+	agent, msg := setupPendingMessage(t, store, "deliver")
 
-	n.NotifyPendingApprovalAsync(msg, agent)
-
-	// Fakesmtp closes the listener on the first smtpDone() call, so
-	// sleep once and then read the result in a single shot.
-	time.Sleep(500 * time.Millisecond)
+	// Deliver is what the River NotifyWorker calls: it composes + sends once and
+	// classifies the result. A healthy send returns a zero-value outcome.
+	out := n.Deliver(context.Background(), &identity.PendingNotify{Message: msg, Agent: agent})
+	if out.Err != nil {
+		t.Fatalf("Deliver: unexpected err = %v", out.Err)
+	}
+	if out.Permanent || out.Outage {
+		t.Errorf("Deliver: healthy send classified Permanent=%v Outage=%v", out.Permanent, out.Outage)
+	}
 	msgs := smtpDone()
 	if len(msgs) != 1 {
-		t.Fatalf("async notification: got %d messages, want 1", len(msgs))
+		t.Fatalf("Deliver: got %d messages, want 1", len(msgs))
 	}
 }
 
 func TestNotifierNilSafe(t *testing.T) {
 	var n *hitlnotify.Notifier
-	// Both sync and async paths must tolerate a nil receiver so wiring
-	// can omit the notifier in tests / partial deployments without
-	// having to guard every call site.
+	// The sync compose+send tolerates a nil receiver so wiring can omit the
+	// notifier in tests / partial deployments without guarding every call site.
 	if err := n.NotifyPendingApproval(context.Background(), nil, nil); err != nil {
 		t.Errorf("nil receiver sync: err = %v, want nil", err)
 	}
-	n.NotifyPendingApprovalAsync(nil, nil) // must not panic
 }
 
 // extractToken pulls the ?t=... token out of the first occurrence of the

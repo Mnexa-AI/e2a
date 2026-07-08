@@ -21,6 +21,11 @@ const (
 	// QueueMaintenance carries low-urgency periodic/janitor work (reapers,
 	// hold-TTL resolution, auto-disable sweeps).
 	QueueMaintenance = "maintenance"
+	// QueueNotify carries HITL approval-notification emails (the owner's review
+	// alert when an outbound message enters pending_review). Small, isolated pool
+	// so a burst of held sends notifying — or a stuck notification to a bad owner
+	// address retrying — never competes with customer outbound delivery.
+	QueueNotify = "notify"
 	// QueueDefault is River's built-in default — anything not explicitly routed.
 	QueueDefault = river.QueueDefault
 )
@@ -29,12 +34,13 @@ const (
 // MaxWorkers is deliberately generous for I/O-bound work (SMTP / HTTP); tune
 // against real throughput. Every queue a domain enqueues into MUST appear here or
 // its jobs sit unworked.
-func defaultQueueConfig(outbound, inbound, webhook, maintenance, deflt int) map[string]river.QueueConfig {
+func defaultQueueConfig(outbound, inbound, webhook, maintenance, notify, deflt int) map[string]river.QueueConfig {
 	return map[string]river.QueueConfig{
 		QueueOutbound:    {MaxWorkers: outbound},
 		QueueInbound:     {MaxWorkers: inbound},
 		QueueWebhook:     {MaxWorkers: webhook},
 		QueueMaintenance: {MaxWorkers: maintenance},
+		QueueNotify:      {MaxWorkers: notify},
 		QueueDefault:     {MaxWorkers: deflt},
 	}
 }

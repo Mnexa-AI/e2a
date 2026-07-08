@@ -47,6 +47,7 @@ type Config struct {
 	InboundWorkers     int // QueueInbound concurrency (default 8)
 	WebhookWorkers     int // QueueWebhook concurrency (default 16)
 	MaintenanceWorkers int // QueueMaintenance concurrency (default 2)
+	NotifyWorkers      int // QueueNotify concurrency (default 4)
 	DefaultWorkers     int // QueueDefault concurrency (default 5)
 }
 
@@ -62,6 +63,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaintenanceWorkers <= 0 {
 		c.MaintenanceWorkers = 2
+	}
+	if c.NotifyWorkers <= 0 {
+		c.NotifyWorkers = 4
 	}
 	if c.DefaultWorkers <= 0 {
 		c.DefaultWorkers = 5
@@ -103,7 +107,7 @@ func New(pool *pgxpool.Pool, cfg Config, registrars ...Registrar) (*Client, erro
 	}
 
 	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:       defaultQueueConfig(cfg.OutboundWorkers, cfg.InboundWorkers, cfg.WebhookWorkers, cfg.MaintenanceWorkers, cfg.DefaultWorkers),
+		Queues:       defaultQueueConfig(cfg.OutboundWorkers, cfg.InboundWorkers, cfg.WebhookWorkers, cfg.MaintenanceWorkers, cfg.NotifyWorkers, cfg.DefaultWorkers),
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	})

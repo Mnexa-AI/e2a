@@ -20,7 +20,6 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/dkim"
-	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
@@ -187,7 +186,7 @@ type API struct {
 	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
 	downloadLimit     *ratelimit.Limiter    // attachment byte-download — capability-token route (no bearer), per-IP
 	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
-	notifier          *hitlnotify.Notifier  // optional; if nil, holdForApproval doesn't send notification email
+	notifyEnq         NotifyEnqueuer        // optional; if nil, holdForApproval persists the hold but sends no notification
 	oauthProvider     fosite.OAuth2Provider // optional; if nil, /oauth2/* endpoints return 404
 	oauthStorage      *oauth.Storage        // optional; consent handler needs Pool() for cross-package tx
 	signer            *agentauth.Signer     // optional; nil ⇒ JWKS serves an empty set (agent-auth disabled)
@@ -330,14 +329,24 @@ func (a *API) publishRejected(ctx context.Context, e webhookpub.Event, rejectedM
 // handleRejectMagicLink respond with 404.
 func (a *API) SetApprovalSigner(s *approvaltoken.Signer) { a.approvalSigner = s }
 
-// SetNotifier wires in the HITL notifier. When nil, holdForApproval
-// still persists the pending message but doesn't fire the email — useful
-// for tests that don't want the async SMTP traffic.
-func (a *API) SetNotifier(n *hitlnotify.Notifier) { a.notifier = n }
+// NotifyEnqueuer inserts the HITL approval-notification job (QueueNotify) in the
+// hold accept-tx, so the reviewer's email is enqueued atomically with the
+// pending_review row (docs/design/hitl-notify-river.md). Satisfied by
+// *hitlnotify.Jobs. When nil (notifier unconfigured), HoldForApprovalCore persists
+// the hold on the plain path and sends no notification.
+type NotifyEnqueuer interface {
+	EnqueueNotifyTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error)
+}
+
+// SetNotifyEnqueuer wires the HITL-notification accept-tx enqueuer. When nil,
+// holdForApproval still persists the pending message but enqueues no notification —
+// useful for tests that don't want the SMTP traffic, and for deployments without a
+// configured relay / public URL.
+func (a *API) SetNotifyEnqueuer(e NotifyEnqueuer) { a.notifyEnq = e }
 
 // SetOAuthProvider wires in the fosite-backed OAuth provider. When
 // nil, /oauth2/* endpoints return 404 (matches the
-// SetApprovalSigner / SetNotifier pattern of "optional capability,
+// SetApprovalSigner / SetNotifyEnqueuer pattern of "optional capability,
 // silently absent when not wired"). Operators who don't want OAuth
 // enabled simply don't call this.
 func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
@@ -957,30 +966,59 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 		attachmentsJSON = b
 	}
 
-	msg, err := a.store.CreatePendingOutboundMessage(
-		ctx, agent.ID,
-		req.To, req.CC, req.BCC,
-		req.Subject, req.Body, req.HTMLBody,
-		attachmentsJSON,
-		msgType, req.ConversationID, replyToEmailMessageID,
-		agent.HITLTTLSeconds,
-	)
-	if err != nil {
-		log.Printf("[api] hitl: create pending message: agent=%s err=%v", agent.ID, err)
-		return nil, err
+	var msg *identity.Message
+	if a.notifyEnq != nil {
+		// Durable notification path: persist the pending_review row AND enqueue its
+		// approval-notification job (QueueNotify) in ONE transaction, then stamp the
+		// job id, so the reviewer's email is never lost on a crash between the 202
+		// and the send (docs/design/hitl-notify-river.md). Mirrors the outbound
+		// accept-tx. A same-tx enqueue failure fails the whole hold (500) — the same
+		// DB fault would have failed the message insert anyway.
+		if txErr := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+			m, err := a.store.CreatePendingOutboundMessageTx(
+				ctx, tx, agent.ID,
+				req.To, req.CC, req.BCC,
+				req.Subject, req.Body, req.HTMLBody,
+				attachmentsJSON,
+				msgType, req.ConversationID, replyToEmailMessageID,
+				agent.HITLTTLSeconds,
+			)
+			if err != nil {
+				return err
+			}
+			jobID, err := a.notifyEnq.EnqueueNotifyTx(ctx, tx, m.ID)
+			if err != nil {
+				return err
+			}
+			if err := a.store.StampNotifyJobIDTx(ctx, tx, m.ID, jobID); err != nil {
+				return err
+			}
+			msg = m
+			return nil
+		}); txErr != nil {
+			log.Printf("[api] hitl: create+enqueue pending message: agent=%s err=%v", agent.ID, txErr)
+			return nil, txErr
+		}
+	} else {
+		// No notifier configured: plain hold, no notification (behavior unchanged).
+		m, err := a.store.CreatePendingOutboundMessage(
+			ctx, agent.ID,
+			req.To, req.CC, req.BCC,
+			req.Subject, req.Body, req.HTMLBody,
+			attachmentsJSON,
+			msgType, req.ConversationID, replyToEmailMessageID,
+			agent.HITLTTLSeconds,
+		)
+		if err != nil {
+			log.Printf("[api] hitl: create pending message: agent=%s err=%v", agent.ID, err)
+			return nil, err
+		}
+		msg = m
 	}
 
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
 	log.Printf("[mail:%s] dir=outbound type=%s status=%s from=%s to=%v slug=%s conv_id=%s subject=%q approval_expires_at=%s",
 		msg.ID, msgType, msg.Status, agent.EmailAddress(), req.To, slug, req.ConversationID, req.Subject, msg.ApprovalExpiresAt.Format(time.RFC3339))
-
-	// Fire the reviewer notification asynchronously. Failures are logged
-	// inside the notifier and must never block the response — the pending
-	// row is already persisted and the expiration worker will finalize it
-	// even if every notification email bounces.
-	if a.notifier != nil {
-		a.notifier.NotifyPendingApprovalAsync(msg, agent)
-	}
 
 	a.publishPendingApproval(ctx, a.buildPendingApprovalEvent(agent, msg, req, msgType), msg.ID)
 	return msg, nil
