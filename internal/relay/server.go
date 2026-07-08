@@ -251,51 +251,81 @@ func (s *session) Data(r io.Reader) error {
 	return s.deliverMessages(ctx, senderEmail, body)
 }
 
-// deliverMessages runs SPF/DKIM/DMARC checks and delivers to agents via webhook.
+// deliverMessages resolves each recipient and processes the message synchronously
+// (the E2A_INBOUND_MODE=sync path): it calls processInbound inline with no
+// post-persist hook. A persist failure surfaces as a 451 so the sending MTA retries
+// (never a silent 250). The async path enqueues to River instead (see the accept-tx).
 func (s *session) deliverMessages(ctx context.Context, senderEmail string, body []byte) error {
-	// Authenticate against the TRUE SMTP envelope MAIL FROM (s.from), not the
-	// display senderEmail (which prefers the From header). SPF is an
-	// envelope-identity check (RFC 7208), and DMARC alignment must compare the
-	// real envelope domain against the From-header domain — passing the
-	// From-derived senderEmail here would make SPF-alignment a tautology
-	// (adversarial review F5). DKIM + From extraction come from the body.
-	domainAuth := emailauth.Check(s.remoteIP, extractEmail(s.from), body)
-	log.Printf("[%s] [%s] domain auth from %s (envelope %s): %s", s.id, senderEmail, s.remoteIP, s.from, domainAuth.Summary())
-
-	delivered := 0
 	for _, rcpt := range s.recipients {
-		agent, err := s.relay.resolveAgent(ctx, rcpt)
-		if err != nil {
-			// Should not happen — Rcpt() already validated, but guard defensively
-			log.Printf("[%s] [%s] skipping %s: agent resolution failed: %v", s.id, senderEmail, rcpt, err)
-			continue
+		in := inboundInput{
+			Body:         body,
+			EnvelopeFrom: extractEmail(s.from),
+			RemoteIP:     s.remoteIP,
+			Recipient:    rcpt,
+			TraceID:      s.id,
 		}
-
-		if derr := s.deliverToAgent(ctx, agent, senderEmail, rcpt, body, domainAuth); derr != nil {
+		if derr := s.relay.processInbound(ctx, in, nil); derr != nil {
 			// Persist failed — return a transient SMTP error so the sending MTA
-			// retries the whole message (RFC 5321 §4.5.4.1), instead of us silently
-			// losing it under a 250. This path was previously swallowed (log + fall
-			// through to 250 = silent loss). Multi-recipient caveat: a retry
-			// re-delivers to already-succeeded recipients (the sync path has no
-			// dedup) — duplicate beats loss, and the queue-first inbound path
-			// (E2A_INBOUND_MODE=async) collapses the duplicate.
-			log.Printf("[%s] [%s] persist failed for %s → 451 (sender will retry): %v", s.id, senderEmail, rcpt, derr)
+			// retries the whole message (RFC 5321 §4.5.4.1) instead of us silently
+			// losing it under a 250. Multi-recipient caveat: a retry re-delivers to
+			// already-succeeded recipients (the sync path has no dedup) — duplicate
+			// beats loss, and the queue-first path (E2A_INBOUND_MODE=async) dedups.
+			log.Printf("[%s] persist failed for %s → 451 (sender will retry): %v", s.id, rcpt, derr)
 			return &smtp.SMTPError{Code: 451, EnhancedCode: smtp.EnhancedCode{4, 3, 0}, Message: "temporary failure storing message; please retry"}
 		}
-		delivered++
 	}
-
-	log.Printf("[%s] [%s] session complete: delivered=%d/%d", s.id, senderEmail, delivered, len(s.recipients))
 	return nil
 }
 
-// deliverToAgent signs auth headers, persists, and delivers a single message to an
-// agent. Returns a non-nil error ONLY when the message could not be durably
-// persisted — the caller (deliverMessages) maps that to a 451 so the sender retries
-// rather than losing the mail. Screening/metering failures fail open (they do not
-// error out here). Push agents get webhook delivery via the outbox; the WebSocket
-// hub is an opportunistic live-tail.
-func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdentity, senderEmail, rcpt string, body []byte, domainAuth *emailauth.Result) error {
+// inboundInput is the connection-derived data processInbound needs — the same facts
+// the live SMTP session holds and the intake row persists for the async worker (which
+// cannot recompute EnvelopeFrom/RemoteIP after the session closes).
+type inboundInput struct {
+	Body         []byte
+	EnvelopeFrom string // SMTP MAIL FROM
+	RemoteIP     net.IP // connecting IP (SPF); the worker parses the stored text form
+	Recipient    string // RCPT TO
+	TraceID      string // log correlation (session id / intake id)
+}
+
+// postPersistHook runs INSIDE processInbound's persist transaction, after the
+// messages insert + event publish, given the new message id. The async worker passes
+// MarkInboundIntakeProcessedTx so the intake flips to 'processed' atomically with the
+// message (its idempotency gate); the sync path passes nil.
+type postPersistHook func(ctx context.Context, tx pgx.Tx, messageID string) error
+
+// processInbound runs the full inbound chain — parse, SPF/DKIM, HMAC sign, ingestion
+// gate, content screening, persist, and event publish — for one recipient. It is the
+// SINGLE implementation shared by the synchronous SMTP session and the async River
+// worker (internal/inboundprocess); the post-persist hook is the only difference.
+//
+// Returns a non-nil error ONLY when the message could not be durably persisted (the
+// caller maps that to a 451 / a River retry). A recipient that no longer resolves to
+// an agent is a no-op (nil) — the mailbox is gone. Screening/metering fail open.
+func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook postPersistHook) error {
+	// Recompute the connection-derived context from the raw bytes — identical whether
+	// we are in the live session or replaying a persisted intake row.
+	threadInfo := extractThreadInfo(in.Body)
+	senderEmail := extractEmail(in.EnvelopeFrom)
+	if threadInfo.From != "" {
+		senderEmail = threadInfo.From
+	}
+	// SPF/DKIM/DMARC against the TRUE envelope MAIL FROM (RFC 7208), not the From
+	// header — else SPF-alignment is a tautology (adversarial review F5).
+	domainAuth := emailauth.Check(in.RemoteIP, extractEmail(in.EnvelopeFrom), in.Body)
+	log.Printf("[%s] [%s] domain auth from %s (envelope %s): %s", in.TraceID, senderEmail, in.RemoteIP, in.EnvelopeFrom, domainAuth.Summary())
+
+	agent, err := srv.resolveAgent(ctx, in.Recipient)
+	if err != nil {
+		return err // transient resolve failure — retryable (451 / River)
+	}
+	if agent == nil {
+		log.Printf("[%s] recipient %s no longer resolves to an agent — dropping", in.TraceID, in.Recipient)
+		return nil // mailbox gone (deleted between accept and processing) — no-op
+	}
+	rcpt := in.Recipient
+	body := in.Body
+
 	// Generate the message ID up-front so it can be bound into the HMAC
 	// canonical. Recipients verify by reconstructing the canonical with
 	// the message_id from the payload — substituting the ID without
@@ -316,7 +346,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		MessageID:   messageID,
 		BodyHash:    headers.HashBody(body),
 	}
-	authHeaders := s.relay.signer.Sign(authPayload)
+	authHeaders := srv.signer.Sign(authPayload)
 
 	// Display sender for webhook / stored message prefers the first Reply-To
 	// when set, so recipients reply to the intended mailbox (matches how
@@ -324,8 +354,8 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// address. The full Reply-To list is shipped separately on the
 	// webhook payload so downstream consumers can see all addresses.
 	displaySender := senderEmail
-	if len(s.inboundThreadInfo.ReplyTo) > 0 {
-		displaySender = s.inboundThreadInfo.ReplyTo[0]
+	if len(threadInfo.ReplyTo) > 0 {
+		displaySender = threadInfo.ReplyTo[0]
 	}
 
 	// Inbound trust policy ingestion gate (decision 10 / Slice 7a). Evaluate the
@@ -336,23 +366,23 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	//
 	// senderResolvable fails the gate closed for shared-relay "via e2a" mail,
 	// which authenticates but carries no per-agent identity (#299).
-	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, s.senderResolvable(senderEmail))
+	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, srv.senderResolvable(senderEmail))
 
 	// Content screening (Slice 4): run the per-agent inbound scan and record the
 	// audit trail (protection_events) + the denormalized verdict. Detection +
 	// annotation only here — review/block holds are a later slice, so the message
 	// still delivers.
-	screenRes := s.relay.screenInbound(ctx, agent, messageID, senderEmail, body, domainAuth, policyDecision)
+	screenRes := srv.screenInbound(ctx, agent, messageID, senderEmail, body, domainAuth, policyDecision)
 
 	// Record inbound usage (fail-open — never block inbound email)
 	if agent.UserID != "" {
-		s.relay.usage.RecordAndCheck(ctx, agent.UserID, agent.ID, agent.Domain, "inbound")
+		srv.usage.RecordAndCheck(ctx, agent.UserID, agent.ID, agent.Domain, "inbound")
 	}
 
 	lookup := func(ctx context.Context, ids []string) (string, error) {
-		return s.relay.store.LookupConversationID(ctx, agent.ID, ids)
+		return srv.store.LookupConversationID(ctx, agent.ID, ids)
 	}
-	conversationID := resolveConversationID(ctx, s.inboundThreadInfo, s.envelopeFromTrusted(), lookup)
+	conversationID := resolveConversationID(ctx, threadInfo, srv.envelopeFromTrusted(in.EnvelopeFrom), lookup)
 
 	// All inbound is persisted to the pollable inbox. There is no per-agent
 	// webhook delivery anymore (push is via /v1/webhooks subscriptions), so
@@ -366,7 +396,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// ON CONFLICT (id) DO NOTHING. Idempotency by construction; see
 	// design §5.1.
 	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
-		messageID, conversationID, displaySender, senderEmail, rcpt, s.inboundSubject, s.inboundThreadInfo, authHeaders, agent,
+		messageID, conversationID, displaySender, senderEmail, rcpt, threadInfo.Subject, threadInfo, authHeaders, agent,
 	))
 	event.AgentID = agent.ID
 	event.ConversationID = conversationID
@@ -395,9 +425,9 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			// reply-routing addresses separately so the signal is complete.
 			"from":           senderEmail,
 			"display_sender": displaySender,
-			"reply_to":       s.inboundThreadInfo.ReplyTo,
+			"reply_to":       threadInfo.ReplyTo,
 			"recipient":      rcpt,
-			"subject":        s.inboundSubject,
+			"subject":        threadInfo.Subject,
 			"policy":         agent.InboundPolicy,
 			"reason":         policyDecision.Reason,
 		})
@@ -422,7 +452,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			"direction":       "inbound",
 			"from":            senderEmail,
 			"recipient":       rcpt,
-			"subject":         s.inboundSubject,
+			"subject":         threadInfo.Subject,
 			"reason":          screenRes.Reason,
 			"reason_source":   screenRes.Denorm.ReviewReason,
 		})
@@ -447,7 +477,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			"direction":           "inbound",
 			"from":                senderEmail,
 			"recipient":           rcpt,
-			"subject":             s.inboundSubject,
+			"subject":             threadInfo.Subject,
 			"reason":              screenRes.Reason,
 			"reason_source":       screenRes.Denorm.ReviewReason,
 			"approval_expires_at": screenRes.Denorm.ApprovalExpiresAt,
@@ -484,16 +514,15 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	authVerdictJSON, _ := json.Marshal(domainAuth)
 
 	var inboundMsg *identity.Message
-	var err error
-	if s.relay.outbox != nil {
-		err = s.relay.store.WithTx(ctx, func(tx pgx.Tx) error {
+	if srv.outbox != nil {
+		err = srv.store.WithTx(ctx, func(tx pgx.Tx) error {
 			var txErr error
-			inboundMsg, txErr = s.relay.store.CreateInboundMessageInTx(
+			inboundMsg, txErr = srv.store.CreateInboundMessageInTx(
 				ctx, tx, messageID, agent.ID, displaySender, rcpt,
-				s.inboundMsgID, s.inboundSubject, conversationID,
+				threadInfo.MessageID, threadInfo.Subject, conversationID,
 				deliveryStatus, body, authHeaders, authVerdictJSON,
 				policyDecision.Flagged, policyDecision.Reason,
-				s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
+				threadInfo.To, threadInfo.CC, threadInfo.ReplyTo,
 				screenRes.Denorm,
 			)
 			if txErr != nil {
@@ -502,41 +531,51 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			// Held messages (review/block) are persisted but NOT delivered — suppress
 			// the email.received push (the agent only ever sees released messages).
 			if !screenRes.Hold {
-				if txErr = s.relay.outbox.PublishTx(ctx, tx, event); txErr != nil {
+				if txErr = srv.outbox.PublishTx(ctx, tx, event); txErr != nil {
 					return txErr
 				}
 			}
 			if flaggedEvent != nil {
-				if txErr = s.relay.outbox.PublishTx(ctx, tx, *flaggedEvent); txErr != nil {
+				if txErr = srv.outbox.PublishTx(ctx, tx, *flaggedEvent); txErr != nil {
 					return txErr
 				}
 			}
 			if blockedEvent != nil {
-				if txErr = s.relay.outbox.PublishTx(ctx, tx, *blockedEvent); txErr != nil {
+				if txErr = srv.outbox.PublishTx(ctx, tx, *blockedEvent); txErr != nil {
 					return txErr
 				}
 			}
 			if pendingReviewEvent != nil {
-				if txErr = s.relay.outbox.PublishTx(ctx, tx, *pendingReviewEvent); txErr != nil {
+				if txErr = srv.outbox.PublishTx(ctx, tx, *pendingReviewEvent); txErr != nil {
+					return txErr
+				}
+			}
+			// Async worker: flip the intake to 'processed' ATOMICALLY with the message
+			// + events, so a crash re-drive finds 'processed' and no-ops (the worker's
+			// idempotency gate). nil on the synchronous path.
+			if hook != nil {
+				if txErr = hook(ctx, tx, messageID); txErr != nil {
 					return txErr
 				}
 			}
 			return nil
 		})
 	} else {
-		inboundMsg, err = s.relay.store.CreateInboundMessage(
+		// No-outbox legacy path (sync only — the async worker always runs with the
+		// outbox wired). hook is not supported here; async requires srv.outbox.
+		inboundMsg, err = srv.store.CreateInboundMessage(
 			ctx, messageID, agent.ID, displaySender, rcpt,
-			s.inboundMsgID, s.inboundSubject, conversationID,
+			threadInfo.MessageID, threadInfo.Subject, conversationID,
 			deliveryStatus, body, authHeaders, authVerdictJSON,
 			policyDecision.Flagged, policyDecision.Reason,
-			s.inboundThreadInfo.To, s.inboundThreadInfo.CC, s.inboundThreadInfo.ReplyTo,
+			threadInfo.To, threadInfo.CC, threadInfo.ReplyTo,
 			screenRes.Denorm,
 		)
 	}
 	if err != nil {
 		// Do NOT swallow — surface to deliverMessages so the SMTP session returns a
 		// 451 and the sender retries, instead of a 250 that silently drops the mail.
-		log.Printf("[%s] [%s] failed to record inbound message: %v", s.id, senderEmail, err)
+		log.Printf("[%s] [%s] failed to record inbound message: %v", in.TraceID, senderEmail, err)
 		return err
 	}
 	_ = inboundMsg
@@ -544,12 +583,12 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// Append the screening audit rows (gate + scan violations) best-effort. Soft-ref
 	// + deterministic ids make this idempotent under MTA retry, so it's safe outside
 	// the message transaction.
-	s.relay.writeProtectionEvents(ctx, messageID, screenRes.Events)
+	srv.writeProtectionEvents(ctx, messageID, screenRes.Events)
 
 	slug, _, _ := strings.Cut(rcpt, "@")
 
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q verified=%t",
-		messageID, displaySender, rcpt, slug, conversationID, s.inboundSubject, domainAuth.DomainAuthenticated())
+		messageID, displaySender, rcpt, slug, conversationID, threadInfo.Subject, domainAuth.DomainAuthenticated())
 
 	// Inbound events (email.received + flagged/blocked/pending_review variants)
 	// are written to the outbox (webhook_events) above, in the message tx; the
@@ -560,9 +599,9 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 	// /v1/webhooks subscriber resource (driven by the outbox drain) is the
 	// durable push path; WS is an opportunistic live-tail on top of it,
 	// available to every agent regardless of how it's configured.
-	if s.relay.hub != nil && !screenRes.Hold && s.relay.hub.IsConnected(agent.ID) {
+	if srv.hub != nil && !screenRes.Hold && srv.hub.IsConnected(agent.ID) {
 		notification := buildWSNotification(inboundMsg)
-		if s.relay.hub.Send(agent.ID, notification) {
+		if srv.hub.Send(agent.ID, notification) {
 			log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
 		}
 	}
@@ -680,12 +719,12 @@ func resolveConversationID(ctx context.Context, info threadInfo, trusted bool, l
 // send.e2a.dev but the envelope comes back as
 // <bounce-id>@mail.send.e2a.dev). We own all subdomains of our outbound
 // domain, so trusting them is the same trust boundary.
-func (s *session) envelopeFromTrusted() bool {
-	if s.relay.outboundFromDomain == "" {
+func (srv *Server) envelopeFromTrusted(envelopeFrom string) bool {
+	if srv.outboundFromDomain == "" {
 		return false
 	}
-	envDomain := strings.ToLower(extractDomain(s.from))
-	trusted := strings.ToLower(s.relay.outboundFromDomain)
+	envDomain := strings.ToLower(extractDomain(envelopeFrom))
+	trusted := strings.ToLower(srv.outboundFromDomain)
 	return envDomain == trusted || strings.HasSuffix(envDomain, "."+trusted)
 }
 
@@ -703,12 +742,12 @@ func (s *session) envelopeFromTrusted() bool {
 //
 // Matches the exact relay domain OR any subdomain, mirroring envelopeFromTrusted:
 // a verified agent always sends from its own custom domain, never the relay's.
-func (s *session) senderResolvable(senderEmail string) bool {
-	if s.relay.outboundFromDomain == "" {
+func (srv *Server) senderResolvable(senderEmail string) bool {
+	if srv.outboundFromDomain == "" {
 		return true
 	}
 	dom := strings.ToLower(extractDomain(senderEmail))
-	relay := strings.ToLower(s.relay.outboundFromDomain)
+	relay := strings.ToLower(srv.outboundFromDomain)
 	return dom != relay && !strings.HasSuffix(dom, "."+relay)
 }
 

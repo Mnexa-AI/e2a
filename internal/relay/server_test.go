@@ -149,9 +149,7 @@ func TestExtractThreadInfoConversationID(t *testing.T) {
 }
 
 func TestEnvelopeFromTrusted(t *testing.T) {
-	s := &session{
-		relay: &Server{outboundFromDomain: "send.e2a.dev"},
-	}
+	srv := &Server{outboundFromDomain: "send.e2a.dev"}
 
 	cases := []struct {
 		envelope string
@@ -167,8 +165,7 @@ func TestEnvelopeFromTrusted(t *testing.T) {
 		{"agent@evilsend.e2a.dev", false},              // suffix-match attack (no dot before)
 	}
 	for _, c := range cases {
-		s.from = c.envelope
-		if got := s.envelopeFromTrusted(); got != c.want {
+		if got := srv.envelopeFromTrusted(c.envelope); got != c.want {
 			t.Errorf("envelopeFromTrusted(from=%q) = %v, want %v", c.envelope, got, c.want)
 		}
 	}
@@ -176,11 +173,8 @@ func TestEnvelopeFromTrusted(t *testing.T) {
 
 func TestEnvelopeFromTrustedUnconfigured(t *testing.T) {
 	// If outboundFromDomain isn't configured, trust nothing — fail closed.
-	s := &session{
-		relay: &Server{outboundFromDomain: ""},
-		from:  "agent@send.e2a.dev",
-	}
-	if s.envelopeFromTrusted() {
+	srv := &Server{outboundFromDomain: ""}
+	if srv.envelopeFromTrusted("agent@send.e2a.dev") {
 		t.Error("should not trust any envelope when outboundFromDomain is empty")
 	}
 }
@@ -188,9 +182,7 @@ func TestEnvelopeFromTrustedUnconfigured(t *testing.T) {
 func TestSenderResolvable(t *testing.T) {
 	// #299: the shared "via e2a" relay sender (agent@<outboundFromDomain>) carries
 	// no per-agent identity, so the inbound gate must treat it as unresolvable.
-	s := &session{
-		relay: &Server{outboundFromDomain: "send.e2a.dev"},
-	}
+	srv := &Server{outboundFromDomain: "send.e2a.dev"}
 	cases := []struct {
 		sender string
 		want   bool
@@ -204,7 +196,7 @@ func TestSenderResolvable(t *testing.T) {
 		{"nodomain", true},                     // garbage; let normal matching/flagging handle it
 	}
 	for _, c := range cases {
-		if got := s.senderResolvable(c.sender); got != c.want {
+		if got := srv.senderResolvable(c.sender); got != c.want {
 			t.Errorf("senderResolvable(%q) = %v, want %v", c.sender, got, c.want)
 		}
 	}
@@ -213,8 +205,8 @@ func TestSenderResolvable(t *testing.T) {
 func TestSenderResolvableUnconfigured(t *testing.T) {
 	// With no outboundFromDomain there is no shared-relay address to recognize, so
 	// every sender is treated as resolvable (no spurious flagging).
-	s := &session{relay: &Server{outboundFromDomain: ""}}
-	if !s.senderResolvable("agent@send.e2a.dev") {
+	srv := &Server{outboundFromDomain: ""}
+	if !srv.senderResolvable("agent@send.e2a.dev") {
 		t.Error("unconfigured relay should treat all senders as resolvable")
 	}
 }
