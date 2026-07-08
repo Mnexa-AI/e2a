@@ -11,6 +11,10 @@ import "github.com/riverqueue/river"
 const (
 	// QueueOutbound carries outbound send jobs (API → SES).
 	QueueOutbound = "outbound"
+	// QueueInbound carries inbound message-processing jobs (accepted raw MIME →
+	// parse/screen/persist/deliver). Isolated so an inbound spike (incl. the
+	// per-message Gemini screen) can't starve outbound sends or webhook delivery.
+	QueueInbound = "inbound"
 	// QueueWebhook carries customer webhook-delivery jobs. Isolated from outbound
 	// so a slow/failing endpoint's backlog never delays sends.
 	QueueWebhook = "webhook"
@@ -25,9 +29,10 @@ const (
 // MaxWorkers is deliberately generous for I/O-bound work (SMTP / HTTP); tune
 // against real throughput. Every queue a domain enqueues into MUST appear here or
 // its jobs sit unworked.
-func defaultQueueConfig(outbound, webhook, maintenance, deflt int) map[string]river.QueueConfig {
+func defaultQueueConfig(outbound, inbound, webhook, maintenance, deflt int) map[string]river.QueueConfig {
 	return map[string]river.QueueConfig{
 		QueueOutbound:    {MaxWorkers: outbound},
+		QueueInbound:     {MaxWorkers: inbound},
 		QueueWebhook:     {MaxWorkers: webhook},
 		QueueMaintenance: {MaxWorkers: maintenance},
 		QueueDefault:     {MaxWorkers: deflt},

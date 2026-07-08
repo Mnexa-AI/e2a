@@ -44,6 +44,7 @@ type Registrar interface {
 // Config sizes the per-queue worker pools. Zero values get sane defaults.
 type Config struct {
 	OutboundWorkers    int // QueueOutbound concurrency (default 8)
+	InboundWorkers     int // QueueInbound concurrency (default 8)
 	WebhookWorkers     int // QueueWebhook concurrency (default 16)
 	MaintenanceWorkers int // QueueMaintenance concurrency (default 2)
 	DefaultWorkers     int // QueueDefault concurrency (default 5)
@@ -52,6 +53,9 @@ type Config struct {
 func (c Config) withDefaults() Config {
 	if c.OutboundWorkers <= 0 {
 		c.OutboundWorkers = 8
+	}
+	if c.InboundWorkers <= 0 {
+		c.InboundWorkers = 8
 	}
 	if c.WebhookWorkers <= 0 {
 		c.WebhookWorkers = 16
@@ -99,7 +103,7 @@ func New(pool *pgxpool.Pool, cfg Config, registrars ...Registrar) (*Client, erro
 	}
 
 	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:       defaultQueueConfig(cfg.OutboundWorkers, cfg.WebhookWorkers, cfg.MaintenanceWorkers, cfg.DefaultWorkers),
+		Queues:       defaultQueueConfig(cfg.OutboundWorkers, cfg.InboundWorkers, cfg.WebhookWorkers, cfg.MaintenanceWorkers, cfg.DefaultWorkers),
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	})
