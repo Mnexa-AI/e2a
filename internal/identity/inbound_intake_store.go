@@ -117,6 +117,12 @@ func (s *Store) MarkInboundIntakeProcessedTx(ctx context.Context, tx pgx.Tx, int
 // rolls back its persist tx (no duplicate message/event) and treats it as done.
 var ErrIntakeAlreadyProcessed = errors.New("inbound intake already processed")
 
+// ErrRecipientGone signals that the recipient no longer resolves to an agent (deleted
+// between accept and processing). It is NOT a transient error — the async worker
+// marks the intake terminally (so it doesn't linger 'accepted' forever) and the sync
+// path skips the recipient. Distinct sentinel so callers don't retry.
+var ErrRecipientGone = errors.New("recipient no longer resolves to an agent")
+
 // MarkInboundIntakeFailed marks an intake terminally failed (unparseable body /
 // exhausted retries) with a diagnostic detail. Own transaction — a terminal record
 // for ops visibility; the message is dropped (we already 250'd).

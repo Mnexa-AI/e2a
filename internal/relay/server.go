@@ -282,6 +282,9 @@ func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 			TraceID:      s.id,
 		}
 		if derr := s.relay.processInbound(ctx, in, nil); derr != nil {
+			if errors.Is(derr, identity.ErrRecipientGone) {
+				continue // recipient's agent is gone — skip it (historical skip+continue)
+			}
 			// Persist failed — return a transient SMTP error so the sending MTA
 			// retries the whole message (RFC 5321 §4.5.4.1) instead of us silently
 			// losing it under a 250. Multi-recipient caveat: a retry re-delivers to
@@ -333,21 +336,19 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	log.Printf("[%s] [%s] domain auth from %s (envelope %s): %s", in.TraceID, senderEmail, in.RemoteIP, in.EnvelopeFrom, domainAuth.Summary())
 
 	agent, err := srv.resolveAgent(ctx, in.Recipient)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Recipient's agent was deleted between accept and processing — drop it as
-			// a NO-OP, not an error (design §5, and matches the historical sync
-			// skip+continue). GetAgentByID returns ErrNoRows, not (nil,nil), for a gone
-			// agent, so this is the reachable branch. Returning an error here would
-			// burn the whole retry envelope (~5.5h) and re-meter the undeliverable
-			// message on every attempt.
-			log.Printf("[%s] recipient %s no longer resolves to an agent — dropping", in.TraceID, in.Recipient)
-			return nil
-		}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err // genuine transient resolve failure — retryable (451 / River)
 	}
-	if agent == nil {
-		return nil // defensive: a future store variant that returns (nil, nil)
+	if errors.Is(err, pgx.ErrNoRows) || agent == nil {
+		// Recipient's agent was deleted between accept and processing — NOT a transient
+		// error. Return the ErrRecipientGone sentinel: the async worker marks the
+		// intake terminally (so it doesn't linger 'accepted' with orphaned raw MIME)
+		// and the sync path skips the recipient. Returning a plain error here would
+		// burn the whole retry envelope (~5.5h) and re-meter the undeliverable message
+		// on every attempt. (GetAgentByID returns ErrNoRows, not (nil,nil), for a gone
+		// agent — the nil check is defensive.)
+		log.Printf("[%s] recipient %s no longer resolves to an agent — dropping", in.TraceID, in.Recipient)
+		return identity.ErrRecipientGone
 	}
 	rcpt := in.Recipient
 	body := in.Body

@@ -99,6 +99,21 @@ func TestWorker_AlreadyProcessedIsNoOp(t *testing.T) {
 	}
 }
 
+// TestWorker_RecipientGoneMarksTerminal: a gone recipient (deleted agent) is dropped
+// terminally (intake marked failed), NOT retried — no error, so the job completes and
+// the intake doesn't linger 'accepted' with orphaned raw MIME.
+func TestWorker_RecipientGoneMarksTerminal(t *testing.T) {
+	st := &fakeStore{intake: accepted()}
+	pr := &fakeProcessor{err: identity.ErrRecipientGone}
+	w := inboundprocess.NewInboundProcessWorker(st, pr)
+	if err := w.Work(context.Background(), job(0)); err != nil {
+		t.Fatalf("a gone recipient should drop (no error), got %v", err)
+	}
+	if len(st.failed) != 1 || st.failed[0] != "intk_1" {
+		t.Errorf("a gone recipient must mark the intake terminal, got %v", st.failed)
+	}
+}
+
 func TestWorker_TransientRetryDoesNotMarkFailed(t *testing.T) {
 	st := &fakeStore{intake: accepted()}
 	pr := &fakeProcessor{err: errors.New("db blip")}

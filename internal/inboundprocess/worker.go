@@ -109,6 +109,15 @@ func (w *InboundProcessWorker) Work(ctx context.Context, job *river.Job[InboundP
 		if errors.Is(err, identity.ErrIntakeAlreadyProcessed) {
 			return nil // a concurrent/prior attempt already processed it — done
 		}
+		if errors.Is(err, identity.ErrRecipientGone) {
+			// Recipient's agent was deleted between accept and processing. Mark the
+			// intake terminally (not a retry) so it doesn't linger 'accepted' forever
+			// with orphaned raw MIME; the message is dropped (nothing to deliver).
+			if ferr := w.store.MarkInboundIntakeFailed(ctx, it.ID, "recipient agent no longer exists"); ferr != nil {
+				log.Printf("[inbound-process] mark-gone for %s: %v", it.ID, ferr)
+			}
+			return nil
+		}
 		// Processing errors are transient (DB persist / agent resolve). Retry within
 		// the bounded envelope; on exhaustion, mark the intake failed for ops
 		// visibility — we already returned 250, so the message is dropped, not lost
