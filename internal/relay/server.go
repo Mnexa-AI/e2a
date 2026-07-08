@@ -271,7 +271,17 @@ func (s *session) deliverMessages(ctx context.Context, senderEmail string, body 
 			continue
 		}
 
-		s.deliverToAgent(ctx, agent, senderEmail, rcpt, body, domainAuth)
+		if derr := s.deliverToAgent(ctx, agent, senderEmail, rcpt, body, domainAuth); derr != nil {
+			// Persist failed — return a transient SMTP error so the sending MTA
+			// retries the whole message (RFC 5321 §4.5.4.1), instead of us silently
+			// losing it under a 250. This path was previously swallowed (log + fall
+			// through to 250 = silent loss). Multi-recipient caveat: a retry
+			// re-delivers to already-succeeded recipients (the sync path has no
+			// dedup) — duplicate beats loss, and the queue-first inbound path
+			// (E2A_INBOUND_MODE=async) collapses the duplicate.
+			log.Printf("[%s] [%s] persist failed for %s → 451 (sender will retry): %v", s.id, senderEmail, rcpt, derr)
+			return &smtp.SMTPError{Code: 451, EnhancedCode: smtp.EnhancedCode{4, 3, 0}, Message: "temporary failure storing message; please retry"}
+		}
 		delivered++
 	}
 
@@ -279,9 +289,13 @@ func (s *session) deliverMessages(ctx context.Context, senderEmail string, body 
 	return nil
 }
 
-// deliverToAgent signs auth headers and delivers a single message to an agent.
-// Push agents get webhook delivery; poll agents get the message stored for retrieval.
-func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdentity, senderEmail, rcpt string, body []byte, domainAuth *emailauth.Result) {
+// deliverToAgent signs auth headers, persists, and delivers a single message to an
+// agent. Returns a non-nil error ONLY when the message could not be durably
+// persisted — the caller (deliverMessages) maps that to a 451 so the sender retries
+// rather than losing the mail. Screening/metering failures fail open (they do not
+// error out here). Push agents get webhook delivery via the outbox; the WebSocket
+// hub is an opportunistic live-tail.
+func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdentity, senderEmail, rcpt string, body []byte, domainAuth *emailauth.Result) error {
 	// Generate the message ID up-front so it can be bound into the HMAC
 	// canonical. Recipients verify by reconstructing the canonical with
 	// the message_id from the payload — substituting the ID without
@@ -520,8 +534,10 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 		)
 	}
 	if err != nil {
+		// Do NOT swallow — surface to deliverMessages so the SMTP session returns a
+		// 451 and the sender retries, instead of a 250 that silently drops the mail.
 		log.Printf("[%s] [%s] failed to record inbound message: %v", s.id, senderEmail, err)
-		return
+		return err
 	}
 	_ = inboundMsg
 
@@ -550,6 +566,7 @@ func (s *session) deliverToAgent(ctx context.Context, agent *identity.AgentIdent
 			log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
 		}
 	}
+	return nil
 }
 
 // The envelope wrapper ({event, id, created_at, data}) is added by the publisher
