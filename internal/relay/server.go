@@ -595,6 +595,12 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		)
 	}
 	if err != nil {
+		if errors.Is(err, identity.ErrIntakeAlreadyProcessed) {
+			// Benign at-least-once re-drive: a prior attempt already processed this
+			// intake, so the persist tx rolled back (no duplicate). Not a failure —
+			// the async worker treats this sentinel as done. Don't log it as an error.
+			return err
+		}
 		// Do NOT swallow — surface to deliverMessages so the SMTP session returns a
 		// 451 and the sender retries, instead of a 250 that silently drops the mail.
 		log.Printf("[%s] [%s] failed to record inbound message: %v", in.TraceID, senderEmail, err)
