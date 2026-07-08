@@ -28,6 +28,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/inboundprocess"
 	"github.com/Mnexa-AI/e2a/internal/outboundsend"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/senderidentity"
@@ -248,6 +249,18 @@ func main() {
 			agent.NewOutboundDeliverer(sender),
 		)
 		registrars = append(registrars, outboundJobs)
+	}
+
+	// Async inbound pipeline (inbound-message-pipeline-river.md), gated by
+	// E2A_INBOUND_MODE=async. The InboundProcessWorker registers on the shared River
+	// client; the SMTP accept-tx enqueues an inbound_process job in the same tx as
+	// the intake row. The Processor (the relay Server) is injected later via
+	// SetProcessor — the relay is built below, after the River client. nil ⇒ the
+	// synchronous inline path (unchanged).
+	var inboundJobs *inboundprocess.Jobs
+	if cfg.Inbound.Mode == "async" {
+		inboundJobs = inboundprocess.NewJobs(store)
+		registrars = append(registrars, inboundJobs)
 	}
 
 	var senderMgr *senderidentity.Manager
@@ -514,6 +527,18 @@ func main() {
 	smtpServer := relay.NewServer(cfg, store, signer, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
 	smtpServer.SetOutbox(webhookOutbox)
+
+	// Wire the async inbound pipeline into the relay (E2A_INBOUND_MODE=async): the
+	// Processor is the relay Server itself; the accept-tx enqueues via the shared
+	// client. Done here because the relay is constructed after the River client — the
+	// worker late-binds the Processor (SetProcessor) and tolerates the brief startup
+	// window before it's set.
+	if inboundJobs != nil {
+		inboundJobs.SetProcessor(smtpServer)
+		inboundJobs.SetEnqueuer(jobsClient)
+		smtpServer.SetInboundEnqueuer(inboundJobs)
+		log.Printf("[inbound-process] engine=river (async accept, E2A_INBOUND_MODE=async)")
+	}
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)

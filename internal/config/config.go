@@ -41,6 +41,7 @@ type Config struct {
 	Signing          SigningConfig          `yaml:"signing"`
 	OutboundSMTP     OutboundSMTPConfig     `yaml:"outbound_smtp"`
 	Outbound         OutboundConfig         `yaml:"outbound"`
+	Inbound          InboundConfig          `yaml:"inbound"`
 	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
 	Limits           LimitsConfig           `yaml:"limits"`
@@ -135,6 +136,18 @@ type OutboundConfig struct {
 	Mode string `yaml:"mode"`
 }
 
+// InboundConfig selects the inbound processing model (inbound-message-pipeline-
+// river.md). Mode="sync" (the default) is the historical path: the SMTP session runs
+// parse/screen/persist/deliver inline before 250. Mode="async" opts into the
+// queue-first River pipeline: the session durably accepts the raw MIME to
+// inbound_intake + enqueues a processing job atomically before 250, and the
+// internal/inboundprocess worker does the processing off the SMTP critical path.
+// Override with E2A_INBOUND_MODE. Any value other than "async" is treated as "sync"
+// (fail-safe to the unchanged path).
+type InboundConfig struct {
+	Mode string `yaml:"mode"`
+}
+
 // DeliveryFeedbackConfig controls outbound delivery feedback (decision 9 /
 // Slice 4b). When SESConfigurationSet is set, outbound mail is tagged so SES
 // publishes delivery/bounce/complaint events; SNSTopicARNs is the fail-closed
@@ -221,6 +234,7 @@ func Load(path string) (*Config, error) {
 			CacheTTLSeconds:  60,
 		},
 		Outbound: OutboundConfig{Mode: "sync"},
+		Inbound:  InboundConfig{Mode: "sync"},
 		Env:      "development",
 	}
 
@@ -272,6 +286,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_OUTBOUND_MODE"); v != "" {
 		cfg.Outbound.Mode = v
+	}
+	if v := os.Getenv("E2A_INBOUND_MODE"); v != "" {
+		cfg.Inbound.Mode = v
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_REQUIRE_TLS"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {

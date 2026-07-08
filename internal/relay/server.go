@@ -52,7 +52,24 @@ type Server struct {
 	// X-E2A-Conversation-ID directly; external senders fall back to the
 	// In-Reply-To lookup so they cannot forge conversation IDs.
 	outboundFromDomain string
+	// inboundAsync routes inbound through the queue-first River pipeline
+	// (E2A_INBOUND_MODE=async): the session durably accepts to inbound_intake +
+	// enqueues a processing job before 250 instead of processing inline. A nil
+	// inboundEnq forces the synchronous path regardless (fail-safe).
+	inboundAsync bool
+	inboundEnq   InboundEnqueuer
 }
+
+// InboundEnqueuer inserts the inbound_process job in the SMTP accept-tx (the same
+// transaction as the inbound_intake insert). *inboundprocess.Jobs satisfies it.
+// Injected via SetInboundEnqueuer; nil keeps inbound on the synchronous path.
+type InboundEnqueuer interface {
+	EnqueueInboundProcessTx(ctx context.Context, tx pgx.Tx, intakeID string) (int64, error)
+}
+
+// SetInboundEnqueuer wires the shared River client's inbound enqueuer, enabling the
+// queue-first accept path when E2A_INBOUND_MODE=async.
+func (s *Server) SetInboundEnqueuer(e InboundEnqueuer) { s.inboundEnq = e }
 
 // SetOutbox wires the transactional outbox. The inbound trigger commits the
 // messages row and the webhook_events outbox row in a single transaction (per
@@ -76,6 +93,7 @@ func NewServer(cfg *config.Config, store *identity.Store, signer *headers.Signer
 		screen:             buildScreenEngine(),
 		smtpDomain:         cfg.SMTP.Domain,
 		outboundFromDomain: cfg.OutboundSMTP.FromDomain,
+		inboundAsync:       cfg.Inbound.Mode == "async",
 	}
 
 	be := &backend{relay: s}
@@ -247,7 +265,13 @@ func (s *session) Data(r io.Reader) error {
 	}
 	log.Printf("[%s] [%s] DATA recipients=%v size=%d bytes", s.id, senderEmail, s.recipients, len(body))
 
-	// Deliver directly — no human identity lookup needed
+	// Queue-first async path (E2A_INBOUND_MODE=async): durably accept the raw MIME to
+	// inbound_intake + enqueue a River processing job, all before 250 — processing
+	// happens off the SMTP critical path. Falls back to the synchronous inline path
+	// when the enqueuer isn't wired (fail-safe).
+	if s.relay.inboundAsync && s.relay.inboundEnq != nil {
+		return s.acceptInbound(ctx, body, threadInfo)
+	}
 	return s.deliverMessages(ctx, senderEmail, body)
 }
 
