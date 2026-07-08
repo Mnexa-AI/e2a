@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -30,6 +31,10 @@ func (f *fakeStore) MarkInboundIntakeFailed(_ context.Context, id, _ string) err
 
 func (f *fakeStore) StampInboundIntakeJobIDTx(_ context.Context, _ pgx.Tx, _ string, _ int64) error {
 	return nil
+}
+
+func (f *fakeStore) PruneProcessedIntake(_ context.Context, _ time.Duration) (int64, error) {
+	return 0, nil
 }
 
 type fakeProcessor struct {

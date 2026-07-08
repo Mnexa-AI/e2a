@@ -64,12 +64,21 @@ func (j *Jobs) ProcessIntake(ctx context.Context, it *identity.InboundIntake) er
 	return p.ProcessIntake(ctx, it)
 }
 
-// RegisterJobs adds the InboundProcessWorker to the shared client's bundle, with Jobs
-// as the (late-binding) Processor. Implements jobs.Registrar. The live periodic
-// reconciler is slice 5.
+// RegisterJobs adds the InboundProcessWorker (with Jobs as the late-binding
+// Processor) + the RetentionWorker, and schedules the retention sweep as a periodic
+// on QueueMaintenance. Implements jobs.Registrar.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, NewInboundProcessWorker(j.store, j))
-	return nil
+	river.AddWorker(w, &RetentionWorker{pruner: j.store})
+	return []*river.PeriodicJob{
+		river.NewPeriodicJob(
+			river.PeriodicInterval(retentionInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return InboundRetentionArgs{}, &river.InsertOpts{Queue: jobs.QueueMaintenance}
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
+		),
+	}
 }
 
 // ReconcilePending enqueues an inbound_process job for every accepted intake row that

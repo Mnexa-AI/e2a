@@ -67,6 +67,8 @@ type Store interface {
 	MarkInboundIntakeFailed(ctx context.Context, intakeID, detail string) error
 	// StampInboundIntakeJobIDTx records the job id on a reconciled row.
 	StampInboundIntakeJobIDTx(ctx context.Context, tx pgx.Tx, intakeID string, jobID int64) error
+	// PruneProcessedIntake deletes processed rows older than olderThan (retention).
+	PruneProcessedIntake(ctx context.Context, olderThan time.Duration) (int64, error)
 }
 
 // InboundProcessWorker processes an accepted intake row. Mirrors

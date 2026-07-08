@@ -110,3 +110,17 @@ func (s *Store) MarkInboundIntakeFailed(ctx context.Context, intakeID, detail st
 		intakeID, detail)
 	return err
 }
+
+// PruneProcessedIntake deletes processed intake rows whose terminal time is older
+// than olderThan. Safe because the raw MIME also lives in messages.raw_message once
+// processed; failed rows are deliberately retained for inspection. Returns the count
+// pruned. Called by the inbound retention periodic (QueueMaintenance).
+func (s *Store) PruneProcessedIntake(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM inbound_intake WHERE status = 'processed' AND processed_at < $1`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
