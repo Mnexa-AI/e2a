@@ -153,10 +153,11 @@ best-effort: writeProtectionEvents; WS hub.Send (when !Hold)
   `inbound_intake` with `status='accepted' AND process_job_id IS NULL` (mirror
   `outboundsend.ReconcilePending`). Handles rows accepted by a build that crashed
   pre-enqueue and the mode-flip moment.
-- **Live periodic reconciler** (`QueueMaintenance`): re-enqueue `accepted` intake
-  whose job is terminal/absent — closes the rare "job discarded without processing"
-  strand that the outbound design deferred; cheap because `accepted` rows are
-  transient.
+- **Live periodic reconciler** (`QueueMaintenance`) — **DEFERRED (follow-up, matching
+  outboundsend)**: would re-enqueue `accepted` intake whose job is terminal/absent,
+  closing the rare "job discarded without processing" strand. Not shipped: the
+  accept-tx is atomic so the NULL-job set is ~empty in steady state, and the startup
+  pass re-drives on the next deploy. Only the startup cutover ships.
 - **Retention:** prune `status='processed'` intake older than N days (raw is also in
   `messages.raw_message`). A periodic sweep; keep a short window (e.g. 3 days) for
   debugging + re-drive. `failed` intake retained longer for inspection.

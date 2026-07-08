@@ -95,11 +95,27 @@ func (s *Store) LoadInboundIntake(ctx context.Context, intakeID string) (*Inboun
 // publish). This is the worker's idempotency gate: a re-drive that finds 'processed'
 // no-ops instead of re-creating the message.
 func (s *Store) MarkInboundIntakeProcessedTx(ctx context.Context, tx pgx.Tx, intakeID, messageFK string) error {
-	_, err := tx.Exec(ctx,
-		`UPDATE inbound_intake SET status = 'processed', message_fk = $2, processed_at = now() WHERE id = $1`,
+	// Guard on status='accepted' (defense-in-depth): the worker's Work() already
+	// no-ops a non-accepted row before processing, but scoping the flip here means a
+	// second concurrent processor of the same intake commits nothing rather than
+	// re-linking a different messages row.
+	tag, err := tx.Exec(ctx,
+		`UPDATE inbound_intake SET status = 'processed', message_fk = $2, processed_at = now()
+		  WHERE id = $1 AND status = 'accepted'`,
 		intakeID, messageFK)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrIntakeAlreadyProcessed
+	}
+	return nil
 }
+
+// ErrIntakeAlreadyProcessed signals that the intake was not in 'accepted' state when
+// the worker tried to flip it — another attempt already processed it. The caller
+// rolls back its persist tx (no duplicate message/event) and treats it as done.
+var ErrIntakeAlreadyProcessed = errors.New("inbound intake already processed")
 
 // MarkInboundIntakeFailed marks an intake terminally failed (unparseable body /
 // exhausted retries) with a diagnostic detail. Own transaction — a terminal record

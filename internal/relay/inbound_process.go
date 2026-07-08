@@ -26,7 +26,10 @@ import (
 func (s *session) acceptInbound(ctx context.Context, body []byte, info threadInfo) error {
 	contentHash := contentHashHex(body)
 	envelopeFrom := extractEmail(s.from)
-	remoteIP := s.remoteIP.String()
+	remoteIP := ""
+	if s.remoteIP != nil {
+		remoteIP = s.remoteIP.String() // stored as text; nil would serialize to "<nil>"
+	}
 	messageID := info.MessageID // sender's RFC 5322 Message-ID (may be "")
 
 	err := s.relay.store.WithTx(ctx, func(tx pgx.Tx) error {

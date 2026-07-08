@@ -279,12 +279,10 @@ func TestExtractThreadInfoDecodesEncodedSubject(t *testing.T) {
 	}
 }
 
-func TestSessionResetClearsThreadInfo(t *testing.T) {
+func TestSessionReset(t *testing.T) {
 	s := &session{
-		from:           "alice@example.com",
-		recipients:     []string{"bot@agent.example.com"},
-		inboundMsgID:   "<abc@gmail.com>",
-		inboundSubject: "Hello",
+		from:       "alice@example.com",
+		recipients: []string{"bot@agent.example.com"},
 	}
 
 	s.Reset()
@@ -294,11 +292,5 @@ func TestSessionResetClearsThreadInfo(t *testing.T) {
 	}
 	if s.recipients != nil {
 		t.Errorf("recipients should be nil after Reset, got %v", s.recipients)
-	}
-	if s.inboundMsgID != "" {
-		t.Errorf("inboundMsgID should be empty after Reset, got %q", s.inboundMsgID)
-	}
-	if s.inboundSubject != "" {
-		t.Errorf("inboundSubject should be empty after Reset, got %q", s.inboundSubject)
 	}
 }

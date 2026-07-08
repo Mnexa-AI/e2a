@@ -29,3 +29,7 @@ override:
   # Outbound send on River — the at-least-once send worker + accept-tx enqueue.
   - threshold: 75
     path: ^internal/outboundsend$
+  # Inbound processing on River — the at-least-once worker + reconciler + retention.
+  # (The relay-side ProcessIntake adapter is covered cross-package by relay tests.)
+  - threshold: 65
+    path: ^internal/inboundprocess$

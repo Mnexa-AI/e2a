@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"mime"
@@ -193,10 +194,6 @@ type session struct {
 	from       string
 	recipients []string
 	remoteIP   net.IP
-	// Extracted from inbound email for threading
-	inboundMsgID      string
-	inboundSubject    string
-	inboundThreadInfo threadInfo
 }
 
 func (s *session) AuthPlain(username, password string) error {
@@ -252,14 +249,10 @@ func (s *session) Data(r io.Reader) error {
 		return err
 	}
 
-	// Extract threading info from inbound email
+	// Extract threading info once, for the DATA log + the async accept path (the
+	// per-recipient processing recomputes its own threadInfo from the raw body).
 	threadInfo := extractThreadInfo(body)
-	s.inboundMsgID = threadInfo.MessageID
-	s.inboundSubject = threadInfo.Subject
-	s.inboundThreadInfo = threadInfo
-
-	// Prefer From header (human-readable) over SMTP envelope (may be SES bounce address)
-	senderEmail := extractEmail(s.from)
+	senderEmail := extractEmail(s.from) // prefer From header for the log
 	if threadInfo.From != "" {
 		senderEmail = threadInfo.From
 	}
@@ -272,14 +265,14 @@ func (s *session) Data(r io.Reader) error {
 	if s.relay.inboundAsync && s.relay.inboundEnq != nil {
 		return s.acceptInbound(ctx, body, threadInfo)
 	}
-	return s.deliverMessages(ctx, senderEmail, body)
+	return s.deliverMessages(ctx, body)
 }
 
 // deliverMessages resolves each recipient and processes the message synchronously
 // (the E2A_INBOUND_MODE=sync path): it calls processInbound inline with no
 // post-persist hook. A persist failure surfaces as a 451 so the sending MTA retries
 // (never a silent 250). The async path enqueues to River instead (see the accept-tx).
-func (s *session) deliverMessages(ctx context.Context, senderEmail string, body []byte) error {
+func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 	for _, rcpt := range s.recipients {
 		in := inboundInput{
 			Body:         body,
@@ -341,11 +334,20 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 
 	agent, err := srv.resolveAgent(ctx, in.Recipient)
 	if err != nil {
-		return err // transient resolve failure — retryable (451 / River)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Recipient's agent was deleted between accept and processing — drop it as
+			// a NO-OP, not an error (design §5, and matches the historical sync
+			// skip+continue). GetAgentByID returns ErrNoRows, not (nil,nil), for a gone
+			// agent, so this is the reachable branch. Returning an error here would
+			// burn the whole retry envelope (~5.5h) and re-meter the undeliverable
+			// message on every attempt.
+			log.Printf("[%s] recipient %s no longer resolves to an agent — dropping", in.TraceID, in.Recipient)
+			return nil
+		}
+		return err // genuine transient resolve failure — retryable (451 / River)
 	}
 	if agent == nil {
-		log.Printf("[%s] recipient %s no longer resolves to an agent — dropping", in.TraceID, in.Recipient)
-		return nil // mailbox gone (deleted between accept and processing) — no-op
+		return nil // defensive: a future store variant that returns (nil, nil)
 	}
 	rcpt := in.Recipient
 	body := in.Body
@@ -397,11 +399,6 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// annotation only here — review/block holds are a later slice, so the message
 	// still delivers.
 	screenRes := srv.screenInbound(ctx, agent, messageID, senderEmail, body, domainAuth, policyDecision)
-
-	// Record inbound usage (fail-open — never block inbound email)
-	if agent.UserID != "" {
-		srv.usage.RecordAndCheck(ctx, agent.UserID, agent.ID, agent.Domain, "inbound")
-	}
 
 	lookup := func(ctx context.Context, ids []string) (string, error) {
 		return srv.store.LookupConversationID(ctx, agent.ID, ids)
@@ -604,6 +601,15 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	}
 	_ = inboundMsg
 
+	// Record inbound usage AFTER the message is durably persisted (fail-open — never
+	// block inbound email). The async worker retries a failed attempt, so metering
+	// before the persist tx would over-count — billing an undeliverable message once
+	// per attempt. Post-persist + the worker's already-processed no-op gate ⇒ once per
+	// delivered message. Mirrors the outbound send path.
+	if agent.UserID != "" {
+		srv.usage.RecordAndCheck(ctx, agent.UserID, agent.ID, agent.Domain, "inbound")
+	}
+
 	// Append the screening audit rows (gate + scan violations) best-effort. Soft-ref
 	// + deterministic ids make this idempotent under MTA retry, so it's safe outside
 	// the message transaction.
@@ -695,9 +701,6 @@ func splitEmail(addr string) (local, domain string) {
 func (s *session) Reset() {
 	s.from = ""
 	s.recipients = nil
-	s.inboundMsgID = ""
-	s.inboundSubject = ""
-	s.inboundThreadInfo = threadInfo{}
 }
 
 func (s *session) Logout() error {

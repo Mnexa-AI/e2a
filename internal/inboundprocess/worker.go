@@ -17,6 +17,7 @@ package inboundprocess
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -105,6 +106,9 @@ func (w *InboundProcessWorker) Work(ctx context.Context, job *river.Job[InboundP
 	}
 
 	if err := w.processor.ProcessIntake(ctx, it); err != nil {
+		if errors.Is(err, identity.ErrIntakeAlreadyProcessed) {
+			return nil // a concurrent/prior attempt already processed it — done
+		}
 		// Processing errors are transient (DB persist / agent resolve). Retry within
 		// the bounded envelope; on exhaustion, mark the intake failed for ops
 		// visibility — we already returned 250, so the message is dropped, not lost

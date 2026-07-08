@@ -111,6 +111,24 @@ func TestWorker_TransientRetryDoesNotMarkFailed(t *testing.T) {
 	}
 }
 
+// TestJobs_ProcessIntakeLateBinding covers the late-bound Processor: before
+// SetProcessor, Jobs.ProcessIntake returns a retryable error (no panic); after, it
+// delegates to the concrete processor.
+func TestJobs_ProcessIntakeLateBinding(t *testing.T) {
+	j := inboundprocess.NewJobs(&fakeStore{})
+	if err := j.ProcessIntake(context.Background(), accepted()); err == nil {
+		t.Fatal("an unwired processor should return a retryable error, not panic")
+	}
+	pr := &fakeProcessor{}
+	j.SetProcessor(pr)
+	if err := j.ProcessIntake(context.Background(), accepted()); err != nil {
+		t.Fatalf("wired ProcessIntake: %v", err)
+	}
+	if pr.calls != 1 {
+		t.Errorf("wired ProcessIntake should delegate once, got %d", pr.calls)
+	}
+}
+
 func TestWorker_FinalAttemptMarksFailed(t *testing.T) {
 	st := &fakeStore{intake: accepted()}
 	pr := &fakeProcessor{err: errors.New("db blip")}
