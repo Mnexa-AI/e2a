@@ -7,9 +7,11 @@ import (
 )
 
 // ProtectionFindingView is one screening producer's verdict on a held message —
-// the review-detail breakdown behind the coded review_reason. A gate finding
-// (source=gate) names the address that tripped a trust policy; a scan finding
-// (source=scan) carries the content-detector's categories + one-line rationale.
+// the review-detail breakdown behind the coded review_reason. A scan finding
+// (source=scan) carries the content-detector's categories + one-line rationale;
+// a gate finding (source=scan's counterpart, source=gate) carries only its
+// source + action today (the address that tripped the policy is intentionally
+// not surfaced here — the reviewer already sees sender/recipient on the message).
 // Review surface only (GET /v1/reviews/{id}); the agent /messages read paths
 // never return holds. Beta: the shape may change.
 type ProtectionFindingView struct {

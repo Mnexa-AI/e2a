@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"reflect"
 	"time"
@@ -206,7 +207,11 @@ func (s *Server) handleGetReview(ctx context.Context, in *getReviewInput) (*revi
 	// a missing/failed events fetch just omits `protection`, leaving hold_reason
 	// as the fallback. Ownership is already proven above.
 	if s.deps.ListProtectionEventsByMessage != nil {
-		if events, err := s.deps.ListProtectionEventsByMessage(ctx, in.ID); err == nil && len(events) > 0 {
+		if events, err := s.deps.ListProtectionEventsByMessage(ctx, in.ID); err != nil {
+			// Degrade gracefully — the coded review_reason remains — but leave a
+			// trail so a persistently-empty `protection` is diagnosable.
+			log.Printf("[reviews] protection events fetch for %s failed (detail omits breakdown): %v", in.ID, err)
+		} else if len(events) > 0 {
 			view.Protection = protectionFindings(events)
 		}
 	}
