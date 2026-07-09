@@ -1,0 +1,104 @@
+package hitlworker_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Mnexa-AI/e2a/internal/identity"
+)
+
+// fakeEnq records EnqueueSendTx calls (the outbound_send enqueue) so the async
+// branch can be asserted without a real River client.
+type fakeEnq struct{ calls []string }
+
+func (f *fakeEnq) EnqueueSendTx(_ context.Context, _ pgx.Tx, messageID string) (int64, error) {
+	f.calls = append(f.calls, messageID)
+	return 7777, nil
+}
+
+// TestWorkerAutoApproveAsync: with an outbound enqueuer wired (async mode), an
+// expired approve-hold to an EXTERNAL recipient is transitioned to
+// review_expired_approved + delivery_status='accepted', an outbound_send job is
+// enqueued (+ send_job_id stamped), and NO inline SMTP send happens — the
+// SendWorker owns the submit.
+func TestWorkerAutoApproveAsync(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	agent := prepareAgent(t, store, "approve-async", identity.HITLExpirationApprove)
+	enq := &fakeEnq{}
+	w.SetOutboundEnqueuer(enq)
+
+	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@external.test"}, nil, nil,
+		"Held", "body", "<p>html</p>", nil, "send", "", "", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("async approve must NOT send inline, got %d SMTP messages", len(msgs))
+	}
+	if len(enq.calls) != 1 || enq.calls[0] != msg.ID {
+		t.Fatalf("EnqueueSendTx calls = %v, want [%s]", enq.calls, msg.ID)
+	}
+
+	var status, deliveryStatus string
+	var sendJobID *int64
+	if err := pool.QueryRow(ctx,
+		`SELECT status, COALESCE(delivery_status,''), send_job_id FROM messages WHERE id=$1`, msg.ID,
+	).Scan(&status, &deliveryStatus, &sendJobID); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusReviewExpiredApproved {
+		t.Errorf("status = %q, want %q", status, identity.MessageStatusReviewExpiredApproved)
+	}
+	if deliveryStatus != "accepted" {
+		t.Errorf("delivery_status = %q, want accepted", deliveryStatus)
+	}
+	if sendJobID == nil || *sendJobID != 7777 {
+		t.Errorf("send_job_id = %v, want 7777", sendJobID)
+	}
+}
+
+// TestWorkerAutoApproveAsync_SelfSendStaysLoopback: even with the enqueuer wired,
+// a self-send (single To == the agent's own address) must NOT be enqueued onto
+// QueueOutbound (the relay would strip the address). It falls through to the sync
+// loopback path and resolves to review_expired_approved.
+func TestWorkerAutoApproveAsync_SelfSendStaysLoopback(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	agent := prepareAgent(t, store, "selfsend-async", identity.HITLExpirationApprove)
+	enq := &fakeEnq{}
+	w.SetOutboundEnqueuer(enq)
+
+	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{agent.EmailAddress()}, nil, nil,
+		"To myself", "body", "", nil, "send", "", "", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	if len(enq.calls) != 0 {
+		t.Errorf("self-send must NOT enqueue onto QueueOutbound, got calls %v", enq.calls)
+	}
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Errorf("self-send delivers via loopback, not SMTP, got %d messages", len(msgs))
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM messages WHERE id=$1`, msg.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusReviewExpiredApproved {
+		t.Errorf("self-send status = %q, want %q (resolved via loopback)", status, identity.MessageStatusReviewExpiredApproved)
+	}
+}
