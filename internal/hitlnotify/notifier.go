@@ -6,9 +6,12 @@
 // message and one-click approve / reject magic links, plus a link back
 // to the dashboard for edit-before-approve.
 //
-// The notifier is intentionally best-effort: delivery failures are
-// logged but never surfaced as HTTP errors, so a broken relay cannot
-// block the send-hold contract the API promises to its SDK/CLI users.
+// Delivery is durable, on River: the hold accept-tx enqueues a hitl_notify
+// job (QueueNotify) in the same transaction as the pending_review row, and
+// the NotifyWorker (worker.go) recomposes and submits the email ONCE off the
+// request path — River owns the retry envelope (docs/design/hitl-notify-river.md).
+// This replaced the earlier detached, best-effort goroutine, which lost the
+// notification on a crash or SMTP outage between the 202 response and the send.
 package hitlnotify
 
 import (
@@ -60,10 +63,10 @@ func New(store *identity.Store, relay *outbound.SMTPRelay, signer *approvaltoken
 	}
 }
 
-// NotifyPendingApproval composes and sends the notification email for a
-// newly held message. Designed to be called in a goroutine from the HTTP
-// handler — any returned error is only for tests; production callers
-// should ignore it and rely on the notifier's own logging.
+// NotifyPendingApproval composes and sends the notification email for a held
+// message, submitting once (SendOnce). It is the compose+send core the River
+// NotifyWorker drives via Deliver; the returned error is classified there into
+// retry/permanent/outage.
 func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Message, agent *identity.AgentIdentity) error {
 	if n == nil {
 		return nil
@@ -126,7 +129,10 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 		return fmt.Errorf("notify: compose: %w", err)
 	}
 
-	if _, err := n.relay.Send(fromAddr, []string{owner.Email}, message); err != nil {
+	// SendOnce, not Send: this runs inside a River job, so River (not the relay's
+	// in-process loop) owns retries. The %w keeps the SMTP error classifiable by
+	// Deliver via internal/outbound's IsPermanentSMTPError / IsConnectionError.
+	if _, err := n.relay.SendOnce(fromAddr, []string{owner.Email}, message); err != nil {
 		return fmt.Errorf("notify: smtp send: %w", err)
 	}
 
@@ -135,33 +141,20 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 	return nil
 }
 
-// NotifyPendingApprovalAsync is a thin fire-and-forget wrapper suitable
-// for goroutine launches from HTTP handlers. It swallows the error
-// after logging so callers don't need to.
-func (n *Notifier) NotifyPendingApprovalAsync(msg *identity.Message, agent *identity.AgentIdentity) {
-	if n == nil {
-		// Operator-side misconfiguration: notifier wasn't wired (most
-		// likely because OutboundSMTP.FromDomain or HTTP.PublicURL is
-		// unset; the wiring in cmd/e2a/main.go gates on both). The API
-		// still returns 202 pending_review to the caller, but the
-		// reviewer never gets an email — silent and confusing without
-		// a log line.
-		msgID := ""
-		if msg != nil {
-			msgID = msg.ID
+// Deliver composes and sends the approval email for one held message, classifying
+// the result for the River NotifyWorker: a 5xx / validation reject is Permanent
+// (no retry), an unreachable relay is an Outage (snooze), everything else retries.
+// Implements hitlnotify.Deliverer. The classifiers key on the SMTP code / net
+// error preserved through NotifyPendingApproval's %w wrapping.
+func (n *Notifier) Deliver(ctx context.Context, pn *identity.PendingNotify) DeliverOutcome {
+	if err := n.NotifyPendingApproval(ctx, pn.Message, pn.Agent); err != nil {
+		return DeliverOutcome{
+			Err:       err,
+			Permanent: outbound.IsPermanentSMTPError(err),
+			Outage:    outbound.IsConnectionError(err),
 		}
-		log.Printf("[hitl-notify] suppressed (notifier not configured): msg=%s", msgID)
-		return
 	}
-	go func() {
-		// Detach from the request context so shutting down mid-notification
-		// doesn't drop the email. Cap the total send time generously.
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if err := n.NotifyPendingApproval(ctx, msg, agent); err != nil {
-			log.Printf("[hitl-notify] send failed: msg=%s err=%v", msg.ID, err)
-		}
-	}()
+	return DeliverOutcome{}
 }
 
 func (n *Notifier) magicURL(path, token string) string {

@@ -1555,6 +1555,21 @@ func (s *Store) StampSendJobIDTx(ctx context.Context, tx pgx.Tx, messageID strin
 // ([{filename, content_type, data}, ...]) or nil. Callers that already have
 // an []outbound.Attachment slice should json.Marshal it before passing in.
 func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID string, ttlSeconds int) (*Message, error) {
+	return createPendingOutboundMessage(ctx, s.pool, agentID, toRecipients, cc, bcc, subject, bodyText, bodyHTML, attachmentsJSON, msgType, conversationID, replyToEmailMessageID, ttlSeconds)
+}
+
+// CreatePendingOutboundMessageTx is the in-tx sibling of
+// CreatePendingOutboundMessage, letting the HITL hold write the pending_review
+// row and enqueue its approval-notification job (QueueNotify) in ONE transaction
+// so neither can exist without the other (docs/design/hitl-notify-river.md).
+// Mirrors CreateOutboundMessageTx / the send accept-tx.
+func (s *Store) CreatePendingOutboundMessageTx(ctx context.Context, tx pgx.Tx, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID string, ttlSeconds int) (*Message, error) {
+	return createPendingOutboundMessage(ctx, tx, agentID, toRecipients, cc, bcc, subject, bodyText, bodyHTML, attachmentsJSON, msgType, conversationID, replyToEmailMessageID, ttlSeconds)
+}
+
+// createPendingOutboundMessage is the shared body of the pool and in-tx pending
+// creators; exec is satisfied by both *pgxpool.Pool and pgx.Tx (messageExecutor).
+func createPendingOutboundMessage(ctx context.Context, exec messageExecutor, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID string, ttlSeconds int) (*Message, error) {
 	if ttlSeconds <= 0 || ttlSeconds > HITLMaxTTLSeconds {
 		return nil, fmt.Errorf("ttl_seconds must be between 1 and %d", HITLMaxTTLSeconds)
 	}
@@ -1596,7 +1611,7 @@ func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string
 		// on a held draft's detail/list view (B1).
 		Sender: agentID,
 	}
-	_, err := s.pool.Exec(ctx,
+	_, err := exec.Exec(ctx,
 		`INSERT INTO messages (
 		    id, agent_id, direction, recipient, subject, email_message_id, message_type,
 		    conversation_id, created_at, expires_at,
@@ -1618,6 +1633,63 @@ func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string
 		return nil, err
 	}
 	return m, nil
+}
+
+// StampNotifyJobIDTx records the River QueueNotify job id on the pending_review
+// message, within the hold accept-tx, so the notification reconciler can find
+// rows stranded without a job (pending_review AND notify_job_id IS NULL).
+// Mirrors StampSendJobIDTx.
+func (s *Store) StampNotifyJobIDTx(ctx context.Context, tx pgx.Tx, messageID string, jobID int64) error {
+	_, err := tx.Exec(ctx, `UPDATE messages SET notify_job_id = $2 WHERE id = $1`, messageID, jobID)
+	return err
+}
+
+// MarkMessageNotified stamps notified_at after the approval-notification email is
+// sent. Set only AFTER a successful send, so it is the send-dedup marker that makes
+// a crash-after-send River re-drive a no-op without ever risking a lost
+// notification (loss would require setting it before the send).
+func (s *Store) MarkMessageNotified(ctx context.Context, messageID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE messages SET notified_at = now() WHERE id = $1`, messageID)
+	return err
+}
+
+// PendingNotify is what the HITL approval-notification worker re-reads for one
+// message: the held message (the fields the notifier composes from), its owning
+// agent, and whether it was already notified.
+type PendingNotify struct {
+	Message  *Message
+	Agent    *AgentIdentity
+	Notified bool
+}
+
+// LoadPendingNotify returns the row the notification worker needs, or (nil, nil)
+// when there is nothing to notify about — the message was deleted/pruned, or its
+// owning agent no longer exists (an orphaned hold; other paths finalize it). The
+// worker treats a nil return as a no-op.
+func (s *Store) LoadPendingNotify(ctx context.Context, messageID string) (*PendingNotify, error) {
+	m := &Message{ID: messageID}
+	var agentID string
+	var notifiedAt *time.Time
+	err := s.pool.QueryRow(ctx,
+		`SELECT status, subject, to_recipients, cc, bcc, approval_expires_at, agent_id, notified_at
+		   FROM messages WHERE id = $1`, messageID,
+	).Scan(&m.Status, &m.Subject, &m.ToRecipients, &m.CC, &m.BCC, &m.ApprovalExpiresAt, &agentID, &notifiedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // message gone
+		}
+		return nil, err
+	}
+	m.AgentID = agentID
+
+	agent, err := s.GetAgentByID(ctx, agentID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // owning agent deleted — orphaned hold, nothing to notify
+		}
+		return nil, err
+	}
+	return &PendingNotify{Message: m, Agent: agent, Notified: notifiedAt != nil}, nil
 }
 
 // nullIfEmptyString returns nil interface when s is empty so the column is
