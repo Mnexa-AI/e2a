@@ -1,0 +1,25 @@
+-- 060_webhook_events_fanout_job.sql
+--
+-- Webhook fan-out on River (docs/design/webhook-fanout-river-migration.md).
+--
+-- The fan-out step (webhook_events → webhook_subscriber_deliveries) is moving off the
+-- hand-rolled webhookpub.OutboxWorker (LISTEN/NOTIFY + poll + manual SKIP-LOCKED lease)
+-- onto a River job, mirroring the outbound accept-tx (send_job_id, 054) and the HITL
+-- notify accept-tx (notify_job_id, 057): the trigger that writes the webhook_events row
+-- also enqueues a webhook_fan_out job in the SAME transaction and stamps its id here, so
+-- the startup + periodic reconciler can find events stranded without a fan-out job
+-- (status='pending' AND fanout_job_id IS NULL).
+--
+-- Additive + idempotent. Nullable ADD COLUMN with no default is a metadata-only op on
+-- Postgres — safe on the traffic-scaled webhook_events table (same as 054/055/057).
+--
+-- No cutover UPDATE (unlike 057): this ships behind E2A_WEBHOOK_FANOUT_MODE=legacy, so
+-- until the flag flips, NOTHING enqueues fan-out jobs and fanout_job_id stays NULL on
+-- every row — the legacy OutboxWorker still drains them. The reconciler only re-drives
+-- pending rows once mode=river is enqueuing jobs; under legacy mode it is inert (the
+-- worker is not registered). See §Slice 2 of the design.
+--
+-- The reconciler's partial index is built CONCURRENTLY in migration 061 (a plain
+-- CREATE INDEX here would take a write lock on the whole webhook_events table at deploy).
+
+ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS fanout_job_id BIGINT;

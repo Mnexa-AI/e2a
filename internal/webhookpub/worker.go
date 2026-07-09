@@ -325,14 +325,36 @@ func (w *OutboxWorker) leasePending(ctx context.Context) ([]leasedEvent, error) 
 // apply filter matching, insert delivery rows, mark outbox row
 // processed — all in one transaction so partial fan-out is impossible.
 func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
-	webhooks, err := w.identityStore.ListEnabledWebhooksForRouting(ctx, ev.userID, ev.eventType)
+	// The fan-out body is shared with the River FanOutWorker (fanout_worker.go) via
+	// fanOutEventCore. The legacy worker maps a failure to recordFailure — the event
+	// row stays 'pending' and the next lease retries; the River worker returns the
+	// error for River to retry. Behavior here is unchanged from before the extraction:
+	// the failure metrics are emitted inside the core at the same points and with the
+	// same labels, so recordFailure remains the only thing this wrapper adds.
+	if err := fanOutEventCore(ctx, w.pool, w.identityStore, w.enqueuer, w.metrics, ev); err != nil {
+		w.recordFailure(ctx, ev.id, err.Error())
+	}
+}
+
+// fanOutEventCore fans out a single loaded event in ONE transaction: match the user's
+// enabled subscribers, insert one webhook_subscriber_deliveries row per match (ON
+// CONFLICT dedup), enqueue a River delivery job per real insert, and mark the event
+// row terminal (processed/no_match) under a status='pending' guard so a concurrent
+// finisher (an expired-lease replica, or a duplicate at-least-once River job) can't be
+// clobbered. Returns an error instead of recording failure so both the legacy
+// OutboxWorker and the River FanOutWorker share the exact same body.
+//
+// Failure-metric parity with the pre-extraction fanOutOne: a list-subscribers error
+// records NO OutboxFailures label (it only wraps the message, which recordFailure then
+// logs); a tx error emits OutboxFailures("update_status"). Callers add their own
+// recovery on top (recordFailure for the legacy poll, River retry for the worker).
+func fanOutEventCore(ctx context.Context, pool *pgxpool.Pool, identityStore identityReader, enqueuer DeliveryEnqueuer, metrics telemetry.Metrics, ev leasedEvent) error {
+	webhooks, err := identityStore.ListEnabledWebhooksForRouting(ctx, ev.userID, ev.eventType)
 	if err != nil {
-		w.recordFailure(ctx, ev.id, fmt.Sprintf("list subscribers: %v", err))
-		return
+		return fmt.Errorf("list subscribers: %w", err)
 	}
 
-	// Apply filter matching. Need to reconstruct an Event-shaped
-	// struct from the leasedEvent to feed `matches`.
+	// Reconstruct an Event-shaped struct from the leasedEvent to feed `matches`.
 	eventForMatching := Event{
 		Type:           ev.eventType,
 		UserID:         ev.userID,
@@ -342,37 +364,35 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 		MessageID: derefString(ev.messageID),
 	}
 
-	// matched starts as an empty slice (not nil) so pgx serializes it
-	// as the empty Postgres array '{}', not NULL. The column is
-	// matched_webhook_ids TEXT[] NOT NULL DEFAULT '{}' — a NULL would
-	// fail the NOT NULL constraint and the UPDATE would error.
+	// matched starts as an empty slice (not nil) so pgx serializes it as the empty
+	// Postgres array '{}', not NULL. matched_webhook_ids is TEXT[] NOT NULL DEFAULT
+	// '{}' — a NULL would fail the NOT NULL constraint and the UPDATE would error.
 	matched := make([]string, 0, len(webhooks))
-	for _, w := range webhooks {
-		if matches(eventForMatching, w.Filters) {
-			matched = append(matched, w.ID)
+	for _, wh := range webhooks {
+		if matches(eventForMatching, wh.Filters) {
+			matched = append(matched, wh.ID)
 		}
 	}
 
 	if len(matched) == 0 {
-		w.metrics.OutboxEventsNoMatch(ev.eventType)
+		metrics.OutboxEventsNoMatch(ev.eventType)
 	} else {
-		w.metrics.OutboxEventsFanOut(ev.eventType, len(matched))
+		metrics.OutboxEventsFanOut(ev.eventType, len(matched))
 	}
-	err = poolBeginFunc(ctx, w.pool, func(tx pgx.Tx) error {
+	if err := poolBeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		if len(matched) > 0 {
 			inserted, err := insertPendingBatchTx(ctx, tx, ev.id, matched, ev.eventType, ev.messageID, ev.envelope)
 			if err != nil {
 				return err
 			}
-			// Enqueue a River delivery job for each row that ACTUALLY inserted
-			// (dedup no-ops are absent from `inserted`),
-			// in this same tx — the Layer 2 row and its job commit atomically, so
-			// there is never a record without a job, and a deduped event enqueues
-			// nothing. Stamp the row's job_id for the cutover discriminator +
-			// observability.
-			if w.enqueuer != nil {
+			// Enqueue a River delivery job for each row that ACTUALLY inserted (dedup
+			// no-ops are absent from `inserted`), in this same tx — the Layer 2 row and
+			// its job commit atomically, so there is never a record without a job, and a
+			// deduped event enqueues nothing. Stamp the row's job_id for the cutover
+			// discriminator + observability.
+			if enqueuer != nil {
 				for _, d := range inserted {
-					jobID, err := w.enqueuer.EnqueueDeliveryTx(ctx, tx, d)
+					jobID, err := enqueuer.EnqueueDeliveryTx(ctx, tx, d)
 					if err != nil {
 						return err
 					}
@@ -384,11 +404,10 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 				}
 			}
 		}
-		// Conditional UPDATE: if another worker already processed
-		// this event row (e.g. our lease expired during a long
-		// fan-out and replica B took over and finished), the
-		// status='pending' predicate matches zero rows and our
-		// UPDATE no-ops. Lease-vs-fanout race fix from §4.4.
+		// Conditional UPDATE: if another worker already processed this event row (our
+		// lease expired during a long fan-out and replica B took over and finished, or
+		// — under River — a duplicate at-least-once job ran), the status='pending'
+		// predicate matches zero rows and this UPDATE no-ops.
 		newStatus := "processed"
 		if len(matched) == 0 {
 			newStatus = "no_match"
@@ -400,11 +419,11 @@ func (w *OutboxWorker) fanOutOne(ctx context.Context, ev leasedEvent) {
 			newStatus, ev.id, matched,
 		)
 		return err
-	})
-	if err != nil {
-		w.recordFailure(ctx, ev.id, err.Error())
-		w.metrics.OutboxFailures("update_status")
+	}); err != nil {
+		metrics.OutboxFailures("update_status")
+		return err
 	}
+	return nil
 }
 
 // insertPendingBatchTx writes one webhook_subscriber_deliveries row
