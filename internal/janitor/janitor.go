@@ -244,7 +244,7 @@ func NewMaintenanceJobs(j *Janitor) *MaintenanceJobs { return &MaintenanceJobs{j
 // unbounded-DELETE hazard is resolved — each is now a ctx-aware ctid-LIMIT drain
 // loop (see the DeleteExpired* store methods) bounded by MaintenanceWorker.Timeout.
 func (m *MaintenanceJobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, &MaintenanceWorker{janitor: m.janitor})
+	river.AddWorker(w, NewMaintenanceWorker(m.janitor))
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(janitorInterval),

@@ -29,7 +29,7 @@ import (
 
 // sendRetryBackoffs is the per-attempt delay schedule for a failed outbound send —
 // the decided envelope (design §4). River drives it via NextRetry; indexed by
-// attempt. Provider-outage errors snooze instead of counting an attempt (slice D).
+// attempt. Provider-outage errors snooze instead of counting an attempt.
 var sendRetryBackoffs = []time.Duration{
 	30 * time.Second,
 	2 * time.Minute,
@@ -107,13 +107,13 @@ type DeliverOutcome struct {
 }
 
 // Deliverer performs a SINGLE SMTP submit — River owns re-attempts. Implemented in
-// the binary over internal/outbound's single-attempt path (slice B).
+// the binary over internal/outbound's single-attempt path.
 type Deliverer interface {
 	Deliver(ctx context.Context, j *SendJob) DeliverOutcome
 }
 
 // Store is the messages-store surface the worker needs. Implemented over
-// internal/identity in the binary (slice C). MarkSent/MarkFailed each own their own
+// internal/identity in the binary. MarkSent/MarkFailed each own their own
 // transaction and emit email.sent / email.failed via the webhook outbox in it.
 type Store interface {
 	// LoadForSend returns the send payload, or (nil, nil) if the message is gone
@@ -148,6 +148,9 @@ func (w *SendWorker) NextRetry(job *river.Job[OutboundSendArgs]) time.Time {
 	return time.Now().Add(sendRetryBackoffs[i])
 }
 
+// Work intentionally has no Timeout() override — a single SES submit comfortably fits
+// River's 60s default JobTimeout. (Contrast the maintenance/sweep workers, which
+// override it because they can run for minutes.)
 func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs]) error {
 	j, err := w.store.LoadForSend(ctx, job.Args.MessageID)
 	if err != nil {
@@ -195,16 +198,24 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 // markFailed writes the terminal 'failed' status, retrying a transient DB error a
 // few times so the row's status never desyncs from a discarded River job (mirrors
 // webhookdelivery.markFailedReliably).
+const (
+	// terminalWriteRetries / terminalWriteBackoff bound the retry of the terminal
+	// 'failed' write in markFailed — a best-effort last resort when the DB write of the
+	// final send outcome itself fails. Backoff is linear (i+1)×base.
+	terminalWriteRetries = 3
+	terminalWriteBackoff = 150 * time.Millisecond
+)
+
 func (w *SendWorker) markFailed(ctx context.Context, messageID string, attempt int, detail string) {
 	var err error
-	for i := 0; i < 3; i++ {
+	for i := 0; i < terminalWriteRetries; i++ {
 		if err = w.store.MarkFailed(ctx, messageID, attempt, detail); err == nil {
 			return
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Duration(i+1) * 150 * time.Millisecond):
+		case <-time.After(time.Duration(i+1) * terminalWriteBackoff):
 		}
 	}
 	log.Printf("[outbound-send] CRITICAL: terminal 'failed' write for %s failed after retries: %v", messageID, err)

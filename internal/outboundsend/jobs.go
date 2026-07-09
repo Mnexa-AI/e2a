@@ -31,7 +31,7 @@ func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 // RegisterJobs adds the SendWorker to the shared client's bundle. Implements
 // jobs.Registrar.
 //
-// No live periodic reconciler yet (slice D). The one residual it would close: if a
+// No live periodic reconciler yet (startup cutover only). The one residual it would close: if a
 // job's terminal write (markFailed) fails on all its retries, the worker still
 // cancels/discards the River job, leaving the row `accepted` with a stamped-but-dead
 // job — which ReconcilePending (keyed on send_job_id IS NULL) does not catch. That
@@ -66,7 +66,7 @@ func (j *Jobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, e
 // EnqueueSendTx enqueues a send job WITHIN the caller's transaction — the outbox
 // pattern: the accept-tx's messages-row insert and this job commit together, so an
 // `accepted` message can never exist without a send job (or vice versa). The
-// accept-tx stamps the returned river_job id on messages.send_job_id (slice C) so
+// accept-tx stamps the returned river_job id on messages.send_job_id so
 // the reconciler can find stranded rows (`accepted` with no job). Mirrors
 // webhookdelivery.EnqueueDeliveryTx.
 func (j *Jobs) EnqueueSendTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error) {

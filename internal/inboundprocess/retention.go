@@ -35,6 +35,12 @@ type RetentionWorker struct {
 	pruner Pruner
 }
 
+// Work intentionally has no Timeout() override — it relies on River's 60s default
+// JobTimeout. PruneProcessedIntake is a single unbounded DELETE; inbound_intake is
+// short-lived (processed rows pruned every tick), so the set is normally tiny. On a
+// large backlog a 60s cut is safe (the DELETE is ctx-aware — it rolls back and the next
+// tick resumes), just slow. TODO: batch it like the janitor's ctid-LIMIT prunes (#397)
+// if a backlog ever makes the single DELETE a problem.
 func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[InboundRetentionArgs]) error {
 	n, err := w.pruner.PruneProcessedIntake(ctx, retentionWindow)
 	if err != nil {

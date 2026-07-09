@@ -25,7 +25,8 @@ import (
 // reviewed_by_user_id is omitted and `auto_resolved: true` is set; and the
 // routing key (Event.UserID) is the agent OWNER (the sweep is system-scoped).
 
-// publish fires e through the legacy publisher, detached from the sweep's
+// publish fires e through the webhook publisher (the OutboxPublisher, which writes the
+// webhook_events outbox that a fan-out worker drains), detached from the sweep's
 // context so a cancelled sweep doesn't drop an already-committed resolution's
 // notification. No-op when no publisher is wired. The deterministic id (set by
 // the caller) makes a re-swept row's event idempotent.

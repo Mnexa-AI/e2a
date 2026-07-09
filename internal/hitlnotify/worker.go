@@ -99,6 +99,8 @@ func (w *NotifyWorker) NextRetry(job *river.Job[HITLNotifyArgs]) time.Time {
 	return time.Now().Add(notifyRetryBackoffs[i])
 }
 
+// Work intentionally has no Timeout() override — a single SMTP submit of the approval
+// notification fits River's 60s default JobTimeout.
 func (w *NotifyWorker) Work(ctx context.Context, job *river.Job[HITLNotifyArgs]) error {
 	pn, err := w.store.LoadPendingNotify(ctx, job.Args.MessageID)
 	if err != nil {
