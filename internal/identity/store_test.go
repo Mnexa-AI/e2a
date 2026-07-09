@@ -664,6 +664,61 @@ func TestDeleteExpiredMessages(t *testing.T) {
 	}
 }
 
+// TestDeleteExpiredMessages_MultiBatch drives the ctid-bounded drain loop across
+// more than one batch by shrinking the batch size to 2 and seeding 5 expired rows
+// (batches of 2, 2, 1). Asserts every expired row is deleted across batches and a
+// non-expired row is left untouched — guarding both the loop's termination condition
+// (RowsAffected < batch) and the expiry predicate.
+func TestDeleteExpiredMessages_MultiBatch(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	restore := identity.SetExpiredDeleteBatchForTest(2)
+	defer restore()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-cleanup-batch")
+	store.ClaimOrCreateDomain(ctx, "cleanup-batch.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@cleanup-batch.example.com", "cleanup-batch.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	// 5 expired rows — spans 3 batches under batch size 2.
+	var expiredIDs []string
+	for i := 0; i < 5; i++ {
+		m, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-batch.example.com", "", "", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
+		expiredIDs = append(expiredIDs, m.ID)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = ANY($2)`,
+		time.Now().Add(-1*time.Hour), expiredIDs); err != nil {
+		t.Fatalf("seed expiry: %v", err)
+	}
+
+	// One fresh row that must survive the sweep.
+	keep, _ := store.CreateInboundMessage(ctx, "", a.ID, "bob@gmail.com", "bot@cleanup-batch.example.com", "", "", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
+
+	deleted, err := store.DeleteExpiredMessages(ctx)
+	if err != nil {
+		t.Fatalf("DeleteExpiredMessages: %v", err)
+	}
+	if deleted != 5 {
+		t.Errorf("deleted = %d, want 5 (all expired across 3 batches)", deleted)
+	}
+
+	var remaining int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id = $1`, a.ID).Scan(&remaining); err != nil {
+		t.Fatalf("count remaining: %v", err)
+	}
+	if remaining != 1 {
+		t.Errorf("remaining rows = %d, want 1 (the fresh row)", remaining)
+	}
+	var keepExists bool
+	if err := pool.QueryRow(ctx, `SELECT exists(SELECT 1 FROM messages WHERE id = $1)`, keep.ID).Scan(&keepExists); err != nil {
+		t.Fatalf("check kept row: %v", err)
+	}
+	if !keepExists {
+		t.Errorf("non-expired row %s was deleted", keep.ID)
+	}
+}
+
 func TestCreateOutboundMessage(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

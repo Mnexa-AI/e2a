@@ -163,14 +163,28 @@ func (s *SubscriberStore) InsertPendingForTest(ctx context.Context, webhookID, e
 // passed. Migration 025 sets a 30-day TTL on every row; without this
 // janitor the table grows monotonically and query plans degrade.
 // Mirrors DeliveryStore.DeleteExpiredDeliveries for the legacy table.
+// expiredDeleteBatch bounds one DELETE in the batched retention sweep —
+// webhook_subscriber_deliveries scales with delivery volume, so the janitor prunes it
+// in ctid-bounded chunks to keep each statement's lock/WAL small. Caller's ctx bounds
+// total runtime; a partial sweep resumes next hour (idempotent).
+const expiredDeleteBatch = 5000
+
 func (s *SubscriberStore) DeleteExpiredSubscriberDeliveries(ctx context.Context) (int, error) {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM webhook_subscriber_deliveries WHERE expires_at <= now()`,
-	)
-	if err != nil {
-		return 0, err
+	var total int
+	for {
+		tag, err := s.pool.Exec(ctx,
+			`DELETE FROM webhook_subscriber_deliveries WHERE ctid IN (
+			   SELECT ctid FROM webhook_subscriber_deliveries WHERE expires_at <= now() LIMIT $1)`,
+			expiredDeleteBatch)
+		if err != nil {
+			return total, err
+		}
+		n := int(tag.RowsAffected())
+		total += n
+		if n < expiredDeleteBatch {
+			return total, nil
+		}
 	}
-	return int(tag.RowsAffected()), nil
 }
 
 // ListDeliveriesByWebhook returns up to `limit` delivery rows for the

@@ -3060,12 +3060,30 @@ func (s *Store) UpdateMessageDeliveryStatus(ctx context.Context, messageID, agen
 	return err
 }
 
+// expiredDeleteBatch bounds one DELETE statement in the janitor's batched sweeps.
+// messages is prod-sized, so a single unbounded `DELETE ... WHERE expired` would take
+// a long row-lock + emit a huge WAL burst on the first sweep of a backlog. Deleting
+// in ctid-bounded chunks keeps each statement small; the caller's ctx bounds total
+// runtime (a partial sweep resumes next hour — the delete is idempotent). A var (not
+// const) so tests can shrink it to exercise the multi-batch loop cheaply.
+var expiredDeleteBatch int64 = 5000
+
 func (s *Store) DeleteExpiredMessages(ctx context.Context) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM messages WHERE expires_at <= now()`)
-	if err != nil {
-		return 0, err
+	var total int64
+	for {
+		tag, err := s.pool.Exec(ctx,
+			`DELETE FROM messages WHERE ctid IN (
+			   SELECT ctid FROM messages WHERE expires_at <= now() LIMIT $1)`,
+			expiredDeleteBatch)
+		if err != nil {
+			return total, err
+		}
+		n := tag.RowsAffected()
+		total += n
+		if n < expiredDeleteBatch {
+			return total, nil
+		}
 	}
-	return tag.RowsAffected(), nil
 }
 
 // LookupConversationID finds a conversation_id by matching In-Reply-To / References

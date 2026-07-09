@@ -128,16 +128,28 @@ func (o *outbox) Enabled() bool {
 // SELECT panics every iteration) will accumulate forever rather than
 // fall out at day 30. That's the "page ops after many attempts" case
 // recordFailure calls out — preferable to silent loss.
+// expiredDeleteBatch bounds one DELETE in the batched retention sweep — webhook_events
+// grows monotonically with traffic, so the janitor prunes it in ctid-bounded chunks to
+// keep each statement's lock/WAL small. Caller's ctx bounds total runtime; a partial
+// sweep resumes next hour (idempotent).
+const expiredDeleteBatch = 5000
+
 func (o *outbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error) {
-	tag, err := o.pool.Exec(ctx,
-		`DELETE FROM webhook_events
-		 WHERE expires_at <= now()
-		   AND status <> 'pending'`,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("delete expired webhook_events: %w", err)
+	var total int
+	for {
+		tag, err := o.pool.Exec(ctx,
+			`DELETE FROM webhook_events WHERE ctid IN (
+			   SELECT ctid FROM webhook_events WHERE expires_at <= now() AND status <> 'pending' LIMIT $1)`,
+			expiredDeleteBatch)
+		if err != nil {
+			return total, fmt.Errorf("delete expired webhook_events: %w", err)
+		}
+		n := int(tag.RowsAffected())
+		total += n
+		if n < expiredDeleteBatch {
+			return total, nil
+		}
 	}
-	return int(tag.RowsAffected()), nil
 }
 
 func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (wrote bool) {

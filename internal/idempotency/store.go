@@ -305,15 +305,28 @@ func (s *Store) Release(ctx context.Context, userID, key string) error {
 // those are taken over by the next Claim via the UPSERT WHERE clause,
 // which keeps the takeover path concentrated in one place (the
 // concurrency model lives in Claim, not split across two functions).
+// expiredDeleteBatch bounds one DELETE in the batched sweep — idempotency_keys scales
+// with request volume, so the janitor prunes it in ctid-bounded chunks to keep each
+// statement's lock/WAL small. Caller's ctx bounds total runtime; a partial sweep
+// resumes next hour (idempotent).
+const expiredDeleteBatch = 5000
+
 func (s *Store) Sweep(ctx context.Context) (int64, error) {
 	ttlSecs := int(TTL.Seconds())
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM idempotency_keys
-		  WHERE status = 'completed' AND created_at < now() - make_interval(secs => $1)`,
-		ttlSecs,
-	)
-	if err != nil {
-		return 0, err
+	var total int64
+	for {
+		tag, err := s.pool.Exec(ctx,
+			`DELETE FROM idempotency_keys WHERE ctid IN (
+			   SELECT ctid FROM idempotency_keys
+			    WHERE status = 'completed' AND created_at < now() - make_interval(secs => $2) LIMIT $1)`,
+			expiredDeleteBatch, ttlSecs)
+		if err != nil {
+			return total, err
+		}
+		n := tag.RowsAffected()
+		total += n
+		if n < expiredDeleteBatch {
+			return total, nil
+		}
 	}
-	return tag.RowsAffected(), nil
 }
