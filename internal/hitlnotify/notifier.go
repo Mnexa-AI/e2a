@@ -129,6 +129,23 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 		return fmt.Errorf("notify: compose: %w", err)
 	}
 
+	// Prepend a DETERMINISTIC Message-ID so a re-sent notification collapses at
+	// Message-ID-deduping recipients (Gmail/Workspace and most major clients) instead
+	// of showing twice. The at-least-once notification pipeline can legitimately
+	// re-send the same reviewer alert (a crash between SendOnce and MarkMessageNotified,
+	// or a cutover reconciler re-drive); this makes those re-sends carry the SAME
+	// Message-ID (stable per held message, unique across holds), which the recipient
+	// then dedups on. Best-effort + recipient-side only — SES has no send-side dedup.
+	//
+	// compose deliberately omits Message-ID (SES assigns one for TRACKED sends to
+	// avoid an id mismatch); a notification isn't tracked for delivery events, so a
+	// caller-set id is safe here. Prepending a header line is valid RFC 5322 (the
+	// Message-ID may lead the header block); msg.ID (msg_<rand>) + n.fromDomain carry
+	// no CR/LF, so there's no header-injection risk. SES/SMTP preserves a supplied
+	// Message-ID rather than overwriting it.
+	msgIDHeader := fmt.Sprintf("<hitl-approve-%s@%s>", msg.ID, n.fromDomain)
+	message = append([]byte("Message-ID: "+msgIDHeader+"\r\n"), message...)
+
 	// SendOnce, not Send: this runs inside a River job, so River (not the relay's
 	// in-process loop) owns retries. The %w keeps the SMTP error classifiable by
 	// Deliver via internal/outbound's IsPermanentSMTPError / IsConnectionError.

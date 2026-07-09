@@ -208,6 +208,34 @@ func TestNotifierRejectsMessageWithNilApprovalExpiresAt(t *testing.T) {
 	}
 }
 
+// TestNotifierDeterministicMessageID: the approval-notification carries a
+// deterministic Message-ID derived from the held message id, so a re-sent
+// notification (crash-window / cutover re-drive) is byte-identical in that header
+// and collapses at Message-ID-deduping recipients. Two sends of the same hold must
+// carry the SAME Message-ID.
+func TestNotifierDeterministicMessageID(t *testing.T) {
+	n, store, _, smtpDone := newNotifier(t)
+	agent, msg := setupPendingMessage(t, store, "msgid")
+
+	if err := n.NotifyPendingApproval(context.Background(), msg, agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.NotifyPendingApproval(context.Background(), msg, agent); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 2 {
+		t.Fatalf("got %d SMTP messages, want 2", len(msgs))
+	}
+	want := "Message-ID: <hitl-approve-" + msg.ID + "@" + notifyFromDomain + ">"
+	for i, m := range msgs {
+		if !strings.Contains(m.Data, want) {
+			t.Errorf("message %d missing deterministic %q; data:\n%s", i, want, m.Data)
+		}
+	}
+}
+
 func TestNotifierDeliver(t *testing.T) {
 	n, store, _, smtpDone := newNotifier(t)
 	agent, msg := setupPendingMessage(t, store, "deliver")
