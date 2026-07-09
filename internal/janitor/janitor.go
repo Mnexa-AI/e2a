@@ -219,6 +219,17 @@ func NewMaintenanceJobs(j *Janitor) *MaintenanceJobs { return &MaintenanceJobs{j
 // UniqueOpts (River's periodic scheduler already inserts at most one per
 // interval and a completed run must not dedup-block the next), RunOnStart:false
 // (first sweep after one interval, matching the old ticker's first-tick-after-1h).
+//
+// Two deferred tradeoffs, inherited from the pre-River janitor (not introduced by
+// this migration): (1) each prune is an unbounded single-statement DELETE — on a
+// prod-sized `messages` table the first sweep can hold a long lock / emit a large
+// WAL burst; batching the deletes (a LIMIT-loop) is a separate follow-up. (2) With
+// no UniqueOpts and QueueMaintenance's small worker pool, a sweep that runs longer
+// than the 1h interval can overlap the next tick. That is safe — every prune is an
+// idempotent DELETE on a distinct table and a partial sweep is simply finished by
+// the next interval — but two unbounded `DELETE FROM messages` could briefly
+// contend. Both only bite against a large, long-unpruned table (e.g. the first
+// deploy); steady-state sweeps are near-empty.
 func (m *MaintenanceJobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, &MaintenanceWorker{janitor: m.janitor})
 	return []*river.PeriodicJob{

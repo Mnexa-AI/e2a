@@ -37,7 +37,7 @@ type fakePruner struct {
 
 func (f *fakePruner) DeleteExpiredMessages(context.Context) (int64, error) {
 	f.messagesCalled++
-	return 1, f.messagesErr
+	return 3, f.messagesErr // distinct count so the metric test can map count→label
 }
 
 func (f *fakePruner) DeleteExpiredUserSessions(context.Context) (int64, error) {
@@ -52,12 +52,12 @@ func (f *fakePruner) DeleteExpiredDeliveries(context.Context) (int64, error) {
 
 func (f *fakePruner) DeleteExpiredSubscriberDeliveries(context.Context) (int, error) {
 	f.subscribersCalled++
-	return 1, f.subscribersErr
+	return 5, f.subscribersErr // distinct count for the metric test
 }
 
 func (f *fakePruner) DeleteExpiredWebhookEvents(context.Context) (int, error) {
 	f.webhookEventCalled++
-	return 1, f.webhookEventErr
+	return 7, f.webhookEventErr // distinct count for the metric test
 }
 
 func (f *fakePruner) Sweep(context.Context) (int64, error) {
@@ -70,16 +70,29 @@ func (f *fakePruner) CleanupExpired(context.Context, time.Time) (oauth.Retention
 	return oauth.RetentionResult{AuthCodesDeleted: 1}, f.oauthErr
 }
 
-// fakeMetrics records JanitorRowsDeleted calls so the sweep can run without a
-// real telemetry backend.
-type fakeMetrics struct{ calls []string }
+// metricCall captures one JanitorRowsDeleted emission (table + count).
+type metricCall struct {
+	table string
+	count int
+}
 
-func (m *fakeMetrics) JanitorRowsDeleted(table string, _ int) {
-	m.calls = append(m.calls, table)
+// fakeMetrics records every JanitorRowsDeleted call so a test can assert exactly
+// which prunes emit a metric and with what count.
+type fakeMetrics struct{ calls []metricCall }
+
+func (m *fakeMetrics) JanitorRowsDeleted(table string, count int) {
+	m.calls = append(m.calls, metricCall{table, count})
 }
 
 func newJanitor(f *fakePruner, oauth janitor.OAuthPruner) *janitor.Janitor {
 	return janitor.New(f, f, f, f, oauth, f, &fakeMetrics{})
+}
+
+// newJanitorM is newJanitor but also returns the fake metrics sink so a test can
+// assert the emitted (table, count) pairs.
+func newJanitorM(f *fakePruner, oauth janitor.OAuthPruner) (*janitor.Janitor, *fakeMetrics) {
+	m := &fakeMetrics{}
+	return janitor.New(f, f, f, f, oauth, f, m), m
 }
 
 // TestSweep_CallsEveryPruneOnce: one Sweep drives each prune method exactly once
@@ -107,6 +120,32 @@ func TestSweep_CallsEveryPruneOnce(t *testing.T) {
 	for _, c := range checks {
 		if c.got != 1 {
 			t.Errorf("%s called %d times, want 1", c.name, c.got)
+		}
+	}
+}
+
+// TestSweep_EmitsMetricsForCorrectTables: exactly the three metric-emitting prunes
+// (messages, webhook_subscriber_deliveries, webhook_events) fire JanitorRowsDeleted
+// with the count that prune returned — and sessions/deliveries/oauth/idempotency
+// emit NO metric. Guards against a mislabeled, dropped, spurious, or wrong-count
+// metric (incl. the int64→int cast on messages).
+func TestSweep_EmitsMetricsForCorrectTables(t *testing.T) {
+	f := &fakePruner{}
+	j, m := newJanitorM(f, f) // non-nil oauth so every pass runs
+	if err := j.Sweep(context.Background()); err != nil {
+		t.Fatalf("Sweep: unexpected error: %v", err)
+	}
+	want := []metricCall{
+		{"messages", 3},
+		{"webhook_subscriber_deliveries", 5},
+		{"webhook_events", 7},
+	}
+	if len(m.calls) != len(want) {
+		t.Fatalf("emitted %d metrics %+v, want exactly %d %+v", len(m.calls), m.calls, len(want), want)
+	}
+	for i, w := range want {
+		if m.calls[i] != w {
+			t.Errorf("metric[%d] = %+v, want %+v", i, m.calls[i], w)
 		}
 	}
 }
