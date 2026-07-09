@@ -92,6 +92,25 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 		return nil, &OutboundError{http.StatusForbidden, "domain_not_verified", "agent domain must be verified before sending"}
 	}
 
+	// Async mode: transition the hold to review_approved + delivery_status='accepted'
+	// and enqueue an outbound_send job; the SendWorker performs the SMTP submit +
+	// email.sent/failed + metering. The reviewer gets "accepted" back (the send is
+	// durably queued). Self-sends fall through to the sync loopback path below.
+	if a.outboundEnq != nil {
+		sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits)
+		if aerr != nil {
+			return nil, approveAsyncError(agent.ID, messageID, aerr)
+		}
+		if handled {
+			slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+			log.Printf("[mail:%s] dir=outbound type=%s status=%s from=%s to=%v slug=%s subject=%q edited=%v approved=user:%s delivery=async",
+				sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, userID)
+			a.publishApproved(ctx, a.buildApprovedEvent(agent, sent, userID), sent)
+			// No metering here — the SendWorker meters on MarkSent.
+			return sent, nil
+		}
+	}
+
 	sent, err := a.store.ApproveAndSend(ctx, messageID, userID, edits,
 		func(locked *identity.Message) (identity.SendResult, error) {
 			sendReq, err := buildSendRequestFromMessage(locked)
@@ -139,6 +158,56 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 		sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, userID)
 	a.publishApproved(ctx, a.buildApprovedEvent(agent, sent, userID), sent)
 	return sent, nil
+}
+
+// approveOutboundAsync composes the (edited) draft and, for a non-self-send,
+// transitions the hold to review_approved + delivery_status='accepted' and enqueues
+// an outbound_send job in one tx (via store.ApproveAndAccept). Returns
+// (sent, true, nil) when queued; (nil, false, nil) when the message is a self-send
+// (the caller uses the sync loopback path); (nil, false, err) on failure. Shared by
+// the dashboard-approve (ApprovePendingCore) and magic-link (magicApprove) paths.
+// draft is the loaded pending_review row; edits is empty for the magic-link path.
+func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit) (*identity.Message, bool, error) {
+	editedByReviewer := edits.Apply(draft)
+	sendReq, err := buildSendRequestFromMessage(draft)
+	if err != nil {
+		return nil, false, err
+	}
+	attachReferencesChain(ctx, a.store, agent.ID, &sendReq)
+	if isSelfSend(sendReq, agent.EmailAddress()) {
+		return nil, false, nil // self-send — caller uses the sync loopback path
+	}
+	comp, err := a.sender.ComposeForAccept(agent, sendReq)
+	if err != nil {
+		return nil, false, err
+	}
+	acc := identity.AcceptedSend{
+		To: comp.To, CC: comp.CC, BCC: comp.BCC, Subject: sendReq.Subject,
+		Method: comp.Method, EnvelopeFrom: comp.EnvelopeFrom, SentAs: comp.SentAs, Raw: comp.Raw,
+	}
+	sent, err := a.store.ApproveAndAccept(ctx, messageID, userID, identity.MessageStatusReviewApproved, editedByReviewer, acc, a.outboundEnq.EnqueueSendTx)
+	if err != nil {
+		return nil, false, err
+	}
+	return sent, true, nil
+}
+
+// approveAsyncError maps an approveOutboundAsync failure to an OutboundError,
+// matching the sync approve path's status codes.
+func approveAsyncError(agentID, messageID string, err error) *OutboundError {
+	switch {
+	case errors.Is(err, identity.ErrNotPendingApproval):
+		return &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
+	case errors.Is(err, identity.ErrMessageNotFound):
+		return &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+	default:
+		var ve *outbound.ValidationError
+		if errors.As(err, &ve) {
+			return &OutboundError{http.StatusBadRequest, "invalid_request", ve.Error()}
+		}
+		log.Printf("[api] approve-accept failed: agent=%s msg=%s err=%v", agentID, messageID, err)
+		return &OutboundError{http.StatusInternalServerError, "internal_error", "send failed"}
+	}
 }
 
 // attachReferencesChain rebuilds the References chain on a HITL-approved

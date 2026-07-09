@@ -183,6 +183,30 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 		return
 	}
 
+	// Async mode: transition + enqueue onto QueueOutbound (the SendWorker submits).
+	// Self-sends fall through to the sync loopback path below. Mirrors the sync magic
+	// path's events (no review_approved) — only the send routing changes.
+	if a.outboundEnq != nil {
+		draft, derr := a.store.GetOutboundMessageForUser(r.Context(), messageID, userID)
+		if derr != nil {
+			writeMagicMessage(w, http.StatusNotFound, "Message not found", "This message no longer exists.")
+			return
+		}
+		sent, handled, aerr := a.approveOutboundAsync(r.Context(), agent, messageID, userID, draft, identity.PendingApprovalEdit{})
+		if aerr != nil {
+			writeMagicApproveError(w, messageID, aerr)
+			return
+		}
+		if handled {
+			log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s to=%v approved=magic-link:user:%s delivery=async",
+				sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, userID)
+			writeMagicMessage(w, http.StatusOK, "Approved",
+				fmt.Sprintf("Your message to %s has been queued for delivery.", html.EscapeString(firstRecipient(sent.ToRecipients))))
+			return
+		}
+		// self-send → fall through to the sync ApproveAndSend loopback path below
+	}
+
 	sent, err := a.store.ApproveAndSend(r.Context(), messageID, userID, identity.PendingApprovalEdit{},
 		func(locked *identity.Message) (identity.SendResult, error) {
 			sendReq, err := buildSendRequestFromMessage(locked)
@@ -243,6 +267,27 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 	writeMagicMessage(w, http.StatusOK,
 		"Approved",
 		fmt.Sprintf("Your message to %s has been sent.", html.EscapeString(firstRecipient(sent.ToRecipients))))
+}
+
+// writeMagicApproveError renders the magic-link HTML error page for an async
+// approve failure, matching the sync approve path's status mapping.
+func writeMagicApproveError(w http.ResponseWriter, messageID string, err error) {
+	switch {
+	case errors.Is(err, identity.ErrMessageNotFound):
+		writeMagicMessage(w, http.StatusNotFound, "Message not found", "This message no longer exists.")
+	case errors.Is(err, identity.ErrNotPendingApproval):
+		writeMagicMessage(w, http.StatusConflict, "Already resolved",
+			"This message has already been approved, rejected, or expired.")
+	default:
+		var ve *outbound.ValidationError
+		if errors.As(err, &ve) {
+			writeMagicMessage(w, http.StatusBadRequest, "Cannot send", html.EscapeString(ve.Error()))
+			return
+		}
+		log.Printf("[api] magic-approve accept failed: msg=%s err=%v", messageID, err)
+		writeMagicMessage(w, http.StatusInternalServerError, "Send failed",
+			"The message couldn't be sent. Try again from the dashboard.")
+	}
 }
 
 func (a *API) magicReject(w http.ResponseWriter, r *http.Request, messageID, userID, reason string) {

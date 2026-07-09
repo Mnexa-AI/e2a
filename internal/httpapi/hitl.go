@@ -133,8 +133,15 @@ func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail stri
 			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
 		edited := sent.Edited
+		// Async mode returns the hold resolved to approved with delivery_status
+		// 'accepted' (the SendWorker submits later, emitting email.sent/failed) —
+		// surface "accepted" like any async send. Sync mode sent inline → "sent".
+		status := "sent"
+		if sent.DeliveryStatus == "accepted" {
+			status = "accepted"
+		}
 		return http.StatusOK, SendResultView{
-			Status: "sent", MessageID: sent.ID, ProviderMessageID: sent.ProviderMessageID,
+			Status: status, MessageID: sent.ID, ProviderMessageID: sent.ProviderMessageID,
 			SentAs: sent.SentAs, Method: sent.Method, Edited: &edited,
 		}, nil
 	})
