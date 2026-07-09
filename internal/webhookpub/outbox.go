@@ -63,6 +63,21 @@ type Outbox interface {
 	// no-ops when false. Retained as a seam; there is no longer a legacy
 	// fan-out path to fall back to.
 	Enabled() bool
+
+	// SetFanOutEnqueuer wires the River fan-out enqueuer (two-phase, called after the
+	// shared client exists). When set (E2A_WEBHOOK_FANOUT_MODE=river), PublishTx /
+	// PublishBestEffortTx enqueue a webhook_fan_out job in the event's own tx and stamp
+	// fanout_job_id — the River FanOutWorker then does the fan-out, replacing the
+	// legacy in-process OutboxWorker drain. nil (default/legacy) ⇒ the event row is
+	// written as before and the OutboxWorker fans it out via LISTEN/NOTIFY + poll.
+	SetFanOutEnqueuer(e FanOutEnqueuer)
+}
+
+// FanOutEnqueuer enqueues a webhook fan-out job within the caller's transaction and
+// returns the river_job id. *FanOutJobs satisfies it. Injected (not imported) so the
+// outbox writer stays decoupled from the River wiring — mirrors DeliveryEnqueuer.
+type FanOutEnqueuer interface {
+	EnqueueFanOutTx(ctx context.Context, tx pgx.Tx, eventID string) (int64, error)
 }
 
 // outboxExecutor is the subset of pgx.Tx and pgxpool.Pool needed by
@@ -75,8 +90,9 @@ type outboxExecutor interface {
 
 // outbox is the production Outbox backed by a pgxpool.
 type outbox struct {
-	pool *pgxpool.Pool
-	flag FeatureFlag
+	pool      *pgxpool.Pool
+	flag      FeatureFlag
+	fanoutEnq FanOutEnqueuer // nil ⇒ legacy OutboxWorker drain; set ⇒ River fan-out
 }
 
 // NewOutbox constructs the Stripe-tier outbox writer. The FeatureFlag
@@ -94,7 +110,60 @@ func (o *outbox) PublishTx(ctx context.Context, tx pgx.Tx, e Event) error {
 	if !o.flag.Enabled() {
 		return nil
 	}
-	return writeOutboxRow(ctx, tx, e)
+	inserted, err := writeOutboxRow(ctx, tx, e)
+	if err != nil {
+		return err
+	}
+	// Pre-side-effect trigger: the fan-out enqueue rides the SAME tx, and an enqueue
+	// failure MUST fail the whole tx so the trigger retries with the (deterministic)
+	// event id — no side effect has happened yet, so a rollback loses nothing. Only on
+	// a real insert: a deduped retry (ON CONFLICT no-op) already has its fan-out job.
+	if inserted {
+		return o.enqueueFanOutTx(ctx, tx, e.ID)
+	}
+	return nil
+}
+
+// SetFanOutEnqueuer implements Outbox — see the interface doc.
+func (o *outbox) SetFanOutEnqueuer(e FanOutEnqueuer) { o.fanoutEnq = e }
+
+// enqueueFanOutTx enqueues the fan-out job in the caller's tx and stamps fanout_job_id.
+// Returns any error to the caller (the pre-side-effect path rolls the tx back on it).
+// No-op when the fan-out enqueuer is unset (legacy mode) — the OutboxWorker drains.
+func (o *outbox) enqueueFanOutTx(ctx context.Context, tx pgx.Tx, eventID string) error {
+	if o.fanoutEnq == nil {
+		return nil
+	}
+	jobID, err := o.fanoutEnq.EnqueueFanOutTx(ctx, tx, eventID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE webhook_events SET fanout_job_id = $2 WHERE id = $1`, eventID, jobID)
+	return err
+}
+
+// enqueueFanOutBestEffort does the same inside a SAVEPOINT so a failure can't poison
+// the caller's must-commit tx (the post-side-effect path — SES already sent). On any
+// error it rolls back to the savepoint and logs, leaving the event row committed
+// without a job for the fan-out reconciler (fanout_job_id IS NULL) to re-drive within
+// a minute.
+func (o *outbox) enqueueFanOutBestEffort(ctx context.Context, tx pgx.Tx, eventID string) {
+	if o.fanoutEnq == nil {
+		return
+	}
+	sp, err := tx.Begin(ctx) // pgx nested tx == SAVEPOINT
+	if err != nil {
+		log.Printf("[outbox] fan-out savepoint begin (event=%s): %v — reconciler will re-drive", eventID, err)
+		return
+	}
+	if err := o.enqueueFanOutTx(ctx, sp, eventID); err != nil {
+		_ = sp.Rollback(ctx) // ROLLBACK TO SAVEPOINT — the caller's tx stays intact
+		log.Printf("[outbox] fan-out enqueue (event=%s): %v — reconciler will re-drive", eventID, err)
+		return
+	}
+	if err := sp.Commit(ctx); err != nil { // RELEASE SAVEPOINT
+		log.Printf("[outbox] fan-out savepoint release (event=%s): %v — reconciler will re-drive", eventID, err)
+	}
 }
 
 // Enabled mirrors the flag state. Trigger sites check this to suppress
@@ -156,7 +225,8 @@ func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (w
 	if !o.flag.Enabled() {
 		return false
 	}
-	if err := writeOutboxRow(ctx, tx, e); err != nil {
+	inserted, err := writeOutboxRow(ctx, tx, e)
+	if err != nil {
 		// Best-effort: log and return wrote=false. The caller's tx
 		// commits the business state regardless because the
 		// irreversible action (SES.Send) already happened — rolling
@@ -167,6 +237,12 @@ func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (w
 		log.Printf("[outbox] PublishBestEffortTx err (event=%s type=%s): %v", e.ID, e.Type, err)
 		return false
 	}
+	// Post-side-effect trigger: the fan-out enqueue must NEVER fail the caller's tx (a
+	// rollback would orphan a sent email), so it rides a savepoint — a failure re-drives
+	// via the reconciler, not by losing the send. Only on a real insert.
+	if inserted {
+		o.enqueueFanOutBestEffort(ctx, tx, e.ID)
+	}
 	return true
 }
 
@@ -174,20 +250,20 @@ func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (w
 // PublishBestEffortTx. Idempotent on (id): a retried trigger with the
 // same deterministic id no-ops the second INSERT. Issues pg_notify so
 // the slice-2 worker wakes immediately on commit.
-func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) error {
+func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) (inserted bool, err error) {
 	if e.ID == "" {
-		return fmt.Errorf("webhookpub: outbox event must have non-empty ID")
+		return false, fmt.Errorf("webhookpub: outbox event must have non-empty ID")
 	}
 	if e.UserID == "" {
-		return fmt.Errorf("webhookpub: outbox event must have non-empty UserID")
+		return false, fmt.Errorf("webhookpub: outbox event must have non-empty UserID")
 	}
 	if e.Type == "" {
-		return fmt.Errorf("webhookpub: outbox event must have non-empty Type")
+		return false, fmt.Errorf("webhookpub: outbox event must have non-empty Type")
 	}
 
 	envelopeJSON, err := json.Marshal(e.AsEnvelope())
 	if err != nil {
-		return fmt.Errorf("webhookpub: marshal envelope: %w", err)
+		return false, fmt.Errorf("webhookpub: marshal envelope: %w", err)
 	}
 
 	var messageID *string
@@ -209,7 +285,7 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) error {
 	// created_at and expires_at use the column DEFAULTs so the
 	// timestamps come from the Postgres server clock (one clock per
 	// primary writer; no application-side skew).
-	_, err = exec.Exec(ctx,
+	tag, err := exec.Exec(ctx,
 		`INSERT INTO webhook_events
 		    (id, user_id, type, aud, envelope, schema_version,
 		     agent_id, conversation_id, message_id, status)
@@ -219,8 +295,12 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) error {
 		agentID, conversationID, messageID,
 	)
 	if err != nil {
-		return fmt.Errorf("webhookpub: insert webhook_events: %w", err)
+		return false, fmt.Errorf("webhookpub: insert webhook_events: %w", err)
 	}
+	// RowsAffected is 1 on a real insert, 0 when ON CONFLICT skipped a duplicate
+	// (deterministic-id retry). The caller enqueues a fan-out job only on a real
+	// insert — a deduped event already has one.
+	inserted = tag.RowsAffected() > 0
 
 	// pg_notify is best-effort: NOTIFY only fires on COMMIT (Postgres
 	// queues it). If COMMIT fails, no notification is emitted. The
@@ -245,7 +325,7 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) error {
 		log.Printf("[outbox] pg_notify webhook_events_new failed (event=%s, type=%s): %v — worker fallback poll will recover",
 			e.ID, e.Type, nerr)
 	}
-	return nil
+	return inserted, nil
 }
 
 // Time helpers — kept here rather than relying on time.Now() in

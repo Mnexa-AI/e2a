@@ -43,6 +43,8 @@ func (f *fakeOutbox) DeleteExpiredWebhookEvents(ctx context.Context) (int, error
 // whether to suppress the legacy publisher.Publish goroutine.
 func (f *fakeOutbox) Enabled() bool { return f.enabled }
 
+func (f *fakeOutbox) SetFanOutEnqueuer(webhookpub.FanOutEnqueuer) {}
+
 func TestServer_SetOutbox_AcceptsNilForBackwardCompat(t *testing.T) {
 	// A Server constructed without SetOutbox stays in the legacy path.
 	// This is what makes the dual-mode rollout safe: deployments that

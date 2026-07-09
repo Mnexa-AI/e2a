@@ -82,7 +82,7 @@ func (f *fakeExec) Exec(ctx context.Context, sql string, args ...any) (pgconn.Co
 
 func TestWriteOutboxRow_RejectsEmptyID(t *testing.T) {
 	fe := &fakeExec{}
-	err := writeOutboxRow(context.Background(), fe, Event{UserID: "u1", Type: "email.received"})
+	_, err := writeOutboxRow(context.Background(), fe, Event{UserID: "u1", Type: "email.received"})
 	if err == nil {
 		t.Fatalf("expected error on empty ID")
 	}
@@ -96,7 +96,7 @@ func TestWriteOutboxRow_RejectsEmptyID(t *testing.T) {
 
 func TestWriteOutboxRow_RejectsEmptyUserID(t *testing.T) {
 	fe := &fakeExec{}
-	err := writeOutboxRow(context.Background(), fe, Event{ID: "evt_abc", Type: "email.received"})
+	_, err := writeOutboxRow(context.Background(), fe, Event{ID: "evt_abc", Type: "email.received"})
 	if err == nil {
 		t.Fatalf("expected error on empty UserID")
 	}
@@ -104,7 +104,7 @@ func TestWriteOutboxRow_RejectsEmptyUserID(t *testing.T) {
 
 func TestWriteOutboxRow_RejectsEmptyType(t *testing.T) {
 	fe := &fakeExec{}
-	err := writeOutboxRow(context.Background(), fe, Event{ID: "evt_abc", UserID: "u1"})
+	_, err := writeOutboxRow(context.Background(), fe, Event{ID: "evt_abc", UserID: "u1"})
 	if err == nil {
 		t.Fatalf("expected error on empty Type")
 	}
@@ -136,7 +136,7 @@ func TestWriteOutboxRow_PgNotifyFailureIsSoft(t *testing.T) {
 		Type:   EventEmailReceived,
 		UserID: "u_42",
 	}
-	if err := writeOutboxRow(context.Background(), fe, e); err != nil {
+	if _, err := writeOutboxRow(context.Background(), fe, e); err != nil {
 		t.Fatalf("writeOutboxRow should swallow pg_notify failure, got: %v", err)
 	}
 	// Both Exec calls must have been attempted — the INSERT first, then
@@ -168,7 +168,7 @@ func TestWriteOutboxRow_InsertFailureStillPropagates(t *testing.T) {
 		Type:   EventEmailReceived,
 		UserID: "u_42",
 	}
-	err := writeOutboxRow(context.Background(), fe, e)
+	_, err := writeOutboxRow(context.Background(), fe, e)
 	if err == nil {
 		t.Fatalf("INSERT failure must propagate to caller; got nil error")
 	}
@@ -194,7 +194,7 @@ func TestWriteOutboxRow_HappyPath_TwoExecCalls(t *testing.T) {
 		MessageID:      "msg_y",
 		Data:           map[string]any{"hello": "world"},
 	}
-	if err := writeOutboxRow(context.Background(), fe, e); err != nil {
+	if _, err := writeOutboxRow(context.Background(), fe, e); err != nil {
 		t.Fatalf("writeOutboxRow err: %v", err)
 	}
 	if len(fe.calls) != 2 {
@@ -221,7 +221,7 @@ func TestWriteOutboxRow_NilsEmptyOptionals(t *testing.T) {
 		UserID: "u_42",
 		// AgentID, ConversationID, MessageID all empty
 	}
-	if err := writeOutboxRow(context.Background(), fe, e); err != nil {
+	if _, err := writeOutboxRow(context.Background(), fe, e); err != nil {
 		t.Fatalf("writeOutboxRow err: %v", err)
 	}
 	if len(fe.args) < 1 || len(fe.args[0]) < 7 {

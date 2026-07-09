@@ -301,6 +301,21 @@ func main() {
 	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store, pool)
 	registrars = append(registrars, webhookDeliveryJobs)
 
+	// Webhook fan-out (webhook_events → webhook_subscriber_deliveries) on River,
+	// replacing the legacy in-process webhookpub.OutboxWorker drain. Gated by
+	// E2A_WEBHOOK_FANOUT_MODE=river (webhook-fanout-river-migration.md). When enabled:
+	// the FanOutWorker + reconciler are registered, PublishTx/PublishBestEffortTx
+	// enqueue a fan-out job in the event tx (SetFanOutEnqueuer, below), and the legacy
+	// OutboxWorker is NOT started. It reuses webhookDeliveryJobs as its delivery
+	// enqueuer, so the Layer 2→3 delivery path is unchanged. Default (legacy) leaves
+	// everything on the OutboxWorker.
+	fanoutRiver := cfg.WebhookFanout.Mode == "river"
+	var fanoutJobs *webhookpub.FanOutJobs
+	if fanoutRiver {
+		fanoutJobs = webhookpub.NewFanOutJobs(pool, store, webhookDeliveryJobs, metrics)
+		registrars = append(registrars, fanoutJobs)
+	}
+
 	// Webhook janitor (auto-disable failing webhooks + clear expired prev secrets)
 	// as a River periodic on QueueMaintenance — replaces the hand-rolled 5-min
 	// ticker. Reuses AutoDisableWorker.Tick as the sweep body.
@@ -376,6 +391,24 @@ func main() {
 			log.Printf("[webhook-delivery] cutover enqueued %d pending deliveries", n)
 		}
 		log.Printf("[webhook-delivery] engine=river")
+		// Webhook fan-out cutover (E2A_WEBHOOK_FANOUT_MODE=river): wire the shared
+		// client into the fan-out enqueuer, arm the outbox to enqueue a fan-out job in
+		// each event tx (SetFanOutEnqueuer), and re-drive any pending events without a
+		// job — rows the legacy OutboxWorker was mid-draining at cutover, or stranded by
+		// a best-effort-publish enqueue failure. Idempotent (fanout_job_id IS NULL
+		// guard). Order matters: SetFanOutEnqueuer BEFORE the servers start (below) so
+		// no trigger fires an un-enqueued event; ReconcilePending covers the window
+		// before that.
+		if fanoutJobs != nil {
+			fanoutJobs.SetEnqueuer(jobsClient)
+			webhookOutbox.SetFanOutEnqueuer(fanoutJobs)
+			if n, cerr := fanoutJobs.ReconcilePending(ctx, pool); cerr != nil {
+				log.Printf("[webhook-fanout] cutover: %v", cerr)
+			} else if n > 0 {
+				log.Printf("[webhook-fanout] cutover enqueued %d pending events", n)
+			}
+			log.Printf("[webhook-fanout] engine=river")
+		}
 		// Async outbound send cutover (slice C): wire the shared client into the
 		// accept-tx enqueuer and re-drive any accepted-but-unenqueued rows (stranded
 		// by an accept-tx that crashed between message insert and job commit).
@@ -676,12 +709,19 @@ func main() {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 
 	// Outbox publisher worker: drains webhook_events → subscriber_deliveries and
-	// enqueues River delivery jobs in-tx.
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		outboxWorker.Start(bgCtx)
-	}()
+	// enqueues River delivery jobs in-tx. Skipped when fan-out runs on River
+	// (E2A_WEBHOOK_FANOUT_MODE=river) — the FanOutWorker + in-tx enqueue replace it;
+	// running both would double-fan-out (harmless via the (event_id, webhook_id) dedup,
+	// but wasteful). Default (legacy) starts it as before.
+	if !fanoutRiver {
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			outboxWorker.Start(bgCtx)
+		}()
+	} else {
+		log.Printf("[webhook-fanout] legacy OutboxWorker not started (engine=river)")
+	}
 
 	// (The HITL TTL expiration sweep is now a River periodic on QueueMaintenance,
 	// registered above via hitlworker.NewMaintenanceJobs and drained by the shared
