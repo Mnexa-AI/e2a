@@ -306,6 +306,21 @@ func main() {
 	webhookMaint := webhookdelivery.NewMaintenanceJobs(webhook.NewAutoDisableWorker(store))
 	registrars = append(registrars, webhookMaint)
 
+	// HITL TTL expiration sweep as a River periodic on QueueMaintenance — replaces
+	// the hand-rolled 60s ticker. Transitions pending_review messages past their TTL
+	// into review_expired_approved (auto-send/release) or review_expired_rejected per
+	// the owning agent's hitl_expiration_action. Reuses RunOnce as the sweep body.
+	// SetPublisher is called immediately below (before jobs.New, and the registrar
+	// holds this same *Worker pointer), so the publisher is wired well before the
+	// first tick (RunOnStart:false ⇒ first sweep at +60s).
+	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
+	// Fire review_approved/review_rejected on TTL auto-resolution, so a hold resolved
+	// by timeout notifies subscribers exactly like a human-resolved one (same legacy
+	// publisher as the agent API). Load-bearing for inbound approve: a TTL-released
+	// inbound message has no other push signal.
+	hitlWorker.SetPublisher(outboxPublisher)
+	registrars = append(registrars, hitlworker.NewMaintenanceJobs(hitlWorker))
+
 	if len(registrars) > 0 {
 		jc, jerr := jobs.New(pool, jobs.Config{}, registrars...)
 		if jerr != nil {
@@ -607,10 +622,10 @@ func main() {
 	// workerWG tracks every background goroutine that needs to drain
 	// before the process exits on SIGTERM. Without it the main
 	// goroutine would return as soon as httpServer.Shutdown returns,
-	// dropping in-flight webhook deliveries and HITL TTL transitions
-	// mid-iteration. retryCancel/hitlCancel signal the workers to
-	// stop; wg.Wait() at the end of shutdown blocks for the current
-	// iteration to settle.
+	// dropping in-flight webhook deliveries mid-iteration. bgCancel/
+	// cleanupCancel signal the remaining workers to stop; wg.Wait() at the
+	// end of shutdown blocks for the current iteration to settle. (The HITL
+	// TTL sweep is now a River periodic drained by jobsClient.Stop.)
 	//
 	// (The HITL approval-notification email is no longer a detached
 	// goroutine — it's a durable River job on QueueNotify, drained by the
@@ -633,23 +648,9 @@ func main() {
 		outboxWorker.Start(bgCtx)
 	}()
 
-	// HITL expiration worker: transitions pending_review messages that
-	// blew past their TTL into review_expired_approved (auto-send/release) or
-	// review_expired_rejected based on the owning agent's hitl_expiration_action.
-	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
-	// Fire review_approved/review_rejected on TTL auto-resolution, so a hold
-	// resolved by timeout notifies subscribers exactly like a human-resolved one
-	// (same legacy publisher as the agent API). Load-bearing for inbound approve:
-	// a TTL-released inbound message has no other push signal.
-	hitlWorker.SetPublisher(outboxPublisher)
-	hitlCtx, hitlCancel := context.WithCancel(context.Background())
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		if err := hitlWorker.Run(hitlCtx); err != nil && err != context.Canceled {
-			log.Printf("[hitl-worker] stopped: %v", err)
-		}
-	}()
+	// (The HITL TTL expiration sweep is now a River periodic on QueueMaintenance,
+	// registered above via hitlworker.NewMaintenanceJobs and drained by the shared
+	// jobsClient under the shutdown deadline — no separate goroutine/cancel needed.)
 
 	// Periodic cleanup of expired messages and sessions. Bound to its
 	// own cancel-context so shutdown stops the loop instead of
@@ -725,12 +726,10 @@ func main() {
 	<-sigCh
 	log.Println("Shutting down...")
 
-	// Signal every background worker to stop. Their inner ctx-select
-	// branches return on the next iteration; processBatch / RunOnce
-	// calls already in flight finish their current row before the
-	// goroutine exits.
+	// Signal the remaining background workers to stop. Their inner ctx-select
+	// branches return on the next iteration; work already in flight finishes
+	// its current row before the goroutine exits.
 	bgCancel()
-	hitlCancel()
 	cleanupCancel()
 
 	// SMTP server: close the listener so no new connections, but

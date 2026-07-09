@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
+	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // setupWorker wires a worker + fake SMTP on a fresh test database. Returns
@@ -335,26 +335,5 @@ func TestWorkerRunOnceIsSafeWhenNoExpiredRows(t *testing.T) {
 	w.RunOnce(context.Background())
 	if msgs := smtpDone(); len(msgs) != 0 {
 		t.Fatalf("expected 0 SMTP messages from an empty sweep, got %d", len(msgs))
-	}
-}
-
-func TestWorkerRunStopsOnContextCancel(t *testing.T) {
-	w, _, _, _ := setupWorker(t)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan error, 1)
-	go func() { done <- w.Run(ctx) }()
-
-	// Give Run a moment to enter its ticker loop.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-done:
-		if err != context.Canceled {
-			t.Errorf("Run returned %v, want context.Canceled", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not return after cancel")
 	}
 }

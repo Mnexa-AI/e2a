@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/loopback"
@@ -19,23 +18,18 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
 
-// DefaultInterval is the sweep cadence. One minute matches the design doc
-// target; short enough that TTL boundaries are honored within a minute,
-// long enough to avoid hot-looping the DB when there's nothing to do.
-const DefaultInterval = 60 * time.Second
-
 // DefaultBatchSize caps how many rows one sweep will try to finalize. The
 // partial index on (approval_expires_at) WHERE status='pending_review'
 // keeps the list query cheap regardless of total table size.
 const DefaultBatchSize = 100
 
-// Worker runs the TTL sweep. Construct with New, start with Run.
+// Worker runs the TTL sweep. Construct with New; its RunOnce is driven on a
+// schedule by the River maintenance periodic (see maintenance.go).
 type Worker struct {
 	store      *identity.Store
 	sender     *outbound.Sender
 	usage      usage.UsageTracker
 	fromDomain string
-	interval   time.Duration
 	batchSize  int
 	// publisher fires the review-resolution webhook when the sweep auto-resolves
 	// a hold, so a TTL-resolved hold notifies subscribers exactly like a
@@ -61,39 +55,20 @@ func New(store *identity.Store, sender *outbound.Sender, usage usage.UsageTracke
 		sender:     sender,
 		usage:      usage,
 		fromDomain: fromDomain,
-		interval:   DefaultInterval,
 		batchSize:  DefaultBatchSize,
 	}
 }
 
-// Run drives the periodic sweep until ctx is cancelled. Returns ctx.Err()
-// on shutdown. Safe to run from its own goroutine; multiple instances
-// across processes are fine because the per-row store operations use
-// row-level locking + status guards.
-func (w *Worker) Run(ctx context.Context) error {
-	// One immediate sweep so a process restart doesn't leave a full
-	// interval's worth of already-expired rows sitting.
+// RunOnce performs a single sweep of both queues (outbound holds, then inbound
+// review holds). This is the sweep body the River maintenance periodic drives on
+// a schedule (see maintenance.go); it's also called directly by tests for
+// deterministic behavior. Returns nil — both sweeps log and swallow their own
+// per-row/query errors internally (a transient DB blip should not spin River's
+// retry machinery); the error return satisfies the Sweeper interface.
+func (w *Worker) RunOnce(ctx context.Context) error {
 	w.sweep(ctx)
 	w.sweepReviews(ctx)
-
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			w.sweep(ctx)
-			w.sweepReviews(ctx)
-		}
-	}
-}
-
-// RunOnce performs a single sweep of both queues. Exposed for tests that want
-// deterministic behavior without setting up a ticker.
-func (w *Worker) RunOnce(ctx context.Context) {
-	w.sweep(ctx)
-	w.sweepReviews(ctx)
+	return nil
 }
 
 // sweepReviews auto-resolves expired INBOUND review holds. Both directions share
