@@ -14,12 +14,20 @@ import (
 // records the event ids it was asked to enqueue and (optionally) fails, to exercise the
 // best-effort savepoint path.
 type fakeFanOutSeamEnq struct {
-	ids []string
-	err error
-	n   int64
+	ids    []string
+	err    error
+	poison bool // if set, run a failing DB statement on the tx (aborting the savepoint subtx) before returning err
+	n      int64
 }
 
-func (f *fakeFanOutSeamEnq) EnqueueFanOutTx(_ context.Context, _ pgx.Tx, eventID string) (int64, error) {
+func (f *fakeFanOutSeamEnq) EnqueueFanOutTx(ctx context.Context, tx pgx.Tx, eventID string) (int64, error) {
+	if f.poison {
+		// Simulate a REAL DB failure inside the fan-out enqueue (e.g. a failed river_job
+		// insert): this aborts the savepoint subtransaction, so the caller MUST issue
+		// ROLLBACK TO SAVEPOINT to recover the parent tx. A fake that only returns an
+		// error (no DB op) would not exercise that recovery.
+		_, _ = tx.Exec(ctx, `SELECT * FROM a_table_that_does_not_exist_xyz`)
+	}
 	if f.err != nil {
 		return 0, f.err
 	}
@@ -112,7 +120,10 @@ func TestOutbox_Integration_PublishBestEffort_SavepointProtectsTx(t *testing.T) 
 	})
 
 	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
-	outbox.SetFanOutEnqueuer(&fakeFanOutSeamEnq{err: errors.New("river down")})
+	// poison=true makes the enqueue run a failing statement on the savepoint FIRST,
+	// aborting the subtransaction — the realistic river_job-insert-failed case, which
+	// the parent tx must survive via ROLLBACK TO SAVEPOINT.
+	outbox.SetFanOutEnqueuer(&fakeFanOutSeamEnq{poison: true, err: errors.New("river insert failed")})
 
 	event := webhookpub.Event{
 		ID:     webhookpub.DeterministicEventID("msg_seam_be", webhookpub.EventEmailSent),
