@@ -320,7 +320,16 @@ func main() {
 	// publisher as the agent API). Load-bearing for inbound approve: a TTL-released
 	// inbound message has no other push signal.
 	hitlWorker.SetPublisher(outboxPublisher)
-	registrars = append(registrars, hitlworker.NewMaintenanceJobs(hitlWorker))
+	// Async mode: route the sweep's auto-approve send onto QueueOutbound (the
+	// SendWorker does the SMTP submit) instead of a blocking in-process send, so the
+	// sweep is DB-only. Two-phase like the API's SetOutboundEnqueuer: pass the
+	// *outboundsend.Jobs pointer now; its shared client is injected below via
+	// outboundJobs.SetEnqueuer, live well before the first +60s tick. nil ⇒ sync
+	// (blocking) auto-approve, unchanged. asyncSends also bounds the sweep's Timeout.
+	if outboundJobs != nil {
+		hitlWorker.SetOutboundEnqueuer(outboundJobs)
+	}
+	registrars = append(registrars, hitlworker.NewMaintenanceJobs(hitlWorker, outboundJobs != nil))
 
 	// Hourly cleanup janitor (expired messages/sessions/webhook delivery
 	// records/webhook events/OAuth rows/idempotency keys) as a River periodic on

@@ -8,8 +8,11 @@ package hitlworker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/loopback"
@@ -17,6 +20,15 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
+
+// OutboundEnqueuer inserts an outbound_send job (QueueOutbound) in the caller's
+// transaction. Satisfied by *outboundsend.Jobs. When wired (E2A_OUTBOUND_MODE=async)
+// the sweep hands an approved outbound send to the async pipeline — transitioning
+// the hold to review_expired_approved + delivery_status='accepted' and enqueuing —
+// instead of blocking on Sender.Send. Self-sends never use it (they loopback).
+type OutboundEnqueuer interface {
+	EnqueueSendTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error)
+}
 
 // DefaultBatchSize caps how many rows one sweep will try to finalize. The
 // partial index on (approval_expires_at) WHERE status='pending_review'
@@ -37,11 +49,22 @@ type Worker struct {
 	// from internal/agent). Optional — nil leaves the sweep silent (legacy
 	// behavior). Wired via SetPublisher.
 	publisher webhookpub.Publisher
+	// outboundEnq, when non-nil (E2A_OUTBOUND_MODE=async), routes an approved
+	// outbound send onto QueueOutbound instead of a blocking Sender.Send — the
+	// sweep becomes DB-only. Wired via SetOutboundEnqueuer. Self-sends ignore it.
+	outboundEnq OutboundEnqueuer
 }
 
 // SetPublisher wires the webhook publisher used to emit review-resolution events
 // on TTL auto-resolution. Without it the sweep transitions rows silently.
 func (w *Worker) SetPublisher(p webhookpub.Publisher) { w.publisher = p }
+
+// SetOutboundEnqueuer wires the async outbound send enqueuer. When set (async
+// mode), auto-approve transitions the hold + enqueues an outbound_send job and the
+// SendWorker performs the SMTP submit; when nil (sync mode), auto-approve keeps the
+// blocking in-process send. Two-phase wiring: pass the *outboundsend.Jobs pointer;
+// its shared River client is injected later via the jobs client's SetEnqueuer.
+func (w *Worker) SetOutboundEnqueuer(e OutboundEnqueuer) { w.outboundEnq = e }
 
 // New constructs a Worker. fromDomain is the deployment's outbound
 // from-domain (cfg.OutboundSMTP.FromDomain) — used by the self-send
@@ -152,6 +175,72 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 		return
 	}
 
+	// Async mode: hand the send to QueueOutbound (DB-only sweep). Returns false
+	// only for self-sends, which fall through to the sync loopback path below.
+	if w.outboundEnq != nil && w.autoApproveAsync(ctx, agent, c) {
+		return
+	}
+	w.autoApproveSync(ctx, agent, c)
+}
+
+// autoApproveAsync transitions the hold to review_expired_approved +
+// delivery_status='accepted' and enqueues an outbound_send job; the SendWorker does
+// the actual submit + email.sent/failed + metering. Returns false (handled nothing)
+// ONLY when the message is a self-send — the caller then uses the sync loopback
+// path. Any other outcome (queued, already-resolved, transient failure left for the
+// next cycle, or a permanent-draft reject) returns true.
+func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIdentity, c identity.ExpirationCandidate) bool {
+	msg, err := w.store.LoadOutboundDraft(ctx, c.MessageID)
+	if err != nil {
+		if errors.Is(err, identity.ErrMessageNotFound) {
+			return true // gone — no-op
+		}
+		log.Printf("[hitl-worker] auto-approve %s: load draft: %v", c.MessageID, err)
+		return true // transient — leave pending_review for the next cycle
+	}
+	if msg.Status != identity.MessageStatusPendingReview {
+		return true // resolved by a human/other worker
+	}
+	req, err := sendRequestFromStoredMessage(msg)
+	if err != nil {
+		w.autoReject(ctx, c.MessageID, fmt.Sprintf("auto-approve failed: rebuild request: %v", err))
+		return true
+	}
+	w.attachReferencesChain(ctx, agent.ID, &req)
+	if loopback.IsSelfSend(req, agent.EmailAddress()) {
+		return false // self-send — fall through to the sync loopback path
+	}
+	comp, err := w.sender.ComposeForAccept(agent, req)
+	if err != nil {
+		// Compose failures are deterministic (bad addresses / no visible
+		// recipients) — a retry can't fix them, so reject like the sync path would.
+		w.autoReject(ctx, c.MessageID, fmt.Sprintf("auto-approve failed: compose: %v", err))
+		return true
+	}
+	acc := identity.AcceptedSend{
+		To: comp.To, CC: comp.CC, BCC: comp.BCC, Subject: req.Subject,
+		Method: comp.Method, EnvelopeFrom: comp.EnvelopeFrom, SentAs: comp.SentAs, Raw: comp.Raw,
+	}
+	sent, err := w.store.ApproveAndAccept(ctx, c.MessageID, "", identity.MessageStatusReviewExpiredApproved, false, acc, w.outboundEnq.EnqueueSendTx)
+	if err != nil {
+		if errors.Is(err, identity.ErrNotPendingApproval) {
+			return true // resolved between load and transition
+		}
+		// Transient tx/enqueue failure: leave the row pending_review for the next
+		// cycle. Do NOT autoReject — no send happened, so this is not a "stuck" send.
+		log.Printf("[hitl-worker] auto-approve %s: accept+enqueue: %v", c.MessageID, err)
+		return true
+	}
+	log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s to=%v auto_approved=true delivery=async",
+		sent.ID, sent.Type, sent.Status, agent.ID, sent.ToRecipients)
+	// review_approved fires now (hold resolved to approved); the delivery outcome
+	// arrives later via email.sent/email.failed from the SendWorker. No metering
+	// here — the SendWorker meters on MarkSent.
+	w.emitOutboundApproved(agent, sent)
+	return true
+}
+
+func (w *Worker) autoApproveSync(ctx context.Context, agent *identity.AgentIdentity, c identity.ExpirationCandidate) {
 	sent, err := w.store.ExpireApproveAndSend(ctx, c.MessageID,
 		func(msg *identity.Message) (identity.SendResult, error) {
 			req, err := sendRequestFromStoredMessage(msg)

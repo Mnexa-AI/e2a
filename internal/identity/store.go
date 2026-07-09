@@ -2517,6 +2517,45 @@ func (s *Store) ApproveAndAccept(
 	return out, nil
 }
 
+// LoadOutboundDraft loads a pending_review outbound message's full draft content
+// (recipients, subject, body, attachments, reply-to) by id, system-scoped (no user
+// filter, no side effects) — the TTL sweep uses it to reconstruct the SendRequest
+// and compose before ApproveAndAccept. Returns ErrMessageNotFound if the row is
+// gone or not an outbound message. The caller must still handle the pending_review
+// CAS in ApproveAndAccept (a human may resolve the hold before the transition).
+func (s *Store) LoadOutboundDraft(ctx context.Context, messageID string) (*Message, error) {
+	m := &Message{ID: messageID, Direction: "outbound"}
+	var bodyText, bodyHTML *string
+	var attachments []byte
+	var msgType *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT agent_id, sender, subject, email_message_id, message_type, conversation_id,
+		        to_recipients, cc, bcc, status, body_text, body_html, attachments_json
+		   FROM messages WHERE id=$1 AND direction='outbound'`,
+		messageID,
+	).Scan(&m.AgentID, &m.Sender, &m.Subject, &m.EmailMessageID, &msgType, &m.ConversationID,
+		&m.ToRecipients, &m.CC, &m.BCC, &m.Status, &bodyText, &bodyHTML, &attachments)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+	if msgType != nil {
+		m.Type = *msgType
+	}
+	if bodyText != nil {
+		m.BodyText = *bodyText
+	}
+	if bodyHTML != nil {
+		m.BodyHTML = *bodyHTML
+	}
+	if len(attachments) > 0 {
+		m.AttachmentsJSON = json.RawMessage(attachments)
+	}
+	return m, nil
+}
+
 // ExpireReject transitions a pending_review message to review_expired_rejected
 // and scrubs body columns. No user ownership check — this is the worker
 // path. If the row is no longer pending (racing worker, already handled)
