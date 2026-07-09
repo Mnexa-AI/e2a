@@ -43,6 +43,23 @@ func NewMaintenanceWorker(sweeper Sweeper) *MaintenanceWorker {
 	return &MaintenanceWorker{sweeper: sweeper}
 }
 
+// Timeout disables River's per-job timeout for the sweep (River's client default is
+// 1 minute). Unlike a typical maintenance job — a quick handful of DELETEs — one
+// sweep can legitimately run for many minutes: it performs up to DefaultBatchSize
+// (100) SYNCHRONOUS, retrying SMTP sends for expired auto-approve holds, and the
+// relay send is not context-cancellable (its own per-send network deadline bounds
+// it). Under the 60s default a backlogged sweep is cancelled mid-iteration; the
+// store's ctx-derived hold transitions then fail and surface as FALSE
+// "[hitl-stuck] needs_manual_intervention" alarms on the auto-send path — every
+// cycle, precisely during SMTP/SES degradation. The old hand-rolled ticker ran
+// under an unbounded context; returning a negative duration restores that (River
+// treats <0 as "no timeout"). The structural fix that would let this return to a
+// bounded timeout is moving each auto-send onto its own QueueOutbound job (tracked
+// follow-up) so a sweep does DB-only work again.
+func (w *MaintenanceWorker) Timeout(*river.Job[HITLMaintenanceArgs]) time.Duration {
+	return -1
+}
+
 func (w *MaintenanceWorker) Work(ctx context.Context, _ *river.Job[HITLMaintenanceArgs]) error {
 	if err := w.sweeper.RunOnce(ctx); err != nil {
 		log.Printf("[hitl-sweep] TTL sweep error (swallowed; next tick retries): %v", err)

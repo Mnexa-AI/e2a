@@ -50,6 +50,17 @@ func TestMaintenanceWorker_WorkRunsSweep(t *testing.T) {
 	}
 }
 
+// TestMaintenanceWorker_TimeoutDisabled: the sweep must NOT run under River's 60s
+// default job timeout — it does up to 100 synchronous, non-ctx-aware SMTP sends and
+// would otherwise be cancelled mid-drain, firing false [hitl-stuck] alarms. A
+// negative return tells River "no timeout" (restores the old ticker's unbounded run).
+func TestMaintenanceWorker_TimeoutDisabled(t *testing.T) {
+	w := NewMaintenanceWorker(&fakeSweeper{})
+	if got := w.Timeout(&river.Job[HITLMaintenanceArgs]{}); got >= 0 {
+		t.Errorf("Timeout() = %v, want a negative duration (River default 60s cap disabled)", got)
+	}
+}
+
 // TestMaintenanceJobs_RegistersOnePeriodic: RegisterJobs contributes exactly one
 // periodic (the TTL sweep schedule) and wires its worker.
 func TestMaintenanceJobs_RegistersOnePeriodic(t *testing.T) {
