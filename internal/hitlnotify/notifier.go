@@ -144,7 +144,13 @@ func (n *Notifier) NotifyPendingApproval(ctx context.Context, msg *identity.Mess
 	// no CR/LF, so there's no header-injection risk. SES/SMTP preserves a supplied
 	// Message-ID rather than overwriting it.
 	msgIDHeader := fmt.Sprintf("<hitl-approve-%s@%s>", msg.ID, n.fromDomain)
-	message = append([]byte("Message-ID: "+msgIDHeader+"\r\n"), message...)
+	// Defense-in-depth: never let a Message-ID value inject extra headers. msg.ID
+	// (msg_<hex>) and fromDomain (deployment config) are trusted and CRLF-free, so
+	// this guard only trips on a future regression — falling back to SES's own
+	// assigned id (no dedup, but no injection either).
+	if !strings.ContainsAny(msgIDHeader, "\r\n") {
+		message = append([]byte("Message-ID: "+msgIDHeader+"\r\n"), message...)
+	}
 
 	// SendOnce, not Send: this runs inside a River job, so River (not the relay's
 	// in-process loop) owns retries. The %w keeps the SMTP error classifiable by

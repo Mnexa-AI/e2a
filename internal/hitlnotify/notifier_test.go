@@ -233,6 +233,13 @@ func TestNotifierDeterministicMessageID(t *testing.T) {
 		if !strings.Contains(m.Data, want) {
 			t.Errorf("message %d missing deterministic %q; data:\n%s", i, want, m.Data)
 		}
+		// Exactly one Message-ID (ours — compose omits its own), leading the block.
+		if n := strings.Count(m.Data, "Message-ID:"); n != 1 {
+			t.Errorf("message %d has %d Message-ID headers, want exactly 1", i, n)
+		}
+		if !strings.HasPrefix(m.Data, "Message-ID: <hitl-approve-") {
+			t.Errorf("message %d: Message-ID should lead the header block; got:\n%.80s", i, m.Data)
+		}
 	}
 }
 
