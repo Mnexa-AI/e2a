@@ -2421,6 +2421,102 @@ func (s *Store) ExpireApproveAndSend(
 	return &m, nil
 }
 
+// AcceptedSend carries the composed, ready-to-submit values for an approved HITL
+// message being handed to the async outbound queue (QueueOutbound) instead of being
+// sent inline. Populated by the caller from outbound.ComposeResult.
+type AcceptedSend struct {
+	To, CC, BCC  []string
+	Subject      string
+	Method       string
+	EnvelopeFrom string
+	SentAs       string
+	Raw          []byte
+}
+
+// ApproveAndAccept resolves a pending_review outbound hold to an APPROVED,
+// ASYNC-QUEUED state in one transaction, mirroring the API's async accept-tx: it
+// flips status to targetStatus (review_approved for a human approve,
+// review_expired_approved for the TTL sweep) AND delivery_status to 'accepted',
+// persists the composed bytes + envelope, then enqueues the outbound_send job and
+// stamps its id. The existing SendWorker picks the row up by id and performs the
+// actual SMTP submit + email.sent/failed + metering; this method does NOT send and
+// does NOT use the send_attempts gate (async idempotency is the accept-tx atomicity
+// + the worker's delivery_status/alreadyDone guard). reviewedByUserID is "" (→ NULL)
+// for the sweep.
+//
+// The WHERE status='pending_review' is the compare-and-set guard: RETURNING no row
+// means a human/other worker already resolved the hold → ErrNotPendingApproval (a
+// no-op for the caller). Body columns are scrubbed exactly like ApproveAndSend.
+func (s *Store) ApproveAndAccept(
+	ctx context.Context,
+	messageID, reviewedByUserID, targetStatus string,
+	edited bool,
+	acc AcceptedSend,
+	enqueue func(ctx context.Context, tx pgx.Tx, messageID string) (int64, error),
+) (*Message, error) {
+	var out *Message
+	err := s.WithTx(ctx, func(tx pgx.Tx) error {
+		var m Message
+		var msgType *string
+		err := tx.QueryRow(ctx,
+			`UPDATE messages
+			    SET status              = $2,
+			        delivery_status     = 'accepted',
+			        to_recipients       = $3,
+			        cc                  = $4,
+			        bcc                 = $5,
+			        subject             = $6,
+			        recipient           = $7,
+			        method              = $8,
+			        envelope_from       = $9,
+			        sent_as             = $10,
+			        raw_message         = $11::bytea,
+			        provider_message_id = '',
+			        reviewed_at         = now(),
+			        reviewed_by_user_id = $12,
+			        edited              = $13,
+			        body_text = NULL, body_html = NULL, attachments_json = NULL
+			  WHERE id = $1 AND direction = 'outbound' AND status = 'pending_review'
+			  RETURNING id, agent_id, message_type, subject, to_recipients, cc, bcc, status, edited`,
+			messageID,
+			targetStatus,
+			acc.To, acc.CC, acc.BCC,
+			acc.Subject,
+			firstOr(acc.To, ""),
+			acc.Method,
+			acc.EnvelopeFrom,
+			acc.SentAs,
+			nullIfEmptyBytes(acc.Raw),
+			nullIfEmptyString(reviewedByUserID),
+			edited,
+		).Scan(&m.ID, &m.AgentID, &msgType, &m.Subject, &m.ToRecipients, &m.CC, &m.BCC, &m.Status, &m.Edited)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotPendingApproval
+		}
+		if err != nil {
+			return err
+		}
+		if msgType != nil {
+			m.Type = *msgType
+		}
+		jobID, err := enqueue(ctx, tx, m.ID)
+		if err != nil {
+			return err
+		}
+		if err := s.StampSendJobIDTx(ctx, tx, m.ID, jobID); err != nil {
+			return err
+		}
+		m.Direction = "outbound"
+		m.DeliveryStatus = "accepted"
+		out = &m
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ExpireReject transitions a pending_review message to review_expired_rejected
 // and scrubs body columns. No user ownership check — this is the worker
 // path. If the row is no longer pending (racing worker, already handled)
