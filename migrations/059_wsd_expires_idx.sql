@@ -1,0 +1,34 @@
+-- 059_wsd_expires_idx.sql
+-- e2a:no-transaction
+--
+-- Index backing the janitor's retention prune of webhook_subscriber_deliveries
+-- (webhook.SubscriberStore.DeleteExpiredSubscriberDeliveries), which selects rows by
+-- `expires_at <= now()`. The other three retention tables the janitor sweeps already
+-- have this index — messages(idx_messages_expires, 001), webhook_events
+-- (idx_webhook_events_expires, 026), idempotency_keys(idx_idempotency_keys_created_at,
+-- 015) — but webhook_subscriber_deliveries never got its parallel one, so the prune's
+-- `SELECT ctid ... WHERE expires_at <= now() LIMIT N` fell back to a sequential scan.
+--
+-- That was tolerable when the prune was a single unbounded DELETE (one seq scan/hour),
+-- but the batched ctid-LIMIT drain re-runs the predicate once per 5000-row batch; on a
+-- backlog (first deploy / after a pruning outage) the repeated seq scan over a heap of
+-- wide event_payload rows can approach quadratic I/O. This index makes every batch an
+-- index scan, which is the whole premise of the batched prune.
+--
+-- CREATE INDEX CONCURRENTLY so the build does not take a write lock on the
+-- delivery-volume-scaled table (a plain CREATE INDEX would block webhook fan-out
+-- inserts for the full build). The e2a:no-transaction directive (see
+-- internal/identity/migrate.go) skips the BeginTx wrapper — required because Postgres
+-- rejects CONCURRENTLY inside a transaction block; the no-transaction runner requires a
+-- single statement.
+--
+-- OPS NOTE — invalid-index recovery: if the CONCURRENTLY build is interrupted, Postgres
+-- leaves an INVALID index of this name. On the next startup this migration re-runs, but
+-- CREATE ... IF NOT EXISTS sees the name and SKIPS the rebuild, marking the migration
+-- applied over a broken index — the prune then falls back to a seq scan (a performance,
+-- not correctness, regression). To recover:
+--     DROP INDEX CONCURRENTLY IF EXISTS idx_wsd_expires;
+-- then re-run this statement. Check validity with:
+--     SELECT indisvalid FROM pg_index WHERE indexrelid = 'idx_wsd_expires'::regclass;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wsd_expires
+    ON webhook_subscriber_deliveries (expires_at);

@@ -206,6 +206,20 @@ func (w *MaintenanceWorker) Work(ctx context.Context, _ *river.Job[JanitorArgs])
 	return nil
 }
 
+// Timeout gives the sweep a bounded 5-minute budget instead of River's 60s
+// default JobTimeout. Every prune is now a ctx-aware batched delete (each
+// 5000-row batch autocommits), so a cut is always safe — partial progress
+// persists and the next hourly tick resumes — but 60s is tight for a
+// first-deploy backlog where `messages` (pruned first) can eat the whole budget
+// and starve the later tables. Five minutes lets a realistic backlog drain in
+// far fewer ticks while still capping how long one sweep holds a
+// QueueMaintenance slot. Deliberately NOT -1 (unbounded) like the HITL
+// send-sweep, which must never be cut mid-SMTP; the janitor's deletes are safe
+// to interrupt.
+func (w *MaintenanceWorker) Timeout(*river.Job[JanitorArgs]) time.Duration {
+	return 5 * time.Minute
+}
+
 // MaintenanceJobs is the jobs.Registrar for the cleanup janitor: it contributes
 // the MaintenanceWorker and a periodic that fires it on QueueMaintenance. No
 // enqueuer needed — the schedule is the only trigger.
@@ -220,16 +234,15 @@ func NewMaintenanceJobs(j *Janitor) *MaintenanceJobs { return &MaintenanceJobs{j
 // interval and a completed run must not dedup-block the next), RunOnStart:false
 // (first sweep after one interval, matching the old ticker's first-tick-after-1h).
 //
-// Two deferred tradeoffs, inherited from the pre-River janitor (not introduced by
-// this migration): (1) each prune is an unbounded single-statement DELETE — on a
-// prod-sized `messages` table the first sweep can hold a long lock / emit a large
-// WAL burst; batching the deletes (a LIMIT-loop) is a separate follow-up. (2) With
-// no UniqueOpts and QueueMaintenance's small worker pool, a sweep that runs longer
-// than the 1h interval can overlap the next tick. That is safe — every prune is an
-// idempotent DELETE on a distinct table and a partial sweep is simply finished by
-// the next interval — but two unbounded `DELETE FROM messages` could briefly
-// contend. Both only bite against a large, long-unpruned table (e.g. the first
-// deploy); steady-state sweeps are near-empty.
+// Overlap tradeoff (inherited from the pre-River janitor, not introduced by this
+// migration): with no UniqueOpts and QueueMaintenance's small worker pool, a sweep
+// that runs longer than the 1h interval can overlap the next tick. That is safe —
+// every prune is an idempotent batched DELETE on a distinct table and a partial
+// sweep is simply finished by the next interval; overlapping sweeps only race to
+// delete the same already-doomed rows. It only bites against a large, long-unpruned
+// table (e.g. the first deploy); steady-state sweeps are near-empty. The prunes'
+// unbounded-DELETE hazard is resolved — each is now a ctx-aware ctid-LIMIT drain
+// loop (see the DeleteExpired* store methods) bounded by MaintenanceWorker.Timeout.
 func (m *MaintenanceJobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, &MaintenanceWorker{janitor: m.janitor})
 	return []*river.PeriodicJob{
