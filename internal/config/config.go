@@ -246,9 +246,10 @@ func Load(path string) (*Config, error) {
 			MaxStorageBytes:  1 << 50, // 1 PiB
 			CacheTTLSeconds:  60,
 		},
-		Outbound: OutboundConfig{Mode: "sync"},
-		Inbound:  InboundConfig{Mode: "sync"},
-		Env:      "development",
+		Outbound:      OutboundConfig{Mode: "sync"},
+		Inbound:       InboundConfig{Mode: "sync"},
+		WebhookFanout: WebhookFanoutConfig{Mode: "legacy"},
+		Env:           "development",
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
