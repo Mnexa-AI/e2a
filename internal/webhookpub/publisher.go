@@ -79,8 +79,8 @@ func (f StaticFlag) Enabled() bool { return bool(f) }
 // a "labels = [urgent]" filter does NOT match an event whose Labels
 // slice is empty/nil — i.e. unlabelled inbound mail is silently
 // skipped when the subscriber has a label filter. This is the
-// explicit semantic chosen in the design (H5). Shared with the outbox
-// drain (OutboxWorker.fanOutOne).
+// explicit semantic chosen in the design (H5). Shared by both fan-out
+// engines via fanOutEventCore (legacy OutboxWorker + River FanOutWorker).
 func matches(e Event, f identity.WebhookFilters) bool {
 	if len(f.AgentIDs) > 0 {
 		if e.AgentID == "" {
@@ -119,7 +119,7 @@ func contains(haystack []string, needle string) bool {
 }
 
 func intersects(a, b []string) bool {
-	// O(len(a) * len(b)) — fine at slice 1 scale (filters cap 50,
+	// O(len(a) * len(b)) — fine at this scale (filters cap 50,
 	// event labels cap 100 per the labels feature design).
 	for _, x := range a {
 		for _, y := range b {

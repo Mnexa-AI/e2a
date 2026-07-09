@@ -107,7 +107,7 @@ func New(pool *pgxpool.Pool, cfg Config, registrars ...Registrar) (*Client, erro
 	}
 
 	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:       defaultQueueConfig(cfg.OutboundWorkers, cfg.InboundWorkers, cfg.WebhookWorkers, cfg.MaintenanceWorkers, cfg.NotifyWorkers, cfg.DefaultWorkers),
+		Queues:       defaultQueueConfig(cfg),
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	})

@@ -34,13 +34,13 @@ const (
 // MaxWorkers is deliberately generous for I/O-bound work (SMTP / HTTP); tune
 // against real throughput. Every queue a domain enqueues into MUST appear here or
 // its jobs sit unworked.
-func defaultQueueConfig(outbound, inbound, webhook, maintenance, notify, deflt int) map[string]river.QueueConfig {
+func defaultQueueConfig(cfg Config) map[string]river.QueueConfig {
 	return map[string]river.QueueConfig{
-		QueueOutbound:    {MaxWorkers: outbound},
-		QueueInbound:     {MaxWorkers: inbound},
-		QueueWebhook:     {MaxWorkers: webhook},
-		QueueMaintenance: {MaxWorkers: maintenance},
-		QueueNotify:      {MaxWorkers: notify},
-		QueueDefault:     {MaxWorkers: deflt},
+		QueueOutbound:    {MaxWorkers: cfg.OutboundWorkers},
+		QueueInbound:     {MaxWorkers: cfg.InboundWorkers},
+		QueueWebhook:     {MaxWorkers: cfg.WebhookWorkers},
+		QueueMaintenance: {MaxWorkers: cfg.MaintenanceWorkers},
+		QueueNotify:      {MaxWorkers: cfg.NotifyWorkers},
+		QueueDefault:     {MaxWorkers: cfg.DefaultWorkers},
 	}
 }

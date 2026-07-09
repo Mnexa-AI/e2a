@@ -3,7 +3,6 @@ package hitlnotify
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
@@ -13,12 +12,6 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/jobs"
 )
-
-// reconcileBatch bounds one cutover scan of pending_review rows without a
-// notification job — mirrors outboundsend/inboundprocess. In steady state the set
-// is ~empty (the accept-tx stamps notify_job_id atomically); this caps how many
-// rows one pass re-drives if the feature was just enabled or a crash left a backlog.
-const reconcileBatch = 1000
 
 // Jobs is the HITL-notification integration on the shared River client: a
 // jobs.Registrar (contributes NotifyWorker) plus the transactional enqueue entry
@@ -103,53 +96,13 @@ func (j *Jobs) EnqueueNotifyTx(ctx context.Context, tx pgx.Tx, messageID string)
 // notify_job_id IS NULL re-check means a re-run (or a concurrent replica) never
 // double-enqueues.
 func (j *Jobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT id FROM messages
-		  WHERE status='pending_review' AND notify_job_id IS NULL AND notified_at IS NULL
-		  LIMIT $1`, reconcileBatch)
-	if err != nil {
-		return 0, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-
-	n := 0
-	for _, id := range ids {
-		if err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-			// Re-check under a row lock: another process (or a prior run) may have
-			// enqueued it already. Skip if notify_job_id is now set.
-			var jobID *int64
-			if err := tx.QueryRow(ctx,
-				`SELECT notify_job_id FROM messages WHERE id=$1 FOR UPDATE`, id,
-			).Scan(&jobID); err != nil {
-				return err
-			}
-			if jobID != nil {
-				return nil // already enqueued
-			}
-			newJobID, err := j.EnqueueNotifyTx(ctx, tx, id)
-			if err != nil {
-				return err
-			}
-			if err := j.store.StampNotifyJobIDTx(ctx, tx, id, newJobID); err != nil {
-				return err
-			}
-			n++
-			return nil
-		}); err != nil {
-			log.Printf("[hitl-notify] reconcile enqueue %s: %v", id, err)
-		}
-	}
-	return n, nil
+	// The stamp is an inline UPDATE inside jobs.ReconcilePending — identical SQL to
+	// store.StampNotifyJobIDTx (which the accept-tx still uses). The notified_at IS NULL
+	// guard keeps already-emailed holds out of the reconcile set.
+	return jobs.ReconcilePending(ctx, pool, jobs.ReconcileSpec{
+		Table:     "messages",
+		JobColumn: "notify_job_id",
+		Where:     "status='pending_review' AND notified_at IS NULL",
+		LogPrefix: "[hitl-notify] reconcile",
+	}, j.EnqueueNotifyTx)
 }

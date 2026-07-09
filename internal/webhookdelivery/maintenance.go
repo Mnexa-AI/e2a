@@ -60,7 +60,7 @@ func NewMaintenanceJobs(sweeper Sweeper) *MaintenanceJobs { return &MaintenanceJ
 // periodic scheduler already inserts at most one per interval and a completed run
 // must not dedup-block the next), RunOnStart:false (first sweep after one interval).
 func (m *MaintenanceJobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, &MaintenanceWorker{sweeper: m.sweeper})
+	river.AddWorker(w, NewMaintenanceWorker(m.sweeper))
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(maintenanceInterval),

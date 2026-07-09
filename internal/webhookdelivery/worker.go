@@ -91,6 +91,8 @@ func (w *DeliverWorker) NextRetry(job *river.Job[WebhookDeliverArgs]) time.Time 
 	return time.Now().Add(retryBackoffs[i])
 }
 
+// Work intentionally has no Timeout() override — a single HTTP POST (bounded by the
+// deliverer's own client timeout) fits River's 60s default JobTimeout.
 func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverArgs]) error {
 	d, err := w.subStore.GetSubscriberDeliveryByID(ctx, job.Args.DeliveryID)
 	if errors.Is(err, pgx.ErrNoRows) {

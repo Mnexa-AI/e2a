@@ -26,7 +26,7 @@ type FanOutArgs struct {
 	EventID string `json:"event_id"`
 }
 
-func (FanOutArgs) Kind() string { return "webhook_fan_out" }
+func (FanOutArgs) Kind() string { return "webhook_fanout" }
 
 const (
 	// maxFanOutAttempts bounds River's retries of a fan-out job. Fan-out failures are
@@ -35,12 +35,10 @@ const (
 	// retry forever the way the legacy pending-row poll did.
 	maxFanOutAttempts = 10
 
-	// fanOutReconcileInterval / fanOutReconcileBatch mirror the delivery reconciler:
-	// frequent + cheap (a partial index backs the status='pending' AND fanout_job_id
-	// IS NULL scan) and bounded per tick so a systemic enqueue failure can't be
-	// amplified by fanning the whole backlog every minute.
+	// fanOutReconcileInterval is how often the reconciler re-drives pending events with
+	// no fan-out job — frequent + cheap (a partial index backs the status='pending' AND
+	// fanout_job_id IS NULL scan). The per-pass row cap is jobs.DefaultReconcileBatch.
 	fanOutReconcileInterval = 1 * time.Minute
-	fanOutReconcileBatch    = 1000
 )
 
 // FanOutJobs is the webhook fan-out integration on the shared River client: a
@@ -198,51 +196,10 @@ func (w *FanOutReconcileWorker) Work(ctx context.Context, _ *river.Job[FanOutRec
 // guard means a re-run (or a concurrent replica) never double-enqueues. Returns the
 // number of events enqueued.
 func (j *FanOutJobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT id FROM webhook_events WHERE status='pending' AND fanout_job_id IS NULL LIMIT $1`, fanOutReconcileBatch)
-	if err != nil {
-		return 0, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-
-	n := 0
-	for _, id := range ids {
-		if err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-			// Re-check under a row lock: another process (or a prior run) may have
-			// enqueued it already. Skip if fanout_job_id is now set.
-			var jobID *int64
-			if err := tx.QueryRow(ctx,
-				`SELECT fanout_job_id FROM webhook_events WHERE id=$1 FOR UPDATE`, id,
-			).Scan(&jobID); err != nil {
-				return err
-			}
-			if jobID != nil {
-				return nil // already enqueued
-			}
-			newJobID, err := j.EnqueueFanOutTx(ctx, tx, id)
-			if err != nil {
-				return err
-			}
-			_, err = tx.Exec(ctx, `UPDATE webhook_events SET fanout_job_id=$2 WHERE id=$1`, id, newJobID)
-			if err == nil {
-				n++
-			}
-			return err
-		}); err != nil {
-			log.Printf("[webhook-fanout-reconcile] enqueue %s: %v", id, err)
-		}
-	}
-	return n, nil
+	return jobs.ReconcilePending(ctx, pool, jobs.ReconcileSpec{
+		Table:     "webhook_events",
+		JobColumn: "fanout_job_id",
+		Where:     "status='pending'",
+		LogPrefix: "[webhook-fanout-reconcile]",
+	}, j.EnqueueFanOutTx)
 }

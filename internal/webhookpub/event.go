@@ -1,20 +1,21 @@
-// Package webhookpub publishes events from the e2a core (relay,
-// outbound sender, HITL flow) to subscribers registered via the new
-// /v1/webhooks resource. It runs in-process and post-commit
-// async: trigger code commits its primary DB write, then calls
-// Publisher.Publish in a goroutine. The publisher matches the event
-// against enabled subscribers (event type + filters), inserts one
-// webhook_subscriber_deliveries row per match, and returns; actual
-// HTTP delivery is the retry worker's job.
+// Package webhookpub publishes events from the e2a core (relay, outbound sender,
+// HITL flow) to subscribers registered via the /v1/webhooks resource, using a durable
+// three-layer pipeline:
 //
-// Slice 1 only fires email.received from the relay. Later slices add
-// email.sent and the unified review-hold events (email.pending_review,
-// email.review_approved, email.review_rejected).
+//	Layer 1 — webhook_events (the outbox): trigger code writes the event row inside its
+//	          own DB transaction (Outbox.PublishTx / PublishBestEffortTx), so the event
+//	          is durable the moment the business state commits.
+//	Layer 2 — webhook_subscriber_deliveries: the event is fanned out to one row per
+//	          matching enabled subscriber (event type + filters). Two interchangeable
+//	          fan-out engines drain Layer 1: the legacy in-process OutboxWorker
+//	          (LISTEN/NOTIFY + poll, the default) and the River FanOutWorker
+//	          (E2A_WEBHOOK_FANOUT_MODE=river). Both share fanOutEventCore.
+//	Layer 3 — HTTP POST: internal/webhookdelivery's River DeliverWorker delivers each
+//	          Layer 2 row with retries + HMAC signing.
 //
-// This is the sole push path: the legacy per-agent
-// agent_identities.webhook_url + agent_mode columns (and the
-// PersistentDeliverer that served them) were removed in slice 3
-// (migration 029). See the final design at tmp/e2a_webhooks_design.md.
+// This is the sole push path: the legacy per-agent agent_identities.webhook_url +
+// agent_mode columns (and the PersistentDeliverer that served them) were removed in
+// migration 029.
 package webhookpub
 
 import (
@@ -39,8 +40,9 @@ const (
 	//   - email.deferred: a transient delay the worker is still retrying (SES 4xx
 	//     / ramp deferral) — not terminal; a later email.sent or email.failed
 	//     follows. Peers (Resend/SendGrid) push the same delayed/deferred signal.
-	// Emitted synchronously today (the sync server already knows the outcome);
-	// they become the primary async signal once the worker pool ships (slice 3).
+	// Emitted synchronously in sync outbound mode (the server already knows the
+	// outcome); the async send pipeline (E2A_OUTBOUND_MODE=async) makes them the
+	// primary signal.
 	EventEmailFailed   = "email.failed"
 	EventEmailDeferred = "email.deferred"
 	// Review-hold lifecycle (unified, direction-aware — design 2026-06-22). A held
@@ -84,9 +86,9 @@ const (
 	EventEmailPendingReview = "email.pending_review"
 )
 
-// AllEventTypes is the canonical allowlist of event names. Used by
-// the slice-2 handler validation. Adding a new event type means
-// adding a constant above AND extending this slice.
+// AllEventTypes is the canonical allowlist of event names. Used by the handler's
+// event-type validation. Adding a new event type means adding a constant above AND
+// extending this slice.
 var AllEventTypes = []string{
 	EventEmailReceived,
 	EventEmailSent,

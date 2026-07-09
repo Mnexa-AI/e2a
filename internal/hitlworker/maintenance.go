@@ -105,7 +105,7 @@ func NewMaintenanceJobs(sweeper Sweeper, asyncSends bool) *MaintenanceJobs {
 // idempotent + cross-replica-safe so scheduling is the only concern). Implements
 // jobs.Registrar.
 func (m *MaintenanceJobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, &MaintenanceWorker{sweeper: m.sweeper, asyncSends: m.asyncSends})
+	river.AddWorker(w, NewMaintenanceWorker(m.sweeper, m.asyncSends))
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(maintenanceInterval),

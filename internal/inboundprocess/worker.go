@@ -93,6 +93,10 @@ func (w *InboundProcessWorker) NextRetry(job *river.Job[InboundProcessArgs]) tim
 	return time.Now().Add(inboundRetryBackoffs[i])
 }
 
+// Work intentionally has no Timeout() override — parse/SPF-DKIM/screen/persist fits
+// River's 60s default JobTimeout. The heaviest step, the content screen, is an external
+// LLM call bounded by its own per-detector timeout (piguard, 5s default) that fails
+// open, so it can't hang the job past 60s.
 func (w *InboundProcessWorker) Work(ctx context.Context, job *river.Job[InboundProcessArgs]) error {
 	it, err := w.store.LoadInboundIntake(ctx, job.Args.IntakeID)
 	if err != nil {

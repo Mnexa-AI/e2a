@@ -20,12 +20,6 @@ import (
 // re-driven within this bound rather than waiting for a process restart.
 const reconcileInterval = 1 * time.Minute
 
-// reconcileBatch bounds one reconcile tick's scan. In steady state the stranded
-// set is ~empty; under a systemic enqueue failure it caps how many rows one tick
-// re-drives (one tx each), so an unhealthy River can't be amplified by fanning the
-// whole backlog every minute. The remainder is picked up on the next tick.
-const reconcileBatch = 1000
-
 // Jobs is the webhook-delivery integration on the shared River client: a
 // jobs.Registrar (contributes DeliverWorker + the reconcile periodic) plus the
 // transactional enqueue entry point the outbox drain + redelivery API call. The
@@ -98,53 +92,12 @@ func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[WebhookReconcil
 // guard means a re-run (or a concurrent replica) never double-enqueues. Returns
 // the number of rows enqueued.
 func (j *Jobs) ReconcilePending(ctx context.Context, pool *pgxpool.Pool) (int, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT id FROM webhook_subscriber_deliveries WHERE status='pending' AND job_id IS NULL LIMIT $1`, reconcileBatch)
-	if err != nil {
-		return 0, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-
-	n := 0
-	for _, id := range ids {
-		if err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-			// Re-check under a row lock: another process (or a prior run) may have
-			// enqueued it already. Skip if job_id is now set.
-			var jobID *int64
-			if err := tx.QueryRow(ctx,
-				`SELECT job_id FROM webhook_subscriber_deliveries WHERE id=$1 FOR UPDATE`, id,
-			).Scan(&jobID); err != nil {
-				return err
-			}
-			if jobID != nil {
-				return nil // already enqueued
-			}
-			newJobID, err := j.EnqueueDeliveryTx(ctx, tx, id)
-			if err != nil {
-				return err
-			}
-			_, err = tx.Exec(ctx, `UPDATE webhook_subscriber_deliveries SET job_id=$2 WHERE id=$1`, id, newJobID)
-			if err == nil {
-				n++
-			}
-			return err
-		}); err != nil {
-			log.Printf("[webhook-reconcile] enqueue %s: %v", id, err)
-		}
-	}
-	return n, nil
+	return jobs.ReconcilePending(ctx, pool, jobs.ReconcileSpec{
+		Table:     "webhook_subscriber_deliveries",
+		JobColumn: "job_id",
+		Where:     "status='pending'",
+		LogPrefix: "[webhook-reconcile]",
+	}, j.EnqueueDeliveryTx)
 }
 
 // EnqueueDelivery enqueues a River delivery job for an ALREADY-INSERTED pending

@@ -153,7 +153,7 @@ type InboundConfig struct {
 // river-migration.md). Mode="legacy" (the default) drains webhook_events →
 // webhook_subscriber_deliveries via the in-process webhookpub.OutboxWorker
 // (LISTEN/NOTIFY + poll + SKIP-LOCKED lease). Mode="river" opts into the River
-// pipeline: PublishTx/PublishBestEffortTx enqueue a webhook_fan_out job in the event's
+// pipeline: PublishTx/PublishBestEffortTx enqueue a webhook_fanout job in the event's
 // tx and the webhookpub.FanOutWorker does the match/insert/enqueue off the drain loop.
 // Override with E2A_WEBHOOK_FANOUT_MODE. Any value other than "river" is treated as
 // "legacy" (fail-safe to the unchanged path). Wired in Slice 2; unused under legacy.
