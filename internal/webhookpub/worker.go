@@ -2,8 +2,6 @@ package webhookpub
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -13,7 +11,6 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/telemetry"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,10 +22,10 @@ import (
 // §4.4 for the full architecture.
 //
 // Wakeup paths:
-//   1. LISTEN webhook_events_new — dedicated connection, sub-50ms
-//      latency from trigger COMMIT to fan-out.
-//   2. 1s fallback poll — catches notifications missed during deploy
-//      or LISTEN reconnect.
+//  1. LISTEN webhook_events_new — dedicated connection, sub-50ms
+//     latency from trigger COMMIT to fan-out.
+//  2. 1s fallback poll — catches notifications missed during deploy
+//     or LISTEN reconnect.
 //
 // Multi-replica safety:
 //   - FOR UPDATE SKIP LOCKED + next_poll_at bump in GetPending leases
@@ -88,7 +85,7 @@ type identityReader interface {
 	ListEnabledWebhooksForRouting(ctx context.Context, userID, eventType string) ([]identity.Webhook, error)
 }
 
-// NewOutboxWorker constructs the slice-2 worker. Production wiring
+// NewOutboxWorker constructs the legacy LISTEN/NOTIFY fan-out drain. Production wiring
 // passes the real pool and identity.Store; tests can pass fakes.
 func NewOutboxWorker(pool *pgxpool.Pool, store identityReader) *OutboxWorker {
 	return &OutboxWorker{
@@ -232,17 +229,10 @@ func (w *OutboxWorker) Tick(ctx context.Context) {
 	if !notifyWake {
 		w.metrics.NotifyMissed()
 	}
-	// Slice 10 telemetry hook: log batch size + age of oldest row so
-	// publisher lag can be derived from access logs. A future
-	// follow-up wires real Prometheus/OTLP counters.
-	var oldest time.Time
-	for _, ev := range events {
-		_ = ev
-	}
-	log.Printf("[outbox-worker-metrics] tick batch=%d oldest_age_estimate=lease-bound elapsed_ms_so_far=%d",
+	// Publisher-lag is emitted via SetPublisherLag above; this line logs batch size +
+	// tick latency so lag can also be derived from access logs.
+	log.Printf("[outbox-worker-metrics] tick batch=%d elapsed_ms_so_far=%d",
 		len(events), time.Since(tickStart).Milliseconds())
-	_ = oldest
-	_ = oldestAge // already emitted via SetPublisherLag
 
 	sem := make(chan struct{}, w.concurrency)
 	var wg sync.WaitGroup
@@ -526,20 +516,9 @@ func derefString(p *string) string {
 	return *p
 }
 
-// BeginFunc helper for pgxpool.Pool — pgx v5 doesn't export the v4
-// shorthand, so we replicate it here. Used by fanOutOne so the tx
-// boundary is implicit in the lambda's lifetime.
-//
-// Defined on *pgxpool.Pool via an alias is not Go-legal; instead this
-// is a free function we call as w.pool.BeginFunc(ctx, fn). Wait —
-// that's also not legal. Let me inline this where needed... actually
-// pgx v5 does have BeginFunc-style helpers. Just use Begin + manual
-// commit/rollback.
-var _ = errors.New
-var _ pgconn.CommandTag
-
-// poolBeginFunc emulates pgx v4's BeginFunc against a *pgxpool.Pool
-// (pgx v5 dropped the helper; we wrote our own).
+// poolBeginFunc emulates pgx v4's BeginFunc against a *pgxpool.Pool (pgx v5 dropped
+// the helper): Begin → fn → Commit, rolling back on error. Shared by both fan-out
+// workers via fanOutEventCore.
 func poolBeginFunc(ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx) error) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -551,7 +530,3 @@ func poolBeginFunc(ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx) e
 	}
 	return tx.Commit(ctx)
 }
-
-// Compile guard to remind us we removed the BeginFunc method
-// reference above (kept the helper for clarity).
-var _ = json.Marshal

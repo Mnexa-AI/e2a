@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -39,8 +38,8 @@ type Outbox interface {
 
 	// PublishBestEffortTx attempts the outbox write inside the
 	// caller's transaction but never returns an error. On failure,
-	// logs to webhook_publish_failures (slice 4 will add the table)
-	// and lets the caller's tx commit anyway.
+	// logs and lets the caller's tx commit anyway (a future slice may pipe these
+	// to a webhook_publish_failures table — not yet built).
 	//
 	// Returns `wrote=true` iff the row was actually written (flag
 	// enabled AND writeOutboxRow succeeded). The wrote signal is retained for
@@ -66,7 +65,7 @@ type Outbox interface {
 
 	// SetFanOutEnqueuer wires the River fan-out enqueuer (two-phase, called after the
 	// shared client exists). When set (E2A_WEBHOOK_FANOUT_MODE=river), PublishTx /
-	// PublishBestEffortTx enqueue a webhook_fan_out job in the event's own tx and stamp
+	// PublishBestEffortTx enqueue a webhook_fanout job in the event's own tx and stamp
 	// fanout_job_id — the River FanOutWorker then does the fan-out, replacing the
 	// legacy in-process OutboxWorker drain. nil (default/legacy) ⇒ the event row is
 	// written as before and the OutboxWorker fans it out via LISTEN/NOTIFY + poll.
@@ -230,10 +229,8 @@ func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (w
 		// Best-effort: log and return wrote=false. The caller's tx
 		// commits the business state regardless because the
 		// irreversible action (SES.Send) already happened — rolling
-		// back would orphan a sent email. A future slice will pipe
-		// these failures to a webhook_publish_failures table; for now
-		// the log is the only signal AND the legacy-fallback signal
-		// for the caller.
+		// back would orphan a sent email. For now the log is the only
+		// signal (a future slice may add a webhook_publish_failures table).
 		log.Printf("[outbox] PublishBestEffortTx err (event=%s type=%s): %v", e.ID, e.Type, err)
 		return false
 	}
@@ -246,10 +243,11 @@ func (o *outbox) PublishBestEffortTx(ctx context.Context, tx pgx.Tx, e Event) (w
 	return true
 }
 
-// writeOutboxRow is the SQL body shared by PublishTx and (eventually)
-// PublishBestEffortTx. Idempotent on (id): a retried trigger with the
-// same deterministic id no-ops the second INSERT. Issues pg_notify so
-// the slice-2 worker wakes immediately on commit.
+// writeOutboxRow is the SQL body shared by PublishTx and PublishBestEffortTx.
+// Idempotent on (id): a retried trigger with the same deterministic id no-ops the
+// second INSERT (RowsAffected reports 0, returned as inserted=false). Issues pg_notify
+// so the legacy OutboxWorker (LISTEN/NOTIFY mode) wakes immediately on commit; in
+// river fan-out mode nothing LISTENs and the NOTIFY is a harmless no-op.
 func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) (inserted bool, err error) {
 	if e.ID == "" {
 		return false, fmt.Errorf("webhookpub: outbox event must have non-empty ID")
@@ -302,9 +300,14 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) (inserted
 	// insert — a deduped event already has one.
 	inserted = tag.RowsAffected() > 0
 
+	// In river fan-out mode no worker LISTENs webhook_events_new (the OutboxWorker
+	// isn't started), so this NOTIFY is wasted — one cheap statement per event. It
+	// stays unconditional to keep the legacy default working; drop it when the legacy
+	// OutboxWorker is deleted post-cutover.
+	//
 	// pg_notify is best-effort: NOTIFY only fires on COMMIT (Postgres
 	// queues it). If COMMIT fails, no notification is emitted. The
-	// slice-2 worker's 1s fallback poll catches missed wakeups
+	// legacy OutboxWorker's 1s fallback poll catches missed wakeups
 	// (deploy windows, LISTEN reconnect races). Payload is empty
 	// because the worker rescans the table anyway.
 	//
@@ -327,8 +330,3 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) (inserted
 	}
 	return inserted, nil
 }
-
-// Time helpers — kept here rather than relying on time.Now() in
-// callers so test code can swap them. Not currently used; slice 2's
-// worker will need a clock abstraction.
-var nowUTC = func() time.Time { return time.Now().UTC() }

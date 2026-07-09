@@ -26,7 +26,7 @@ type FanOutArgs struct {
 	EventID string `json:"event_id"`
 }
 
-func (FanOutArgs) Kind() string { return "webhook_fan_out" }
+func (FanOutArgs) Kind() string { return "webhook_fanout" }
 
 const (
 	// maxFanOutAttempts bounds River's retries of a fan-out job. Fan-out failures are
