@@ -161,12 +161,18 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 }
 
 // approveOutboundAsync composes the (edited) draft and, for a non-self-send,
-// transitions the hold to review_approved + delivery_status='accepted' and enqueues
-// an outbound_send job in one tx (via store.ApproveAndAccept). Returns
-// (sent, true, nil) when queued; (nil, false, nil) when the message is a self-send
-// (the caller uses the sync loopback path); (nil, false, err) on failure. Shared by
-// the dashboard-approve (ApprovePendingCore) and magic-link (magicApprove) paths.
-// draft is the loaded pending_review row; edits is empty for the magic-link path.
+// transitions the hold to status='sent' + delivery_status='accepted' and enqueues an
+// outbound_send job in one tx (via store.ApproveAndAccept). Returns (sent, true, nil)
+// when queued; (nil, false, nil) when the message is a self-send (the caller uses the
+// sync loopback path); (nil, false, err) on failure. Shared by the dashboard-approve
+// (ApprovePendingCore) and magic-link (magicApprove) paths. draft is the loaded
+// pending_review row; edits is empty for the magic-link path.
+//
+// The hold status becomes 'sent' — the same terminal the SYNC human approve
+// (ApproveAndSend) uses: outbound has no separate "approved" hold status; the human
+// resolution is recorded via reviewed_by_user_id + the review_approved event, and
+// delivery_status ('accepted' → 'sent'/'failed') tracks the async send. (The TTL
+// sweep uses review_expired_approved instead — see hitlworker.autoApproveAsync.)
 func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit) (*identity.Message, bool, error) {
 	editedByReviewer := edits.Apply(draft)
 	sendReq, err := buildSendRequestFromMessage(draft)
@@ -185,7 +191,7 @@ func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIde
 		To: comp.To, CC: comp.CC, BCC: comp.BCC, Subject: sendReq.Subject,
 		Method: comp.Method, EnvelopeFrom: comp.EnvelopeFrom, SentAs: comp.SentAs, Raw: comp.Raw,
 	}
-	sent, err := a.store.ApproveAndAccept(ctx, messageID, userID, identity.MessageStatusReviewApproved, editedByReviewer, acc, a.outboundEnq.EnqueueSendTx)
+	sent, err := a.store.ApproveAndAccept(ctx, messageID, userID, identity.MessageStatusSent, editedByReviewer, acc, a.outboundEnq.EnqueueSendTx)
 	if err != nil {
 		return nil, false, err
 	}

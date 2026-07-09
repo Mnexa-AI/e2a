@@ -2508,6 +2508,11 @@ func (s *Store) ApproveAndAccept(
 		}
 		m.Direction = "outbound"
 		m.DeliveryStatus = "accepted"
+		// Surface the composed envelope on the returned row so the approve view +
+		// review_approved event report method/sent_as (like the sync path). The
+		// provider_message_id stays empty — the SendWorker fills it on email.sent.
+		m.Method = acc.Method
+		m.SentAs = acc.SentAs
 		out = &m
 		return nil
 	})

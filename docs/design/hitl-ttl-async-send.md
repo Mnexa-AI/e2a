@@ -50,6 +50,10 @@ approve(msg, [edits], [reviewer]):
   else if async enqueuer wired (E2A_OUTBOUND_MODE=async):
       → NEW async path:
           comp = sender.ComposeForAccept(agent, req)        # compose, no submit
+          # targetStatus: 'sent' for a HUMAN approve (outbound's approved terminal,
+          # same as sync ApproveAndSend — the human resolution is recorded via
+          # reviewed_by_user_id + the review_approved event); 'review_expired_approved'
+          # for the TTL sweep (same as sync ExpireApproveAndSend).
           msg  = store.ApproveAndAccept(msgID, reviewer, targetStatus, edited,
                        AcceptedSend{To,CC,BCC,Subject,Method,EnvelopeFrom,SentAs,Raw},
                        enqueue = outboundEnq.EnqueueSendTx)   # one tx (below)
@@ -73,7 +77,7 @@ use `send_attempts`.
 func (s *Store) ApproveAndAccept(
     ctx context.Context, messageID string,
     reviewedByUserID string,   // "" (NULL) for the TTL sweep
-    targetStatus string,       // review_approved | review_expired_approved
+    targetStatus string,       // sent (human approve) | review_expired_approved (TTL)
     edited bool,
     acc AcceptedSend,          // To,CC,BCC []string; Subject,Method,EnvelopeFrom,SentAs string; Raw []byte
     enqueue func(ctx context.Context, tx pgx.Tx, messageID string) (int64, error),
@@ -129,12 +133,28 @@ like any async send. `edited` is still surfaced.
 slot-occupancy protection — and stays `-1` in sync mode (blocking `Sender.Send`
 remains). Delivers the "return the timeout to bounded" goal for the async prod path.
 
-## Behavior change (blessed)
+## Behavior changes (blessed)
 
-In async mode a TTL-auto-approved (or human-approved) send whose SMTP submit
-ultimately **fails** ends `status=review_(expired_)approved` + `delivery_status='failed'`
-+ an `email.failed` event — it does **not** fall back to `review_(expired_)rejected`.
-Matches the normal async-send model (review decision ≠ delivery outcome).
+In async mode:
+
+- **Approve returns `accepted`, not `sent`** — the send is durably queued; the
+  outcome follows via `email.sent`/`email.failed`. Matches every normal async send
+  and the industry (SendGrid `202`, SES accepted-for-sending).
+- **A send that ultimately fails stays approved.** A TTL-auto-approved
+  (`review_expired_approved`) or human-approved (`sent`) hold whose SMTP submit
+  fails ends `delivery_status='failed'` + an `email.failed` event — it does **not**
+  fall back to `review_(expired_)rejected`. Review decision ≠ delivery outcome.
+- **`email.sent` now fires on a HITL-approved send's success.** The sync approve
+  path emitted only `review_approved` (and magic-link nothing); async approve adds
+  `email.sent`/`email.failed` from the SendWorker, consistent with normal async
+  sends. Subscribers keying off `email.sent` will observe it for approved sends once
+  the flag flips.
+
+Known limitation (F2): the SendWorker's 72h outage-tolerance clock (`AcceptedAt`)
+is anchored to the message's `created_at` (hold-creation time), not the approve
+time — so a hold approved >72h after creation, during a provider outage at send
+time, would terminate immediately instead of snoozing. Narrow edge; shared with the
+normal-send anchor, out of scope here.
 
 ## Scope / non-goals
 
