@@ -25,6 +25,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/inboundprocess"
+	"github.com/Mnexa-AI/e2a/internal/janitor"
 	"github.com/Mnexa-AI/e2a/internal/jobs"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/oauth"
@@ -321,6 +322,29 @@ func main() {
 	hitlWorker.SetPublisher(outboxPublisher)
 	registrars = append(registrars, hitlworker.NewMaintenanceJobs(hitlWorker))
 
+	// Hourly cleanup janitor (expired messages/sessions/webhook delivery
+	// records/webhook events/OAuth rows/idempotency keys) as a River periodic on
+	// QueueMaintenance — replaces the hand-rolled time.Ticker(1h) goroutine that
+	// used to live in the shutdown block. Two of its dependencies (the OAuth
+	// storage and the idempotency store) were previously constructed further
+	// down; they only need `pool`, so they're built here so every janitor dep is
+	// in scope before jobs.New consumes the registrars. Their downstream wiring
+	// (api.SetOAuthProvider / api.SetIdempotencyStore, which need `api`) stays
+	// below. oauthStorage is nil when the OAuth provider is disabled (no
+	// public_url); the janitor skips that pass, preserving the old
+	// `if oauthStorage != nil` guard.
+	var oauthStorage *oauth.Storage
+	if cfg.HTTP.PublicURL != "" {
+		oauthStorage = oauth.NewStorage(pool)
+	}
+	idempotencyStore := idempotency.NewStore(pool)
+	var oauthPruner janitor.OAuthPruner
+	if oauthStorage != nil {
+		oauthPruner = oauthStorage
+	}
+	cleanupJanitor := janitor.New(store, deliveryStore, subscriberStore, webhookOutbox, oauthPruner, idempotencyStore, metrics)
+	registrars = append(registrars, janitor.NewMaintenanceJobs(cleanupJanitor))
+
 	if len(registrars) > 0 {
 		jc, jerr := jobs.New(pool, jobs.Config{}, registrars...)
 		if jerr != nil {
@@ -433,11 +457,12 @@ func main() {
 	// `iss` emission + discovery would emit empty/inconsistent values
 	// — skip wiring so /oauth2/* return 404 and operators get a
 	// loud signal that the deployment needs http.public_url set.
-	var oauthStorage *oauth.Storage
+	// oauthStorage was constructed above (near the janitor wiring) so the cleanup
+	// periodic can prune expired OAuth rows; here we wire the provider on top of
+	// it when a public URL is configured.
 	if cfg.HTTP.PublicURL == "" {
 		log.Printf("[oauth] provider disabled: http.public_url is not set (required for issuer identity)")
 	} else {
-		oauthStorage = oauth.NewStorage(pool)
 		// Issuer = api_url (defaults to public_url). fosite stamps it into
 		// token `iss` and the RFC 9207 response, so it must match what
 		// discovery advertises and what agentAuthIssuer signs/verifies.
@@ -458,7 +483,8 @@ func main() {
 	// model-driven re-invocations). Always wired in production — keeping it optional in
 	// the agent package surfaces a clearer 5xx path for environments that don't run
 	// against this codebase's postgres.
-	idempotencyStore := idempotency.NewStore(pool)
+	// idempotencyStore was constructed above (near the janitor wiring) so the
+	// cleanup periodic can sweep expired keys; here we bind it onto the API.
 	api.SetIdempotencyStore(idempotencyStore)
 
 	// Resource-limits enforcer. The OSS server is plan-agnostic: it
@@ -622,14 +648,14 @@ func main() {
 	// workerWG tracks every background goroutine that needs to drain
 	// before the process exits on SIGTERM. Without it the main
 	// goroutine would return as soon as httpServer.Shutdown returns,
-	// dropping in-flight webhook deliveries mid-iteration. bgCancel/
-	// cleanupCancel signal the remaining workers to stop; wg.Wait() at the
-	// end of shutdown blocks for the current iteration to settle. (The HITL
-	// TTL sweep is now a River periodic drained by jobsClient.Stop.)
+	// dropping in-flight webhook deliveries mid-iteration. bgCancel signals
+	// the remaining background worker(s) to stop; wg.Wait() at the end of
+	// shutdown blocks for the current iteration to settle.
 	//
-	// (The HITL approval-notification email is no longer a detached
-	// goroutine — it's a durable River job on QueueNotify, drained by the
-	// shared jobsClient under the shutdown deadline. See hitl-notify-river.md.)
+	// (The HITL TTL sweep, the hourly cleanup janitor, and the HITL
+	// approval-notification email are all River jobs now — QueueMaintenance
+	// periodics and QueueNotify respectively — drained by the shared
+	// jobsClient under the shutdown deadline, not hand-rolled goroutines.)
 	var workerWG sync.WaitGroup
 
 	// Webhook subscriber delivery now runs entirely on River's DeliverWorker
@@ -652,76 +678,10 @@ func main() {
 	// registered above via hitlworker.NewMaintenanceJobs and drained by the shared
 	// jobsClient under the shutdown deadline — no separate goroutine/cancel needed.)
 
-	// Periodic cleanup of expired messages and sessions. Bound to its
-	// own cancel-context so shutdown stops the loop instead of
-	// orphaning the goroutine.
-	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	workerWG.Add(1)
-	go func() {
-		defer workerWG.Done()
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-cleanupCtx.Done():
-				return
-			case <-ticker.C:
-				if deleted, err := store.DeleteExpiredMessages(cleanupCtx); err != nil {
-					log.Printf("Failed to clean up expired messages: %v", err)
-				} else if deleted > 0 {
-					log.Printf("Cleaned up %d expired message(s)", deleted)
-					metrics.JanitorRowsDeleted("messages", int(deleted))
-				}
-
-				if deleted, err := store.DeleteExpiredUserSessions(cleanupCtx); err != nil {
-					log.Printf("Failed to clean up expired user sessions: %v", err)
-				} else if deleted > 0 {
-					log.Printf("Cleaned up %d expired user session(s)", deleted)
-				}
-
-				if deleted, err := deliveryStore.DeleteExpiredDeliveries(cleanupCtx); err != nil {
-					log.Printf("Failed to clean up expired webhook deliveries: %v", err)
-				} else if deleted > 0 {
-					log.Printf("Cleaned up %d expired webhook delivery record(s)", deleted)
-				}
-
-				if deleted, err := subscriberStore.DeleteExpiredSubscriberDeliveries(cleanupCtx); err != nil {
-					log.Printf("Failed to clean up expired webhook subscriber deliveries: %v", err)
-				} else if deleted > 0 {
-					log.Printf("Cleaned up %d expired webhook subscriber delivery record(s)", deleted)
-					metrics.JanitorRowsDeleted("webhook_subscriber_deliveries", deleted)
-				}
-
-				// Slice 1 prerequisite janitor: webhook_events rows
-				// also have a 30-day TTL (migration 026). Without
-				// this, the table grows monotonically once the
-				// outbox path starts writing events.
-				if deleted, err := webhookOutbox.DeleteExpiredWebhookEvents(cleanupCtx); err != nil {
-					log.Printf("Failed to clean up expired webhook events: %v", err)
-				} else if deleted > 0 {
-					log.Printf("Cleaned up %d expired webhook event(s)", deleted)
-					metrics.JanitorRowsDeleted("webhook_events", deleted)
-				}
-
-				if oauthStorage != nil {
-					if res, err := oauthStorage.CleanupExpired(cleanupCtx, time.Now()); err != nil {
-						log.Printf("Failed to clean up expired OAuth rows: %v", err)
-					} else if res.Total() > 0 {
-						log.Printf("Cleaned up OAuth rows: codes=%d pkce=%d access=%d refresh=%d clients=%d",
-							res.AuthCodesDeleted, res.PKCERequestsDeleted,
-							res.AccessTokensDeleted, res.RefreshTokensDeleted,
-							res.ClientsDeleted)
-					}
-				}
-			}
-
-			if deleted, err := idempotencyStore.Sweep(context.Background()); err != nil {
-				log.Printf("Failed to sweep idempotency keys: %v", err)
-			} else if deleted > 0 {
-				log.Printf("Swept %d idempotency key(s) past TTL", deleted)
-			}
-		}
-	}()
+	// The hourly cleanup janitor (expired messages/sessions/webhook records/
+	// OAuth rows/idempotency keys) is now a River periodic on QueueMaintenance
+	// (janitor.MaintenanceJobs, registered above). It drains on shutdown via the
+	// shared jobsClient.Stop below — no separate cancel-context needed.
 
 	<-sigCh
 	log.Println("Shutting down...")
@@ -730,7 +690,6 @@ func main() {
 	// branches return on the next iteration; work already in flight finishes
 	// its current row before the goroutine exits.
 	bgCancel()
-	cleanupCancel()
 
 	// SMTP server: close the listener so no new connections, but
 	// existing connections finish their DATA per the relay's own
