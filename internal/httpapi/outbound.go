@@ -622,8 +622,9 @@ func literalRequest(req outbound.SendRequest) func() (outbound.SendRequest, *Err
 
 // checkSendLimit applies the per-agent outbound rate limit (mirrors the
 // legacy sendLimit). On block it returns a 429 envelope carrying the
-// retry-after seconds; the IETF RateLimit-* response headers are a tracked
-// follow-up (Huma error responses can't set headers directly).
+// retry-after seconds in the body AND — via WithRetryAfter → stampRequestID —
+// the IETF Retry-After response header, so a handler-raised send 429 matches
+// the middleware-enforced registration/poll limiters (which set it directly).
 func (s *Server) checkSendLimit(agentID string) *ErrorEnvelope {
 	if s.deps.SendLimit == nil {
 		return nil
@@ -638,7 +639,8 @@ func (s *Server) checkSendLimit(agentID string) *ErrorEnvelope {
 	}
 	return NewError(http.StatusTooManyRequests, "rate_limited",
 		"rate limit exceeded — max 60 sends per minute per agent").
-		WithDetails(map[string]any{"retry_after_seconds": secs})
+		WithDetails(map[string]any{"retry_after_seconds": secs}).
+		WithRetryAfter(secs)
 }
 
 func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput) (*sendOutput, error) {

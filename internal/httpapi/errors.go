@@ -16,6 +16,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -38,6 +39,13 @@ type ErrorEnvelope struct {
 	// status is the HTTP status; unexported so it never serializes into
 	// the body (the status already rides the status line).
 	status int
+
+	// retryAfter, when > 0, is the seconds value stampRequestID copies into the
+	// Retry-After response header. A StatusError returned from a handler renders
+	// status + body only, so a 429 raised inside a handler (the per-agent send
+	// limiter) carries its Retry-After here; the middleware limiter path sets
+	// the header directly instead. Unexported so it never serializes.
+	retryAfter int
 
 	Err ErrorBody `json:"error"`
 }
@@ -71,6 +79,15 @@ func NewError(status int, code, message string) *ErrorEnvelope {
 // fluent construction.
 func (e *ErrorEnvelope) WithDetails(details any) *ErrorEnvelope {
 	e.Err.Details = details
+	return e
+}
+
+// WithRetryAfter records a Retry-After delay (seconds) for a handler-returned
+// error; stampRequestID copies it into the Retry-After response header. Use it
+// on 429s raised inside a handler (the per-agent send limiter) — the
+// middleware-enforced limiters set the header themselves.
+func (e *ErrorEnvelope) WithRetryAfter(seconds int) *ErrorEnvelope {
+	e.retryAfter = seconds
 	return e
 }
 
@@ -148,8 +165,18 @@ func humaErrorConstructor(status int, message string, errs ...error) huma.Status
 // the X-Request-Id header (api-v1-redesign §4 — "echo the same id in the
 // error envelope"). Success bodies are left untouched.
 func stampRequestID(ctx huma.Context, status string, v any) (any, error) {
-	if env, ok := v.(*ErrorEnvelope); ok && env.Err.RequestID == "" {
+	env, ok := v.(*ErrorEnvelope)
+	if !ok {
+		return v, nil
+	}
+	if env.Err.RequestID == "" {
 		env.Err.RequestID = RequestIDFromContext(ctx.Context())
+	}
+	// A StatusError returned from a handler renders status + body only, so stamp
+	// the Retry-After header here for rate-limit errors that carry a delay —
+	// matching the middleware limiter path, which sets the header itself.
+	if env.retryAfter > 0 {
+		ctx.SetHeader("Retry-After", strconv.Itoa(env.retryAfter))
 	}
 	return v, nil
 }

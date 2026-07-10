@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -259,6 +260,30 @@ func TestSendRateLimited(t *testing.T) {
 	d, _ := e["details"].(map[string]any)
 	if d == nil || d["retry_after_seconds"].(float64) != 7 {
 		t.Fatalf("expected retry_after_seconds=7 in details, got %v", body)
+	}
+}
+
+// TestSendRateLimitSetsRetryAfterHeader pins the fix for the handler-raised
+// send 429: the per-agent send limiter is enforced INSIDE the outbound handler
+// (returns a StatusError), so — unlike the middleware reg/poll limiters — its
+// Retry-After header is stamped via WithRetryAfter → stampRequestID rather than
+// by the middleware. serverWithSendLimit blocks with a 7s retry-after.
+func TestSendRateLimitSetsRetryAfterHeader(t *testing.T) {
+	srv := serverWithSendLimit(t)
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/agents/support%40acme.com/messages",
+		strings.NewReader(`{"to":["a@x.com"],"subject":"Hi","body":"hello"}`))
+	req.Header.Set("Authorization", "Bearer good")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 429 {
+		t.Fatalf("want 429, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got != "7" {
+		t.Errorf("Retry-After = %q, want 7 (handler-raised send 429 must carry the header)", got)
 	}
 }
 
