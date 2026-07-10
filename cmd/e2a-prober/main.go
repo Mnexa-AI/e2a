@@ -35,6 +35,8 @@ func main() {
 	switch os.Args[1] {
 	case "seed":
 		err = cmdSeed(ctx, configFromEnv())
+	case "seed-conformance":
+		err = cmdSeedConformance(ctx, configFromEnv())
 	case "validate":
 		err = cmdValidate(ctx, configFromEnv())
 	case "run-once":
@@ -58,10 +60,11 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `e2a-prober — e2a critical-path self-test runner
 
-usage: e2a-prober <seed|validate|run-once|serve>
+usage: e2a-prober <seed|seed-conformance|validate|run-once|serve>
 
 env:
-  E2A_DATABASE_URL          Postgres URL (seed, validate)
+  E2A_DATABASE_URL              Postgres URL (seed, seed-conformance, validate)
+  E2A_CONFORMANCE_AGENT_EMAIL   primary agent for the conformance account (seed-conformance)
   E2A_PROBE_BASE_URL        e2a HTTP base, e.g. http://e2a:8080 (run-once, serve)
   E2A_PROBE_SMTP_ADDR       e2a SMTP listener host:port (run-once, serve)
   E2A_PROBE_AGENT_EMAIL     synthetic probe agent address

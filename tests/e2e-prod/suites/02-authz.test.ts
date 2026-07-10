@@ -38,24 +38,33 @@ test("authz: random API key without 'e2a_' prefix returns 401", async () => {
 
 test("authz: 401 body does NOT leak hint about key validity", async () => {
   // Both keys are bogus. r1 has the e2a_ prefix and the right length; r2
-  // is unrelated garbage. A correct auth gate must return byte-identical
-  // 401 responses for both so an attacker can't distinguish "key shape
-  // is right but invalid" from "completely malformed input."
-  const r1 = await client.get("/v1/agents", { apiKey: "e2a_00000000000000000000000000000000" });
-  const r2 = await client.get("/v1/agents", { apiKey: "garbage" });
+  // is unrelated garbage. A correct auth gate must return an identical
+  // 401 error shape for both so an attacker can't distinguish "key shape
+  // is right but invalid" from "completely malformed input." The error
+  // envelope carries a per-request `request_id` (ErrorBody schema) that is
+  // unique by design, so we compare the structural error (code + message)
+  // rather than raw bytes.
+  const r1 = await client.get<{ error?: { code?: string; message?: string } }>("/v1/agents", {
+    apiKey: "e2a_00000000000000000000000000000000",
+  });
+  const r2 = await client.get<{ error?: { code?: string; message?: string } }>("/v1/agents", {
+    apiKey: "garbage",
+  });
   assert.equal(r1.status, 401, `r1 expected 401, got ${r1.status}`);
   assert.equal(r2.status, 401, `r2 expected 401, got ${r2.status}`);
-  if (r1.raw !== r2.raw) {
+  const shape1 = JSON.stringify({ code: r1.body?.error?.code, message: r1.body?.error?.message });
+  const shape2 = JSON.stringify({ code: r2.body?.error?.code, message: r2.body?.error?.message });
+  if (shape1 !== shape2) {
     fail(
       SUITE,
       "401-oracle",
-      `401 bodies differ between malformed and well-shaped bogus keys — side-channel oracle. Bodies: "${r1.raw.slice(0, 80)}" vs "${r2.raw.slice(0, 80)}"`,
+      `401 error shapes differ between malformed and well-shaped bogus keys — side-channel oracle. Shapes: ${shape1} vs ${shape2}`,
     );
     assert.fail(
-      `401 bodies must be byte-identical to avoid leaking key-shape info; r1=${JSON.stringify(r1.raw.slice(0, 60))} r2=${JSON.stringify(r2.raw.slice(0, 60))}`,
+      `401 error code+message must be identical to avoid leaking key-shape info; r1=${shape1} r2=${shape2}`,
     );
   }
-  info(SUITE, "401-uniform", "401 bodies are identical for malformed vs bogus-but-shaped — good (no oracle)");
+  info(SUITE, "401-uniform", "401 error code+message identical for malformed vs bogus-but-shaped — good (no oracle)");
 });
 
 test("authz: send as an unowned agent returns 4xx (cannot impersonate)", async () => {

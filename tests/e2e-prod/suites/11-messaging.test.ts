@@ -38,7 +38,7 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
     if (s.body?.message_id) queued.push(s.body.message_id);
   }
 
-  const page1 = await client.get<{ items: Array<{ id: string }>; next_cursor?: string | null }>(
+  const page1 = await client.get<{ items: Array<{ message_id: string }>; next_cursor?: string | null }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
     { query: { limit: 3, direction: "all" } },
   );
@@ -50,13 +50,15 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
     for (const id of queued) await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
     return;
   }
-  const page2 = await client.get<{ items: Array<{ id: string }>; next_cursor?: string | null }>(
+  const page2 = await client.get<{ items: Array<{ message_id: string }>; next_cursor?: string | null }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
     { query: { limit: 3, cursor: page1.body.next_cursor, direction: "all" } },
   );
   assert.equal(page2.status, 200, `page2 status ${page2.status}: ${page2.raw.slice(0, 200)}`);
-  const ids1 = new Set((page1.body!.items ?? []).map((m) => m.id));
-  const ids2 = new Set((page2.body!.items ?? []).map((m) => m.id));
+  // MessageSummaryView identifies items by `message_id` (not `id`) — mapping the
+  // wrong field made every id undefined and produced a phantom cross-page overlap.
+  const ids1 = new Set((page1.body!.items ?? []).map((m) => m.message_id));
+  const ids2 = new Set((page2.body!.items ?? []).map((m) => m.message_id));
   const overlap = [...ids1].filter((id) => ids2.has(id));
   if (overlap.length > 0) {
     fail(SUITE, "pagination-duplicate-ids", `${overlap.length} ids appear on both pages: ${overlap.slice(0, 5).join(",")}`);
@@ -204,10 +206,12 @@ test("messaging: approve with field overrides applies them before send", async (
     return;
   }
   const id = s.body.message_id;
-  // Override subject + body on approve. Spec: any subset of subject/body/body_html/to/cc/bcc/attachments.
+  // Override subject + body on approve. Per ApproveRequest schema, the overridable
+  // subset is subject/body/html_body/to/cc/bcc/attachments (plain-text field is `body`,
+  // not `body_text` — the latter is rejected 422 as an unexpected property).
   const ap = await client.post<{ message_id: string; status: string }>(
     `/v1/agents/${encodeURIComponent(email)}/messages/${id}/approve`,
-    { body: { subject: "overridden subject (approve-time)", body_text: "overridden body" } },
+    { body: { subject: "overridden subject (approve-time)", body: "overridden body" } },
   );
   if (ap.status !== 200) {
     info(SUITE, "approve-override-non-200", `override approve returned ${ap.status}: ${ap.raw.slice(0, 200)}`);
@@ -241,7 +245,7 @@ test("messaging: reply with empty body returns 400", async () => {
   // "empty body returns 400" branch. Now: pull from the agent-scoped
   // inbound listing, skip cleanly if none exist.
   const email = client.env.primaryAgentEmail;
-  const list = await client.get<{ items: Array<{ id: string; direction?: string }> }>(
+  const list = await client.get<{ items: Array<{ message_id: string; direction?: string }> }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
     { query: { limit: 5, direction: "inbound" } },
   );
@@ -251,7 +255,7 @@ test("messaging: reply with empty body returns 400", async () => {
     return;
   }
   const r = await client.post(
-    `/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(candidate.id)}/reply`,
+    `/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(candidate.message_id)}/reply`,
     { body: {} },
   );
   // Now that we picked from the agent-scoped inbound list, 400 is the
@@ -259,7 +263,7 @@ test("messaging: reply with empty body returns 400", async () => {
   // listing returned a stale id — flag it informationally rather than
   // assert away a different bug.
   if (r.status === 404) {
-    info(SUITE, "reply-empty-404-on-listed-msg", `inbound list returned ${candidate.id} but /reply 404'd — possible listing/storage skew`);
+    info(SUITE, "reply-empty-404-on-listed-msg", `inbound list returned ${candidate.message_id} but /reply 404'd — possible listing/storage skew`);
     return;
   }
   assert.equal(r.status, 400, `expected 400 (empty body) on owned inbound message, got ${r.status}: ${r.raw.slice(0, 200)}`);
@@ -310,7 +314,9 @@ test("messaging: send with reply_to (header round-trip) is accepted", async () =
       to: [SINK_EMAIL],
       subject: uniqueSubject("with reply_to"),
       body: "x",
-      reply_to: ["specific-reply@example.com"],
+      // reply_to is a single RFC 5322 address STRING (Sets Reply-To header),
+      // not an array — an array is rejected 422 as an unexpected property.
+      reply_to: "specific-reply@example.com",
     },
   });
   if (r.status >= 400 && r.status < 500) {

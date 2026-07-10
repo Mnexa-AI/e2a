@@ -63,9 +63,9 @@ test("domains: list includes newly-registered domain", async () => {
     return;
   }
   track("domain", domain);
-  const list = await client.get<{ domains: Array<{ domain: string }> }>("/v1/domains");
+  const list = await client.get<{ items: Array<{ domain: string }>; next_cursor?: string | null }>("/v1/domains");
   assert.equal(list.status, 200);
-  const found = list.body?.domains.some((d) => d.domain === domain);
+  const found = list.body?.items?.some((d) => d.domain === domain);
   assert.ok(found, `freshly-registered ${domain} not in list response`);
 });
 
@@ -104,7 +104,9 @@ test("domains: DELETE returns 204 and removes from list", async () => {
     return;
   }
   // Don't track — this test consumes it.
-  const del = await client.delete(`/v1/domains/${encodeURIComponent(domain)}`);
+  // DELETE is irreversible (deprovisions the sending identity) and requires
+  // the ?confirm=DELETE guard — without it the server returns 400 confirmation_required.
+  const del = await client.delete(`/v1/domains/${encodeURIComponent(domain)}?confirm=DELETE`);
   assert.equal(del.status, 204, `DELETE expected 204, got ${del.status}: ${del.raw.slice(0, 200)}`);
   const after = await client.get(`/v1/domains/${encodeURIComponent(domain)}`);
   assert.ok(after.status === 404 || after.status === 403, `deleted domain should 404/403, got ${after.status}`);
@@ -138,19 +140,23 @@ test("domains: register empty body returns 4xx", async () => {
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx for empty body, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("domains: register duplicate returns 4xx (probably 409)", async () => {
+test("domains: re-register same domain (same account) is idempotent — 201", async () => {
+  // Per openapi, 409 (code domain_taken) fires only when the domain is claimed by
+  // ANOTHER account. Re-registering a domain you already own is idempotent and
+  // returns 201 with the same DomainView — a single-tenant conformance run can't
+  // exercise the cross-account 409 path, so we assert the idempotent same-account
+  // behavior instead and flag the 409 path as a coverage limit.
   const domain = fakeDomain("dup");
-  const first = await client.post("/v1/domains", { body: { domain } });
+  const first = await client.post<{ domain: string }>("/v1/domains", { body: { domain } });
   if (first.status !== 201) {
     info(SUITE, "dup-skipped", `first register returned ${first.status} — skipping dup probe`);
     return;
   }
   track("domain", domain);
-  const second = await client.post("/v1/domains", { body: { domain } });
-  assert.ok(second.status >= 400 && second.status < 500, `dup expected 4xx, got ${second.status}: ${second.raw.slice(0, 200)}`);
-  if (second.status !== 409) {
-    info(SUITE, "dup-non-409", `duplicate domain register returned ${second.status} instead of 409: ${second.raw.slice(0, 200)}`);
-  }
+  const second = await client.post<{ domain: string }>("/v1/domains", { body: { domain } });
+  assert.equal(second.status, 201, `same-account re-register expected idempotent 201, got ${second.status}: ${second.raw.slice(0, 200)}`);
+  assert.equal(second.body?.domain, domain, "idempotent re-register echoes the same domain");
+  info(SUITE, "dup-cross-account-coverage-limit", "409 domain_taken requires a domain claimed by another account — not exercisable single-tenant");
 });
 
 test("domains: GET unowned domain returns 4xx (no info leak)", async () => {

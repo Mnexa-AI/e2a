@@ -44,11 +44,13 @@ export async function cleanup(client: ApiClient, opts: { force?: boolean } = {})
 }
 
 function pathFor(t: Tracked): string {
+  // Destructive deletes require ?confirm=DELETE (the API's irreversible-op
+  // guard). Cleanup is always intentional, so we always confirm.
   switch (t.kind) {
     case "agent":
-      return `/v1/agents/${encodeURIComponent(t.id)}`;
+      return `/v1/agents/${encodeURIComponent(t.id)}?confirm=DELETE`;
     case "domain":
-      return `/v1/domains/${encodeURIComponent(t.id)}`;
+      return `/v1/domains/${encodeURIComponent(t.id)}?confirm=DELETE`;
   }
 }
 

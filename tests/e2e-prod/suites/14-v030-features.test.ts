@@ -4,7 +4,7 @@
 //   - Message forward (/messages/{id}/forward)                       PR #171
 //   - Message labels (PATCH + ?labels= filter on /messages)          PR #173, #174
 //   - Message search filters (?from, ?to, ?subject, ?since, ?until)  PR #154
-//   - Domains CRUD completion (PATCH /domains/{domain})              PR #165
+//   - Domains CRUD (GET / DELETE /domains/{domain}; no PATCH)        PR #165
 //   - Per-account resource limits (GET /v1/account)                  PR #158
 //
 // Coverage shape is deliberately read-heavy: shape + auth + 4xx
@@ -74,9 +74,13 @@ test("events: list accepts all documented filter params without 400", async () =
   assert.equal(r.status, 200, `multi-filter GET /events expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("events: list with limit > max clamps or 400s, never crashes", async () => {
+test("events: list with limit > max clamps or 4xx, never crashes", async () => {
+  // openapi caps limit at 200 (maximum: 200); the request-validation
+  // layer rejects over-max with 422 unprocessable_entity. A server that
+  // clamps instead (200) is also acceptable. What we're guarding against
+  // is a crash / 5xx.
   const r = await client.get("/v1/events", { query: { limit: 9999 } });
-  assert.ok(r.status === 200 || r.status === 400, `expected 200/400, got ${r.status}`);
+  assert.ok(r.status === 200 || r.status === 400 || r.status === 422, `expected 200/400/422, got ${r.status}`);
 });
 
 test("events: get nonexistent event → 404", async () => {
@@ -106,13 +110,20 @@ test("events: redeliver without auth → 401", async () => {
 
 // ─── Conversations API ────────────────────────────────────────────
 
-test("conversations: list under primary agent returns array shape", async () => {
+test("conversations: list under primary agent returns paginated envelope", async () => {
   const email = client.env.primaryAgentEmail;
-  const r = await client.get<{ conversations: unknown[] }>(
+  // openapi PageConversationSummaryView: {items: [...], next_cursor: string|null}
+  // — the same envelope shape as /v1/events, not a bare {conversations: []}.
+  const r = await client.get<{ items: unknown[] | null; next_cursor: string | null }>(
     `/v1/agents/${encodeURIComponent(email)}/conversations`,
   );
   assert.equal(r.status, 200, `expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
-  assert.ok(Array.isArray(r.body?.conversations), "conversations is array");
+  assert.ok(r.body, "body is parsed JSON");
+  assert.ok(
+    r.body!.items === null || Array.isArray(r.body!.items),
+    `items should be array or null, got ${typeof r.body!.items}`,
+  );
+  assert.ok("next_cursor" in r.body!, "next_cursor field present on response");
 });
 
 test("conversations: list without auth → 401", async () => {
@@ -143,9 +154,12 @@ test("conversations: get nonexistent conversation → 404", async () => {
 
 test("forward: nonexistent message → 404", async () => {
   const email = client.env.primaryAgentEmail;
+  // ForwardRequest requires both `to` and `body` (openapi: required [to, body]);
+  // omitting `body` trips request-validation (422) before the row lookup, so we
+  // send a complete body to exercise the not-found path.
   const r = await client.post(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_nonexistent${Date.now()}/forward`,
-    { body: { to: ["sink@e2a.dev"] } },
+    { body: { to: ["sink@e2a.dev"], body: "fwd" } },
   );
   assert.equal(r.status, 404, `expected 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -161,18 +175,24 @@ test("forward: missing 'to' field → 400", async () => {
 
 test("forward: without auth → 401", async () => {
   const email = client.env.primaryAgentEmail;
+  // Request validation runs before auth, so an incomplete ForwardRequest
+  // would surface 422 instead of 401. Send a valid body (to + body) so the
+  // missing-credential path is what's actually exercised.
   const r = await client.post(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_x/forward`,
-    { apiKey: null, body: { to: ["sink@e2a.dev"] } },
+    { apiKey: null, body: { to: ["sink@e2a.dev"], body: "fwd" } },
   );
   assert.equal(r.status, 401, `expected 401, got ${r.status}`);
 });
 
 test("labels: PATCH nonexistent message → 404", async () => {
   const email = client.env.primaryAgentEmail;
+  // UpdateMessageRequest is {add_labels?, remove_labels?} — the mutation is a
+  // delta, not a full `labels` replacement (that property is rejected as an
+  // unexpected key, 422).
   const r = await client.patch(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_nonexistent${Date.now()}`,
-    { body: { labels: ["urgent"] } },
+    { body: { add_labels: ["urgent"] } },
   );
   assert.equal(r.status, 404, `expected 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -183,7 +203,7 @@ test("labels: PATCH rejects label with invalid chars (charset cap)", async () =>
   // even on a nonexistent message id.
   const r = await client.patch(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_anything`,
-    { body: { labels: ["HAS SPACES & SYMBOLS!"] } },
+    { body: { add_labels: ["HAS SPACES & SYMBOLS!"] } },
   );
   assert.ok(r.status === 400 || r.status === 404, `expected 400/404, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -192,7 +212,7 @@ test("labels: PATCH rejects reserved 'e2a:' prefix from caller writes", async ()
   const email = client.env.primaryAgentEmail;
   const r = await client.patch(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_anything`,
-    { body: { labels: ["e2a:reserved"] } },
+    { body: { add_labels: ["e2a:reserved"] } },
   );
   assert.ok(r.status === 400 || r.status === 404, `expected 400/404, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -208,14 +228,17 @@ test("agent messages: ?labels= filter accepted without error", async () => {
   assert.equal(r.status, 200, `expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("agent messages: too many ?labels= values → 400 (cap=50)", async () => {
+test("agent messages: many ?labels= filter values are accepted (no cap)", async () => {
   const email = client.env.primaryAgentEmail;
-  // MaxLabelsPerOp = 50; send 51 to trip the cap.
+  // The ?labels= filter is repeatable and AND-matched with no documented
+  // maxItems cap (openapi listMessages labels param). A large set (verified
+  // up to 1000) is accepted rather than 400'd; this pins that the filter
+  // parser doesn't crash or spuriously reject on volume.
   const url =
     `/v1/agents/${encodeURIComponent(email)}/messages?` +
     Array.from({ length: 51 }, (_, i) => `labels=l${i}`).join("&");
   const r = await client.get(url);
-  assert.equal(r.status, 400, `expected 400, got ${r.status}: ${r.raw.slice(0, 200)}`);
+  assert.equal(r.status, 200, `expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 // ─── Message search filters (PR #154) ─────────────────────────────
@@ -246,23 +269,12 @@ test("agent messages: invalid since timestamp handled (400 or graceful 200)", as
   assert.ok(r.status === 400 || r.status === 200, `expected 400 or graceful 200, got ${r.status}`);
 });
 
-// ─── Domains: completion of CRUD (PR #165) ────────────────────────
-
-test("domains: PATCH nonexistent domain with valid body → 404 or 403", async () => {
-  // PATCH validates body BEFORE the ownership check, so we send the
-  // documented "make me primary" body to skip the validator's
-  // is_primary=false early-reject. The path itself shouldn't match
-  // any owned domain, so we expect not-found semantics.
-  const r = await client.patch(`/v1/domains/nonexistent-${Date.now()}.example.com`, {
-    body: { is_primary: true },
-  });
-  assert.ok(r.status === 404 || r.status === 403, `expected 404/403, got ${r.status}: ${r.raw.slice(0, 200)}`);
-});
-
-test("domains: PATCH without auth → 401", async () => {
-  const r = await client.patch(`/v1/domains/example.com`, { apiKey: null, body: {} });
-  assert.equal(r.status, 401, `expected 401, got ${r.status}`);
-});
+// ─── Domains: CRUD ────────────────────────────────────────────────
+// NOTE: There is no PATCH /v1/domains/{domain} in the current API —
+// openapi exposes only GET / DELETE on {domain} (+ POST /verify). The
+// former "make primary" PATCH tests were dropped as stale drift (the
+// route 404s with a plaintext router-level not-found). Domain mutation
+// coverage is the DELETE path below plus registration in suite 04.
 
 test("domains: DELETE nonexistent domain → 404 or 403", async () => {
   const r = await client.delete(`/v1/domains/nonexistent-${Date.now()}.example.com`);

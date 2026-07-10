@@ -133,7 +133,7 @@ test("concurrency: parallel DELETE of the same agent is idempotent under content
   // Don't track — this test consumes it.
 
   const results = await Promise.all(
-    Array.from({ length: 4 }, () => burst.delete(`/v1/agents/${encodeURIComponent(email)}`)),
+    Array.from({ length: 4 }, () => burst.delete(`/v1/agents/${encodeURIComponent(email)}?confirm=DELETE`)),
   );
   const ok = results.filter((r) => r.status === 200 || r.status === 204);
   const fivexx = results.filter((r) => r.status >= 500);

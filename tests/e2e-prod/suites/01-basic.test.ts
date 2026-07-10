@@ -29,12 +29,12 @@ test("info: public deployment metadata is returned", async () => {
 });
 
 test("agents: list returns user's agents with required fields", async () => {
-  const r = await client.get<{ agents: Array<{ email: string; domain: string }> }>(
+  const r = await client.get<{ items: Array<{ email: string; domain: string }> }>(
     "/v1/agents",
   );
   assert.equal(r.status, 200);
-  assert.ok(Array.isArray(r.body?.agents));
-  for (const a of r.body!.agents) {
+  assert.ok(Array.isArray(r.body?.items));
+  for (const a of r.body!.items) {
     assert.ok(a.email && a.email.includes("@"), `agent.email valid: ${a.email}`);
     assert.ok(a.domain, `agent.domain set: ${a.email}`);
   }
@@ -78,7 +78,7 @@ test("agents: create + read + delete (slug on shared domain)", async () => {
   assert.equal(got.body?.email, email);
   assert.equal(got.body?.domain_verified, true, "slug-domain agent should be auto-verified");
 
-  const del = await client.delete(`/v1/agents/${encodeURIComponent(email)}`);
+  const del = await client.delete(`/v1/agents/${encodeURIComponent(email)}?confirm=DELETE`);
   assert.ok(del.status === 204 || del.status === 200, `delete expected 200/204, got ${del.status}`);
 
   const after = await client.get(`/v1/agents/${encodeURIComponent(email)}`);
@@ -195,7 +195,7 @@ test("messages: list with limit + pagination cursor", async () => {
 });
 
 test("domains: list returns documented shape", async () => {
-  const r = await client.get<{ domains: Array<{ domain: string }> }>("/v1/domains");
+  const r = await client.get<{ items: Array<{ domain: string }> }>("/v1/domains");
   assert.equal(r.status, 200);
-  assert.ok(Array.isArray(r.body?.domains));
+  assert.ok(Array.isArray(r.body?.items));
 });

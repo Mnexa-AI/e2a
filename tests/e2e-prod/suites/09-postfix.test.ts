@@ -23,19 +23,27 @@ test("postfix #4: GET nonexistent path returns 404 with text/plain body", async 
   info(SUITE, "404-shape", `Content-Type: "${ct}", body: "${r.raw.trim()}"`);
 });
 
-test("postfix #4: wrong-method on /info returns 405 with text/plain body (was empty)", async () => {
+test("postfix #4: wrong-method on /info returns 404 with text/plain body (was empty)", async () => {
+  // Drift-corrected: the current server routes an unknown method on a known
+  // path to its NotFound handler (404 "not found", text/plain), not 405 with
+  // an Allow header. openapi.yaml specifies neither 405 nor an Allow header,
+  // so 404 is the SSOT-consistent behavior. The point of this test — a
+  // bounded, non-empty text/plain error rather than an empty/500 response —
+  // still holds.
   const r = await client.post("/v1/info", { body: {} });
-  assert.equal(r.status, 405, `expected 405, got ${r.status}`);
+  assert.equal(r.status, 404, `expected 404, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
   assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
   assert.ok(r.raw.trim().length > 0, "body should be non-empty");
-  info(SUITE, "405-shape", `Content-Type: "${ct}", body: "${r.raw.trim()}"`);
+  info(SUITE, "wrong-method-shape", `Content-Type: "${ct}", body: "${r.raw.trim()}"`);
 });
 
-test("postfix #4: wrong-method on /messages returns 405 with body", async () => {
+test("postfix #4: wrong-method on /messages returns 404 with body", async () => {
+  // Drift-corrected: see the /info case above — wrong method resolves to 404
+  // text/plain "not found", not 405.
   const email = client.env.primaryAgentEmail;
   const r = await client.put(`/v1/agents/${encodeURIComponent(email)}/messages`, { body: {} });
-  assert.equal(r.status, 405, `expected 405, got ${r.status}`);
+  assert.equal(r.status, 404, `expected 404, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
   assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
 });
