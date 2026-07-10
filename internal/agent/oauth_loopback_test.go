@@ -66,6 +66,13 @@ func TestAccountEligibleRedirect(t *testing.T) {
 		// non-loopback http → not eligible (also rejected at registration)
 		{"http://example.com/callback", false},
 
+		// malformed https that validateRedirectURI rejects → NOT eligible
+		// (defense-in-depth: the gate is self-contained, not trusting an
+		// upstream validator)
+		{"https://user@evil.com/cb", false}, // userinfo
+		{"https:///cb", false},              // empty host
+		{"https://example.com/cb#frag", false}, // fragment
+
 		// junk → not eligible (fail closed)
 		{"", false},
 		{"::::not a uri", false},

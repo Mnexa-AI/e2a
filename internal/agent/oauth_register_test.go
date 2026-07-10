@@ -347,6 +347,50 @@ func TestHTTP_Register_HonorsExplicitAgentOnly(t *testing.T) {
 	}
 }
 
+// TestHTTP_Register_ExplicitMultiScope: the shape a spec-compliant MCP client
+// actually sends — an explicit scope string echoing scopes_supported, possibly
+// with offline_access. account is honored (redirect is https-eligible), and
+// unknown scopes like offline_access are dropped from the persisted ceiling so
+// they never leak into the response `scope` or account_eligible.
+func TestHTTP_Register_ExplicitMultiScope(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "Claude",
+		RedirectURIs: []string{"https://claude.ai/api/mcp/auth_callback"},
+		Scope:        "agent account offline_access",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 201; body=%s", resp.StatusCode, string(body))
+	}
+	var got agent.OAuthRegisterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Scope != "agent account" {
+		t.Errorf("scope = %q, want %q (account honored, offline_access dropped)", got.Scope, "agent account")
+	}
+
+	mResp, err := http.Get(srv.URL + "/oauth2/clients/" + got.ClientID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mResp.Body.Close()
+	var meta agent.OAuthClientPublicMetadata
+	if err := json.NewDecoder(mResp.Body).Decode(&meta); err != nil {
+		t.Fatal(err)
+	}
+	if !meta.AccountEligible {
+		t.Error("account_eligible should be true (account is on the ceiling)")
+	}
+	for _, s := range meta.Scopes {
+		if s == "offline_access" {
+			t.Errorf("offline_access must not persist in the registered ceiling: %v", meta.Scopes)
+		}
+	}
+}
+
 // TestHTTP_Register_TooManyRedirectURIs.
 func TestHTTP_Register_TooManyRedirectURIs(t *testing.T) {
 	srv := newDCRServer(t)

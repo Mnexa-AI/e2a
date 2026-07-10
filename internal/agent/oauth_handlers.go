@@ -227,6 +227,14 @@ func isLoopbackRedirect(raw string) bool {
 // attacker, but the admin token is then held by whatever hosted client the
 // user approved. Consent remains mandatory and grants nothing on its own.
 func accountEligibleRedirect(raw string) bool {
+	// Self-contained fail-closed: never treat a redirect as account-eligible
+	// unless it also passes full redirect_uri validation (rejects userinfo,
+	// empty host, fragments, dangerous schemes). Every caller today
+	// pre-validates, but this keeps the gate correct even if some future
+	// writer to oauth_clients skips validateRedirectURI.
+	if validateRedirectURI(raw) != nil {
+		return false
+	}
 	if isLoopbackRedirect(raw) {
 		return true
 	}
@@ -487,10 +495,12 @@ type OAuthClientPublicMetadata struct {
 	Scopes           []string `json:"scopes"`
 	ClientIDIssuedAt int64    `json:"client_id_issued_at"`
 	// AccountEligible reports whether the consent screen may offer account
-	// (workspace-admin) scope for this client: true iff EVERY registered
-	// redirect_uri is loopback. Drives the consent UI (the Account option is
-	// disabled otherwise); the consent handler re-checks the specific inbound
-	// redirect at grant time, so this is UX, not the security boundary.
+	// (workspace-admin) scope for this client: true iff "account" is on the
+	// client's registered scope ceiling (which DCR writes only when the
+	// redirect is account-eligible AND the client requested it). Drives the
+	// consent UI (the Account option is disabled otherwise); fosite re-checks
+	// granted ⊆ registered at grant time, so this is UX, not the security
+	// boundary.
 	AccountEligible bool `json:"account_eligible"`
 }
 
@@ -1018,8 +1028,9 @@ func (a *API) issueOAuthCode(ctx context.Context, w http.ResponseWriter, r *http
 // runs AFTER this. So appending the consented scope to the requested set is
 // what subjects it to that check, and that check is precisely what enforces
 // granted ⊆ client.scopes: account is granted only if the client row carries
-// it (which DCR writes only for all-loopback clients). Remove the append and
-// account-scope containment silently breaks — keep it.
+// it (which DCR writes only for account-eligible — loopback or https —
+// clients that requested it). Remove the append and account-scope containment
+// silently breaks — keep it.
 func grantConsentedScope(ar fosite.AuthorizeRequester, scope string) {
 	if !ar.GetRequestedScopes().Has(scope) {
 		ar.AppendRequestedScope(scope)

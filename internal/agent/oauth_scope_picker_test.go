@@ -192,6 +192,47 @@ func TestHTTP_Consent_Account_Https_Allowed(t *testing.T) {
 	}
 }
 
+// TestHTTP_Consent_Account_CustomScheme_RejectedByHandlerGate pins the consent
+// handler's OWN fail-closed gate (accountEligibleRedirect), independent of
+// fosite's ceiling check. The client is seeded WITH account in its ceiling and
+// a reverse-domain custom-scheme redirect — which passes validateRedirectURI
+// but is NOT account-eligible — so the handler gate rejects the account grant
+// before fosite is even reached. (Post-relaxation the renamed https "rejected"
+// test only reaches the fosite layer, so this restores direct coverage of the
+// handler gate's reject branch.)
+func TestHTTP_Consent_Account_CustomScheme_RejectedByHandlerGate(t *testing.T) {
+	f := newConsentFixture(t)
+	ctx := context.Background()
+	clientID := "mcp_customscheme"
+	redirectURI := "com.example.app:/oauth-callback"
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO oauth_clients
+		    (client_id, client_name, redirect_uris, grant_types, response_types,
+		     scopes, audiences, token_endpoint_auth_method, public, created_via)
+		VALUES ($1, 'custom scheme client', ARRAY[$2],
+		        ARRAY['authorization_code','refresh_token'], ARRAY['code'],
+		        ARRAY['agent','account'], ARRAY[]::TEXT[], 'none', TRUE, 'dcr')
+		ON CONFLICT (client_id) DO NOTHING`, clientID, redirectURI); err != nil {
+		t.Fatalf("seed custom-scheme client: %v", err)
+	}
+
+	_, challenge := newPKCE(t)
+	form := authorizeParams(challenge, clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("redirect_uri", redirectURI)
+	form.Set("action", "allow")
+	form.Set("scope_choice", "account")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	if loc.Query().Get("code") != "" {
+		t.Fatalf("account must be rejected on a custom-scheme redirect")
+	}
+	if e := loc.Query().Get("error"); e != "invalid_scope" {
+		t.Errorf("error = %q, want invalid_scope", e)
+	}
+}
+
 // TestHTTP_Consent_Account_MixedRedirect_RejectedByScopeCeiling proves the
 // fosite scope-ceiling defense independent of the handler gate: this client is
 // seeded with an agent-only ceiling and its inbound (loopback) redirect passes

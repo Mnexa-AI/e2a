@@ -371,13 +371,8 @@ function ConsentForm({
               </span>
               {!accountEligible && (
                 <span className="block text-xs mt-0.5" style={{ color: "var(--danger-strong)" }}>
-                  Unavailable: this client isn&apos;t registered for account scope.
-                  {inboundRedirect !== "" && (
-                    <>
-                      {" "}This client&apos;s redirect is{" "}
-                      <span className="font-mono break-all">{inboundRedirect}</span>.
-                    </>
-                  )}
+                  Unavailable: this client isn&apos;t registered for account
+                  scope.
                 </span>
               )}
             </span>
