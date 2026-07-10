@@ -40,8 +40,12 @@ func PolicyFor(c AccountClass) MeteringPolicy {
 	}
 }
 
-// RateLimited reports whether an account class is subject to the in-memory
-// request rate limiters (agent registration, per-user poll, per-agent send).
+// RateLimited reports whether an account class is subject to the two
+// class-exempt request limiters: the per-IP agent-registration limiter and the
+// per-user poll limiter. (The per-agent SEND limiter is intentionally NOT
+// class-exempt — it is keyed on the agent, so the prober/conformance's
+// fresh-agent-per-run pattern never trips it; there is no shared-bucket
+// exhaustion to relieve.)
 // Only trusted first-party traffic bypasses them: ClassSystem (synthetic
 // monitoring probes) and ClassInternal (internal dogfooding + the conformance
 // suite). The limiters exist to bound real-user and anonymous abuse, and those
