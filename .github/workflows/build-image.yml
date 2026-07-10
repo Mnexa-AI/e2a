@@ -58,6 +58,12 @@ jobs:
             # context. See web/Dockerfile.
             context: .
             dockerfile: web/Dockerfile
+          - image: e2a-prober
+            display_name: prober image
+            # The critical-path self-test runner (cmd/e2a-prober), co-versioned
+            # with the server so the hosted deploy pins it to the same tag.
+            context: .
+            dockerfile: Dockerfile.prober
     steps:
       - uses: actions/checkout@v7
 

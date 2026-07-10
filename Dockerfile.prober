@@ -1,0 +1,32 @@
+# e2a-prober image — the critical-path self-test runner (cmd/e2a-prober).
+#
+# Co-versioned with the server: the hosted deploy pins e2a-prober to the same
+# release tag as ghcr.io/mnexa-ai/e2a. Env-driven (E2A_PROBE_*), no config file.
+# See docs/design/prober-selftest.md. Modes: seed | validate | run-once | serve
+# (serve is the default — the continuous monitor + deploy bake-gate signal).
+#
+# Mirrors ./Dockerfile: native-arch builder + CGO-free cross-compile, alpine
+# runtime, non-root user.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+ARG TARGETOS TARGETARCH
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /e2a-prober ./cmd/e2a-prober
+
+FROM alpine:3.24
+RUN apk add --no-cache ca-certificates wget \
+    && adduser -D -u 1001 -h /home/e2a e2a
+COPY --from=builder /e2a-prober /usr/local/bin/e2a-prober
+USER e2a
+# serve hosts /sink /healthz /metrics /status on :8090 (bound to loopback by the
+# deployment; never published publicly).
+EXPOSE 8090
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+    CMD wget -qO- http://127.0.0.1:8090/healthz || exit 1
+# Default to the continuous monitor. seed/validate/run-once are invoked by
+# overriding the command (e.g. `docker run ... e2a-prober seed`).
+ENTRYPOINT ["e2a-prober"]
+CMD ["serve"]
