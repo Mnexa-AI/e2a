@@ -533,6 +533,8 @@ components:
             enum:
               - email.received
               - email.sent
+              - email.failed
+              - email.deferred
               - email.review_approved
               - email.review_rejected
               - domain.sending_verified
@@ -568,7 +570,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
           items:
             type: string
           type: array
@@ -1092,7 +1094,7 @@ components:
         delivery_detail:
           type: string
         delivery_status:
-          description: "Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed."
+          description: "Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)"
           type: string
         direction:
           enum:
@@ -1176,7 +1178,7 @@ components:
         delivery_detail:
           type: string
         delivery_status:
-          description: "Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: queued, sent, delivered, bounced, complained, deferred, failed."
+          description: "Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)"
           type: string
         direction:
           enum:
@@ -1802,12 +1804,13 @@ components:
           description: "Send transport. Open set; tolerate unknown values. Known values: smtp, loopback."
           type: string
         provider_message_id:
+          description: Upstream provider (SES) id. Optional/absent until the message is actually sent — an accepted-but-not-yet-sent message has no provider id.
           type: string
         sent_as:
           description: "From identity used. Open set; tolerate unknown values. Known values: own_address, relay."
           type: string
         status:
-          description: "Outcome. Open set; tolerate unknown values. Known values: sent, pending_review, review_approved."
+          description: "Outcome. Open set; tolerate unknown values. Known values: accepted, sent, pending_review, review_approved, failed. accepted = durably persisted and queued for submission (async pipeline); the terminal outcome arrives via webhook events (email.sent / email.failed) or GET /v1/messages/{id}. failed = terminal failure. Always branch on this field, not the HTTP status code."
           type: string
       required:
         - status
@@ -2017,6 +2020,8 @@ components:
           enum:
             - email.received
             - email.sent
+            - email.failed
+            - email.deferred
             - email.review_approved
             - email.review_rejected
             - domain.sending_verified
@@ -2100,6 +2105,8 @@ components:
             enum:
               - email.received
               - email.sent
+              - email.failed
+              - email.deferred
               - email.review_approved
               - email.review_rejected
               - domain.sending_verified
@@ -2278,7 +2285,7 @@ components:
           format: date-time
           type: string
         event_type:
-          description: "The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.delivered, …, domain.*)."
+          description: "The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."
           type: string
         id:
           type: string
@@ -2334,7 +2341,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
           items:
             type: string
           type: array
@@ -2946,6 +2953,13 @@ paths:
           name: Idempotency-Key
           schema:
             type: string
+        - description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
+          explode: false
+          in: query
+          name: wait
+          schema:
+            description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
+            type: string
       requestBody:
         content:
           application/json:
@@ -3171,6 +3185,13 @@ paths:
           name: Idempotency-Key
           schema:
             type: string
+        - description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
+          explode: false
+          in: query
+          name: wait
+          schema:
+            description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
+            type: string
       requestBody:
         content:
           application/json:
@@ -3264,6 +3285,13 @@ paths:
         - in: header
           name: Idempotency-Key
           schema:
+            type: string
+        - description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
+          explode: false
+          in: query
+          name: wait
+          schema:
+            description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
             type: string
       requestBody:
         content:
