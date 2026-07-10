@@ -6,6 +6,34 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
 
+// TestMessageViewReplyToDirectionGated: the wire `reply_to` field means the
+// PARSED INBOUND Reply-To header. The same identity column now doubles as
+// storage for an outbound override (so held sends survive the approval
+// recompose), which must NOT leak into the view. Inbound preserves it; outbound
+// is always [] regardless of the stored override.
+func TestMessageViewReplyToDirectionGated(t *testing.T) {
+	inbound := messageViewFromIdentity(&identity.Message{
+		ID: "msg_in", Direction: "inbound", ReplyTo: []string{"real-reply@x.com"},
+	})
+	if len(inbound.ReplyTo) != 1 || inbound.ReplyTo[0] != "real-reply@x.com" {
+		t.Errorf("inbound view ReplyTo = %v, want [real-reply@x.com]", inbound.ReplyTo)
+	}
+
+	outbound := messageViewFromIdentity(&identity.Message{
+		ID: "msg_out", Direction: "outbound", ReplyTo: []string{"override@acme.com"},
+	})
+	if len(outbound.ReplyTo) != 0 {
+		t.Errorf("outbound view ReplyTo = %v, want [] (override must not leak)", outbound.ReplyTo)
+	}
+
+	summary := messageSummaryFromIdentity(identity.Message{
+		ID: "msg_out", Direction: "outbound", ReplyTo: []string{"override@acme.com"},
+	})
+	if len(summary.ReplyTo) != 0 {
+		t.Errorf("outbound summary ReplyTo = %v, want []", summary.ReplyTo)
+	}
+}
+
 // Any message carrying raw MIME gets a parsed view (quoted reply stripped) —
 // inbound and sent outbound alike. Held drafts (no raw) don't.
 func TestMessageViewParsed(t *testing.T) {

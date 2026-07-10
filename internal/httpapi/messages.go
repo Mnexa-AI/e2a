@@ -24,7 +24,7 @@ type MessageView struct {
 	From           string   `json:"from"`
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc" nullable:"false"`
-	ReplyTo        []string `json:"reply_to" nullable:"false"`
+	ReplyTo        []string `json:"reply_to" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here)."`
 	Recipient      string   `json:"recipient"`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id"`
@@ -222,7 +222,7 @@ type MessageSummaryView struct {
 	From           string   `json:"from"`
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc,omitempty" nullable:"false"`
-	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false"`
+	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
 	Recipient      string   `json:"recipient"`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id,omitempty"`

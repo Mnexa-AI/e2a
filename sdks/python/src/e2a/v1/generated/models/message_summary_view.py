@@ -42,7 +42,7 @@ class MessageSummaryView(BaseModel):
     message_id: StrictStr
     read_status: StrictStr
     recipient: StrictStr
-    reply_to: Optional[List[StrictStr]] = None
+    reply_to: Optional[List[StrictStr]] = Field(default=None, description="The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here).")
     review_status: Optional[StrictStr] = Field(default=None, description="Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected.")
     sent_as: Optional[StrictStr] = Field(default=None, description="From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay.")
     size_bytes: Optional[StrictInt] = None

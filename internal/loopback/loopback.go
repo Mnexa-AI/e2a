@@ -120,6 +120,12 @@ func ComposeMIME(agent *identity.AgentIdentity, req outbound.SendRequest, provid
 		headerFrom = email
 	}
 
+	// A caller-supplied Reply-To override is honored on the loopback path too, so
+	// a self-send's stored raw_message matches what the SMTP path would compose.
+	// Default stays "" (no Reply-To header) to preserve existing note-to-self
+	// behavior; only an explicit req.ReplyTo sets one.
+	replyTo := req.ReplyTo
+
 	var msg []byte
 	var err error
 	if len(req.Attachments) > 0 {
@@ -133,7 +139,7 @@ func ComposeMIME(agent *identity.AgentIdentity, req outbound.SendRequest, provid
 			req.ReplyToMessageID,
 			req.References,
 			fromDomain,
-			"", // reply_to header
+			replyTo,
 			req.ConversationID,
 			req.Attachments,
 		)
@@ -157,7 +163,7 @@ func ComposeMIME(agent *identity.AgentIdentity, req outbound.SendRequest, provid
 			req.ReplyToMessageID,
 			req.References,
 			fromDomain,
-			"", // reply_to header
+			replyTo,
 			req.ConversationID,
 		)
 	}

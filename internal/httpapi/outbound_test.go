@@ -190,6 +190,52 @@ func TestReplySent(t *testing.T) {
 	}
 }
 
+// TestReplyReplyToPropagates / TestForwardReplyToPropagates: reply and forward
+// each build their own outbound.SendRequest literal, so a dropped ReplyTo mapping
+// there wouldn't be caught by the send-path test. Assert the override reaches the
+// delivery layer on both.
+func TestReplyReplyToPropagates(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good",
+		map[string]any{"body": "thanks", "reply_to": "Support <support@acme.com>"})
+	if code != 200 {
+		t.Fatalf("want 200, got %d", code)
+	}
+	if got := lastDeliveredReq().ReplyTo; got != "Support <support@acme.com>" {
+		t.Fatalf("reply delivered ReplyTo = %q, want override", got)
+	}
+}
+
+func TestReplyInvalidReplyTo(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good",
+		map[string]any{"body": "thanks", "reply_to": "not an address"})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
+	}
+}
+
+func TestForwardReplyToPropagates(t *testing.T) {
+	srv := testServer(t)
+	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good",
+		map[string]any{"to": []string{"newperson@x.com"}, "body": "fyi", "reply_to": "Support <support@acme.com>"})
+	if code != 200 {
+		t.Fatalf("want 200, got %d", code)
+	}
+	if got := lastDeliveredReq().ReplyTo; got != "Support <support@acme.com>" {
+		t.Fatalf("forward delivered ReplyTo = %q, want override", got)
+	}
+}
+
+func TestForwardInvalidReplyTo(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good",
+		map[string]any{"to": []string{"newperson@x.com"}, "body": "fyi", "reply_to": "a@x.com, b@x.com"})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request for multi reply_to, got %d %v", code, body)
+	}
+}
+
 // TestReplyAllRespectsRecipientCap: reply_all expands the thread's recipients
 // into the outbound set, so the cap must be enforced on the FINAL set — not just
 // the caller-supplied cc/bcc (which is empty here).

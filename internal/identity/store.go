@@ -2306,7 +2306,7 @@ func (s *Store) ExpireApproveAndSend(
 		        email_message_id,
 		        method, message_type,
 		        conversation_id, created_at, expires_at,
-		        to_recipients, cc, bcc,
+		        to_recipients, cc, bcc, reply_to,
 		        status, approval_expires_at, edited,
 		        body_text, body_html, attachments_json
 		 FROM messages
@@ -2321,7 +2321,7 @@ func (s *Store) ExpireApproveAndSend(
 		&m.EmailMessageID,
 		&method, &msgType,
 		&m.ConversationID, &m.CreatedAt, &m.ExpiresAt,
-		&m.ToRecipients, &m.CC, &m.BCC,
+		&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
 		&m.Status, &approvalExpires, &m.Edited,
 		&bodyText, &bodyHTML, &attachments,
 	)

@@ -183,6 +183,37 @@ func TestListPendingOutboundForUserScoping(t *testing.T) {
 	}
 }
 
+// TestApproveAndSendCarriesReplyTo pins that a caller Reply-To override survives
+// ApproveAndSend's own locked SELECT/scan (a third hand-maintained query, distinct
+// from GetOutboundMessageForUser and LoadOutboundDraft) and reaches the send
+// callback's message. A dropped reply_to column here silently strips the override
+// on every human-approved send.
+func TestApproveAndSendCarriesReplyTo(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, a := setupPendingAgent(t, store, "approve-rt")
+	const override = "Support <support@acme.com>"
+	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"Draft", "body", "", nil,
+		"send", "", "", override, 3600)
+
+	var got []string
+	_, err := store.ApproveAndSend(ctx, msg.ID, user.ID, identity.PendingApprovalEdit{},
+		func(m *identity.Message) (identity.SendResult, error) {
+			got = m.ReplyTo
+			return identity.SendResult{ProviderMessageID: "<x@ses>", Method: "smtp", To: m.ToRecipients}, nil
+		})
+	if err != nil {
+		t.Fatalf("ApproveAndSend: %v", err)
+	}
+	if len(got) != 1 || got[0] != override {
+		t.Errorf("send callback ReplyTo = %v, want [%q]", got, override)
+	}
+}
+
 func TestApproveAndSendHappyPath(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

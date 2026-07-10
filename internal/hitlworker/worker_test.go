@@ -161,6 +161,37 @@ func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
 	}
 }
 
+// TestWorkerAutoApproveCarriesReplyTo pins the Reply-To override through the
+// SYNC TTL auto-approve path end-to-end: pending row with a caller override →
+// TTL expiry → ExpireApproveAndSend recompose → composed SMTP bytes carry the
+// override, not the agent's own address. This is the exact seam where a missing
+// reply_to in ExpireApproveAndSend's locked SELECT silently dropped the override.
+func TestWorkerAutoApproveCarriesReplyTo(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+
+	agent := prepareAgent(t, store, "auto-approve-rt", identity.HITLExpirationApprove)
+	const override = "Support <support@acme.com>"
+	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"RT subject", "plain body", "", nil,
+		"send", "", "", override, 60)
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Data, "Reply-To: "+override) {
+		t.Errorf("SMTP body missing overridden Reply-To %q:\n%s", override, msgs[0].Data)
+	}
+	if strings.Contains(msgs[0].Data, "Reply-To: "+agent.EmailAddress()) {
+		t.Errorf("SMTP body fell back to agent-address Reply-To — override was dropped:\n%s", msgs[0].Data)
+	}
+}
+
 // TestWorkerAutoApproveSelfSendDeliversViaLoopback: a held self-send
 // whose TTL expires with the agent's hitl_expiration_action="approve"
 // must be auto-approved via the loopback path — outbound.Sender.Send

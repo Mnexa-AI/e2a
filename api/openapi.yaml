@@ -1121,6 +1121,7 @@ components:
         recipient:
           type: string
         reply_to:
+          description: The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here).
           items:
             type: string
           type: array
@@ -1210,6 +1211,7 @@ components:
         recipient:
           type: string
         reply_to:
+          description: The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).
           items:
             type: string
           type: array

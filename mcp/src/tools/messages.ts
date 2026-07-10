@@ -59,7 +59,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .string()
           .optional()
           .describe(
-            "Sets the Reply-To header — where the recipient's replies are directed. A single address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent's own address.",
+            "Sets the Reply-To header — where replies to this message are directed. A single address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent's own address.",
           ),
         idempotency_key: z
           .string()

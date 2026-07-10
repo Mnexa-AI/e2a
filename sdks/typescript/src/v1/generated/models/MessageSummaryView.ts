@@ -31,6 +31,9 @@ export class MessageSummaryView {
     'messageId': string;
     'readStatus': string;
     'recipient': string;
+    /**
+    * The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here).
+    */
     'replyTo'?: Array<string>;
     /**
     * Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected.
