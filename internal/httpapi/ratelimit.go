@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -66,15 +67,34 @@ func (s *Server) rateLimit(ctx huma.Context, next func(huma.Context)) {
 			next(ctx)
 			return
 		}
-		snap, key = s.deps.PollLimit, p.User.ID
 		// Reuse the principal so the handler does not authenticate a second
 		// time on the hot read path.
 		ctx = huma.WithContext(ctx, withPrincipal(ctx.Context(), p))
+		// Trusted internal traffic (system probes, internal dogfooding /
+		// conformance) bypasses the limiter — same policy axis as metering.
+		if !usage.RateLimited(usage.AccountClass(p.User.AccountClass)) {
+			next(ctx)
+			return
+		}
+		snap, key = s.deps.PollLimit, p.User.ID
 	case op.OperationID == "createAgent" && s.deps.RegLimit != nil:
 		r := RequestFromContext(ctx.Context())
 		if r == nil {
 			next(ctx)
 			return
+		}
+		// Exempt trusted internal classes from the per-IP registration limiter
+		// (and reuse the resolved principal downstream). An unauthenticated or
+		// unresolvable create falls through to the limiter; the handler then
+		// emits the canonical 401.
+		if s.deps.Authenticator != nil {
+			if p, err := s.resolvePrincipal(r); err == nil {
+				ctx = huma.WithContext(ctx, withPrincipal(ctx.Context(), p))
+				if !usage.RateLimited(usage.AccountClass(p.User.AccountClass)) {
+					next(ctx)
+					return
+				}
+			}
 		}
 		snap, key = s.deps.RegLimit, clientIP(r)
 	default:

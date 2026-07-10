@@ -142,6 +142,64 @@ func TestNonPollLimitedReadNotThrottled(t *testing.T) {
 	}
 }
 
+// TestPollRateLimitExemptInternalClass asserts trusted internal traffic bypasses
+// the poll limiter: an internal-class principal reaches the handler even though
+// PollLimit would block, and the limiter is never consulted (nor its headers set).
+func TestPollRateLimitExemptInternalClass(t *testing.T) {
+	reached := false
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			return &identity.User{ID: "u_int", AccountClass: "internal"}, nil
+		},
+		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
+			reached = true
+			return []identity.Webhook{}, nil
+		},
+		PollLimit: func(key string) (bool, time.Duration, int, int, int) {
+			t.Error("PollLimit must NOT be consulted for an exempt (internal) class")
+			return false, time.Second, 60, 0, 60
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	resp := getRaw(t, srv.URL+"/v1/webhooks", "good")
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("want 200 (exempt class bypasses poll limit), got %d", resp.StatusCode)
+	}
+	if !reached {
+		t.Error("handler should be reached for an exempt class")
+	}
+	if resp.Header.Get("RateLimit-Limit") != "" {
+		t.Errorf("exempt class should carry no RateLimit-Limit header, got %q", resp.Header.Get("RateLimit-Limit"))
+	}
+}
+
+// TestRegRateLimitExemptSystemClass asserts a system-class principal (the prober)
+// bypasses the per-IP registration limiter even when RegLimit would block.
+func TestRegRateLimitExemptSystemClass(t *testing.T) {
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) {
+			return &identity.User{ID: "u_sys", AccountClass: "system"}, nil
+		},
+		CreateAgent: func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
+			return &identity.AgentIdentity{ID: email, Email: email, UserID: userID}, nil
+		},
+		RegLimit: func(key string) (bool, time.Duration, int, int, int) {
+			t.Error("RegLimit must NOT be consulted for an exempt (system) class")
+			return false, 30 * time.Second, 200, 0, 3600
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	// The exemption is proven by RegLimit never being consulted and no 429;
+	// the exact non-429 status depends on handler internals we don't assert.
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{"slug": "probe"})
+	if code == 429 {
+		t.Fatalf("exempt class must not be reg-limited, got 429 %v", body)
+	}
+}
+
 func TestRegRateLimited(t *testing.T) {
 	srv := httptest.NewServer(New(Deps{
 		Authenticator: func(r *http.Request) (*identity.User, error) {

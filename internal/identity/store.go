@@ -202,6 +202,11 @@ type User struct {
 	Name          string    `json:"name"`
 	GoogleSubject string    `json:"-"`
 	CreatedAt     time.Time `json:"created_at"`
+	// AccountClass (usage.AccountClass) is loaded at auth for metering and
+	// rate-limit decisions. Hidden from API JSON. Empty for principals not
+	// resolved via API key (e.g. session auth), which fail-closes to standard
+	// (metered + limited) in the consuming policies.
+	AccountClass string `json:"-"`
 }
 
 type Message struct {
@@ -3958,9 +3963,9 @@ func (s *Store) GetPrincipalByAPIKey(ctx context.Context, apiKey string) (*Princ
 		     AND (expires_at IS NULL OR expires_at > now())
 		   RETURNING user_id, COALESCE(scope, 'account') AS scope, agent_id
 		 )
-		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at, t.scope, t.agent_id
+		 SELECT u.id, u.email, u.name, u.google_subject, u.created_at, u.account_class, t.scope, t.agent_id
 		 FROM touched t JOIN users u ON u.id = t.user_id`, keyHash,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt, &scope, &agentID)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.GoogleSubject, &u.CreatedAt, &u.AccountClass, &scope, &agentID)
 	if err != nil {
 		return nil, err
 	}

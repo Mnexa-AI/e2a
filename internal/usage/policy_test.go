@@ -30,3 +30,24 @@ func TestPolicyFor(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimited(t *testing.T) {
+	cases := []struct {
+		class usage.AccountClass
+		want  bool
+	}{
+		{usage.ClassStandard, true},
+		{usage.ClassDemo, true}, // user-facing → stays limited (narrower than PolicyFor)
+		{usage.ClassInternal, false},
+		{usage.ClassSystem, false},
+		// Unknown / empty fails closed to limited — a misclassified account must
+		// never be silently exempted from the limiters.
+		{usage.AccountClass(""), true},
+		{usage.AccountClass("bogus"), true},
+	}
+	for _, c := range cases {
+		if got := usage.RateLimited(c.class); got != c.want {
+			t.Errorf("RateLimited(%q) = %v, want %v", c.class, got, c.want)
+		}
+	}
+}
