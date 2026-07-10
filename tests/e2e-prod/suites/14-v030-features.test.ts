@@ -228,17 +228,20 @@ test("agent messages: ?labels= filter accepted without error", async () => {
   assert.equal(r.status, 200, `expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("agent messages: many ?labels= filter values are accepted (no cap)", async () => {
+test("agent messages: ?labels= filter enforces the 50-value cap (400)", async () => {
   const email = client.env.primaryAgentEmail;
-  // The ?labels= filter is repeatable and AND-matched with no documented
-  // maxItems cap (openapi listMessages labels param). A large set (verified
-  // up to 1000) is accepted rather than 400'd; this pins that the filter
-  // parser doesn't crash or spuriously reject on volume.
-  const url =
-    `/v1/agents/${encodeURIComponent(email)}/messages?` +
-    Array.from({ length: 51 }, (_, i) => `labels=l${i}`).join("&");
-  const r = await client.get(url);
-  assert.equal(r.status, 200, `expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
+  // The ?labels= filter is capped server-side at 50 values (maxLabelsPerOp);
+  // 51 → 400 invalid_filter. The param is explode:false, so the values MUST be
+  // sent comma-joined in a SINGLE param — 51 repeated `labels=` params collapse
+  // to one value and spuriously pass 200 (the bug this test previously had).
+  // NOTE: the cap is enforced by the server but is NOT documented in
+  // api/openapi.yaml (the listMessages `labels` param has no maxItems) — a
+  // server/spec drift worth closing (add maxItems: 50 to that param).
+  const many = Array.from({ length: 51 }, (_, i) => `l${i}`).join(",");
+  const r = await client.get(
+    `/v1/agents/${encodeURIComponent(email)}/messages?labels=${many}`,
+  );
+  assert.equal(r.status, 400, `expected 400 (labels filter cap=50), got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 // ─── Message search filters (PR #154) ─────────────────────────────
