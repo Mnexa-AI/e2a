@@ -256,10 +256,14 @@ function ConsentForm({
   const defaultSlug = useMemo(() => deriveDefaultSlug(client.client_name), [client.client_name]);
   const [slug, setSlug] = useState<string>(defaultSlug);
 
-  // Scope the user is granting. Default to the least-privilege "agent". The
-  // backend re-validates the loopback gate on "account", so this is UX.
-  const [scopeChoice, setScopeChoice] = useState<"agent" | "account">("agent");
+  // Scope the user is granting. Default to "account" (full workspace admin)
+  // whenever this client is account-eligible, else the least-privilege
+  // "agent". The backend re-validates account eligibility server-side, so
+  // this is UX only.
   const accountEligible = client.account_eligible;
+  const [scopeChoice, setScopeChoice] = useState<"agent" | "account">(
+    accountEligible ? "account" : "agent",
+  );
   const pickingAccount = scopeChoice === "account";
 
   const creating = agentChoice === "create_new";
@@ -363,12 +367,11 @@ function ConsentForm({
               <span className="block text-xs text-muted">
                 Everything Agent can do, plus: create/delete inboxes, manage
                 domains &amp; webhooks, mint API keys, resolve reviews, and
-                account settings. Grant only to tools you run yourself.
+                account settings. Grant only to clients you fully trust.
               </span>
               {!accountEligible && (
                 <span className="block text-xs mt-0.5" style={{ color: "var(--danger-strong)" }}>
-                  Unavailable: account scope is only offered to local tools whose
-                  redirect URL is loopback (http://localhost).
+                  Unavailable: this client isn&apos;t registered for account scope.
                   {inboundRedirect !== "" && (
                     <>
                       {" "}This client&apos;s redirect is{" "}

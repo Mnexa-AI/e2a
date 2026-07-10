@@ -70,13 +70,17 @@ function mockClientAndAgents(opts: {
   accountEligible?: boolean;
 }) {
   const clientStatus = opts.clientStatus ?? 200;
-  const accountEligible = opts.accountEligible ?? true;
+  // Default to an account-INELIGIBLE client so the agent/inbox-picker path is
+  // the default UX under test. Account-eligible clients now default the scope
+  // picker to "account" (which hides the inbox picker), so tests exercising the
+  // inbox picker opt out of eligibility; the scope-picker tests opt in.
+  // redirect_uris always match VALID_QS's loopback redirect to avoid the
+  // redirect-mismatch banner; the UI honors the account_eligible field directly.
+  const accountEligible = opts.accountEligible ?? false;
   const clientBody = opts.clientBody ?? {
     client_id: "mcp_abc123",
     client_name: "Test MCP Client",
-    redirect_uris: accountEligible
-      ? ["http://localhost:8765/cb"]
-      : ["https://app.example.com/cb"],
+    redirect_uris: ["http://localhost:8765/cb"],
     scopes: accountEligible ? ["agent", "account"] : ["agent"],
     client_id_issued_at: 1700000000,
     account_eligible: accountEligible,
@@ -318,7 +322,7 @@ describe("ConsentPage", () => {
     expect(resource.value).toBe("https://api.e2a.dev");
   });
 
-  test("scope picker offers Agent (default) + Account; Account selectable on a loopback (account_eligible) client", async () => {
+  test("scope picker defaults to Account on an account_eligible client; both radios present; switching to Agent reveals the inbox picker", async () => {
     __setSearchParams(VALID_QS);
     mockClientAndAgents({ agents: [], accountEligible: true });
     render(<ConsentPage />);
@@ -327,11 +331,18 @@ describe("ConsentPage", () => {
     });
     const agentRadio = screen.getByRole("radio", { name: /act as one inbox/i }) as HTMLInputElement;
     const accountRadio = screen.getByRole("radio", { name: /full workspace admin/i }) as HTMLInputElement;
-    expect(agentRadio.checked).toBe(true); // least-privilege default
-    expect(agentRadio.name).toBe("scope_choice");
+    // Account is the default when the client is eligible.
+    expect(accountRadio.checked).toBe(true);
+    expect(agentRadio.checked).toBe(false);
+    expect(agentRadio.disabled).toBe(false);
     expect(accountRadio.disabled).toBe(false);
-    expect(accountRadio.value).toBe("account");
     expect(accountRadio.name).toBe("scope_choice");
+    expect(agentRadio.name).toBe("scope_choice");
+    // Account isn't inbox-bound, so the inbox picker is hidden until the user
+    // switches to Agent.
+    expect(screen.queryByRole("radio", { name: /Create a new inbox/i })).not.toBeInTheDocument();
+    await userEvent.click(agentRadio);
+    expect(screen.getByRole("radio", { name: /Create a new inbox/i })).toBeInTheDocument();
   });
 
   test("Account scope is disabled (with a loopback reason) when account_eligible is false", async () => {
@@ -355,22 +366,27 @@ describe("ConsentPage", () => {
     });
     const accountRadio = screen.getByRole("radio", { name: /full workspace admin/i }) as HTMLInputElement;
     expect(accountRadio.disabled).toBe(true);
-    expect(screen.getByText(/only offered to local tools/i)).toBeInTheDocument();
+    expect(screen.getByText(/isn't registered for account scope/i)).toBeInTheDocument();
   });
 
-  test("selecting Account hides the inbox picker (scope_choice=account is what submits)", async () => {
+  test("scope toggle: Account (default) hides the inbox picker, Agent reveals it, and it round-trips", async () => {
     __setSearchParams(VALID_QS);
     mockClientAndAgents({ agents: [], accountEligible: true });
     render(<ConsentPage />);
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /Authorize Test MCP Client/i })).toBeInTheDocument();
     });
-    // Agent default → inbox picker present.
-    expect(screen.getByText(/Choose an inbox/i)).toBeInTheDocument();
+    const agentRadio = screen.getByRole("radio", { name: /act as one inbox/i }) as HTMLInputElement;
     const accountRadio = screen.getByRole("radio", { name: /full workspace admin/i }) as HTMLInputElement;
+    // Account is the default → inbox picker hidden (account isn't inbox-bound).
+    expect(accountRadio.checked).toBe(true);
+    expect(screen.queryByText(/Choose an inbox/i)).not.toBeInTheDocument();
+    // Agent → inbox picker appears.
+    await userEvent.click(agentRadio);
+    expect(screen.getByText(/Choose an inbox/i)).toBeInTheDocument();
+    // Back to Account → hidden again.
     await userEvent.click(accountRadio);
     expect(accountRadio.checked).toBe(true);
-    // Account → inbox picker gone (account isn't inbox-bound).
     expect(screen.queryByText(/Choose an inbox/i)).not.toBeInTheDocument();
   });
 });

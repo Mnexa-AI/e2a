@@ -210,6 +210,30 @@ func isLoopbackRedirect(raw string) bool {
 	return isLoopbackHost(u.Hostname())
 }
 
+// accountEligibleRedirect reports whether a redirect_uri may be granted
+// account (workspace-admin) scope.
+//
+// SECURITY DECISION (2026-07-10): account was historically loopback-ONLY —
+// a native tool whose callback lands on the user's own machine — so a
+// hosted/remote client could never be socially-engineered into a
+// workspace-admin grant. That gate is intentionally RELAXED here to also
+// permit any https redirect, so hosted connectors (Claude Chat/Cowork,
+// redirect https://claude.ai/api/mcp/auth_callback) can be granted account.
+//
+// The consequence, accepted deliberately: ANY https MCP connector a user
+// consents to can obtain full e2a workspace admin (create/delete inboxes,
+// manage domains & webhooks, mint API keys, resolve reviews). fosite
+// exact-matches redirect_uris so an auth code still can't be diverted to an
+// attacker, but the admin token is then held by whatever hosted client the
+// user approved. Consent remains mandatory and grants nothing on its own.
+func accountEligibleRedirect(raw string) bool {
+	if isLoopbackRedirect(raw) {
+		return true
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https"
+}
+
 func validateRedirectURI(raw string) error {
 	if raw == "" {
 		return errors.New("redirect_uri cannot be empty")
@@ -349,9 +373,6 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	if req.TokenEndpointAuthMethod == "" {
 		req.TokenEndpointAuthMethod = "none"
 	}
-	if req.Scope == "" {
-		req.Scope = "agent"
-	}
 
 	// Capability enforcement — reject anything outside what we
 	// support. Failing here gives a clear error at registration time
@@ -379,31 +400,39 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	// client's REGISTERED scopes are the maximum a user can later approve on
 	// the consent screen — not what the client gets autonomously (consent is
 	// mandatory and grants nothing on its own). "account" (workspace admin) is
-	// offered only to clients whose redirect_uris are ALL loopback: a native
-	// app whose callback lands on the user's own machine. A hosted/remote
-	// client (https redirect) can't receive a localhost callback, so it stays
-	// agent-only and can never be socially-engineered into an account grant.
-	// fosite's ExactScopeStrategy enforces granted ⊆ registered, so account
-	// must be on the client row for the consent screen to grant it.
-	accountEligible := true
+	// eligible only when the client's redirect_uris are ALL account-eligible
+	// (loopback or https — see accountEligibleRedirect). fosite's
+	// ExactScopeStrategy enforces granted ⊆ registered, so account must be on
+	// the client row for the consent screen to grant it.
+	redirectAllowsAccount := true
 	for _, ru := range req.RedirectURIs {
-		if !isLoopbackRedirect(ru) {
-			accountEligible = false
+		if !accountEligibleRedirect(ru) {
+			redirectAllowsAccount = false
 			break
 		}
 	}
-	for _, sc := range strings.Fields(req.Scope) {
-		if sc == identity.ScopeAgent || (sc == identity.ScopeAccount && accountEligible) {
-			continue
+	// Narrow, don't reject (RFC 7591 §3.2.1). A spec-compliant MCP client
+	// requests every scope we advertise in `scopes_supported` (agent AND
+	// account) whenever the 401 challenge carries no `scope` param — so
+	// rejecting a superset would 400 every such client (this was the
+	// "couldn't register with e2a's sign-in service" failure). Instead the
+	// registered ceiling is the requested scopes ∩ what the redirect allows,
+	// with unknown/ineligible scopes dropped and agent as the floor. A client
+	// that OMITS scope gets the full eligible ceiling (Claude's case); a
+	// client that explicitly requests only agent is honored at agent — we
+	// never widen a caller's own least-privilege request. The result is
+	// echoed back via the response's `scope`.
+	wantAccount := redirectAllowsAccount
+	if requested := strings.Fields(req.Scope); len(requested) > 0 {
+		wantAccount = false
+		for _, sc := range requested {
+			if sc == identity.ScopeAccount && redirectAllowsAccount {
+				wantAccount = true
+			}
 		}
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
-			`unsupported scope `+strconv.Quote(sc)+`; public clients may request "agent" (and "account" only when all redirect_uris are loopback)`)
-		return
 	}
-	// Persist the full eligible ceiling, not just what was requested, so the
-	// consent screen can offer account on loopback clients without a re-register.
 	scopeCeiling := []string{identity.ScopeAgent}
-	if accountEligible {
+	if wantAccount {
 		scopeCeiling = append(scopeCeiling, identity.ScopeAccount)
 	}
 
@@ -438,7 +467,11 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		GrantTypes:              req.GrantTypes,
 		ResponseTypes:           req.ResponseTypes,
 		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
-		Scope:                   req.Scope,
+		// Echo the granted ceiling, not the raw request: per RFC 7591 the
+		// response reflects the registered metadata, so a client that asked
+		// for a superset (or an ineligible/unknown scope) learns what it
+		// actually got.
+		Scope: strings.Join(scopeCeiling, " "),
 	})
 }
 
@@ -520,10 +553,16 @@ func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=60")
-	accountEligible := len(redirects) > 0
-	for _, ru := range redirects {
-		if !isLoopbackRedirect(ru) {
-			accountEligible = false
+	// account_eligible drives whether the consent screen offers (and defaults
+	// to) account. It reflects the client's REGISTERED ceiling, not the raw
+	// redirect: DCR only writes account into the ceiling when the redirect
+	// allows it AND the client requested it, so reading the scopes column
+	// keeps the UI consistent with what fosite will actually grant (no
+	// account radio the user can pick only to hit invalid_scope at /authorize).
+	accountEligible := false
+	for _, s := range scopes {
+		if s == identity.ScopeAccount {
+			accountEligible = true
 			break
 		}
 	}
@@ -863,22 +902,20 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Scope the user consented to. The consent screen is e2a's scope
-	// authority: "agent" (default) binds the grant to one inbox; "account"
-	// is full workspace admin. account is gated to LOOPBACK redirect_uris —
-	// a local tool whose callback lands on the user's own machine — so a
-	// hosted/remote client (which can't receive a localhost callback) can't
-	// be socially-engineered into an account grant. The gate is enforced
-	// here, server-side and fail-closed, independent of the page's UI.
+	// authority: "agent" binds the grant to one inbox; "account" is full
+	// workspace admin. account is granted to loopback OR https redirect_uris
+	// (see accountEligibleRedirect for the deliberate policy). The gate is
+	// enforced here, server-side and fail-closed, independent of the page's UI.
 	scopeChoice := r.PostFormValue("scope_choice")
 	if scopeChoice == "" {
 		scopeChoice = identity.ScopeAgent
 	}
 	switch scopeChoice {
 	case identity.ScopeAccount:
-		if !isLoopbackRedirect(ar.GetRedirectURI().String()) {
+		if !accountEligibleRedirect(ar.GetRedirectURI().String()) {
 			a.oauthProvider.WriteAuthorizeError(ctx, w, ar,
 				fosite.ErrInvalidScope.WithHint(
-					"account scope may only be granted to a client with a loopback (http://localhost) redirect_uri"))
+					"account scope may only be granted to a client with a loopback or https redirect_uri"))
 			return
 		}
 		// account is not inbox-bound: empty AgentEmail, account scope. The

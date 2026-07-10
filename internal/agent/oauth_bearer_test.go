@@ -365,8 +365,8 @@ func getWithBearer(t *testing.T, serverURL, path, bearer string) (int, string) {
 }
 
 // TestBearer_OAuth_AgentScope_RejectedOnAccountOp is THE CRITICAL-1 regression.
-// An OAuth/MCP access token — which public DCR caps to scope=agent, and which
-// the consent fixture now grants as agent — must NOT be able to perform an
+// An OAuth/MCP access token that the consent flow granted as scope=agent
+// must NOT be able to perform an
 // account-admin operation. Before the fix, every ate2a_ token was hardcoded to
 // ScopeAccount, so this returned 200 (full account admin); the granted agent
 // scope was silently elevated. Now the scope is honored and the account-only
@@ -401,10 +401,11 @@ func TestBearer_OAuth_AgentScope_AllowedOnOwnTier(t *testing.T) {
 }
 
 // seedOAuthClient inserts a public PKCE OAuth client registered with the given
-// scopes. Seeding directly bypasses the DCR /register cap (which forces
-// scope=agent on public clients) — this is how we simulate the console/
-// confidential issuance path that the design reserves for account scope, and
-// how we construct a token carrying a retired/unrecognized scope.
+// scopes. Seeding directly lets us pin an arbitrary registered ceiling
+// (e.g. account-only, or a retired/unrecognized scope) without driving the
+// consent UI — this is how we simulate the console/confidential issuance
+// path that the design reserves for account scope, and how we construct a
+// token carrying a retired/unrecognized scope.
 func seedOAuthClient(t *testing.T, f *consentFixture, clientID string, scopes []string) {
 	t.Helper()
 	if _, err := f.pool.Exec(context.Background(), `

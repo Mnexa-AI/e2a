@@ -658,12 +658,13 @@ func (a *API) authenticatePrincipal(r *http.Request) (*identity.Principal, error
 //
 // The granted OAuth scope is authoritative — it is read, never assumed.
 // (CRITICAL-1 fix: this path previously hardcoded every OAuth token to
-// ScopeAccount, which defeated the public-DCR `scope=agent` cap
+// ScopeAccount, which defeated the public-DCR scope ceiling
 // (oauth_handlers.go) and silently handed agent-tier MCP tokens full
 // account-wide admin.) Resolution:
 //   - granted `account` → account-wide admin. Reachable only when the user
-//     explicitly picks account on the consent screen for an all-loopback
-//     client (the scope-picker); never autonomously by a client.
+//     explicitly picks account on the consent screen for an account-eligible
+//     client (loopback or https — see accountEligibleRedirect); never
+//     autonomously by a client.
 //   - granted `agent`   → confined to the consent-bound agent
 //     (session.AgentEmail), with ownership re-checked, mirroring the REST
 //     resolveOwnedAgent pin and the JWT resolveAgentAccessToken path.

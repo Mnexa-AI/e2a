@@ -97,10 +97,12 @@ func TestHTTP_Consent_Account_Loopback(t *testing.T) {
 	}
 }
 
-// TestHTTP_Consent_Account_NonLoopback_Rejected — the loopback gate fails closed
-// for a client whose redirect is https (a hosted/remote client that couldn't
-// receive a localhost callback). No code is issued.
-func TestHTTP_Consent_Account_NonLoopback_Rejected(t *testing.T) {
+// TestHTTP_Consent_Account_CeilingLacksAccount_Rejected — defense-in-depth. An
+// https redirect is now account-ELIGIBLE at the handler gate (see
+// accountEligibleRedirect), but a client whose REGISTERED ceiling is agent-only
+// is still rejected by fosite's ExactScopeStrategy (granted ⊆ registered). No
+// code is issued.
+func TestHTTP_Consent_Account_CeilingLacksAccount_Rejected(t *testing.T) {
 	f := newConsentFixture(t)
 	ctx := context.Background()
 	// Seed a public client registered with an https (non-loopback) redirect.
@@ -135,13 +137,68 @@ func TestHTTP_Consent_Account_NonLoopback_Rejected(t *testing.T) {
 	}
 }
 
+// TestHTTP_Consent_Account_Https_Allowed proves the 2026-07-10 policy: a hosted
+// (https) client whose ceiling includes account can now be granted account
+// scope through consent. The loopback-only gate was intentionally relaxed so
+// Claude Chat/Cowork (redirect https://claude.ai/api/mcp/auth_callback) can hold
+// workspace-admin. The issued token resolves to an account principal.
+func TestHTTP_Consent_Account_Https_Allowed(t *testing.T) {
+	f := newConsentFixture(t)
+	ctx := context.Background()
+	clientID := "mcp_hosted_allowed"
+	redirectURI := "https://claude.ai/api/mcp/auth_callback"
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO oauth_clients
+		    (client_id, client_name, redirect_uris, grant_types, response_types,
+		     scopes, audiences, token_endpoint_auth_method, public, created_via)
+		VALUES ($1, 'hosted allowed client', ARRAY[$2],
+		        ARRAY['authorization_code','refresh_token'], ARRAY['code'],
+		        ARRAY['agent','account'], ARRAY[]::TEXT[], 'none', TRUE, 'dcr')
+		ON CONFLICT (client_id) DO NOTHING`, clientID, redirectURI); err != nil {
+		t.Fatalf("seed hosted client: %v", err)
+	}
+	// exchangeCode() presents f.clientID at the token endpoint; the code is
+	// bound to the seeded hosted client, so point the fixture at it.
+	f.clientID = clientID
+
+	verifier, challenge := newPKCE(t)
+	form := authorizeParams(challenge, clientID, "s1s1s1s1s1s1s1s1")
+	form.Set("redirect_uri", redirectURI)
+	form.Set("action", "allow")
+	form.Set("scope_choice", "account")
+
+	resp := f.consentPOST(t, form)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		loc, _ := url.Parse(resp.Header.Get("Location"))
+		t.Fatalf("status = %d, want 303 (account on https is now allowed); error=%q",
+			resp.StatusCode, loc.Query().Get("error"))
+	}
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	code := loc.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected code, got error=%q", loc.Query().Get("error"))
+	}
+	access, _, scope := f.exchangeCode(t, code, verifier, redirectURI)
+	if !strings.Contains(scope, "account") {
+		t.Errorf("token scope = %q, want it to contain account", scope)
+	}
+	gotScope, agentAddr := f.whoami(t, access)
+	if gotScope != "account" {
+		t.Errorf("whoami scope = %q, want account", gotScope)
+	}
+	if agentAddr != "" {
+		t.Errorf("account principal must have no bound agent; got agent_address=%q", agentAddr)
+	}
+}
+
 // TestHTTP_Consent_Account_MixedRedirect_RejectedByScopeCeiling proves the
-// second defense layer: a client with BOTH a loopback and an https redirect is
-// NOT account-eligible (DCR writes only [agent]), so even when the inbound
-// redirect is the loopback one — passing the consent handler's own loopback
-// gate — fosite's ExactScopeStrategy rejects the account grant because account
-// is not on the client row. This is the enforcement path the DCR-ceiling
-// deviation rests on; the handler gate alone is insufficient here.
+// fosite scope-ceiling defense independent of the handler gate: this client is
+// seeded with an agent-only ceiling and its inbound (loopback) redirect passes
+// the handler gate, yet fosite's ExactScopeStrategy still rejects the account
+// grant because account is not on the client row. (Under the 2026-07-10 policy a
+// loopback+https client IS account-eligible at DCR, so the agent-only ceiling
+// here is a deliberately seeded fixture, not what fresh DCR would write.)
 func TestHTTP_Consent_Account_MixedRedirect_RejectedByScopeCeiling(t *testing.T) {
 	f := newConsentFixture(t)
 	ctx := context.Background()

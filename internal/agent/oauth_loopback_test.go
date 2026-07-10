@@ -39,3 +39,41 @@ func TestIsLoopbackRedirect(t *testing.T) {
 		}
 	}
 }
+
+// TestAccountEligibleRedirect pins the deliberately-relaxed account gate
+// (2026-07-10): account (workspace admin) is granted to loopback OR https
+// redirects — the latter so hosted connectors (Claude Chat/Cowork) qualify —
+// but NOT to custom-scheme or non-loopback http redirects.
+func TestAccountEligibleRedirect(t *testing.T) {
+	cases := []struct {
+		uri  string
+		want bool
+	}{
+		// loopback http → eligible (unchanged)
+		{"http://localhost:3118/callback", true},
+		{"http://127.0.0.1:8765/cb", true},
+		{"http://[::1]/callback", true},
+
+		// https → now eligible (the relaxation)
+		{"https://claude.ai/api/mcp/auth_callback", true},
+		{"https://app.example.com/callback", true},
+		{"https://localhost/callback", true}, // scheme is what matters, not host
+
+		// reverse-domain custom scheme → NOT eligible (valid redirect, but
+		// the callback doesn't land on the user's machine and isn't https)
+		{"com.example.app:/oauth-callback", false},
+
+		// non-loopback http → not eligible (also rejected at registration)
+		{"http://example.com/callback", false},
+
+		// junk → not eligible (fail closed)
+		{"", false},
+		{"::::not a uri", false},
+		{"javascript:alert(1)", false},
+	}
+	for _, c := range cases {
+		if got := accountEligibleRedirect(c.uri); got != c.want {
+			t.Errorf("accountEligibleRedirect(%q) = %v, want %v", c.uri, got, c.want)
+		}
+	}
+}

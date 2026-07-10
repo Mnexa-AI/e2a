@@ -108,8 +108,10 @@ func TestHTTP_Register_Happy(t *testing.T) {
 	if got.TokenEndpointAuthMethod != "none" {
 		t.Errorf("token_endpoint_auth_method = %q, want none", got.TokenEndpointAuthMethod)
 	}
-	if got.Scope != "agent" {
-		t.Errorf("scope = %q, want agent", got.Scope)
+	// An https redirect is account-eligible (see accountEligibleRedirect), so
+	// DCR registers the full ceiling and echoes it back in `scope`.
+	if got.Scope != "agent account" {
+		t.Errorf("scope = %q, want %q", got.Scope, "agent account")
 	}
 }
 
@@ -271,8 +273,13 @@ func TestHTTP_Register_RejectsUnsupportedGrant(t *testing.T) {
 	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
 }
 
-// TestHTTP_Register_RejectsUnsupportedScope.
-func TestHTTP_Register_RejectsUnsupportedScope(t *testing.T) {
+// TestHTTP_Register_DropsUnknownScope: DCR narrows rather than rejects
+// (RFC 7591 §3.2.1). A spec-compliant MCP client requests the whole
+// scopes_supported menu (plus offline_access) whenever the 401 challenge
+// carries no scope param, so a hard 400 on any unrecognized scope would
+// fail every such client ("couldn't register with e2a's sign-in service").
+// Instead the bogus scope is dropped and the eligible ceiling is registered.
+func TestHTTP_Register_DropsUnknownScope(t *testing.T) {
 	srv := newDCRServer(t)
 	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
 		ClientName:   "x",
@@ -280,7 +287,64 @@ func TestHTTP_Register_RejectsUnsupportedScope(t *testing.T) {
 		Scope:        "admin",
 	})
 	defer resp.Body.Close()
-	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 201 (unknown scope dropped, not rejected); body=%s", resp.StatusCode, string(body))
+	}
+	var got agent.OAuthRegisterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got.Scope, "admin") {
+		t.Errorf("unknown scope must not be reflected back: got %q", got.Scope)
+	}
+	// The client made an explicit request ("admin") that names no eligible
+	// scope, so it's honored at the agent floor — we don't widen it to account
+	// just because the redirect would allow it.
+	if got.Scope != "agent" {
+		t.Errorf("scope = %q, want %q", got.Scope, "agent")
+	}
+}
+
+// TestHTTP_Register_HonorsExplicitAgentOnly: an account-eligible (https)
+// client that EXPLICITLY requests only agent is registered agent-only — we
+// never widen a caller's own least-privilege request to account just because
+// the redirect would allow it. account_eligible is then reported false so the
+// consent screen won't offer/default account for it.
+func TestHTTP_Register_HonorsExplicitAgentOnly(t *testing.T) {
+	srv := newDCRServer(t)
+	resp := postRegister(t, srv, agent.OAuthRegisterRequest{
+		ClientName:   "least privilege",
+		RedirectURIs: []string{"https://app.example.com/cb"},
+		Scope:        "agent",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 201; body=%s", resp.StatusCode, string(body))
+	}
+	var got agent.OAuthRegisterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Scope != "agent" {
+		t.Errorf("scope = %q, want agent (explicit request honored, not widened)", got.Scope)
+	}
+
+	// And the public metadata must report the client account-INELIGIBLE, so
+	// the consent screen won't default a user into account.
+	mResp, err := http.Get(srv.URL + "/oauth2/clients/" + got.ClientID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mResp.Body.Close()
+	var meta agent.OAuthClientPublicMetadata
+	if err := json.NewDecoder(mResp.Body).Decode(&meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.AccountEligible {
+		t.Error("account_eligible should be false for an agent-only client")
+	}
 }
 
 // TestHTTP_Register_TooManyRedirectURIs.
@@ -435,8 +499,11 @@ func TestHTTP_GetClient_PublicMetadata(t *testing.T) {
 		if !equalStringSlice(got.RedirectURIs, []string{"https://app.example.com/oauth/cb"}) {
 			t.Errorf("redirect_uris = %v", got.RedirectURIs)
 		}
-		if !equalStringSlice(got.Scopes, []string{"agent"}) {
-			t.Errorf("scopes = %v, want [agent]", got.Scopes)
+		if !equalStringSlice(got.Scopes, []string{"agent", "account"}) {
+			t.Errorf("scopes = %v, want [agent account]", got.Scopes)
+		}
+		if !got.AccountEligible {
+			t.Error("account_eligible should be true for an https redirect")
 		}
 		if got.ClientIDIssuedAt == 0 {
 			t.Error("client_id_issued_at must be non-zero")
