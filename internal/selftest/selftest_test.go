@@ -22,7 +22,12 @@ import (
 // River delivery workers.
 func TestSelftestAll_AgainstRealServer(t *testing.T) {
 	pool := testutil.TestDB(t)
-	ts := testutil.TestServer(t, pool, testutil.WithOutboundSMTP("127.0.0.1", 1025, "test.e2a.dev"))
+	// In-process fake SMTP so the outbound_send scenario has a reachable relay
+	// without depending on an external Mailpit — the unit/coverage jobs run this
+	// test (no `integration` tag) but don't start Mailpit. The fake accepts the
+	// message and returns a Message-ID, so the real outbound path + email.sent fire.
+	fakeSMTP, _ := testutil.FakeSMTPServer(t)
+	ts := testutil.TestServer(t, pool, testutil.WithOutboundSMTP(fakeSMTP.Host, fakeSMTP.Port, "test.e2a.dev"))
 	ctx := context.Background()
 
 	// --- seed a system-class probe account + agent ---

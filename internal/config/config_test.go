@@ -84,6 +84,7 @@ signing:
 	// KEY" armor so secret scanners don't false-positive on a test fixture.
 	t.Setenv("E2A_OAUTH_SIGNING_KEY", "signing-key-sentinel-not-a-real-pem")
 	t.Setenv("E2A_OAUTH_SIGNING_KID", "k7")
+	t.Setenv("E2A_WEBHOOK_INTERNAL_SINK_URL", "http://prober:8090/sink")
 
 	cfg, err := Load(cfgPath)
 	if err != nil {
@@ -105,6 +106,9 @@ signing:
 	}
 	if cfg.OutboundSMTP.Password != "smtp-pass" {
 		t.Errorf("expected env override for OutboundSMTP.Password, got %q", cfg.OutboundSMTP.Password)
+	}
+	if cfg.Webhook.InternalSinkURL != "http://prober:8090/sink" {
+		t.Errorf("expected env override for Webhook.InternalSinkURL, got %q", cfg.Webhook.InternalSinkURL)
 	}
 }
 
