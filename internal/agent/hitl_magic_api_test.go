@@ -79,7 +79,7 @@ func issuePending(t *testing.T, store *identity.Store, agentID string) *identity
 	msg, err := store.CreatePendingOutboundMessage(context.Background(), agentID,
 		[]string{"alice@example.com"}, nil, nil,
 		"Held", "plain body", "<p>html</p>", nil,
-		"send", "", "", 3600)
+		"send", "", "", "", 3600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestMagicApprovePOSTSelfSendDeliversViaLoopback(t *testing.T) {
 	held, err := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{a.EmailAddress()}, nil, nil,
 		"self-magic", "note to self via magic link", "", nil,
-		"send", "", "", 3600)
+		"send", "", "", "", 3600)
 	if err != nil {
 		t.Fatal(err)
 	}

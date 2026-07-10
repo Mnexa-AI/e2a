@@ -229,6 +229,75 @@ func TestCreateOutboundMessageStatusSent(t *testing.T) {
 
 // --- CreatePendingOutboundMessage ---
 
+// TestPendingOutboundReplyToRoundTrip pins the held-send Reply-To plumbing: a
+// caller override persists on the reply_to column and is returned by BOTH
+// approve-path loads (GetOutboundMessageForUser drives the dashboard/magic
+// async approve; LoadOutboundDraft drives the TTL auto-approve). Without this
+// round-trip the override would silently vanish on every reviewed send, since
+// approval recomposes the MIME from these columns rather than a stored raw body.
+func TestPendingOutboundReplyToRoundTrip(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "rt-owner@example.com", "Owner", "google-rt")
+	store.ClaimOrCreateDomain(ctx, "rt.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "bot@rt.example.com", "rt.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	const override = "Support <support@acme.com>"
+	msg, err := store.CreatePendingOutboundMessage(
+		ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"Draft", "body", "",
+		nil,
+		"send", "", "", override, 3600)
+	if err != nil {
+		t.Fatalf("CreatePendingOutboundMessage: %v", err)
+	}
+	if len(msg.ReplyTo) != 1 || msg.ReplyTo[0] != override {
+		t.Fatalf("in-memory ReplyTo = %v, want [%q]", msg.ReplyTo, override)
+	}
+
+	// GetOutboundMessageForUser (async approve draft).
+	got, err := store.GetOutboundMessageForUser(ctx, msg.ID, user.ID)
+	if err != nil {
+		t.Fatalf("GetOutboundMessageForUser: %v", err)
+	}
+	if len(got.ReplyTo) != 1 || got.ReplyTo[0] != override {
+		t.Errorf("GetOutboundMessageForUser ReplyTo = %v, want [%q]", got.ReplyTo, override)
+	}
+
+	// LoadOutboundDraft (TTL auto-approve recompose).
+	draft, err := store.LoadOutboundDraft(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("LoadOutboundDraft: %v", err)
+	}
+	if len(draft.ReplyTo) != 1 || draft.ReplyTo[0] != override {
+		t.Errorf("LoadOutboundDraft ReplyTo = %v, want [%q]", draft.ReplyTo, override)
+	}
+
+	// No override ⇒ empty (NULL column), never a phantom Reply-To.
+	plain, err := store.CreatePendingOutboundMessage(
+		ctx, a.ID,
+		[]string{"alice@example.com"}, nil, nil,
+		"Draft", "body", "",
+		nil,
+		"send", "", "", "", 3600)
+	if err != nil {
+		t.Fatalf("CreatePendingOutboundMessage (plain): %v", err)
+	}
+	if plain.ReplyTo != nil {
+		t.Errorf("plain in-memory ReplyTo = %v, want nil", plain.ReplyTo)
+	}
+	plainDraft, err := store.LoadOutboundDraft(ctx, plain.ID)
+	if err != nil {
+		t.Fatalf("LoadOutboundDraft (plain): %v", err)
+	}
+	if len(plainDraft.ReplyTo) != 0 {
+		t.Errorf("plain LoadOutboundDraft ReplyTo = %v, want empty", plainDraft.ReplyTo)
+	}
+}
+
 func TestCreatePendingOutboundMessage(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -252,8 +321,7 @@ func TestCreatePendingOutboundMessage(t *testing.T) {
 		"Draft subject", "Plain body", "<p>HTML body</p>",
 		attachmentsJSON,
 		"reply", "conv_123", "<inbound-msgid@gmail.com>",
-		3600,
-	)
+		"", 3600)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}
@@ -384,8 +452,7 @@ func TestCreatePendingOutboundMessageEmptyBodyAsNull(t *testing.T) {
 		"No body", "", "",
 		nil,
 		"send", "", "",
-		600,
-	)
+		"", 600)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}
@@ -423,8 +490,7 @@ func TestCreatePendingOutboundMessageInvalidTTL(t *testing.T) {
 			ctx, a.ID,
 			[]string{"alice@example.com"}, nil, nil,
 			"x", "body", "", nil,
-			"send", "", "", ttl,
-		)
+			"send", "", "", "", ttl)
 		if err == nil {
 			t.Errorf("ttl=%d: expected error, got nil", ttl)
 		}

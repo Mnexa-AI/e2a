@@ -35,7 +35,7 @@ func TestApproveAndAccept(t *testing.T) {
 	}
 	msg, err := store.CreatePendingOutboundMessage(ctx, ag.ID,
 		[]string{"a@gmail.com"}, nil, nil, "Subj", "body", "", nil,
-		"send", "conv-aa", "", 3600)
+		"send", "conv-aa", "", "", 3600)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}

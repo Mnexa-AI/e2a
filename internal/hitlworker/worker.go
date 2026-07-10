@@ -356,6 +356,13 @@ func sendRequestFromStoredMessage(m *identity.Message) (outbound.SendRequest, er
 			return outbound.SendRequest{}, err
 		}
 	}
+	// Carry a caller-supplied Reply-To override (persisted single-element on the
+	// held row's reply_to column) through the TTL auto-approve recompose, so an
+	// expired-but-approved send keeps the same Reply-To a human approval would.
+	var replyTo string
+	if len(m.ReplyTo) > 0 {
+		replyTo = m.ReplyTo[0]
+	}
 	return outbound.SendRequest{
 		To:               m.ToRecipients,
 		CC:               m.CC,
@@ -363,6 +370,7 @@ func sendRequestFromStoredMessage(m *identity.Message) (outbound.SendRequest, er
 		Subject:          m.Subject,
 		Body:             m.BodyText,
 		HTMLBody:         m.BodyHTML,
+		ReplyTo:          replyTo,
 		ReplyToMessageID: m.EmailMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,

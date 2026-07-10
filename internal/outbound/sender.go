@@ -46,13 +46,18 @@ type Attachment struct {
 // participant's mailbox. When empty but ReplyToMessageID is set, the
 // References header falls back to a single id (legacy behavior).
 type SendRequest struct {
-	From             string       `json:"from,omitempty"`
-	To               []string     `json:"to"`
-	CC               []string     `json:"cc,omitempty"`
-	BCC              []string     `json:"bcc,omitempty"`
-	Subject          string       `json:"subject"`
-	Body             string       `json:"body"`
-	HTMLBody         string       `json:"html_body,omitempty"`
+	From     string   `json:"from,omitempty"`
+	To       []string `json:"to"`
+	CC       []string `json:"cc,omitempty"`
+	BCC      []string `json:"bcc,omitempty"`
+	Subject  string   `json:"subject"`
+	Body     string   `json:"body"`
+	HTMLBody string   `json:"html_body,omitempty"`
+	// ReplyTo, when set, overrides the Reply-To header (which otherwise
+	// defaults to the agent's own address). Replies land here instead of at the
+	// From address. Must be a single RFC 5322 address, optionally with a display
+	// name; validated at the API edge.
+	ReplyTo          string       `json:"reply_to,omitempty"`
 	ReplyToMessageID string       `json:"reply_to_message_id"`
 	References       []string     `json:"references,omitempty"`
 	ConversationID   string       `json:"conversation_id,omitempty"`
@@ -356,7 +361,15 @@ func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*compo
 	} else {
 		headerFrom = fmt.Sprintf("%q <%s>", displayName+" via e2a", envelopeFrom)
 	}
+	// Reply-To defaults to the agent's own address so replies reach it directly;
+	// a caller-supplied req.ReplyTo overrides that (e.g. routing replies to a
+	// shared inbox or a different agent). Header-injection is neutralized by
+	// sanitizeHeaderValue in the compose layer; address validity is enforced at
+	// the API edge.
 	replyTo := agent.EmailAddress()
+	if req.ReplyTo != "" {
+		replyTo = req.ReplyTo
+	}
 
 	var message []byte
 	if len(req.Attachments) > 0 {

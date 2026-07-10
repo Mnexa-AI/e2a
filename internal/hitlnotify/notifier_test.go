@@ -71,8 +71,7 @@ func setupPendingMessage(t *testing.T, store *identity.Store, slug string) (*ide
 	msg, err := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"alice@example.com"}, []string{"carol@example.com"}, nil,
 		"Important draft", "This is the body that will be reviewed.", "<p>html body</p>",
-		nil, "send", "conv_1", "", 3600,
-	)
+		nil, "send", "conv_1", "", "", 3600)
 	if err != nil {
 		t.Fatal(err)
 	}

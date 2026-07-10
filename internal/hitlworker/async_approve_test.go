@@ -33,7 +33,7 @@ func TestWorkerAutoApproveAsync(t *testing.T) {
 
 	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"alice@external.test"}, nil, nil,
-		"Held", "body", "<p>html</p>", nil, "send", "", "", 60)
+		"Held", "body", "<p>html</p>", nil, "send", "", "", "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestWorkerAutoApproveAsync_SelfSendStaysLoopback(t *testing.T) {
 
 	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{agent.EmailAddress()}, nil, nil,
-		"To myself", "body", "", nil, "send", "", "", 60)
+		"To myself", "body", "", nil, "send", "", "", "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}

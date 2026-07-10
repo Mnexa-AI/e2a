@@ -43,7 +43,7 @@ func TestReconcilePending_EnqueuesStrandedAndStamps(t *testing.T) {
 	}
 	msg, err := store.CreatePendingOutboundMessage(ctx, ag.ID,
 		[]string{"a@gmail.com"}, nil, nil, "Subject", "body", "", nil,
-		"send", "conv-notify-recon", "", 3600)
+		"send", "conv-notify-recon", "", "", 3600)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestReconcilePending_EnqueuesStrandedAndStamps(t *testing.T) {
 	// SKIPPED — never re-notified. Seed one and assert the reconciler ignores it.
 	already, err := store.CreatePendingOutboundMessage(ctx, ag.ID,
 		[]string{"b@gmail.com"}, nil, nil, "Already", "body", "", nil,
-		"send", "conv-already", "", 3600)
+		"send", "conv-already", "", "", 3600)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage(already): %v", err)
 	}

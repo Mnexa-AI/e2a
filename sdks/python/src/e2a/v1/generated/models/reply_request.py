@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment import Attachment
 from typing import Optional, Set
@@ -34,7 +34,8 @@ class ReplyRequest(BaseModel):
     conversation_id: Optional[StrictStr] = None
     html_body: Optional[StrictStr] = None
     reply_all: Optional[StrictBool] = None
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "reply_all"]
+    reply_to: Optional[StrictStr] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.")
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "reply_all", "reply_to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -100,7 +101,8 @@ class ReplyRequest(BaseModel):
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "html_body": obj.get("html_body"),
-            "reply_all": obj.get("reply_all")
+            "reply_all": obj.get("reply_all"),
+            "reply_to": obj.get("reply_to")
         })
         return _obj
 

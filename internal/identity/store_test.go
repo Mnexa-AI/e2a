@@ -1158,7 +1158,7 @@ func TestGetDashboardStats_Pending(t *testing.T) {
 		store.CreatePendingOutboundMessage(ctx, agent.ID,
 			[]string{"alice@example.com"}, nil, nil,
 			fmt.Sprintf("subject-%d", i), "body", "", nil,
-			"send", "", "", 3600)
+			"send", "", "", "", 3600)
 	}
 	// Backdate the second one to ~2 hours old. created_at and
 	// approval_expires_at are both moved so the partial index still
@@ -1262,7 +1262,7 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 	}
 	pending, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"bob@example.com"}, nil, nil, "held", "body", "", nil,
-		"send", "", "", 3600)
+		"send", "", "", "", 3600)
 	_ = pending
 
 	// One delivered webhook (healthy state)

@@ -23,6 +23,10 @@ export class ForwardRequest {
     'cc'?: Array<string>;
     'conversationId'?: string;
     'htmlBody'?: string;
+    /**
+    * Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent\'s own address.
+    */
+    'replyTo'?: string;
     'to': Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
@@ -63,6 +67,12 @@ export class ForwardRequest {
         {
             "name": "htmlBody",
             "baseName": "html_body",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "replyTo",
+            "baseName": "reply_to",
             "type": "string",
             "format": ""
         },

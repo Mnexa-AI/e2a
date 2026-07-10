@@ -69,7 +69,7 @@ func TestOutboundRetention_HITLApprove(t *testing.T) {
 	userID, agentID := seedRetentionAgent(t, store, ctx, "rethitl.example.com")
 
 	pending, err := store.CreatePendingOutboundMessage(ctx, agentID, []string{"a@b.com"}, nil, nil,
-		"subj", "body text", "", nil, "send", "", "", 3600)
+		"subj", "body text", "", nil, "send", "", "", "", 3600)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestOutboundRetention_MetersStorage(t *testing.T) {
 	}
 
 	pending, err := store.CreatePendingOutboundMessage(ctx, agentID, []string{"a@b.com"}, nil, nil,
-		"subj", "tiny", "", nil, "send", "", "", 3600)
+		"subj", "tiny", "", nil, "send", "", "", "", 3600)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}

@@ -60,6 +60,7 @@ Usage:
         --html-file <f>            HTML body; text fallback derived if no --body
         --attach <file>            Attach a file (repeatable)
         --conversation-id <id>     Thread id (alias: --conversation)
+        --reply-to <email>         Reply-To header (where replies go; default: the agent)
         --idempotency-key <k>      Stable key so a retried invocation can't double-send
         --agent <email>            Sending inbox (or config agent_email / E2A_AGENT_EMAIL)
         --json                     Print the full send result as JSON
@@ -322,7 +323,7 @@ async function main() {
     case "send":
       checkFlags(args, [
         "--to", "--subject", "--body", "--body-file", "--html-file", "--attach",
-        "--conversation-id", "--conversation", "--agent", "--idempotency-key", "--json",
+        "--conversation-id", "--conversation", "--reply-to", "--agent", "--idempotency-key", "--json",
       ]);
       await send({
         to: getFlagsChecked(args, "--to"),
@@ -335,6 +336,7 @@ async function main() {
         // trip each other's spelling.
         conversationId:
           getFlagChecked(args, "--conversation-id") ?? getFlagChecked(args, "--conversation"),
+        replyTo: getFlagChecked(args, "--reply-to"),
         agent: getFlagChecked(args, "--agent"),
         idempotencyKey: getFlagChecked(args, "--idempotency-key"),
         json: hasFlag(args, "--json"),
@@ -342,13 +344,14 @@ async function main() {
       break;
     case "reply":
       checkFlags(args, [
-        "--body", "--body-file", "--html-file", "--attach", "--agent", "--idempotency-key", "--json",
+        "--body", "--body-file", "--html-file", "--attach", "--reply-to", "--agent", "--idempotency-key", "--json",
       ]);
       await reply(getPositionals(args)[0], {
         attach: getFlagsChecked(args, "--attach"),
         body: getFlagChecked(args, "--body"),
         bodyFile: getFlagChecked(args, "--body-file"),
         htmlFile: getFlagChecked(args, "--html-file"),
+        replyTo: getFlagChecked(args, "--reply-to"),
         agent: getFlagChecked(args, "--agent"),
         idempotencyKey: getFlagChecked(args, "--idempotency-key"),
         json: hasFlag(args, "--json"),

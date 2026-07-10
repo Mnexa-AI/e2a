@@ -130,7 +130,7 @@ func TestWorkerEmitsOutboundReviewRejectedOnExpiry(t *testing.T) {
 
 	agent := prepareAgent(t, store, "emit-outreject", identity.HITLExpirationReject)
 	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
-		[]string{"alice@example.com"}, nil, nil, "Held", "body", "<p>html</p>", nil, "send", "", "", 60)
+		[]string{"alice@example.com"}, nil, nil, "Held", "body", "<p>html</p>", nil, "send", "", "", "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestWorkerEmitsOutboundReviewApprovedOnExpiry(t *testing.T) {
 
 	agent := prepareAgent(t, store, "emit-outapprove", identity.HITLExpirationApprove)
 	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
-		[]string{"alice@example.com"}, nil, nil, "Held", "body", "<p>html</p>", nil, "send", "", "", 60)
+		[]string{"alice@example.com"}, nil, nil, "Held", "body", "<p>html</p>", nil, "send", "", "", "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}

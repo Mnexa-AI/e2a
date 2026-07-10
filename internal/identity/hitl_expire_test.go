@@ -20,14 +20,14 @@ func TestListExpiredPending(t *testing.T) {
 	// Pending but not yet expired
 	fresh, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"a@example.com"}, nil, nil, "fresh", "b", "", nil,
-		"send", "", "", 3600)
+		"send", "", "", "", 3600)
 	// Pending and expired (backdate approval_expires_at)
 	stale1, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"b@example.com"}, nil, nil, "stale1", "b", "", nil,
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 	stale2, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"c@example.com"}, nil, nil, "stale2", "b", "", nil,
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 	pool.Exec(ctx, `UPDATE messages SET approval_expires_at = $1 WHERE id = ANY($2)`,
 		time.Now().Add(-10*time.Minute), []string{stale1.ID, stale2.ID})
 
@@ -80,11 +80,11 @@ func TestListExpiredPendingOrdering(t *testing.T) {
 	// distinct points in the past. Insertion order deliberately differs
 	// from expected return order.
 	msgNewest, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"n@example.com"}, nil, nil, "newest", "b", "", nil, "send", "", "", 60)
+		[]string{"n@example.com"}, nil, nil, "newest", "b", "", nil, "send", "", "", "", 60)
 	msgMiddle, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"m@example.com"}, nil, nil, "middle", "b", "", nil, "send", "", "", 60)
+		[]string{"m@example.com"}, nil, nil, "middle", "b", "", nil, "send", "", "", "", 60)
 	msgOldest, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"o@example.com"}, nil, nil, "oldest", "b", "", nil, "send", "", "", 60)
+		[]string{"o@example.com"}, nil, nil, "oldest", "b", "", nil, "send", "", "", "", 60)
 
 	base := time.Now()
 	pool.Exec(ctx, `UPDATE messages SET approval_expires_at = $1 WHERE id = $2`,
@@ -119,7 +119,7 @@ func TestExpireApproveAndSendHappyPath(t *testing.T) {
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"alice@example.com"}, nil, nil,
 		"Held", "body", "<p>body</p>", nil,
-		"send", "conv_exp", "", 60)
+		"send", "conv_exp", "", "", 60)
 	pool.Exec(ctx, `UPDATE messages SET approval_expires_at = $1 WHERE id = $2`,
 		time.Now().Add(-1*time.Minute), msg.ID)
 
@@ -168,7 +168,7 @@ func TestExpireApproveAndSendSkipsFreshPending(t *testing.T) {
 
 	fresh, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"a@example.com"}, nil, nil, "fresh", "b", "", nil,
-		"send", "", "", 3600)
+		"send", "", "", "", 3600)
 
 	_, err := store.ExpireApproveAndSend(ctx, fresh.ID,
 		func(m *identity.Message) (identity.SendResult, error) {
@@ -210,7 +210,7 @@ func TestExpireApproveAndSendSendFailureRollsBack(t *testing.T) {
 
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"a@example.com"}, nil, nil, "held", "body", "", nil,
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 	pool.Exec(ctx, `UPDATE messages SET approval_expires_at = $1 WHERE id = $2`,
 		time.Now().Add(-1*time.Minute), msg.ID)
 
@@ -250,7 +250,7 @@ func TestExpireRejectHappyPath(t *testing.T) {
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"x@example.com"}, nil, nil, "x", "body", "<p>html</p>",
 		[]byte(`[{"filename":"x","content_type":"text/plain","data":"aA=="}]`),
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 	pool.Exec(ctx, `UPDATE messages SET approval_expires_at = $1 WHERE id = $2`,
 		time.Now().Add(-1*time.Minute), msg.ID)
 
@@ -287,7 +287,7 @@ func TestExpireRejectRaceReturnsErrNotPending(t *testing.T) {
 
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil,
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 
 	// Simulate: human rejected through the user-scoped API before the
 	// worker got to it.

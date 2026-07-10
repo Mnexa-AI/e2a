@@ -132,7 +132,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		From:           m.Sender,
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
-		ReplyTo:        orEmptyStrings(m.ReplyTo),
+		ReplyTo:        inboundReplyToView(m),
 		Recipient:      m.Recipient,
 		Subject:        m.Subject,
 		ConversationID: m.ConversationID,
@@ -263,6 +263,19 @@ func authVerdict(r *emailauth.Result) *AuthVerdict {
 	return &v
 }
 
+// inboundReplyToView returns the parsed inbound Reply-To for the wire view. The
+// reply_to field is defined as the Reply-To header PARSED off an inbound message;
+// on outbound rows the same column now doubles as internal storage for a caller's
+// Reply-To OVERRIDE (so a held send survives the approval recompose), which is a
+// different concept and must not leak into the message view. Gate on direction so
+// the field keeps its single documented meaning.
+func inboundReplyToView(m *identity.Message) []string {
+	if m.Direction != "inbound" {
+		return []string{}
+	}
+	return orEmptyStrings(m.ReplyTo)
+}
+
 func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 	s := MessageSummaryView{
 		ID:             m.ID,
@@ -270,7 +283,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		From:           m.Sender,
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
-		ReplyTo:        orEmptyStrings(m.ReplyTo),
+		ReplyTo:        inboundReplyToView(&m),
 		Recipient:      m.Recipient,
 		Subject:        m.Subject,
 		ConversationID: m.ConversationID,

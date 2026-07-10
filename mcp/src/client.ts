@@ -165,6 +165,7 @@ export class McpClient {
       bcc?: Array<string>;
       attachments?: Array<Attachment>;
       conversationId?: string;
+      replyTo?: string;
     },
     opts: SendOpts = {},
     explicitAddress?: string,
@@ -182,6 +183,7 @@ export class McpClient {
       bcc?: Array<string>;
       attachments?: Array<Attachment>;
       conversationId?: string;
+      replyTo?: string;
     },
     opts: SendOpts = {},
     explicitAddress?: string,
@@ -204,6 +206,7 @@ export class McpClient {
       bcc?: Array<string>;
       attachments?: Array<Attachment>;
       conversationId?: string;
+      replyTo?: string;
     },
     opts: SendOpts = {},
     explicitAddress?: string,

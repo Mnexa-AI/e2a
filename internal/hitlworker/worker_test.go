@@ -82,7 +82,7 @@ func TestWorkerAutoRejectsExpiredPending(t *testing.T) {
 	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"alice@example.com"}, nil, nil,
 		"Held", "body", "<p>html</p>", nil,
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
 	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"alice@example.com"}, nil, nil,
 		"Auto-send subject", "plain body", "<p>html body</p>", nil,
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 	backdateExpiry(t, pool, msg.ID)
 
 	w.RunOnce(ctx)
@@ -178,7 +178,7 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{agent.EmailAddress()}, nil, nil,
 		"self auto-approve", "note to self body", "", nil,
-		"send", "", "", 60)
+		"send", "", "", "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
 	agent := prepareAgent(t, store, "auto-approve-fail", identity.HITLExpirationApprove)
 	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"alice@example.com"}, nil, nil,
-		"x", "body", "", nil, "send", "", "", 60)
+		"x", "body", "", nil, "send", "", "", "", 60)
 	backdateExpiry(t, pool, msg.ID)
 
 	w.RunOnce(ctx)
@@ -279,7 +279,7 @@ func TestWorkerAutoApproveUnverifiedAgentRejects(t *testing.T) {
 
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
 		[]string{"alice@example.com"}, nil, nil,
-		"x", "body", "", nil, "send", "", "", 60)
+		"x", "body", "", nil, "send", "", "", "", 60)
 	backdateExpiry(t, pool, msg.ID)
 
 	w.RunOnce(ctx)
@@ -307,7 +307,7 @@ func TestWorkerSkipsFreshPending(t *testing.T) {
 	agent := prepareAgent(t, store, "skip-fresh", identity.HITLExpirationReject)
 	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"alice@example.com"}, nil, nil,
-		"fresh", "b", "", nil, "send", "", "", 3600)
+		"fresh", "b", "", nil, "send", "", "", "", 3600)
 
 	w.RunOnce(ctx)
 

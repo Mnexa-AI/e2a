@@ -4,12 +4,47 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/mail"
 	"reflect"
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
+
+// TestComposeReplyToOverride pins the Reply-To behavior: absent a caller value the
+// header defaults to the agent's own address; a req.ReplyTo overrides it verbatim
+// (display name preserved). This is the seam the whole feature rides on — a
+// regression here silently misroutes every recipient's replies.
+func TestComposeReplyToOverride(t *testing.T) {
+	s := NewSender(nil, "example.com")
+	agent := &identity.AgentIdentity{ID: "bot@example.com", Domain: "example.com"}
+
+	replyToHeader := func(t *testing.T, req SendRequest) string {
+		t.Helper()
+		c, err := s.compose(agent, req)
+		if err != nil {
+			t.Fatalf("compose: %v", err)
+		}
+		m, err := mail.ReadMessage(bytes.NewReader(c.sentBody))
+		if err != nil {
+			t.Fatalf("parse composed message: %v", err)
+		}
+		return m.Header.Get("Reply-To")
+	}
+
+	base := SendRequest{To: []string{"x@y.com"}, Subject: "hi", Body: "body text"}
+
+	if got := replyToHeader(t, base); got != agent.EmailAddress() {
+		t.Errorf("default Reply-To = %q, want agent address %q", got, agent.EmailAddress())
+	}
+
+	withOverride := base
+	withOverride.ReplyTo = "Support <support@acme.com>"
+	if got := replyToHeader(t, withOverride); got != "Support <support@acme.com>" {
+		t.Errorf("overridden Reply-To = %q, want %q", got, "Support <support@acme.com>")
+	}
+}
 
 // TestComposeForAccept_MatchesSyncComposeBytes pins the load-bearing async/sync
 // invariant: the accept path (ComposeForAccept) stores the SAME Sent-folder bytes

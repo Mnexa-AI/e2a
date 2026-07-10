@@ -55,6 +55,12 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .string()
           .optional()
           .describe("Optional conversation grouping ID. Server generates one if omitted."),
+        reply_to: z
+          .string()
+          .optional()
+          .describe(
+            "Sets the Reply-To header — where the recipient's replies are directed. A single address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent's own address.",
+          ),
         idempotency_key: z
           .string()
           .optional()
@@ -95,6 +101,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
             ...(args.conversation_id !== undefined
               ? { conversationId: args.conversation_id }
               : {}),
+            ...(args.reply_to !== undefined ? { replyTo: args.reply_to } : {}),
           },
           opts,
           args.email,
@@ -121,6 +128,12 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         bcc: z.array(z.string()).optional(),
         attachments: attachmentsArraySchema,
         conversation_id: z.string().optional(),
+        reply_to: z
+          .string()
+          .optional()
+          .describe(
+            "Sets the Reply-To header — where replies to this message are directed. A single address, optionally with a display name. Defaults to the sending agent's own address.",
+          ),
         idempotency_key: z
           .string()
           .optional()
@@ -150,6 +163,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
             ...(args.conversation_id !== undefined
               ? { conversationId: args.conversation_id }
               : {}),
+            ...(args.reply_to !== undefined ? { replyTo: args.reply_to } : {}),
           },
           opts,
           args.email,
@@ -183,6 +197,12 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Optional conversation grouping ID. A forward is a new thread by default — set this only to bind it to an existing thread explicitly.",
           ),
+        reply_to: z
+          .string()
+          .optional()
+          .describe(
+            "Sets the Reply-To header — where replies to the forward are directed. A single address, optionally with a display name. Defaults to the sending agent's own address.",
+          ),
         idempotency_key: z
           .string()
           .optional()
@@ -214,6 +234,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
             ...(args.conversation_id !== undefined
               ? { conversationId: args.conversation_id }
               : {}),
+            ...(args.reply_to !== undefined ? { replyTo: args.reply_to } : {}),
           },
           opts,
           args.email,

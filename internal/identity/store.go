@@ -1554,8 +1554,8 @@ func (s *Store) StampSendJobIDTx(ctx context.Context, tx pgx.Tx, messageID strin
 // attachmentsJSON must be a JSON array matching the public Attachment shape
 // ([{filename, content_type, data}, ...]) or nil. Callers that already have
 // an []outbound.Attachment slice should json.Marshal it before passing in.
-func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID string, ttlSeconds int) (*Message, error) {
-	return createPendingOutboundMessage(ctx, s.pool, agentID, toRecipients, cc, bcc, subject, bodyText, bodyHTML, attachmentsJSON, msgType, conversationID, replyToEmailMessageID, ttlSeconds)
+func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID, replyTo string, ttlSeconds int) (*Message, error) {
+	return createPendingOutboundMessage(ctx, s.pool, agentID, toRecipients, cc, bcc, subject, bodyText, bodyHTML, attachmentsJSON, msgType, conversationID, replyToEmailMessageID, replyTo, ttlSeconds)
 }
 
 // CreatePendingOutboundMessageTx is the in-tx sibling of
@@ -1563,13 +1563,15 @@ func (s *Store) CreatePendingOutboundMessage(ctx context.Context, agentID string
 // row and enqueue its approval-notification job (QueueNotify) in ONE transaction
 // so neither can exist without the other (docs/design/hitl-notify-river.md).
 // Mirrors CreateOutboundMessageTx / the send accept-tx.
-func (s *Store) CreatePendingOutboundMessageTx(ctx context.Context, tx pgx.Tx, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID string, ttlSeconds int) (*Message, error) {
-	return createPendingOutboundMessage(ctx, tx, agentID, toRecipients, cc, bcc, subject, bodyText, bodyHTML, attachmentsJSON, msgType, conversationID, replyToEmailMessageID, ttlSeconds)
+func (s *Store) CreatePendingOutboundMessageTx(ctx context.Context, tx pgx.Tx, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID, replyTo string, ttlSeconds int) (*Message, error) {
+	return createPendingOutboundMessage(ctx, tx, agentID, toRecipients, cc, bcc, subject, bodyText, bodyHTML, attachmentsJSON, msgType, conversationID, replyToEmailMessageID, replyTo, ttlSeconds)
 }
 
 // createPendingOutboundMessage is the shared body of the pool and in-tx pending
 // creators; exec is satisfied by both *pgxpool.Pool and pgx.Tx (messageExecutor).
-func createPendingOutboundMessage(ctx context.Context, exec messageExecutor, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID string, ttlSeconds int) (*Message, error) {
+// replyTo, when non-empty, is a caller-supplied Reply-To override persisted on
+// the reply_to column (single element) so it survives the recompose at approval.
+func createPendingOutboundMessage(ctx context.Context, exec messageExecutor, agentID string, toRecipients, cc, bcc []string, subject, bodyText, bodyHTML string, attachmentsJSON []byte, msgType, conversationID, replyToEmailMessageID, replyTo string, ttlSeconds int) (*Message, error) {
 	if ttlSeconds <= 0 || ttlSeconds > HITLMaxTTLSeconds {
 		return nil, fmt.Errorf("ttl_seconds must be between 1 and %d", HITLMaxTTLSeconds)
 	}
@@ -1588,6 +1590,13 @@ func createPendingOutboundMessage(ctx context.Context, exec messageExecutor, age
 		attachmentsArg = attachmentsJSON
 	}
 
+	// Persist a caller Reply-To override as a single-element array (matching how
+	// the reply_to column stores the parsed header on inbound rows). Empty ⇒ NULL.
+	var replyToArg []string
+	if replyTo != "" {
+		replyToArg = []string{replyTo}
+	}
+
 	m := &Message{
 		ID:                id,
 		AgentID:           agentID,
@@ -1602,6 +1611,7 @@ func createPendingOutboundMessage(ctx context.Context, exec messageExecutor, age
 		ToRecipients:      toRecipients,
 		CC:                cc,
 		BCC:               bcc,
+		ReplyTo:           replyToArg,
 		Status:            MessageStatusPendingReview,
 		ApprovalExpiresAt: &approvalExpiresAt,
 		BodyText:          bodyText,
@@ -1615,17 +1625,17 @@ func createPendingOutboundMessage(ctx context.Context, exec messageExecutor, age
 		`INSERT INTO messages (
 		    id, agent_id, direction, recipient, subject, email_message_id, message_type,
 		    conversation_id, created_at, expires_at,
-		    to_recipients, cc, bcc,
+		    to_recipients, cc, bcc, reply_to,
 		    status, approval_expires_at,
 		    body_text, body_html, attachments_json, sender)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7,
 		         $8, $9, $10,
-		         $11, $12, $13,
-		         $14, $15,
-		         $16, $17, $18, $19)`,
+		         $11, $12, $13, $14,
+		         $15, $16,
+		         $17, $18, $19, $20)`,
 		m.ID, m.AgentID, m.Direction, m.Recipient, m.Subject, m.EmailMessageID, m.Type,
 		m.ConversationID, m.CreatedAt, m.ExpiresAt,
-		m.ToRecipients, m.CC, m.BCC,
+		m.ToRecipients, m.CC, m.BCC, replyToArg,
 		m.Status, m.ApprovalExpiresAt,
 		nullIfEmptyString(m.BodyText), nullIfEmptyString(m.BodyHTML), attachmentsArg, m.Sender,
 	)
@@ -1809,7 +1819,7 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		        m.email_message_id, COALESCE(m.provider_message_id, ''),
 		        m.method, m.message_type,
 		        m.conversation_id, m.created_at, m.expires_at,
-		        m.to_recipients, m.cc, m.bcc,
+		        m.to_recipients, m.cc, m.bcc, m.reply_to,
 		        m.status, m.approval_expires_at, m.reviewed_at,
 		        m.rejection_reason, m.edited,
 		        m.body_text, m.body_html, m.attachments_json,
@@ -1825,7 +1835,7 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		&m.EmailMessageID, &m.ProviderMessageID,
 		&method, &msgType,
 		&m.ConversationID, &m.CreatedAt, &m.ExpiresAt,
-		&m.ToRecipients, &m.CC, &m.BCC,
+		&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
 		&m.Status, &approvalExpires, &reviewedAt,
 		&rejectionReason, &m.Edited,
 		&bodyText, &bodyHTML, &attachments,
@@ -2010,7 +2020,7 @@ func (s *Store) ApproveAndSend(
 		        m.email_message_id,
 		        m.method, m.message_type,
 		        m.conversation_id, m.created_at, m.expires_at,
-		        m.to_recipients, m.cc, m.bcc,
+		        m.to_recipients, m.cc, m.bcc, m.reply_to,
 		        m.status, m.approval_expires_at, m.edited,
 		        m.body_text, m.body_html, m.attachments_json,
 		        a.user_id
@@ -2024,7 +2034,7 @@ func (s *Store) ApproveAndSend(
 		&m.EmailMessageID,
 		&method, &msgType,
 		&m.ConversationID, &m.CreatedAt, &m.ExpiresAt,
-		&m.ToRecipients, &m.CC, &m.BCC,
+		&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
 		&m.Status, &approvalExpires, &m.Edited,
 		&bodyText, &bodyHTML, &attachments,
 		&ownerUserID,
@@ -2535,11 +2545,11 @@ func (s *Store) LoadOutboundDraft(ctx context.Context, messageID string) (*Messa
 	var msgType *string
 	err := s.pool.QueryRow(ctx,
 		`SELECT agent_id, sender, subject, email_message_id, message_type, conversation_id,
-		        to_recipients, cc, bcc, status, body_text, body_html, attachments_json
+		        to_recipients, cc, bcc, reply_to, status, body_text, body_html, attachments_json
 		   FROM messages WHERE id=$1 AND direction='outbound'`,
 		messageID,
 	).Scan(&m.AgentID, &m.Sender, &m.Subject, &m.EmailMessageID, &msgType, &m.ConversationID,
-		&m.ToRecipients, &m.CC, &m.BCC, &m.Status, &bodyText, &bodyHTML, &attachments)
+		&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo, &m.Status, &bodyText, &bodyHTML, &attachments)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMessageNotFound

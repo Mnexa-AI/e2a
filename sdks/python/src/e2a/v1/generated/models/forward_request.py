@@ -33,8 +33,9 @@ class ForwardRequest(BaseModel):
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
     html_body: Optional[StrictStr] = None
+    reply_to: Optional[StrictStr] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.")
     to: List[StrictStr]
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "to"]
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "reply_to", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -100,6 +101,7 @@ class ForwardRequest(BaseModel):
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "html_body": obj.get("html_body"),
+            "reply_to": obj.get("reply_to"),
             "to": obj.get("to")
         })
         return _obj

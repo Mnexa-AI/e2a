@@ -21,7 +21,7 @@ func TestApprovePendingCore_AsyncExternal(t *testing.T) {
 	user, ag := selfAgent(t, store, "apprasyncext")
 
 	msg, err := store.CreatePendingOutboundMessage(ctx, ag.ID,
-		[]string{"alice@external.test"}, nil, nil, "Held", "body", "", nil, "send", "", "", 3600)
+		[]string{"alice@external.test"}, nil, nil, "Held", "body", "", nil, "send", "", "", "", 3600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestApprovePendingCore_AsyncSelfSendStaysSync(t *testing.T) {
 	user, ag := selfAgent(t, store, "apprasyncself")
 
 	msg, err := store.CreatePendingOutboundMessage(ctx, ag.ID,
-		[]string{ag.EmailAddress()}, nil, nil, "To self", "body", "", nil, "send", "", "", 3600)
+		[]string{ag.EmailAddress()}, nil, nil, "To self", "body", "", nil, "send", "", "", "", 3600)
 	if err != nil {
 		t.Fatal(err)
 	}

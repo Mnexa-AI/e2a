@@ -33,13 +33,14 @@ class SendEmailRequest(BaseModel):
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
     html_body: Optional[StrictStr] = Field(default=None, description="Literal HTML body. Mutually exclusive with template_id/template_alias.")
+    reply_to: Optional[StrictStr] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent's own address.")
     subject: Optional[StrictStr] = Field(default=None, description="Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).")
     template_alias: Optional[StrictStr] = Field(default=None, description="Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.")
     template_data: Optional[Dict[str, Any]] = Field(default=None, description="Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable.")
     template_id: Optional[StrictStr] = Field(default=None, description="Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.")
     to: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "subject", "template_alias", "template_data", "template_id", "to"]
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "reply_to", "subject", "template_alias", "template_data", "template_id", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -112,6 +113,7 @@ class SendEmailRequest(BaseModel):
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "html_body": obj.get("html_body"),
+            "reply_to": obj.get("reply_to"),
             "subject": obj.get("subject"),
             "template_alias": obj.get("template_alias"),
             "template_data": obj.get("template_data"),

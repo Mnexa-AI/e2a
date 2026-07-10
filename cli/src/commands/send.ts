@@ -12,6 +12,7 @@ export interface SendOptions {
   bodyFile?: string;
   htmlFile?: string;
   conversationId?: string;
+  replyTo?: string;
   agent?: string;
   json?: boolean;
   idempotencyKey?: string;
@@ -22,6 +23,7 @@ export interface ReplyOptions {
   body?: string;
   bodyFile?: string;
   htmlFile?: string;
+  replyTo?: string;
   agent?: string;
   json?: boolean;
   idempotencyKey?: string;
@@ -60,9 +62,9 @@ function readAttachments(paths: string[] | undefined): Attachment[] | undefined 
 }
 
 const SEND_USAGE =
-  "usage: e2a send --to <email> --subject <s> (--body <text> | --body-file <f> | --html-file <f>) [--conversation-id <id>] [--agent <inbox>] [--json]";
+  "usage: e2a send --to <email> --subject <s> (--body <text> | --body-file <f> | --html-file <f>) [--conversation-id <id>] [--reply-to <email>] [--agent <inbox>] [--json]";
 const REPLY_USAGE =
-  "usage: e2a reply <message-id> (--body <text> | --body-file <f> | --html-file <f>) [--agent <inbox>] [--json]";
+  "usage: e2a reply <message-id> (--body <text> | --body-file <f> | --html-file <f>) [--reply-to <email>] [--agent <inbox>] [--json]";
 
 function readFileOrUsage(path: string, flag: string): string {
   try {
@@ -138,6 +140,7 @@ export async function send(opts: SendOptions): Promise<void> {
       body,
       htmlBody,
       conversationId: opts.conversationId,
+      replyTo: opts.replyTo,
       attachments: readAttachments(opts.attach),
     },
     opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
@@ -154,7 +157,7 @@ export async function reply(messageId: string | undefined, opts: ReplyOptions): 
   const result = await client.messages.reply(
     agentEmail,
     messageId,
-    { body, htmlBody, attachments: readAttachments(opts.attach) },
+    { body, htmlBody, replyTo: opts.replyTo, attachments: readAttachments(opts.attach) },
     opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
   );
   emitSendResult(result, opts.json);

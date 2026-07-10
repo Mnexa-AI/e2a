@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"reflect"
 	"strings"
 	"time"
@@ -114,6 +115,7 @@ type SendEmailRequest struct {
 	TemplateAlias  string                `json:"template_alias,omitempty" doc:"Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
 	TemplateData   TemplateData          `json:"template_data,omitempty" doc:"Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."`
 	ConversationID string                `json:"conversation_id,omitempty"`
+	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
 }
 
@@ -219,6 +221,7 @@ type ReplyRequest struct {
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	ConversationID string                `json:"conversation_id,omitempty"`
+	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
 }
 
@@ -273,6 +276,9 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	if e := validateConversationID(b.ConversationID); e != nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", e.Error())
 	}
+	if env := validateReplyTo(b.ReplyTo); env != nil {
+		return nil, env
+	}
 	// Build the reply request via the same outbound helpers the legacy
 	// handler uses (subject normalization, recipient parsing, References).
 	subject := msg.Subject
@@ -303,7 +309,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 		// conversation_id resolution (caller id > inherit-from-referenced > mint)
 		// is centralized in DeliverOutbound, which receives this message as the
 		// referenced message — so the reply inherits its thread there (#328).
-		ConversationID: b.ConversationID, Attachments: b.Attachments,
+		ConversationID: b.ConversationID, ReplyTo: b.ReplyTo, Attachments: b.Attachments,
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
@@ -351,6 +357,7 @@ type ForwardRequest struct {
 	Body           string                `json:"body"` // required (MSG-3); subject derived as "Fwd:"
 	HTMLBody       string                `json:"html_body,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
+	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically."`
 }
 
@@ -381,6 +388,9 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	if e := validateConversationID(b.ConversationID); e != nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", e.Error())
 	}
+	if env := validateReplyTo(b.ReplyTo); env != nil {
+		return nil, env
+	}
 	subject := outbound.BuildForwardSubject(msg.Subject)
 	fwdCtx := outbound.ExtractForwardContext(msg.RawMessage)
 	composedBody := outbound.BuildForwardBody(b.Body, fwdCtx)
@@ -396,7 +406,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	attachments = append(attachments, b.Attachments...)
 	req := outbound.SendRequest{
 		To: b.To, CC: b.CC, BCC: b.BCC, Subject: subject, Body: composedBody, HTMLBody: composedHTML,
-		ConversationID: b.ConversationID, Attachments: attachments,
+		ConversationID: b.ConversationID, ReplyTo: b.ReplyTo, Attachments: attachments,
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
@@ -422,6 +432,28 @@ func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string
 	}
 	if err := validateConversationID(conversationID); err != nil {
 		return NewError(http.StatusBadRequest, "invalid_request", err.Error())
+	}
+	return nil
+}
+
+// validateReplyTo checks a caller-supplied Reply-To override. Empty is valid
+// (the compose layer defaults it to the agent's own address). A non-empty value
+// must be exactly one RFC 5322 address, optionally with a display name; multiple
+// addresses and unparseable input are rejected at the edge so a bad Reply-To
+// never reaches the composer (where sanitizeHeaderValue would silently mangle
+// it) or the SMTP relay (a generic 500).
+func validateReplyTo(replyTo string) *ErrorEnvelope {
+	if replyTo == "" {
+		return nil
+	}
+	addrs, err := mail.ParseAddressList(replyTo)
+	if err != nil {
+		return NewError(http.StatusBadRequest, "invalid_request",
+			fmt.Sprintf("reply_to is not a valid email address: %v", err))
+	}
+	if len(addrs) != 1 {
+		return NewError(http.StatusBadRequest, "invalid_request",
+			"reply_to must be a single email address")
 	}
 	return nil
 }
@@ -643,12 +675,16 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 		if env := s.validateOutboundBody(b.Subject, b.Body, b.To, b.CC, b.BCC, b.ConversationID); env != nil {
 			return outbound.SendRequest{}, env
 		}
+		if env := validateReplyTo(b.ReplyTo); env != nil {
+			return outbound.SendRequest{}, env
+		}
 		// The sender is the path agent (decision 3) — there is no body `from`;
 		// the agent is the path and auth scopes the sender, so no spoofing is
 		// possible.
 		return outbound.SendRequest{
 			From: ag.EmailAddress(), To: b.To, CC: b.CC, BCC: b.BCC, Subject: b.Subject,
-			Body: b.Body, HTMLBody: b.HTMLBody, ConversationID: b.ConversationID, Attachments: b.Attachments,
+			Body: b.Body, HTMLBody: b.HTMLBody, ConversationID: b.ConversationID,
+			ReplyTo: b.ReplyTo, Attachments: b.Attachments,
 		}, nil
 	}
 	// A cold send has no referenced inbound (nil) — it's not a reply/forward.

@@ -980,7 +980,7 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 				req.To, req.CC, req.BCC,
 				req.Subject, req.Body, req.HTMLBody,
 				attachmentsJSON,
-				msgType, req.ConversationID, replyToEmailMessageID,
+				msgType, req.ConversationID, replyToEmailMessageID, req.ReplyTo,
 				agent.HITLTTLSeconds,
 			)
 			if err != nil {
@@ -1006,7 +1006,7 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 			req.To, req.CC, req.BCC,
 			req.Subject, req.Body, req.HTMLBody,
 			attachmentsJSON,
-			msgType, req.ConversationID, replyToEmailMessageID,
+			msgType, req.ConversationID, replyToEmailMessageID, req.ReplyTo,
 			agent.HITLTTLSeconds,
 		)
 		if err != nil {

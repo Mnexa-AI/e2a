@@ -876,6 +876,9 @@ components:
           type: string
         html_body:
           type: string
+        reply_to:
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
+          type: string
         to:
           items:
             type: string
@@ -1675,6 +1678,9 @@ components:
           type: string
         reply_all:
           type: boolean
+        reply_to:
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
+          type: string
       required:
         - body
       type: object
@@ -1769,6 +1775,9 @@ components:
           type: string
         html_body:
           description: Literal HTML body. Mutually exclusive with template_id/template_alias.
+          type: string
+        reply_to:
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. "Support <support@acme.com>"). Defaults to the sending agent's own address.
           type: string
         subject:
           description: Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).

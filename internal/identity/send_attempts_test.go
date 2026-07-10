@@ -20,7 +20,7 @@ func TestClaimSendAttempt_FreshAcquires(t *testing.T) {
 	store := identity.NewStore(pool)
 	_, a := setupPendingAgent(t, store, "claim-fresh")
 	msg, _ := store.CreatePendingOutboundMessage(context.Background(), a.ID,
-		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", 3600)
+		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", "", 3600)
 
 	res, err := store.ClaimSendAttempt(context.Background(), msg.ID)
 	if err != nil {
@@ -36,7 +36,7 @@ func TestClaimSendAttempt_InFlightOnSecondCall(t *testing.T) {
 	store := identity.NewStore(pool)
 	_, a := setupPendingAgent(t, store, "claim-inflight")
 	msg, _ := store.CreatePendingOutboundMessage(context.Background(), a.ID,
-		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", 3600)
+		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", "", 3600)
 
 	first, _ := store.ClaimSendAttempt(context.Background(), msg.ID)
 	if first.Outcome != identity.SendAttemptAcquired {
@@ -58,7 +58,7 @@ func TestClaimSendAttempt_AlreadySentReplaysCachedResult(t *testing.T) {
 	_, a := setupPendingAgent(t, store, "claim-sent")
 	msg, _ := store.CreatePendingOutboundMessage(context.Background(), a.ID,
 		[]string{"alice@example.com"}, []string{"bob@example.com"}, nil,
-		"x", "b", "", nil, "send", "", "", 3600)
+		"x", "b", "", nil, "send", "", "", "", 3600)
 
 	first, _ := store.ClaimSendAttempt(context.Background(), msg.ID)
 	if first.Outcome != identity.SendAttemptAcquired {
@@ -98,7 +98,7 @@ func TestClaimSendAttempt_FailedAllowsRetry(t *testing.T) {
 	store := identity.NewStore(pool)
 	_, a := setupPendingAgent(t, store, "claim-failed")
 	msg, _ := store.CreatePendingOutboundMessage(context.Background(), a.ID,
-		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", 3600)
+		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", "", 3600)
 
 	first, _ := store.ClaimSendAttempt(context.Background(), msg.ID)
 	if first.Outcome != identity.SendAttemptAcquired {
@@ -123,7 +123,7 @@ func TestClaimSendAttempt_ConcurrentOnlyOneAcquires(t *testing.T) {
 	store := identity.NewStore(pool)
 	_, a := setupPendingAgent(t, store, "claim-conc")
 	msg, _ := store.CreatePendingOutboundMessage(context.Background(), a.ID,
-		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", 3600)
+		[]string{"x@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", "", 3600)
 
 	const N = 20
 	var (
@@ -182,7 +182,7 @@ func TestApproveAndSend_TxRollbackRetry_DoesNotCallSendTwice(t *testing.T) {
 	ctx := context.Background()
 	user, a := setupPendingAgent(t, store, "approve-rollback")
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", 3600)
+		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", "", 3600)
 
 	var sendCalls int32
 
@@ -243,7 +243,7 @@ func TestApproveAndSend_SendErrorMarksFailedAndAllowsRetry(t *testing.T) {
 	ctx := context.Background()
 	user, a := setupPendingAgent(t, store, "approve-failed")
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", 3600)
+		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", "", 3600)
 
 	var sendCalls int32
 
@@ -307,7 +307,7 @@ func TestExpireApproveAndSend_TxRollbackRetry_DoesNotCallSendTwice(t *testing.T)
 	ctx := context.Background()
 	_, a := setupPendingAgent(t, store, "expire-rollback")
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", 60)
+		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", "", 60)
 	// ExpireApproveAndSend only picks up rows whose approval_expires_at
 	// is in the past — push the expiry back so the WHERE matches.
 	if _, err := pool.Exec(ctx, `UPDATE messages SET approval_expires_at = now() - interval '1 minute' WHERE id = $1`, msg.ID); err != nil {
@@ -376,7 +376,7 @@ func TestExpireApproveAndSend_InFlightReturnsErrSendInProgress(t *testing.T) {
 	ctx := context.Background()
 	_, a := setupPendingAgent(t, store, "expire-inflight")
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", 60)
+		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", "", 60)
 	if _, err := pool.Exec(ctx, `UPDATE messages SET approval_expires_at = now() - interval '1 minute' WHERE id = $1`, msg.ID); err != nil {
 		t.Fatalf("age approval_expires_at: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestApproveAndSend_InFlightReturnsErrSendInProgress(t *testing.T) {
 	ctx := context.Background()
 	user, a := setupPendingAgent(t, store, "approve-inflight")
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", 3600)
+		[]string{"alice@example.com"}, nil, nil, "x", "body", "", nil, "send", "", "", "", 3600)
 
 	// Plant a recent 'attempting' row directly so the next
 	// ClaimSendAttempt observes InFlight.
@@ -449,7 +449,7 @@ func TestMarkSendSucceededWithRetry_HappyPath_TransitionsRowToSent(t *testing.T)
 	ctx := context.Background()
 	_, a := setupPendingAgent(t, store, "mark-success-retry")
 	msg, _ := store.CreatePendingOutboundMessage(ctx, a.ID,
-		[]string{"alice@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", 3600)
+		[]string{"alice@example.com"}, nil, nil, "x", "b", "", nil, "send", "", "", "", 3600)
 
 	// Acquire the slot via the normal claim path so the row exists
 	// with status='attempting' — same shape as the real ApproveAndSend

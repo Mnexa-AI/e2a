@@ -76,6 +76,48 @@ func TestSendInvalidRecipient(t *testing.T) {
 	}
 }
 
+// TestSendReplyToPropagates: a valid reply_to reaches the delivery layer verbatim
+// (display name preserved), so the composer can set the Reply-To header.
+func TestSendReplyToPropagates(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"reply_to": "Support <support@acme.com>",
+	})
+	if code != 200 || body["status"] != "sent" {
+		t.Fatalf("want 200 sent, got %d %v", code, body)
+	}
+	if got := lastDeliveredReq().ReplyTo; got != "Support <support@acme.com>" {
+		t.Fatalf("delivered ReplyTo = %q, want %q", got, "Support <support@acme.com>")
+	}
+}
+
+// TestSendInvalidReplyTo: a non-address reply_to is rejected at the edge (400)
+// rather than silently mangled by the composer or bounced by the relay.
+func TestSendInvalidReplyTo(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"reply_to": "not an address",
+	})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request for bad reply_to, got %d %v", code, body)
+	}
+}
+
+// TestSendMultiReplyToRejected: Reply-To carries a single mailbox in our contract;
+// a comma list is rejected so callers don't rely on unspecified multi-address behavior.
+func TestSendMultiReplyToRejected(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"reply_to": "a@x.com, b@x.com",
+	})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request for multi reply_to, got %d %v", code, body)
+	}
+}
+
 // TestSendSetsAgentAsSender: there is no body `from` — the sender is the path
 // agent and auth scopes it. A plain send (no `from`) succeeds.
 func TestSendSetsAgentAsSender(t *testing.T) {

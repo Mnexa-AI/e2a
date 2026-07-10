@@ -268,6 +268,13 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 	if m.Type == "reply" {
 		replyToMessageID = m.EmailMessageID
 	}
+	// A caller-supplied Reply-To override is persisted on the held row's reply_to
+	// column (single element) so it survives the recompose at approval time —
+	// without this the override would silently vanish on every reviewed send.
+	var replyTo string
+	if len(m.ReplyTo) > 0 {
+		replyTo = m.ReplyTo[0]
+	}
 	return outbound.SendRequest{
 		To:               m.ToRecipients,
 		CC:               m.CC,
@@ -275,6 +282,7 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 		Subject:          m.Subject,
 		Body:             m.BodyText,
 		HTMLBody:         m.BodyHTML,
+		ReplyTo:          replyTo,
 		ReplyToMessageID: replyToMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,

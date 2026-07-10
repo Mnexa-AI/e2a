@@ -21,6 +21,10 @@ export class ReplyRequest {
     'conversationId'?: string;
     'htmlBody'?: string;
     'replyAll'?: boolean;
+    /**
+    * Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent\'s own address.
+    */
+    'replyTo'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -67,6 +71,12 @@ export class ReplyRequest {
             "name": "replyAll",
             "baseName": "reply_all",
             "type": "boolean",
+            "format": ""
+        },
+        {
+            "name": "replyTo",
+            "baseName": "reply_to",
+            "type": "string",
             "format": ""
         }    ];
 

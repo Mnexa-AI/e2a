@@ -77,7 +77,7 @@ func TestEndToEnd_AcceptTxThroughRiverToSMTP(t *testing.T) {
 	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
 		m, err := store.CreatePendingOutboundMessageTx(ctx, tx, ag.ID,
 			[]string{"alice@example.com"}, nil, nil, "E2E subject", "body", "", nil,
-			"send", "conv-e2e", "", 3600)
+			"send", "conv-e2e", "", "", 3600)
 		if err != nil {
 			return err
 		}

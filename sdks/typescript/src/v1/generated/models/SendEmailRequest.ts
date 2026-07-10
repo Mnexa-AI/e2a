@@ -27,6 +27,10 @@ export class SendEmailRequest {
     */
     'htmlBody'?: string;
     /**
+    * Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent\'s own address.
+    */
+    'replyTo'?: string;
+    /**
     * Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
     */
     'subject'?: string;
@@ -82,6 +86,12 @@ export class SendEmailRequest {
         {
             "name": "htmlBody",
             "baseName": "html_body",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "replyTo",
+            "baseName": "reply_to",
             "type": "string",
             "format": ""
         },

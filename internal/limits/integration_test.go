@@ -53,8 +53,7 @@ func TestStorageTrigger_IncrementsOnInsert(t *testing.T) {
 	_, err := idStore.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"alice@example.com"}, nil, nil,
 		"hi", "body text here", "<p>body html here</p>", attachJSON,
-		"send", "", "", 60,
-	)
+		"send", "", "", "", 60)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}
@@ -76,8 +75,7 @@ func TestStorageTrigger_DecrementsOnDelete(t *testing.T) {
 	msg, err := idStore.CreatePendingOutboundMessage(ctx, agent.ID,
 		[]string{"alice@example.com"}, nil, nil,
 		"hi", "some body text", "", nil,
-		"send", "", "", 60,
-	)
+		"send", "", "", "", 60)
 	if err != nil {
 		t.Fatalf("CreatePendingOutboundMessage: %v", err)
 	}
