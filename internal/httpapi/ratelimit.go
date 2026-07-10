@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -66,15 +67,40 @@ func (s *Server) rateLimit(ctx huma.Context, next func(huma.Context)) {
 			next(ctx)
 			return
 		}
-		snap, key = s.deps.PollLimit, p.User.ID
 		// Reuse the principal so the handler does not authenticate a second
 		// time on the hot read path.
 		ctx = huma.WithContext(ctx, withPrincipal(ctx.Context(), p))
+		// Trusted internal traffic (system probes, internal dogfooding /
+		// conformance) bypasses the limiter — same policy axis as metering.
+		if !usage.RateLimited(usage.AccountClass(p.User.AccountClass)) {
+			next(ctx)
+			return
+		}
+		snap, key = s.deps.PollLimit, p.User.ID
 	case op.OperationID == "createAgent" && s.deps.RegLimit != nil:
 		r := RequestFromContext(ctx.Context())
 		if r == nil {
 			next(ctx)
 			return
+		}
+		// Exempt trusted internal classes (system/internal) from the per-IP
+		// registration limiter, reusing the resolved principal downstream.
+		// Resolving here costs a keyed api_keys touch even on an over-cap
+		// attempt (origin/main rejected those IP-only at zero DB cost); accepted
+		// because the exemption must be bucket-independent (behind a proxy the
+		// per-IP bucket is shared), the caller already holds a valid credential,
+		// the write lands only on the caller's OWN key row, and registration is
+		// low-QPS. Branch on the resolve error rather than pre-checking a
+		// specific authenticator field — resolvePrincipal prefers
+		// PrincipalAuthenticator and errors when neither is wired, so an
+		// unauthenticated/unresolvable create simply falls through to the
+		// limiter and the handler emits the canonical 401.
+		if p, err := s.resolvePrincipal(r); err == nil {
+			ctx = huma.WithContext(ctx, withPrincipal(ctx.Context(), p))
+			if !usage.RateLimited(usage.AccountClass(p.User.AccountClass)) {
+				next(ctx)
+				return
+			}
 		}
 		snap, key = s.deps.RegLimit, clientIP(r)
 	default:
