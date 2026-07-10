@@ -53,6 +53,17 @@ func TestAdoptSharedDomain(t *testing.T) {
 	if _, err := store.AdoptSharedDomain(ctx, "nope.example.com", u1.ID); !errors.Is(err, identity.ErrDomainTaken) {
 		t.Fatalf("AdoptSharedDomain (missing): err = %v, want ErrDomainTaken", err)
 	}
+
+	// An ownerless but UNVERIFIED row is not adoptable: the verified=true guard
+	// scopes the method to the server-seeded shared-domain shape, so it can never
+	// hand out some other NULL-owner row even if one existed.
+	const unverified = "ownerless.unverified.example.com"
+	if _, err := pool.Exec(ctx, `INSERT INTO domains (domain, user_id, verified) VALUES ($1, NULL, false)`, unverified); err != nil {
+		t.Fatalf("seed unverified ownerless row: %v", err)
+	}
+	if _, err := store.AdoptSharedDomain(ctx, unverified, u1.ID); !errors.Is(err, identity.ErrDomainTaken) {
+		t.Fatalf("AdoptSharedDomain (unverified ownerless): err = %v, want ErrDomainTaken", err)
+	}
 }
 
 func TestEnsureSharedDomain_EmptyIsNoop(t *testing.T) {

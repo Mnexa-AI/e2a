@@ -52,8 +52,9 @@ func seedProbe(ctx context.Context, store *identity.Store, agentEmail, sinkURL s
 		// ON CONFLICT DO NOTHING), which ClaimOrCreateDomain can't claim — it only
 		// upserts an unverified, same-user row. The probe identity lives on that
 		// shared domain by design (slug agents need no DNS verification), so adopt
-		// the ownerless row under the probe user instead of failing. Idempotent:
-		// AdoptSharedDomain also returns a row already owned by the probe user.
+		// the ownerless row under the probe user instead of failing. (On re-seed
+		// the row is already probe-owned and verified, so ClaimOrCreateDomain
+		// returns it directly and this fallback isn't reached.)
 		dom, err = store.AdoptSharedDomain(ctx, domain, user.ID)
 	}
 	if err != nil {

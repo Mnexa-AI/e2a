@@ -553,21 +553,26 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	return nil, ErrDomainTaken
 }
 
-// AdoptSharedDomain assigns ownership of an existing domain row to userID,
-// used to claim the configured shared domain that the server seeds on every
-// boot via EnsureSharedDomain (user_id NULL, verified true). ClaimOrCreateDomain
-// cannot claim that row — it only upserts an unverified, same-user row — yet the
+// AdoptSharedDomain assigns ownership of the server-seeded shared-domain row to
+// userID. The server seeds that row on every boot via EnsureSharedDomain
+// (user_id NULL, verified true, ON CONFLICT DO NOTHING); ClaimOrCreateDomain
+// cannot claim it — it only upserts an unverified, same-user row — yet the
 // probe/system identity that seeds itself lives on the shared domain by design.
-// Adoption is scoped to a currently-unowned row (or one already owned by userID,
-// so re-seeding is idempotent); a row owned by a different account is left
-// untouched and ErrDomainTaken is returned. The verified flag and DKIM columns
-// are not modified.
+//
+// The UPDATE is guarded to a VERIFIED, currently-unowned row (or one already
+// owned by userID, so re-seeding is idempotent). Requiring verified=true — the
+// signature EnsureSharedDomain stamps — keeps this method from ever adopting
+// some other ownerless row, so its safety does not rely on the domains schema
+// never producing another NULL-owner row nor on the caller passing only a
+// trusted domain. A row owned by a different account, a nonexistent row, or an
+// ownerless-but-unverified row all match nothing and return ErrDomainTaken. The
+// verified flag and DKIM columns are not modified.
 func (s *Store) AdoptSharedDomain(ctx context.Context, domain, userID string) (*Domain, error) {
 	domain = normalizeDomain(domain)
 	d := &Domain{}
 	err := s.pool.QueryRow(ctx,
 		`UPDATE domains SET user_id = $2
-		 WHERE domain = $1 AND (user_id IS NULL OR user_id = $2)
+		 WHERE domain = $1 AND verified = true AND (user_id IS NULL OR user_id = $2)
 		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')`,
 		domain, userID,
 	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus)
