@@ -37,6 +37,12 @@ export const agentMessagesKey = (
 ) =>
   ["agent-messages", email, direction, status, token ?? null] as const;
 
+// Per-inbox unread flag for the Inboxes list (getInboxHasUnread →
+// GET /v1/agents/{address}/messages?read_status=unread&limit=1), keyed
+// by the owning agent's email so each card caches independently.
+export const agentUnreadKey = (email: string) =>
+  ["agent-unread", email] as const;
+
 // Agent-scoped in /v1: the detail fetch is GET /v1/agents/{address}/
 // messages/{id}, so the cache key carries the owning agent's email.
 export const pendingMessageKey = (email: string, id: string) =>
@@ -96,6 +102,13 @@ export function invalidateAllAgentMessages() {
   return mutate(
     (key) => Array.isArray(key) && key[0] === "agent-messages",
   );
+}
+
+// After a message is read (its detail fetch flips inbox_status → read on
+// the backend), the Inboxes list unread badge for that agent is stale.
+// Revalidate its per-agent probe so the count drops without a hard refresh.
+export function invalidateAgentUnread(email: string) {
+  return mutate(agentUnreadKey(email));
 }
 
 export function invalidateDomains() {

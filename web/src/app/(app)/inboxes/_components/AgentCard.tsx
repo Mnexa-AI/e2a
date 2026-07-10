@@ -1,12 +1,33 @@
+"use client";
+
 import Link from "next/link";
+import useSWR from "swr";
 import type { DashboardAgent } from "../../../components/types";
 import { Chip, Dot } from "@e2a/ui";
+import {
+  getInboxUnread,
+  UNREAD_BADGE_CAP,
+} from "../../../components/onboarding/api";
+import { agentUnreadKey } from "../../../../lib/swrKeys";
 
 export function AgentCard({
   agent,
 }: {
   agent: DashboardAgent;
 }) {
+  // Option A unread affordance: one lightweight per-card probe against the
+  // messages endpoint (read_status=unread). SWR shares/dedupes the call and
+  // revalidates on focus, so returning to this tab after reading an inbox
+  // updates the count. Failures degrade silently to "no badge".
+  const { data: unread } = useSWR(agentUnreadKey(agent.email), () =>
+    getInboxUnread(agent.email).catch(() => ({ count: 0, more: false })),
+  );
+  const unreadCount = unread?.count ?? 0;
+  const unreadLabel =
+    unread?.more || unreadCount > UNREAD_BADGE_CAP
+      ? `${UNREAD_BADGE_CAP}+`
+      : String(unreadCount);
+
   return (
     <div
       style={{
@@ -27,6 +48,28 @@ export function AgentCard({
               (Activity log) so clicking the agent's address from the
               dashboard lands on the debug surface for that agent. */}
           <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {unreadCount > 0 && (
+              // Red unread count badge. Solid --danger with white text
+              // reads in both themes; sr-only text spells it out for
+              // screen readers since the number alone lacks context.
+              <span
+                className="inline-flex items-center justify-center shrink-0 font-mono font-semibold tabular-nums"
+                title={`${unreadLabel} unread`}
+                style={{
+                  minWidth: 18,
+                  height: 18,
+                  padding: "0 5px",
+                  fontSize: 11,
+                  lineHeight: 1,
+                  color: "#fff",
+                  background: "var(--danger)",
+                  borderRadius: 999,
+                }}
+              >
+                {unreadLabel}
+                <span className="sr-only"> unread messages</span>
+              </span>
+            )}
             {agent.name && (
               <Link
                 href={`/inboxes/messages?email=${encodeURIComponent(agent.email)}`}

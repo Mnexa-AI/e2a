@@ -13,6 +13,10 @@ import { Chip, Dot } from "@e2a/ui";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { EmailHtmlBody } from "./EmailHtmlBody";
 import { getMessageDetail } from "../onboarding/api";
+import {
+  invalidateAgentMessages,
+  invalidateAgentUnread,
+} from "../../../lib/swrKeys";
 import type { MessageSummary } from "../types";
 import type { Counterparty } from "./threading";
 
@@ -68,11 +72,28 @@ export function ThreadBubble({
   const pending = message.review_status === "pending_review";
   const [showDetails, setShowDetails] = useState(false);
 
+  // Opening a message body fetches its detail, which flips inbox_status
+  // unread → read on the backend (GetMessageWithContent). Capture whether
+  // THIS row was an unread inbound message at fetch time so we can refresh
+  // the stale caches once the read-flip has happened.
+  const wasUnreadInbound = isInbound && message.read_status === "unread";
+
   // Fetch this message's body. Keyed per (agent, id, direction) so each
   // message caches independently and shares with the focus page's cache.
   const { data: detail, isLoading } = useSWR(
     ["thread-msg-body", agentEmail, message.message_id, message.direction] as const,
     () => getMessageDetail(agentEmail, message.message_id, message.direction),
+    {
+      // After the read-flip, the thread list (bold rows) and the Inboxes
+      // unread badge both hold stale unread state. Revalidate them so the
+      // row un-bolds and the badge count drops without a hard refresh.
+      onSuccess: () => {
+        if (wasUnreadInbound) {
+          invalidateAgentMessages(agentEmail);
+          invalidateAgentUnread(agentEmail);
+        }
+      },
+    },
   );
 
   // Resolve both representations: a rich HTML body (rendered sanitized in a

@@ -214,6 +214,30 @@ export async function listAgentMessages(
   };
 }
 
+// Max unread we count before showing "N+" — keeps the per-card probe a
+// small fixed page instead of walking the whole unread backlog.
+export const UNREAD_BADGE_CAP = 99;
+
+// Inbox-level unread rollup for the Inboxes list. Asks the messages
+// endpoint for unread inbound rows (read_status=unread is the backend's
+// inbound read-state filter — MSG-1) and reports how many there are. We
+// pull one capped page (limit=CAP) and treat a returned cursor as "more
+// than CAP" so the card can render "99+". One call per inbox card
+// (Option A); a native per-agent unread count on GET /v1/agents would
+// replace this later.
+export async function getInboxUnread(
+  email: string,
+): Promise<{ count: number; more: boolean }> {
+  const page = await request<PageMessageSummaryWire>(
+    "/v1/agents/" +
+      encodeURIComponent(email) +
+      "/messages?direction=inbound&read_status=unread&limit=" +
+      UNREAD_BADGE_CAP,
+  );
+  const count = (page.items ?? []).length;
+  return { count, more: Boolean(page.next_cursor) };
+}
+
 // Wire shape of MessageView (GET /v1/agents/{address}/messages/{id}).
 type MessageViewWire = {
   message_id: string;

@@ -5,7 +5,12 @@
 // shape, which silently disabled the whole pending queue. These tests
 // pin the projection to the v1 field names so that can't recur.
 
-import { listAgentMessages, listPendingMessages } from "./api";
+import {
+  listAgentMessages,
+  listPendingMessages,
+  getInboxUnread,
+  UNREAD_BADGE_CAP,
+} from "./api";
 
 const mockFetch = jest.fn();
 beforeEach(() => {
@@ -122,5 +127,57 @@ describe("message projection (v1 contract)", () => {
     await listPendingMessages();
     const urls = mockFetch.mock.calls.map((c) => c[0] as string);
     expect(urls).toEqual(["/v1/reviews"]);
+  });
+});
+
+describe("getInboxUnread (Inboxes list badge probe)", () => {
+  it("queries inbound unread with the capped limit and reports the count", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      url.includes("/messages")
+        ? okJson({
+            items: [
+              { message_id: "m1" },
+              { message_id: "m2" },
+              { message_id: "m3" },
+            ],
+            next_cursor: null,
+          })
+        : notFound(),
+    );
+    const res = await getInboxUnread("billing@acme.dev");
+    expect(res).toEqual({ count: 3, more: false });
+
+    // Must filter on the backend's inbound read-state param (read_status),
+    // not the ignored `status` param, and only pull one capped page.
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("/v1/agents/billing%40acme.dev/messages");
+    expect(url).toContain("direction=inbound");
+    expect(url).toContain("read_status=unread");
+    expect(url).toContain(`limit=${UNREAD_BADGE_CAP}`);
+  });
+
+  it("flags more=true when the capped page is full (cursor present)", async () => {
+    // A returned cursor means there are more unread than the cap — the card
+    // renders "N+" off this flag.
+    mockFetch.mockImplementation((url: string) =>
+      url.includes("/messages")
+        ? okJson({
+            items: Array.from({ length: UNREAD_BADGE_CAP }, (_, i) => ({
+              message_id: `m${i}`,
+            })),
+            next_cursor: "cursor-abc",
+          })
+        : notFound(),
+    );
+    const res = await getInboxUnread("billing@acme.dev");
+    expect(res.count).toBe(UNREAD_BADGE_CAP);
+    expect(res.more).toBe(true);
+  });
+
+  it("reports zero unread on an empty page", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      url.includes("/messages") ? okJson({ items: [], next_cursor: null }) : notFound(),
+    );
+    expect(await getInboxUnread("billing@acme.dev")).toEqual({ count: 0, more: false });
   });
 });
