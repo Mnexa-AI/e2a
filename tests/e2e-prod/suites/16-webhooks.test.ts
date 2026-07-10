@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { uniqueSlug } from "../harness/fixtures.ts";
-import { fail, info, writeReport } from "../harness/report.ts";
+import { info, writeReport } from "../harness/report.ts";
 
 // Black-box conformance for the webhooks API (8 ops) against LIVE staging.
 // Shapes/status codes verified against api/openapi.yaml (the drift-gated SSOT)

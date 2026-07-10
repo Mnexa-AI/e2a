@@ -106,11 +106,16 @@ async function doSetup(): Promise<SentAttachment | null> {
   return null;
 }
 
+// Build the fixture ONCE up front. When staging can't produce a retrievable
+// attachment, the real-retrieval + capability-token tests SKIP (not silently
+// pass) — so a broken fixture can never hide a regression in the authz coverage.
+const fixture = await ensureSentAttachment();
+const fxSkip = fixture ? false : "staging could not produce a retrievable attachment fixture";
+
 // ── Happy path (real attachment retrieval) ───────────────────────────────────
 
-test("getAttachment: returns AttachmentView (metadata + short-lived download_url)", async () => {
-  const s = await ensureSentAttachment();
-  if (!s) return; // limitation already flagged in setup
+test("getAttachment: returns AttachmentView (metadata + short-lived download_url)", { skip: fxSkip }, async () => {
+  const s = fixture!;
   const r = await client.get<{
     index: number;
     filename?: string;
@@ -139,9 +144,8 @@ test("getAttachment: returns AttachmentView (metadata + short-lived download_url
   assert.ok(r.body?.data === undefined, "no inline `data` unless inline=true");
 });
 
-test("getAttachment: ?inline=true returns base64 data that round-trips", async () => {
-  const s = await ensureSentAttachment();
-  if (!s) return;
+test("getAttachment: ?inline=true returns base64 data that round-trips", { skip: fxSkip }, async () => {
+  const s = fixture!;
   const r = await client.get<{ data?: string; size_bytes: number }>(
     `/v1/agents/${encodeURIComponent(s.agentEmail)}/messages/${s.messageId}/attachments/0`,
     { query: { inline: "true" } },
@@ -152,9 +156,8 @@ test("getAttachment: ?inline=true returns base64 data that round-trips", async (
   assert.equal(decoded, ATTACH_TEXT, "inline data decodes back to the sent bytes");
 });
 
-test("getAttachment: out-of-range index returns 404 attachment_not_found", async () => {
-  const s = await ensureSentAttachment();
-  if (!s) return;
+test("getAttachment: out-of-range index returns 404 attachment_not_found", { skip: fxSkip }, async () => {
+  const s = fixture!;
   const r = await client.get<{ error?: { code?: string } }>(
     `/v1/agents/${encodeURIComponent(s.agentEmail)}/messages/${s.messageId}/attachments/9`,
   );
@@ -162,9 +165,8 @@ test("getAttachment: out-of-range index returns 404 attachment_not_found", async
   assert.equal(r.body?.error?.code, "attachment_not_found", "error envelope carries attachment_not_found");
 });
 
-test("download: valid capability token streams the exact bytes", async () => {
-  const s = await ensureSentAttachment();
-  if (!s) return;
+test("download: valid capability token streams the exact bytes", { skip: fxSkip }, async () => {
+  const s = fixture!;
   const meta = await client.get<{ download_url: string }>(
     `/v1/agents/${encodeURIComponent(s.agentEmail)}/messages/${s.messageId}/attachments/0`,
   );
@@ -183,9 +185,8 @@ test("download: valid capability token streams the exact bytes", async () => {
   assert.equal(dl.headers["x-content-type-options"], "nosniff", "download is served nosniff");
 });
 
-test("download: token bound to index 0 is rejected for index 1 (capability scoping)", async () => {
-  const s = await ensureSentAttachment();
-  if (!s) return;
+test("download: token bound to index 0 is rejected for index 1 (capability scoping)", { skip: fxSkip }, async () => {
+  const s = fixture!;
   const meta = await client.get<{ download_url: string }>(
     `/v1/agents/${encodeURIComponent(s.agentEmail)}/messages/${s.messageId}/attachments/0`,
   );
@@ -195,9 +196,8 @@ test("download: token bound to index 0 is rejected for index 1 (capability scopi
   assert.equal(dl.status, 403, `index-swapped token → 403, got ${dl.status}: ${dl.raw.slice(0, 200)}`);
 });
 
-test("download: valid token is rejected when the {email} path names a different agent (path-agent binding)", async () => {
-  const s = await ensureSentAttachment();
-  if (!s) return;
+test("download: valid token is rejected when the {email} path names a different agent (path-agent binding)", { skip: fxSkip }, async () => {
+  const s = fixture!;
   const meta = await client.get<{ download_url: string }>(
     `/v1/agents/${encodeURIComponent(s.agentEmail)}/messages/${s.messageId}/attachments/0`,
   );
