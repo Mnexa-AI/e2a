@@ -177,7 +177,7 @@ func main() {
 	// (webhook_events) → drain → River delivery; the legacy in-process
 	// publisher is retired.
 	subscriberStore := webhook.NewSubscriberStore(pool)
-	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction())
+	subscriberDeliverer := webhook.NewSubscriberDeliverer(cfg.IsProduction(), cfg.Webhook.InternalSinkURL)
 
 	// The transactional outbox is now UNCONDITIONAL (webhook-delivery→River
 	// migration): every event commits to webhook_events in the message tx, so

@@ -144,7 +144,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	// events. Neither worker is started as a goroutine — tests call
 	// DrainAndDeliver(ctx) directly for deterministic delivery without any tick.
 	subscriberStore := webhook.NewSubscriberStore(pool)
-	subscriberDeliverer := webhook.NewSubscriberDeliverer(false)
+	subscriberDeliverer := webhook.NewSubscriberDeliverer(false, "")
 	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
 	outboxWorker := webhookpub.NewOutboxWorker(pool, store)
 	deliverWorker := webhookdelivery.NewDeliverWorker(subscriberStore, subscriberDeliverer, store)

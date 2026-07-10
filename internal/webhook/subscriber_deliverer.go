@@ -25,6 +25,13 @@ import (
 type SubscriberDeliverer struct {
 	client       *http.Client
 	requireHTTPS bool
+
+	// internalSinkURL, when non-empty, is a single trusted internal sink URL
+	// (the e2a-prober's /sink) that is EXEMPT from the production HTTPS +
+	// SSRF-dial guards; exemptClient serves only that URL. See
+	// NewSubscriberDeliverer for the safety argument.
+	internalSinkURL string
+	exemptClient    *http.Client
 }
 
 // NewSubscriberDeliverer constructs the deliverer with the 15s
@@ -36,16 +43,25 @@ type SubscriberDeliverer struct {
 // internal IP before delivery (DNS rebinding). The guard re-checks the actual
 // resolved IP at connect time, closing that window. It is gated to production
 // so local/CI deliveries to 127.0.0.1 still work.
-func NewSubscriberDeliverer(requireHTTPS bool) *SubscriberDeliverer {
+//
+// internalSinkURL (usually empty) names ONE trusted internal sink — the
+// e2a-prober's /sink — reached over plain HTTP on an internal host. Deliveries
+// to that EXACT URL bypass the HTTPS + SSRF guards via a separate exemptClient.
+// This is safe because: (1) the value is server-operator config, never attacker
+// input; (2) it is matched by exact string equality, so it grants access to no
+// other internal address; and (3) the probe webhook that targets it is created
+// by the privileged prober `seed`, not the public registration API (which
+// rejects http:// + private hosts). Empty disables the exemption entirely.
+func NewSubscriberDeliverer(requireHTTPS bool, internalSinkURL string) *SubscriberDeliverer {
+	// Refuse redirects to prevent SSRF — same defense the legacy Deliverer
+	// uses. A registered HTTPS URL that 301s to 127.0.0.1 would otherwise let
+	// an attacker reach internal services. Applied to BOTH clients.
+	noRedirect := func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	client := &http.Client{
-		Timeout: 15 * time.Second,
-		// Refuse redirects to prevent SSRF — same defense the
-		// legacy Deliverer uses. A registered HTTPS URL that
-		// 301s to 127.0.0.1 would otherwise let an attacker
-		// reach internal services.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+		Timeout:       15 * time.Second,
+		CheckRedirect: noRedirect,
 	}
 	if requireHTTPS {
 		client.Transport = &http.Transport{
@@ -62,10 +78,22 @@ func NewSubscriberDeliverer(requireHTTPS bool) *SubscriberDeliverer {
 			ExpectContinueTimeout: 1 * time.Second,
 		}
 	}
-	return &SubscriberDeliverer{
-		client:       client,
-		requireHTTPS: requireHTTPS,
+	d := &SubscriberDeliverer{
+		client:          client,
+		requireHTTPS:    requireHTTPS,
+		internalSinkURL: internalSinkURL,
 	}
+	// The exempt client keeps the no-redirect defense but uses the default
+	// transport (no guardedDialControl), so it can reach the internal sink's
+	// private IP. It is used ONLY for deliveries whose URL exactly equals
+	// internalSinkURL.
+	if internalSinkURL != "" {
+		d.exemptClient = &http.Client{
+			Timeout:       15 * time.Second,
+			CheckRedirect: noRedirect,
+		}
+	}
+	return d
 }
 
 // DeliveryOutcome is what the deliverer returns to the caller for
@@ -91,7 +119,13 @@ type DeliveryOutcome struct {
 // redirects are blocked) is a failure with the HTTP status code
 // reported back. Connection errors return Success=false and StatusCode=0.
 func (d *SubscriberDeliverer) Deliver(ctx context.Context, url string, body []byte, secret, secretPrev string) DeliveryOutcome {
-	if d.requireHTTPS && !strings.HasPrefix(url, "https://") {
+	client := d.client
+	if d.internalSinkURL != "" && url == d.internalSinkURL {
+		// Trusted internal sink (see NewSubscriberDeliverer): exempt from the
+		// HTTPS + SSRF guards. exemptClient is always non-nil when
+		// internalSinkURL is set.
+		client = d.exemptClient
+	} else if d.requireHTTPS && !strings.HasPrefix(url, "https://") {
 		return DeliveryOutcome{Success: false, Error: "webhook URL must use HTTPS in production"}
 	}
 
@@ -106,7 +140,7 @@ func (d *SubscriberDeliverer) Deliver(ctx context.Context, url string, body []by
 	req.Header.Set("X-E2A-Signature", signatureValue)
 	req.Header.Set("User-Agent", "e2a-webhooks/1")
 
-	resp, err := d.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return DeliveryOutcome{Success: false, Error: err.Error()}
 	}

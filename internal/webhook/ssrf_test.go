@@ -61,7 +61,7 @@ func TestGuardedDialControl(t *testing.T) {
 // webhook URL that resolves to an internal IP — the DNS-rebinding payload — is
 // refused at connect time even though it passed registration validation.
 func TestSubscriberDeliverer_ProdBlocksInternalIP(t *testing.T) {
-	d := NewSubscriberDeliverer(true)
+	d := NewSubscriberDeliverer(true, "")
 	// A literal-IP HTTPS URL clears the scheme check, then the dial guard
 	// rejects the resolved loopback address before any connection is made.
 	out := d.Deliver(context.Background(), "https://127.0.0.1:9/hook", []byte(`{}`), "whsec_x", "")
@@ -76,7 +76,7 @@ func TestSubscriberDeliverer_ProdBlocksInternalIP(t *testing.T) {
 // The non-production deliverer keeps the default transport (no guard) so local
 // and CI deliveries to 127.0.0.1 still work.
 func TestSubscriberDeliverer_DevAllowsLoopbackTransport(t *testing.T) {
-	d := NewSubscriberDeliverer(false)
+	d := NewSubscriberDeliverer(false, "")
 	if d.client.Transport != nil {
 		t.Error("dev deliverer installed a custom transport; want default (no IP guard)")
 	}

@@ -43,6 +43,7 @@ type Config struct {
 	Outbound         OutboundConfig         `yaml:"outbound"`
 	Inbound          InboundConfig          `yaml:"inbound"`
 	WebhookFanout    WebhookFanoutConfig    `yaml:"webhook_fanout"`
+	Webhook          WebhookConfig          `yaml:"webhook"`
 	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
 	Limits           LimitsConfig           `yaml:"limits"`
@@ -159,6 +160,19 @@ type InboundConfig struct {
 // "legacy" (fail-safe to the unchanged path). Wired in Slice 2; unused under legacy.
 type WebhookFanoutConfig struct {
 	Mode string `yaml:"mode"`
+}
+
+// WebhookConfig carries webhook-delivery settings other than the fan-out engine
+// choice. InternalSinkURL, when set, names a single trusted internal sink URL
+// (the e2a-prober's /sink) that is EXEMPT from the production HTTPS-required +
+// SSRF private-IP delivery guards. It must exactly match the probe webhook's
+// registered URL. Safe: it is a server-operator config value (never attacker
+// input), matched by exact string equality, and the probe webhook is created by
+// the privileged prober `seed`, not the public registration API (which rejects
+// http:// + private hosts). Override with E2A_WEBHOOK_INTERNAL_SINK_URL. Empty
+// (the default) disables the exemption.
+type WebhookConfig struct {
+	InternalSinkURL string `yaml:"internal_sink_url"`
 }
 
 // DeliveryFeedbackConfig controls outbound delivery feedback (decision 9 /
@@ -306,6 +320,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_WEBHOOK_FANOUT_MODE"); v != "" {
 		cfg.WebhookFanout.Mode = v
+	}
+	if v := os.Getenv("E2A_WEBHOOK_INTERNAL_SINK_URL"); v != "" {
+		cfg.Webhook.InternalSinkURL = v
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_REQUIRE_TLS"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {

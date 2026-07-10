@@ -25,7 +25,7 @@ func TestSubscriberDeliverer_SignsRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewSubscriberDeliverer(false)
+	d := NewSubscriberDeliverer(false, "")
 	body := []byte(`{"event":"email.received","id":"evt_x"}`)
 	out := d.Deliver(context.Background(), srv.URL, body, "whsec_secret", "")
 	if !out.Success {
@@ -70,7 +70,7 @@ func TestSubscriberDeliverer_DualSigDuringRotationGrace(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewSubscriberDeliverer(false)
+	d := NewSubscriberDeliverer(false, "")
 	body := []byte(`{"event":"email.received"}`)
 	out := d.Deliver(context.Background(), srv.URL, body, "whsec_new", "whsec_old")
 	if !out.Success {
@@ -90,7 +90,7 @@ func TestSubscriberDeliverer_4xxIsFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewSubscriberDeliverer(false)
+	d := NewSubscriberDeliverer(false, "")
 	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "")
 	if out.Success {
 		t.Error("4xx response reported as success")
@@ -106,7 +106,7 @@ func TestSubscriberDeliverer_5xxIsFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewSubscriberDeliverer(false)
+	d := NewSubscriberDeliverer(false, "")
 	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "")
 	if out.Success {
 		t.Error("5xx response reported as success")
@@ -120,7 +120,7 @@ func TestSubscriberDeliverer_ConnectionErrorReportsZeroStatus(t *testing.T) {
 	// 192.0.2.0/24 is reserved for documentation per RFC 5737;
 	// connection attempts to it should fail without ever reaching a
 	// real service.
-	d := NewSubscriberDeliverer(false)
+	d := NewSubscriberDeliverer(false, "")
 	d.client.Timeout = 100 * time.Millisecond // speed up the test
 	out := d.Deliver(context.Background(), "http://192.0.2.1:8080/", []byte(`{}`), "whsec_x", "")
 	if out.Success {
@@ -132,13 +132,48 @@ func TestSubscriberDeliverer_ConnectionErrorReportsZeroStatus(t *testing.T) {
 }
 
 func TestSubscriberDeliverer_RefusesPlaintextInProd(t *testing.T) {
-	d := NewSubscriberDeliverer(true) // requireHTTPS=true
+	d := NewSubscriberDeliverer(true, "") // requireHTTPS=true
 	out := d.Deliver(context.Background(), "http://example.com/hook", []byte(`{}`), "whsec_x", "")
 	if out.Success {
 		t.Error("plaintext URL allowed in HTTPS-required mode")
 	}
 	if !strings.Contains(out.Error, "HTTPS") {
 		t.Errorf("error message doesn't mention HTTPS: %q", out.Error)
+	}
+}
+
+func TestSubscriberDeliverer_ExemptsConfiguredInternalSink(t *testing.T) {
+	// A plaintext, loopback sink — exactly what the e2a-prober exposes. Under
+	// requireHTTPS=true this would normally be refused (http://) and, if it got
+	// that far, dial-blocked (127.0.0.1). Configured as the internal sink, an
+	// exact-URL-match delivery must bypass both guards.
+	var hit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	d := NewSubscriberDeliverer(true /* requireHTTPS */, srv.URL /* internalSinkURL */)
+
+	// Exact match → exempt → delivered over plain HTTP to loopback.
+	out := d.Deliver(context.Background(), srv.URL, []byte(`{"event":"email.received"}`), "whsec_x", "")
+	if !out.Success {
+		t.Fatalf("delivery to the configured internal sink failed: %+v", out)
+	}
+	if !hit {
+		t.Error("sink handler was never called")
+	}
+
+	// A DIFFERENT plaintext URL is NOT exempt — exact-match only, so the HTTPS
+	// guard still applies. This is the security property that keeps the
+	// exemption from widening into an arbitrary-internal-host SSRF.
+	out = d.Deliver(context.Background(), "http://example.com/other", []byte(`{}`), "whsec_x", "")
+	if out.Success {
+		t.Error("a non-sink plaintext URL was allowed — exemption must be exact-match only")
+	}
+	if !strings.Contains(out.Error, "HTTPS") {
+		t.Errorf("non-sink plaintext error should mention HTTPS, got %q", out.Error)
 	}
 }
 
@@ -151,7 +186,7 @@ func TestSubscriberDeliverer_RefusesRedirects(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewSubscriberDeliverer(false)
+	d := NewSubscriberDeliverer(false, "")
 	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "")
 	if out.Success {
 		t.Error("3xx response reported as success — redirects must be refused")

@@ -98,7 +98,7 @@ func newEventsFixture(t *testing.T) *eventsE2EFixture {
 	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
 	worker := webhookpub.NewOutboxWorker(pool, store)
 	subStore := webhook.NewSubscriberStore(pool)
-	subDeliverer := webhook.NewSubscriberDeliverer(false)
+	subDeliverer := webhook.NewSubscriberDeliverer(false, "")
 	deliverWorker := webhookdelivery.NewDeliverWorker(subStore, subDeliverer, store)
 
 	// HTTP server wired with the agent API for the events endpoints.
