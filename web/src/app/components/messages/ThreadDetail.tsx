@@ -61,10 +61,13 @@ export function ThreadDetail({
   return (
     <div
       data-testid="thread-detail"
-      className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden"
+      className="flex-1 flex flex-col min-w-0"
       style={{ background: "var(--bg)" }}
     >
-      {/* Header */}
+      {/* Header. Not pinned — it scrolls away with the thread like Gmail's
+          conversation view. (The old viewport-locked layout stranded it
+          above a nested scroller, which is what produced the second
+          scrollbar / can't-scroll-past-header behavior.) */}
       <div
         style={{
           padding: "18px 28px",
@@ -159,9 +162,10 @@ export function ThreadDetail({
         </div>
       </div>
 
-      {/* Body: chat log */}
+      {/* Body: chat log. Flows in the page's single scroll — no internal
+          overflow container (that was half of the two-scrollbar bug). */}
       <div
-        className="flex-1 overflow-y-auto"
+        className="flex-1"
         style={{ padding: "24px 28px 28px" }}
       >
         {thread.messages.map((m) => (

@@ -30,13 +30,15 @@ export function ThreadList({
   return (
     <div
       data-testid="thread-list"
-      className="flex-1 flex flex-col min-h-0 overflow-hidden"
+      className="flex-1 flex flex-col"
       style={{
         background: "var(--bg-panel)",
       }}
     >
-      {/* Rows */}
-      <div className="overflow-y-auto flex-1">
+      {/* Rows — flow in the page's single scroll (no internal overflow
+          container) so the inbox list scrolls with the document rather
+          than nesting a second scrollbar. */}
+      <div className="flex-1">
         {threads.length === 0 && (
           <div
             data-testid="thread-list-empty"

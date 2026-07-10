@@ -186,12 +186,17 @@ function AgentInboxContent() {
   return (
     <div
       data-testid="agent-inbox"
-      className="flex flex-col min-h-0"
+      className="flex flex-col"
       style={{
         borderTop: "1px solid var(--border)",
-        // Fill remaining viewport under (app) chrome + agent header so the
-        // list / conversation scrolls internally like an email client.
-        height: "calc(100vh - var(--chrome-h) - 200px)",
+        // Natural-height flow so the page owns a single scroll (document /
+        // app-shell) instead of a nested internal scroller. The old
+        // `height: calc(100vh …)` viewport-lock made the list/conversation
+        // scroll internally — an email-client idiom that on mobile produced
+        // two scrollbars and a header you couldn't scroll past. The header
+        // still stays put on desktop via `position: sticky` (ThreadDetail),
+        // which needs no second scroll container. minHeight keeps short
+        // threads from collapsing the panel on tall desktop viewports.
         minHeight: 520,
       }}
     >
@@ -217,7 +222,7 @@ function AgentInboxContent() {
         </div>
       )}
       {!error && initialPage && (
-        <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 flex flex-col">
           {selected ? (
             <ThreadDetail
               thread={selected}

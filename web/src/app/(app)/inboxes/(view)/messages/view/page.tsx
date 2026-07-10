@@ -360,7 +360,6 @@ function FocusContent({
       data-testid="message-focus"
       data-direction={direction}
       data-status={statusAttr}
-      className="flex-1 min-h-0 overflow-y-auto"
       style={{ padding: "24px 28px 32px" }}
     >
       {/* Title block */}
