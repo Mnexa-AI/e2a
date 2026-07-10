@@ -54,8 +54,11 @@ func TestSelftestAll_AgainstRealServer(t *testing.T) {
 	sink := selftest.NewHTTPSink()
 	sinkSrv := httptest.NewServer(sink)
 	defer sinkSrv.Close()
+	// Subscribe to both event types the battery asserts on — email.received for
+	// the inbound round-trip and email.sent for the outbound-send scenario —
+	// mirroring what cmd/e2a-prober seed provisions.
 	wh, err := ts.Store.CreateWebhook(ctx, user.ID, sinkSrv.URL+"/sink", "selftest",
-		[]string{"email.received"}, identity.WebhookFilters{})
+		[]string{"email.received", "email.sent"}, identity.WebhookFilters{})
 	if err != nil {
 		t.Fatalf("CreateWebhook: %v", err)
 	}

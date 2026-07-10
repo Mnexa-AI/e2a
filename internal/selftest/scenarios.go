@@ -25,13 +25,18 @@ import (
 const defaultRoundTripTimeout = 30 * time.Second
 
 // All is the critical-path battery. Every scenario here is SmokeSafe: read-only,
-// a loopback (no egress), or the inbound round-trip (synthetic mail to the probe
-// agent, no real recipient). None meters (the probe runs under a system-class
-// account) and none emails an owner.
+// a loopback (no egress), the inbound round-trip (synthetic mail to the probe
+// agent), or a real outbound send to the AWS mailbox simulator (no real
+// recipient). None meters (the probe runs under a system-class account) and none
+// emails an owner.
 var All = []Scenario{
 	{Name: "liveness", SmokeSafe: true, Run: scenarioLiveness},
 	{Name: "auth_read", SmokeSafe: true, Run: scenarioAuthRead},
 	{Name: "inbound_round_trip", SmokeSafe: true, Run: scenarioInboundRoundTrip},
+	// outbound_send does a REAL SES submit, but only to the mailbox simulator
+	// (no real recipient, no cost, no owner notification, system-class = no
+	// metering), then confirms the email.sent event is delivered + HMAC-signed.
+	{Name: "outbound_send", SmokeSafe: true, Run: scenarioOutboundSend},
 	{Name: "self_send_loopback", SmokeSafe: true, Run: scenarioSelfSendLoopback},
 	// agent_lifecycle MUTATES prod (creates then deletes an ephemeral agent on
 	// the probe's verified domain) but is self-cleaning — no email, no owner
@@ -119,6 +124,59 @@ func scenarioInboundRoundTrip(ctx context.Context, p *Probe) Result {
 	return pass("inbound round-trip + HMAC ok")
 }
 
+// scenarioOutboundSend is the real-egress counterpart to the inbound round-trip:
+// the probe agent sends a unique message to the AWS SES mailbox simulator
+// (success@simulator.amazonses.com — accepted + blackholed, no real recipient,
+// no cost, no reputation impact), then confirms the resulting email.sent event
+// is delivered out the webhook with a valid HMAC. Covers the outbound API +
+// screening + compose + real SES submit + the outbound event → outbox →
+// subscriber worker → webhook delivery → signing path. Correlated by the
+// returned message_id (sync mode emits email.sent inline; async mode's worker
+// emits it after the SES submit — both land at the sink). Requires the probe
+// webhook to subscribe to email.sent (see cmd/e2a-prober seed).
+func scenarioOutboundSend(ctx context.Context, p *Probe) Result {
+	if p.Sink == nil {
+		return fail("no sink configured")
+	}
+	nonce, err := randHex(16)
+	if err != nil {
+		return fail("nonce: %v", err)
+	}
+	u := p.HTTPBaseURL + "/v1/agents/" + url.PathEscape(p.AgentEmail) + "/messages"
+	payload := map[string]any{
+		"to":      []string{"success@simulator.amazonses.com"},
+		"subject": "e2a-selftest outbound " + nonce,
+		"body":    "e2a selftest outbound " + nonce,
+	}
+	b, _ := json.Marshal(payload)
+	st, respBody, err := p.do(ctx, http.MethodPost, u, b)
+	if err != nil {
+		return fail("send: %v", err)
+	}
+	if st != http.StatusOK {
+		return fail("send: HTTP %d", st)
+	}
+	var out struct {
+		MessageID string `json:"message_id"`
+		Status    string `json:"status"`
+	}
+	if jerr := json.Unmarshal(respBody, &out); jerr != nil || out.MessageID == "" {
+		return fail("send: could not parse message_id from response (status=%q)", out.Status)
+	}
+
+	d, err := p.Sink.Await(ctx, func(d Delivery) bool {
+		return bytes.Contains(d.Body, []byte(out.MessageID)) &&
+			bytes.Contains(d.Body, []byte("email.sent"))
+	}, p.roundTripTimeout())
+	if err != nil {
+		return fail("await email.sent for message %s: %v", out.MessageID, err)
+	}
+	if !verifyHMAC(d.Headers.Get("X-E2A-Signature"), d.Body, p.WebhookSecret) {
+		return fail("email.sent webhook HMAC verification failed")
+	}
+	return pass("outbound send → email.sent + HMAC ok")
+}
+
 // scenarioSelfSendLoopback: the probe agent sends to itself. Self-send routes
 // through the loopback path (method=loopback) — no SMTP egress, no HITL owner
 // notification — exercising the outbound API + compose path safely.
@@ -191,6 +249,14 @@ func scenarioAgentLifecycle(ctx context.Context, p *Probe) Result {
 		return fail("get created agent: %v", err)
 	} else if st != http.StatusOK {
 		return fail("get created agent: HTTP %d, want 200", st)
+	}
+
+	// PATCH (update display name) → 200.
+	patchBody, _ := json.Marshal(map[string]string{"name": "e2a selftest lifecycle (updated)"})
+	if st, _, err := p.do(ctx, http.MethodPatch, agentURL, patchBody); err != nil {
+		return fail("update agent: %v", err)
+	} else if st != http.StatusOK {
+		return fail("update agent: HTTP %d, want 200", st)
 	}
 
 	// DELETE (confirmed) → 204.

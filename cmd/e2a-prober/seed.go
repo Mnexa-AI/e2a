@@ -93,7 +93,7 @@ func seedProbe(ctx context.Context, store *identity.Store, agentEmail, sinkURL s
 	}
 	if !found {
 		wh, err := store.CreateWebhook(ctx, user.ID, sinkURL, probeWebhookDsc,
-			[]string{"email.received"}, identity.WebhookFilters{})
+			[]string{"email.received", "email.sent"}, identity.WebhookFilters{})
 		if err != nil {
 			return nil, fmt.Errorf("create webhook: %w", err)
 		}
