@@ -553,6 +553,34 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 	return nil, ErrDomainTaken
 }
 
+// AdoptSharedDomain assigns ownership of an existing domain row to userID,
+// used to claim the configured shared domain that the server seeds on every
+// boot via EnsureSharedDomain (user_id NULL, verified true). ClaimOrCreateDomain
+// cannot claim that row — it only upserts an unverified, same-user row — yet the
+// probe/system identity that seeds itself lives on the shared domain by design.
+// Adoption is scoped to a currently-unowned row (or one already owned by userID,
+// so re-seeding is idempotent); a row owned by a different account is left
+// untouched and ErrDomainTaken is returned. The verified flag and DKIM columns
+// are not modified.
+func (s *Store) AdoptSharedDomain(ctx context.Context, domain, userID string) (*Domain, error) {
+	domain = normalizeDomain(domain)
+	d := &Domain{}
+	err := s.pool.QueryRow(ctx,
+		`UPDATE domains SET user_id = $2
+		 WHERE domain = $1 AND (user_id IS NULL OR user_id = $2)
+		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')`,
+		domain, userID,
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus)
+	if err == nil {
+		return d, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No adoptable row: it doesn't exist, or a different account owns it.
+		return nil, ErrDomainTaken
+	}
+	return nil, fmt.Errorf("adopt shared domain %q: %w", domain, err)
+}
+
 // nullIfEmpty returns nil for empty strings so we can write SQL NULL
 // (rather than empty-string) for nullable text columns. Pgx treats an
 // untyped nil interface{} as NULL.

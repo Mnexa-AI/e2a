@@ -80,6 +80,57 @@ func TestSeedProbe_ProvisionsSystemAccountIdempotently(t *testing.T) {
 	}
 }
 
+// Regression: the server seeds the configured shared domain as a verified,
+// ownerless row on every boot (EnsureSharedDomain). ClaimOrCreateDomain cannot
+// claim that row, so seed must adopt it. Before the AdoptSharedDomain fallback,
+// seeding the probe on the shared domain failed with "already claimed by another
+// account" — which meant the prober gate could never come up against a real
+// server (this was never exercised because the prober had never been deployed).
+func TestSeedProbe_AdoptsPreSeededSharedDomain(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	const shared = "agents.shared.prober-test"
+	const agentEmail = "probe@" + shared
+	const sinkURL = "http://prober:8090/sink"
+
+	// Simulate the server's boot-time EnsureSharedDomain (verified, user_id NULL).
+	if err := store.EnsureSharedDomain(ctx, shared); err != nil {
+		t.Fatalf("EnsureSharedDomain: %v", err)
+	}
+
+	res, err := seedProbe(ctx, store, agentEmail, sinkURL)
+	if err != nil {
+		t.Fatalf("seedProbe against pre-seeded shared domain: %v", err)
+	}
+	if res.APIKey == "" || res.WebhookSecret == "" {
+		t.Error("expected API key + webhook secret on first seed")
+	}
+
+	// The probe user now owns the shared-domain row, and it stays verified.
+	agent, err := store.GetAgentByID(ctx, agentEmail)
+	if err != nil {
+		t.Fatalf("GetAgentByID: %v", err)
+	}
+	var owner *string
+	var verified bool
+	if err := pool.QueryRow(ctx, `SELECT user_id, verified FROM domains WHERE domain = $1`, shared).Scan(&owner, &verified); err != nil {
+		t.Fatalf("read domain row: %v", err)
+	}
+	if owner == nil || *owner != agent.UserID {
+		t.Errorf("domain owner = %v, want probe user %s", owner, agent.UserID)
+	}
+	if !verified {
+		t.Error("shared domain should remain verified after adopt")
+	}
+
+	// Idempotent: re-seeding succeeds (adopt returns the already-owned row).
+	if _, err := seedProbe(ctx, store, agentEmail, sinkURL); err != nil {
+		t.Fatalf("re-seed against adopted shared domain: %v", err)
+	}
+}
+
 func TestHandleStatus_ConsecutiveGreen(t *testing.T) {
 	p := newProber(config{})
 	base := time.Unix(1_700_000_000, 0)

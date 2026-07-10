@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -45,11 +46,22 @@ func seedProbe(ctx context.Context, store *identity.Store, agentEmail, sinkURL s
 	}
 
 	dom, err := store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	if errors.Is(err, identity.ErrDomainTaken) {
+		// The server seeds the configured shared domain as a verified, ownerless
+		// row on every boot (EnsureSharedDomain: user_id NULL, verified true,
+		// ON CONFLICT DO NOTHING), which ClaimOrCreateDomain can't claim — it only
+		// upserts an unverified, same-user row. The probe identity lives on that
+		// shared domain by design (slug agents need no DNS verification), so adopt
+		// the ownerless row under the probe user instead of failing. Idempotent:
+		// AdoptSharedDomain also returns a row already owned by the probe user.
+		dom, err = store.AdoptSharedDomain(ctx, domain, user.ID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("claim domain %s: %w", domain, err)
 	}
 	// VerifyDomain is not idempotent (it errors on an already-verified domain),
-	// so only verify when needed — keeps re-seeding safe.
+	// so only verify when needed — keeps re-seeding safe. The adopted shared
+	// domain is already verified, so this is skipped for it.
 	if !dom.Verified {
 		if err := store.VerifyDomain(ctx, domain, user.ID); err != nil {
 			return nil, fmt.Errorf("verify domain %s: %w", domain, err)
