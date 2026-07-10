@@ -7,6 +7,11 @@ export interface ProdEnv {
   apiKey: string;
   primaryAgentEmail: string;
   sharedDomain: string;
+  // Optional separate STANDARD-class, low-cap account for enforcement tests
+  // (limit + rate-limit). Absent → the enforcement suite skips, since the main
+  // conformance account is internal-class and by construction exempt.
+  quotaApiKey?: string;
+  quotaAgentEmail?: string;
   allowStress: boolean;
   cleanupMode: "always" | "on_success" | "never";
   rateLimitRps: number;
@@ -51,6 +56,8 @@ export function loadEnv(): ProdEnv {
     apiKey: process.env.E2A_API_KEY ?? local.api_key ?? "",
     primaryAgentEmail: pickEnv("E2A_AGENT_EMAIL", "E2A_PRIMARY_AGENT") ?? local.agent_email ?? "",
     sharedDomain: process.env.E2A_SHARED_DOMAIN ?? local.shared_domain ?? "agents.e2a.dev",
+    quotaApiKey: process.env.E2A_QUOTA_API_KEY || undefined,
+    quotaAgentEmail: process.env.E2A_QUOTA_AGENT_EMAIL || undefined,
     allowStress: process.env.E2E_PROD_STRESS === "1",
     cleanupMode: (process.env.E2E_CLEANUP as ProdEnv["cleanupMode"]) ?? "always",
     rateLimitRps: Number(process.env.E2E_RPS ?? "1"),
