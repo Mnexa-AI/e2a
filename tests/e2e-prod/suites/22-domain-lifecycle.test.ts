@@ -77,17 +77,30 @@ async function cfDeleteRecord(id: string): Promise<void> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// waitForPublicDns polls Google Public DNS until BOTH the ownership TXT and the
-// inbound MX resolve, so the server's first verify lookup is guaranteed to hit
-// them — avoiding the 30-min negative cache. Queries 8.8.8.8 ONLY (not 1.1.1.1):
-// the gate must confirm on the resolver family the GCP VM forwards to. A positive
-// answer from Cloudflare while the Google/VM path still lags would let a premature
-// verify negative-cache the miss — the exact failure this wait exists to prevent.
-// Uses an explicit-server Resolver so it never reads the local cache.
+// waitForPublicDns polls Google Public DNS (8.8.8.8) until BOTH the ownership TXT
+// and the inbound MX resolve; the caller then waits a short margin before the
+// server's first verify. Why order matters: the server does a live
+// net.LookupTXT/LookupMX and negative-caches a miss for the zone's SOA minimum
+// (trymnexa = 1800s / 30min), which no in-test poll can outlast — so the first
+// verify MUST land after the records are visible to the server's resolver.
+// IMPORTANT (not oversold): 8.8.8.8 is the closest public proxy for the GCP VM's
+// Google-family resolver, but it is NOT the same cache — the VM resolves via
+// 169.254.169.254, and Google Public DNS caches per-PoP — so a positive here does
+// not PROVE the VM's resolver has it. This SHRINKS, not fully closes, the poison
+// window; a rare cross-PoP lag shows up as a false RED that self-clears on retry
+// (each run mints a NEW domain, so the poisoned name is never reused). Query
+// 8.8.8.8 ONLY (not 1.1.1.1): a Cloudflare-positive / Google-lagging split would
+// re-open exactly this window. Explicit-server Resolver so it never reads the
+// local cache.
 async function waitForPublicDns(domain: string, txtValue: string, mxHost: string): Promise<boolean> {
   const r = new Resolver();
   r.setServers(["8.8.8.8"]);
-  for (let i = 0; i < 30; i++) {
+  // Budget ~180s: CF→public-resolver propagation for a FRESH record is highly
+  // variable in practice (observed 12s on fast runs, 60s+ on slow ones). This must
+  // comfortably exceed the slow tail — a timeout here is a false RED, and it's far
+  // cheaper to wait than to fail the gate. (The subsequent verify is ~0s once this
+  // returns, so the total stays modest on the common fast path.)
+  for (let i = 0; i < 60; i++) {
     let txtOk = false;
     let mxOk = false;
     try {
@@ -137,7 +150,10 @@ test("domain lifecycle: register → DNS TXT+MX → verify (happy path) → cust
     // 3. wait for BOTH records to be publicly visible BEFORE the first verify —
     //    otherwise the server negative-caches the miss for the SOA minimum (30min).
     const propagated = await waitForPublicDns(domain, txt!.value, mx!.value);
-    assert.ok(propagated, "ownership TXT + inbound MX became publicly resolvable within ~90s");
+    assert.ok(propagated, "ownership TXT + inbound MX became publicly resolvable within ~180s");
+    // Short margin so the VM's resolver PoP can catch up to 8.8.8.8 before the
+    // FIRST verify — a premature miss negative-caches for 30min (unrecoverable).
+    await sleep(5000);
 
     // 4. verifyDomain HAPPY PATH — the server's live lookup now finds both.
     let verified = false;

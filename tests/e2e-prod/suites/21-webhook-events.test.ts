@@ -9,15 +9,19 @@ import { writeReport, info } from "../harness/report.ts";
 // with the events log ON, prod runs it OFF (list_events → events_log_disabled on
 // prod). So this suite ONLY makes sense against staging.
 //
-// Emission is proved two independent ways for every event type:
-//   1. listEvents  (GET /v1/events, filtered type + agent_id + since) — the event
-//      row landed in the outbox/log.
-//   2. listWebhookDeliveries (GET /v1/webhooks/{id}/deliveries) — the event was
-//      fanned out to a subscriber and an HTTP delivery was ATTEMPTED for that
-//      event_type. We assert attempts>=1, NOT delivery success: staging has no
-//      real webhook sink, so the dummy target (example.com) 405s the POST. A 405
-//      (or any last_status_code) still proves the delivery leg ran — which is the
-//      emission signal. Requiring a 2xx would test the sink, not e2a.
+// Emission is proved for every event type across THREE correlated signals:
+//   1. listEvents (GET /v1/events, filtered type + agent_id + since) — THIS
+//      message's event row landed in the outbox/log (correlated by message_id).
+//   2. the event's OWN delivery_status.matched_webhooks (GET /v1/events/{id}) —
+//      EVENT-scoped proof THIS event fanned out to >=1 subscriber.
+//   3. listWebhookDeliveries (GET /v1/webhooks/{id}/deliveries) — WEBHOOK-scoped
+//      proof that OUR fresh webhook's HTTP delivery leg was ATTEMPTED. We assert
+//      attempts>=1, NOT delivery success: staging has no real webhook sink, so the
+//      dummy target (example.com) 405s the POST. A 405 (or any last_status_code)
+//      still proves the delivery leg ran; requiring a 2xx would test the sink, not
+//      e2a. (2) and (3) are complementary — (2) is event-scoped but counts every
+//      matching webhook; (3) is webhook-scoped but attempt-level — together they
+//      close both the cross-suite and the "did the delivery worker run" gaps.
 //
 // Shapes/status verified against api/openapi.yaml (the drift-gated SSOT) AND
 // curl-probed on live staging before these assertions were written (2026-07-10):
@@ -220,11 +224,17 @@ async function pollDelivery(
 }
 
 // pollEventFanout: GET the specific event and poll until its OWN delivery_status
-// shows it fanned out to >=1 subscriber. Message-scoped — the server counts
-// webhook_subscriber_deliveries WHERE event_id = THIS event — so, unlike the
-// account-wide deliveries list (pollDelivery), it CANNOT be satisfied by another
-// concurrently-running suite's same-typed delivery under `node --test` file
-// parallelism. This is the correlated proof that THIS event was fanned out.
+// shows it fanned out to >=1 subscriber. EVENT-scoped — the server counts
+// webhook_subscriber_deliveries WHERE event_id = THIS (globally unique) event, so
+// it proves THIS message's event fanned out and can't be satisfied by another
+// suite's same-typed event. Caveat: it counts ALL matching webhooks in the account,
+// not just ours, and the rows are inserted as status=pending (attempts=0) at
+// ENQUEUE — so this alone proves neither "our webhook was matched" nor "a delivery
+// attempt ran". Each emit test therefore ALSO asserts pollDelivery(hook.id) with
+// attempts>=1: that endpoint is scoped to our fresh per-test webhook (ownership-
+// checked, webhook-id path param) and only advances attempts once the HTTP leg
+// fires. The pair — event-scoped fanout + webhook-scoped attempt — is what closes
+// both the cross-suite and the "did the delivery worker actually run" gaps.
 async function pollEventFanout(
   eventId: string,
   timeoutMs = 15000,
@@ -282,9 +292,16 @@ test("emit: email.sent — real send emits the event and attempts a delivery", {
     assert.ok(ev, `email.sent event for ${messageId} must appear in listEvents within 15s`);
     assertEventShape(ev!, { type: "email.sent", agentId: email, messageId });
 
+    // Event-scoped: THIS event fanned out to >=1 subscriber (matched_webhooks
+    // counts webhook_subscriber_deliveries WHERE event_id = this unique event).
     const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
-    info(SUITE, "email.sent", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (delivered=${fanout!.delivered ?? 0} pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
+    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
+    // Webhook-scoped: OUR fresh webhook's delivery leg actually RAN. The example.com
+    // sink 405s the POST — attempts>=1 proves the leg fired (not delivery success).
+    const del = await pollDelivery(hook.id, "email.sent");
+    assert.ok(del, `a delivery ATTEMPT for email.sent must appear on webhook ${hook.id}`);
+    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
+    info(SUITE, "email.sent", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts} last_status=${del!.last_status_code}`);
   } finally {
     await delHook(hook.id);
     await delAgent(email);
@@ -315,8 +332,11 @@ test("emit: email.pending_review — held send emits the event and attempts a de
     assert.equal(ev!.data.direction, "outbound", "pending_review payload carries direction=outbound");
 
     const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
-    info(SUITE, "email.pending_review", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
+    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
+    const del = await pollDelivery(hook.id, "email.pending_review");
+    assert.ok(del, `a delivery ATTEMPT for email.pending_review must appear on webhook ${hook.id}`);
+    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
+    info(SUITE, "email.pending_review", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
   } finally {
     // Resolve the hold explicitly (reject), then delete (delete cascades anyway).
     if (heldId) await client.post(`/v1/reviews/${heldId}/reject`, { body: { reason: "e2e pending-emit cleanup" } });
@@ -352,8 +372,11 @@ test("emit: email.review_rejected — rejecting a hold emits the event and attem
     assert.equal(ev!.data.rejection_reason, reason, "payload echoes the rejection reason");
 
     const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
-    info(SUITE, "email.review_rejected", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
+    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
+    const del = await pollDelivery(hook.id, "email.review_rejected");
+    assert.ok(del, `a delivery ATTEMPT for email.review_rejected must appear on webhook ${hook.id}`);
+    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
+    info(SUITE, "email.review_rejected", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
   } finally {
     await delHook(hook.id);
     await delAgent(email);
@@ -389,8 +412,11 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
     assert.equal(ev!.data.direction, "outbound", "review_approved payload carries direction=outbound");
 
     const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
-    info(SUITE, "email.review_approved", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (delivered=${fanout!.delivered ?? 0} pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
+    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
+    const del = await pollDelivery(hook.id, "email.review_approved");
+    assert.ok(del, `a delivery ATTEMPT for email.review_approved must appear on webhook ${hook.id}`);
+    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
+    info(SUITE, "email.review_approved", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
   } finally {
     // If approve didn't resolve the hold, reject it so nothing lingers.
     if (heldId && !resolved) {
