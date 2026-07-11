@@ -304,13 +304,23 @@ def test_handshake_status_extracts_from_both_shapes():
 
 
 def test_fatal_error_for_status_maps_typed():
-    from e2a.v1.errors import E2AAuthError, E2AError, E2APermissionError
+    from e2a.v1.errors import (
+        E2AAuthError,
+        E2AError,
+        E2ANotFoundError,
+        E2APermissionError,
+    )
     from e2a.v1.websocket import _fatal_error_for_status
 
     assert isinstance(_fatal_error_for_status(401, ValueError()), E2AAuthError)
     assert isinstance(_fatal_error_for_status(403, ValueError()), E2APermissionError)
+    # 404 -> typed not-found. The server returns 404 both when the agent doesn't
+    # exist AND when it exists but isn't yours (cross-tenant), collapsing the two
+    # so the handshake can't enumerate agents; the SDK surfaces one typed error.
+    not_found = _fatal_error_for_status(404, ValueError())
+    assert isinstance(not_found, E2ANotFoundError) and not_found.retryable is False
     # Other 4xx -> generic but still fatal E2AError.
-    other = _fatal_error_for_status(404, ValueError())
+    other = _fatal_error_for_status(422, ValueError())
     assert isinstance(other, E2AError) and other.retryable is False
     # 5xx is transient -> no fatal error (reconnect).
     assert _fatal_error_for_status(503, ValueError()) is None

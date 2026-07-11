@@ -132,14 +132,14 @@ test("conversations: list without auth → 401", async () => {
   assert.equal(r.status, 401, `expected 401, got ${r.status}`);
 });
 
-test("conversations: list under nonexistent agent → 404 or 403", async () => {
-  // The /agents/{id} root uses 403 anti-enumeration but the
-  // sub-resource paths (conversations, messages) return 404 for an
-  // unknown agent. Inconsistency worth tracking, accepted as-shipped.
+test("conversations: list under nonexistent agent → 404 not_found", async () => {
+  // Every per-agent path — the /agents/{id} root and its sub-resources
+  // (conversations, messages) — returns a uniform 404 not_found for an
+  // unknown/non-owned agent (indistinguishable, so no enumeration leak).
   const r = await client.get(
     `/v1/agents/nonexistent-${Date.now()}@agents.e2a.dev/conversations`,
   );
-  assert.ok(r.status === 404 || r.status === 403, `expected 404/403, got ${r.status}`);
+  assert.equal(r.status, 404, `expected 404, got ${r.status}`);
 });
 
 test("conversations: get nonexistent conversation → 404", async () => {

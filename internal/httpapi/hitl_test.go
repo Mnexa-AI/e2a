@@ -42,8 +42,8 @@ func TestApproveNotFound(t *testing.T) {
 func TestApproveNotOwnedAgent(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/messages/msg_pending/approve", "good", map[string]any{})
-	if code != 403 {
-		t.Fatalf("want 403, got %d", code)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
 	}
 }
 

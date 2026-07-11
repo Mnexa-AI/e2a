@@ -54,8 +54,8 @@ func TestUpdateAgentNotOwned(t *testing.T) {
 	code, _ := sendJSON(t, "PATCH", srv.URL+"/v1/agents/other%40acme.com", "good", map[string]any{
 		"name": "x",
 	})
-	if code != 403 {
-		t.Fatalf("want 403, got %d", code)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
 	}
 }
 
@@ -70,8 +70,8 @@ func TestDeleteAgent(t *testing.T) {
 func TestDeleteAgentNotOwned(t *testing.T) {
 	srv := testServer(t)
 	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/agents/other%40acme.com", "good", nil)
-	if code != 403 {
-		t.Fatalf("want 403, got %d", code)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
 	}
 }
 

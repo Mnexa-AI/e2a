@@ -50,9 +50,10 @@ test("agents: get primary agent by email", async () => {
   assert.equal(typeof r.body?.domain_verified, "boolean");
 });
 
-test("agents: get nonexistent agent returns 403 (anti-enumeration; matches spec)", async () => {
+test("agents: get nonexistent agent returns 404 not_found (matches every other resource; anti-enumeration preserved)", async () => {
   const r = await client.get(`/v1/agents/nonexistent-${Date.now()}@agents.e2a.dev`);
-  assert.equal(r.status, 403, `spec only documents 200/401/403 — expected 403 for unknown, got ${r.status}`);
+  assert.equal(r.status, 404, `unknown/non-owned agent → 404, got ${r.status}`);
+  assert.equal(r.body?.error?.code, "not_found", `expected code not_found, got ${r.body?.error?.code}`);
 });
 
 test("agents: get malformed email returns 4xx", async () => {
@@ -82,7 +83,7 @@ test("agents: create + read + delete (slug on shared domain)", async () => {
   assert.ok(del.status === 204 || del.status === 200, `delete expected 200/204, got ${del.status}`);
 
   const after = await client.get(`/v1/agents/${encodeURIComponent(email)}`);
-  assert.equal(after.status, 403, `deleted agent should 403 (anti-enumeration), got ${after.status}`);
+  assert.equal(after.status, 404, `deleted agent should 404 not_found (anti-enumeration), got ${after.status}`);
 });
 
 test("agents: create with missing slug AND email returns 4xx", async () => {

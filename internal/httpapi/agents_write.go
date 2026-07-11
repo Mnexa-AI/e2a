@@ -167,7 +167,7 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 		return nil, err
 	}
 	// Confirm after ownership: don't prompt to confirm deleting an agent the
-	// caller can't even touch (a not-owned agent is 403/404 first).
+	// caller can't even touch (a not-owned agent is 404 first).
 	if in.Confirm != "DELETE" {
 		return nil, NewError(http.StatusBadRequest, "confirmation_required", "add ?confirm=DELETE to the request to proceed — this is irreversible")
 	}
