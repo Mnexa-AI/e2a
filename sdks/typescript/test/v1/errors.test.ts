@@ -160,13 +160,13 @@ describe("fromApiException", () => {
     const apiEx = new ApiException(
       403,
       "HTTP 403",
-      { error: { code: "forbidden", message: "agent not yours", details: null } },
+      { error: { code: "forbidden", message: "this agent-scoped credential is bound to a different agent", details: null } },
       { "x-request-id": "req_xyz", "content-type": "application/json" },
     );
     const err = fromApiException(apiEx);
     expect(err).toBeInstanceOf(E2APermissionError);
     expect(err.code).toBe("forbidden");
-    expect(err.message).toBe("agent not yours");
+    expect(err.message).toBe("this agent-scoped credential is bound to a different agent");
     expect(err.requestId).toBe("req_xyz");
   });
 

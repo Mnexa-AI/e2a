@@ -83,28 +83,27 @@ test("authz: send as an unowned agent returns 4xx (cannot impersonate)", async (
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("authz: GET /agents/<email-i-dont-own> returns 403 (no info leak)", async () => {
+test("authz: GET /agents/<email-i-dont-own> returns 404 not_found (no info leak — indistinguishable from nonexistent)", async () => {
   const r = await client.get(`/v1/agents/${encodeURIComponent("nobody@example.com")}`);
-  assert.equal(r.status, 403, `expected 403, got ${r.status}: ${r.raw.slice(0, 200)}`);
+  assert.equal(r.status, 404, `expected 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
+  assert.equal(r.body?.error?.code, "not_found", `expected code not_found, got ${r.body?.error?.code}`);
 });
 
-test("authz: PATCH /agents/<email-i-dont-own> returns 403 or 4xx", async () => {
+test("authz: PATCH /agents/<email-i-dont-own> returns 404 not_found", async () => {
   const r = await client.patch(`/v1/agents/${encodeURIComponent("nobody@example.com")}`, {
     body: { name: "rename attempt" },
   });
-  assert.ok(r.status === 403 || (r.status >= 400 && r.status < 500), `expected 4xx, got ${r.status}`);
+  assert.equal(r.status, 404, `expected 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("authz: DELETE /agents/<email-i-dont-own> returns 403 or 4xx (no cross-tenant delete)", async () => {
+test("authz: DELETE /agents/<email-i-dont-own> returns 404 not_found (no cross-tenant delete)", async () => {
   const r = await client.delete(`/v1/agents/${encodeURIComponent("nobody@example.com")}`);
-  // assert.ok throws on a non-4xx response — the explicit 200/204 check
-  // that used to live below was dead code (unreachable past the assert).
-  // The fail-tag is preserved for triage clarity if the assert ever fires.
+  // A cross-tenant delete must never succeed: a 2xx here is a critical breach.
   if (r.status === 200 || r.status === 204) {
     fail(SUITE, "cross-tenant-delete", `CRITICAL: deleted an agent we don't own; got ${r.status}`);
     assert.fail(`cross-tenant DELETE returned ${r.status} — agent we don't own was deleted`);
   }
-  assert.ok(r.status === 403 || (r.status >= 400 && r.status < 500), `expected 4xx, got ${r.status}`);
+  assert.equal(r.status, 404, `expected 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("authz: GET /agents/<email>/messages of unowned agent returns 4xx", async () => {
