@@ -70,12 +70,13 @@ func TestCreateAgentScopedAPIKeyRequiresAgent(t *testing.T) {
 
 func TestCreateAgentScopedAPIKeyUnknownAgent(t *testing.T) {
 	srv := testServer(t)
-	// resolveOwnedAgent rejects an agent the caller doesn't own (403).
+	// resolveOwnedAgent reports an agent the caller doesn't own as 404 not_found
+	// (indistinguishable from a nonexistent one — anti-enumeration).
 	code, _ := postJSON(t, srv.URL+"/v1/account/api-keys", "good", map[string]any{
 		"scope": "agent", "agent": "stranger@evil.com",
 	})
-	if code != 403 {
-		t.Fatalf("want 403 for an unowned agent, got %d", code)
+	if code != 404 {
+		t.Fatalf("want 404 for an unowned agent, got %d", code)
 	}
 }
 

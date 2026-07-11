@@ -698,7 +698,7 @@ func TestGetAgentOwned(t *testing.T) {
 	}
 }
 
-func TestGetAgentForbiddenWhenUnknown(t *testing.T) {
+func TestGetAgentNotFoundWhenUnknown(t *testing.T) {
 	srv := testServer(t)
 	req, _ := http.NewRequest("GET", srv.URL+"/v1/agents/other%40acme.com", nil)
 	req.Header.Set("Authorization", "Bearer good")
@@ -707,8 +707,10 @@ func TestGetAgentForbiddenWhenUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	// Mirrors legacy: unknown/non-owned agent -> 403, not 404.
-	if resp.StatusCode != 403 {
+	// An unknown OR non-owned agent is 404 not_found — consistent with every
+	// other per-resource lookup, and the two cases are indistinguishable so the
+	// response never reveals another account's agent (anti-enumeration).
+	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
 	var env struct {
@@ -717,8 +719,8 @@ func TestGetAgentForbiddenWhenUnknown(t *testing.T) {
 		} `json:"error"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&env)
-	if env.Error.Code != "forbidden" {
-		t.Fatalf("want code forbidden, got %q", env.Error.Code)
+	if env.Error.Code != "not_found" {
+		t.Fatalf("want code not_found, got %q", env.Error.Code)
 	}
 }
 
