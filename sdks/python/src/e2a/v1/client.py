@@ -25,6 +25,7 @@ from .generated.api.events_api import EventsApi
 from .generated.api.messages_api import MessagesApi
 from .generated.api.meta_api import MetaApi
 from .generated.api.reviews_api import ReviewsApi
+from .generated.api.templates_api import TemplatesApi
 from .generated.api.webhooks_api import WebhooksApi
 from .generated.api_client import ApiClient
 from .generated.configuration import Configuration
@@ -58,14 +59,22 @@ from .generated.models import (
     RotateSecretResponse,
     SendEmailRequest,
     SendResultView,
+    StarterTemplateDetailView,
+    StarterTemplateView,
     Suppression,
+    TemplateSummaryView,
+    TemplateView,
     TestWebhookResponse,
     TestWebhookRequest,
     ProtectionConfigView,
+    CreateTemplateRequest,
     UpdateAgentRequest,
     UpdateMessageRequest,
     UpdateMessageResultView,
+    UpdateTemplateRequest,
     UpdateWebhookRequest,
+    ValidateTemplateRequest,
+    ValidateTemplateResponse,
     UserExport,
     VerifyDomainView,
     WebhookDeliveryView,
@@ -176,6 +185,7 @@ class E2AClient:
         self.webhooks = WebhooksResource(WebhooksApi(self._api_client), self)
         self.account = AccountResource(AccountApi(self._api_client), self)
         self.reviews = ReviewsResource(ReviewsApi(self._api_client), self)
+        self.templates = TemplatesResource(TemplatesApi(self._api_client), self)
         self._meta = MetaApi(self._api_client)
 
     # ── lifecycle ───────────────────────────────────────────────────
@@ -444,6 +454,81 @@ class ReviewsResource:
         return await self._c._write_unsafe(
             lambda h: self._api.reject_review(message_id, req, _headers=h)
         )
+
+
+class TemplatesResource:
+    """Reusable email templates + the read-only starter catalog (beta — shapes
+    may change before templates are declared stable). Account scope only; the
+    send-side reference lives on ``messages.send`` (``template_id`` /
+    ``template_alias`` / ``template_data``, mutually exclusive with a literal
+    subject/body)."""
+
+    def __init__(self, api: TemplatesApi, client: E2AClient) -> None:
+        self._api = api
+        self._c = client
+
+    def list(self) -> AutoPager[TemplateSummaryView]:
+        """List the account's stored templates, newest first. Summary rows only
+        (no body/html_body sources) — ``get(id)`` returns the full sources."""
+
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_templates(_headers=h))
+            # No cursor param: single-page at GA — see AgentsResource.list.
+            return _page(resp.items)
+
+        return AutoPager(fetch)
+
+    async def get(self, template_id: str) -> TemplateView:
+        """Fetch one stored template by id (tmpl_…), including its sources."""
+        return await self._c._read(lambda h: self._api.get_template(template_id, _headers=h))
+
+    async def create(self, body: Body) -> TemplateView:
+        """Create a template from literal source (name + subject + body), or copy
+        a starter verbatim via ``from_starter`` (mutually exclusive with the
+        source fields — edit the created copy afterwards with ``update``). Bare
+        POST: not retried (mirrors agents/domains/webhooks create), since the
+        create has no server-side idempotency dedup."""
+        req = _coerce(CreateTemplateRequest, body)
+        return await self._c._write_unsafe(lambda h: self._api.create_template(req, _headers=h))
+
+    async def update(self, template_id: str, patch: Body) -> TemplateView:
+        """Partial update; omitted fields are left unchanged. Changed parts are
+        re-parsed. Set alias or html_body to "" to clear them. PATCH is
+        idempotent → safe to retry."""
+        req = _coerce(UpdateTemplateRequest, patch)
+        return await self._c._write_idempotent(
+            lambda h: self._api.update_template(template_id, req, _headers=h)
+        )
+
+    async def delete(self, template_id: str) -> None:
+        # In-flight sends are unaffected (rendering happens at send time). DELETE
+        # is idempotent → safe to retry.
+        await self._c._write_idempotent(lambda h: self._api.delete_template(template_id, _headers=h))
+
+    async def validate(self, body: Body) -> ValidateTemplateResponse:
+        """Dry-run template source without persisting: per-part parse errors, a
+        rendered preview against test_data (present only when valid), and
+        suggested_data — a nested placeholder object covering every variable the
+        source references. Side-effect-free → treated as a retryable read."""
+        req = _coerce(ValidateTemplateRequest, body)
+        return await self._c._read(lambda h: self._api.validate_template(req, _headers=h))
+
+    def list_starters(self) -> AutoPager[StarterTemplateView]:
+        """List the pre-built starter templates shipped with the deployment
+        (catalog metadata + variables; ``get_starter(alias)`` adds the full body
+        sources)."""
+
+        async def fetch(_cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_starter_templates(_headers=h))
+            # No cursor param: single-page at GA — see AgentsResource.list.
+            return _page(resp.items)
+
+        return AutoPager(fetch)
+
+    async def get_starter(self, alias: str) -> StarterTemplateDetailView:
+        """Fetch one starter by alias, including its full body sources. Starters
+        are read-only masters — copy one with ``create({"from_starter": alias})``."""
+        return await self._c._read(lambda h: self._api.get_starter_template(alias, _headers=h))
 
 
 class ConversationsResource:

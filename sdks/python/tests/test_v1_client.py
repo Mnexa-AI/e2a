@@ -28,7 +28,10 @@ from e2a.v1.generated.models import (
     MessageSummaryView,
     MessageView,
     ReviewView,
+    StarterTemplateView,
     Suppression,
+    TemplateSummaryView,
+    TemplateView,
     WebhookDeliveryView,
     WebhookView,
 )
@@ -46,6 +49,7 @@ _REQUIRED_DEFAULTS = {
     "first_message_at": _DT,
     "last_message_at": _DT,
     "next_retry_at": _DT,
+    "updated_at": _DT,
     "domain": "test.dev",
     "domain_verified": True,
     "email": "x@test.dev",
@@ -125,7 +129,7 @@ def test_requires_api_key():
 
 def test_resources_exposed():
     c = _client()
-    for name in ("agents", "messages", "conversations", "domains", "events", "webhooks", "account", "reviews"):
+    for name in ("agents", "messages", "conversations", "domains", "events", "webhooks", "account", "reviews", "templates"):
         assert getattr(c, name) is not None
     assert c.account.suppressions is not None
 
@@ -440,8 +444,16 @@ async def test_suppressions_list_threads_cursor(httpx_mock):
             {"items": [_valid(WebhookDeliveryView, id="del_1")], "next_cursor": "IGNORE_ME"},
             lambda c: c.webhooks.deliveries("wh_1"),
         ),
+        (
+            {"items": [_valid(TemplateSummaryView, id="tmpl_1")], "next_cursor": "IGNORE_ME"},
+            lambda c: c.templates.list(),
+        ),
+        (
+            {"items": [_valid(StarterTemplateView, alias="welcome")], "next_cursor": "IGNORE_ME"},
+            lambda c: c.templates.list_starters(),
+        ),
     ],
-    ids=["agents", "domains", "webhooks", "deliveries"],
+    ids=["agents", "domains", "webhooks", "deliveries", "templates", "starters"],
 )
 async def test_cursorless_lists_stop_after_one_page(httpx_mock, fixture, lister):
     httpx_mock.add_response(json=fixture)
@@ -449,6 +461,201 @@ async def test_cursorless_lists_stop_after_one_page(httpx_mock, fixture, lister)
         items = await lister(c).to_list(limit=100)
     assert len(items) == 1
     assert len(httpx_mock.get_requests()) == 1
+
+
+# ── templates (beta) ────────────────────────────────────────────────
+# Full parity with the TS SDK's TemplatesResource: the stored-template CRUD +
+# validate dry-run + the read-only starter catalog. Python models are snake_case
+# on both sides (no camel↔snake mapping), so wire keys equal field names.
+
+
+@pytest.mark.anyio
+async def test_templates_list_reads_templates_endpoint(httpx_mock):
+    httpx_mock.add_response(
+        json={"items": [_valid(TemplateSummaryView, id="tmpl_1", name="Welcome")], "next_cursor": None}
+    )
+    async with _client() as c:
+        items = await c.templates.list().to_list(limit=50)
+    assert [t.id for t in items] == ["tmpl_1"]
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "GET"
+    assert str(req.url).endswith("/v1/templates")
+
+
+@pytest.mark.anyio
+async def test_templates_get_maps_wire_fields(httpx_mock):
+    httpx_mock.add_response(
+        json=_valid(
+            TemplateView,
+            id="tmpl_1",
+            name="Welcome",
+            subject="Welcome, {{name}}!",
+            body="Hi {{name}}",
+            html_body="<p>Hi {{name}}</p>",
+            from_starter_alias="welcome",
+            from_starter_version="1",
+        )
+    )
+    async with _client() as c:
+        tmpl = await c.templates.get("tmpl_1")
+    assert tmpl.html_body == "<p>Hi {{name}}</p>"
+    assert tmpl.from_starter_alias == "welcome"
+    assert tmpl.from_starter_version == "1"
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "GET"
+    assert "/v1/templates/tmpl_1" in str(req.url)
+
+
+@pytest.mark.anyio
+async def test_templates_create_posts_from_starter_body(httpx_mock):
+    # Exactly the caller's fields reach the wire — no fabricated subject/body keys
+    # that would trip the server's from_starter exclusivity.
+    httpx_mock.add_response(
+        status_code=201,
+        json=_valid(TemplateView, id="tmpl_new", name="Approvals", subject="s", body="b"),
+    )
+    async with _client() as c:
+        res = await c.templates.create({"from_starter": "approval-request", "alias": "my-approvals"})
+    assert res.id == "tmpl_new"
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert str(req.url).endswith("/v1/templates")
+    import json as _json
+
+    assert _json.loads(req.content) == {"from_starter": "approval-request", "alias": "my-approvals"}
+
+
+@pytest.mark.anyio
+async def test_templates_update_patches_and_keeps_explicit_html_clear(httpx_mock):
+    httpx_mock.add_response(
+        json=_valid(TemplateView, id="tmpl_1", name="Welcome", subject="New {{x}}", body="b")
+    )
+    async with _client() as c:
+        await c.templates.update("tmpl_1", {"subject": "New {{x}}", "html_body": ""})
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "PATCH"
+    assert "/v1/templates/tmpl_1" in str(req.url)
+    import json as _json
+
+    # An explicit html_body:"" is a deliberate clear — it must survive to the wire.
+    assert _json.loads(req.content) == {"subject": "New {{x}}", "html_body": ""}
+
+
+@pytest.mark.anyio
+async def test_templates_delete_issues_delete(httpx_mock):
+    httpx_mock.add_response(status_code=204)
+    async with _client() as c:
+        await c.templates.delete("tmpl_1")
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "DELETE"
+    assert "/v1/templates/tmpl_1" in str(req.url)
+
+
+@pytest.mark.anyio
+async def test_templates_validate_posts_and_maps_response(httpx_mock):
+    httpx_mock.add_response(
+        json={
+            "valid": True,
+            "errors": [],
+            "rendered": {"subject": "Welcome, Ada!", "body": "Hi Ada", "html_body": "<p>Hi Ada</p>"},
+            "suggested_data": {"user": {"name": "example"}},
+        }
+    )
+    async with _client() as c:
+        res = await c.templates.validate(
+            {"subject": "Welcome, {{user.name}}!", "body": "Hi {{user.name}}", "test_data": {"user": {"name": "Ada"}}}
+        )
+    assert res.valid is True
+    assert res.rendered is not None and res.rendered.html_body == "<p>Hi Ada</p>"
+    assert res.suggested_data == {"user": {"name": "example"}}
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert "/v1/templates/validate" in str(req.url)
+    import json as _json
+
+    assert _json.loads(req.content) == {
+        "subject": "Welcome, {{user.name}}!",
+        "body": "Hi {{user.name}}",
+        "test_data": {"user": {"name": "Ada"}},
+    }
+
+
+@pytest.mark.anyio
+async def test_templates_get_starter_reads_starter_catalog(httpx_mock):
+    httpx_mock.add_response(
+        json={
+            "alias": "approval-request",
+            "name": "Approval request",
+            "description": "Ask a human to approve an action.",
+            "version": "1",
+            "subject": "Approval needed: {{action}}",
+            "body": "Approve: {{approve_url}}",
+            "html_body": '<a href="{{approve_url}}">Approve</a>',
+            "variables": [
+                {"name": "approve_url", "required": True, "raw": False, "description": "d", "example": "https://x/approve"}
+            ],
+        }
+    )
+    async with _client() as c:
+        starter = await c.templates.get_starter("approval-request")
+    assert "{{approve_url}}" in starter.html_body
+    assert starter.variables[0].name == "approve_url"
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "GET"
+    assert "/v1/starter-templates/approval-request" in str(req.url)
+
+
+@pytest.mark.anyio
+async def test_templates_create_maps_parse_failure_to_validation_error(httpx_mock):
+    # A template-part parse failure (400 invalid_template) must surface as a typed,
+    # non-retryable E2AValidationError carrying the machine code.
+    httpx_mock.add_response(
+        status_code=400,
+        json={"error": {"code": "invalid_template", "message": "template part body failed to parse"}},
+    )
+    async with _client() as c:
+        with pytest.raises(E2AValidationError) as ei:
+            await c.templates.create({"name": "x", "subject": "s", "body": "{{#bad}}"})
+    assert ei.value.code == "invalid_template"
+    assert ei.value.retryable is False
+
+
+@pytest.mark.anyio
+async def test_templates_round_trip_create_update_delete(httpx_mock):
+    # A create→update→delete round-trip against the mocked generated layer,
+    # asserting each hits the right method+path.
+    httpx_mock.add_response(status_code=201, json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s", body="b"))
+    httpx_mock.add_response(json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s2", body="b"))
+    httpx_mock.add_response(status_code=204)
+    async with _client() as c:
+        created = await c.templates.create({"name": "RT", "subject": "s", "body": "b"})
+        assert created.id == "tmpl_rt"
+        updated = await c.templates.update("tmpl_rt", {"subject": "s2"})
+        assert updated.subject == "s2"
+        await c.templates.delete("tmpl_rt")
+    methods = [(r.method, str(r.url)) for r in httpx_mock.get_requests()]
+    assert methods[0][0] == "POST" and methods[0][1].endswith("/v1/templates")
+    assert methods[1][0] == "PATCH" and "/v1/templates/tmpl_rt" in methods[1][1]
+    assert methods[2][0] == "DELETE" and "/v1/templates/tmpl_rt" in methods[2][1]
+
+
+def test_templates_view_types_exported_from_v1():
+    # Parity with the TS SDK, which re-exports TemplateView et al. from its public
+    # index. In Python these ride the `from generated.models import *` wildcard —
+    # the same mechanism as AgentView/DomainView — so they must import from e2a.v1.
+    from e2a.v1 import (  # noqa: F401
+        CreateTemplateRequest,
+        StarterTemplateDetailView,
+        StarterTemplateView,
+        TemplateSummaryView,
+        TemplateView,
+        UpdateTemplateRequest,
+        ValidateTemplateRequest,
+        ValidateTemplateResponse,
+    )
+
+    assert TemplateView is not None
+    assert ValidateTemplateResponse is not None
 
 
 # ── error mapping ───────────────────────────────────────────────────
