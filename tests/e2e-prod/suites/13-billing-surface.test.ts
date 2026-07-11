@@ -72,7 +72,14 @@ test("billing: usage.agents counts roughly match the actual /agents list", async
     return;
   }
   const agents = await client.get<{ agents: unknown[] }>("/v1/agents");
-  const actual = agents.body?.agents?.length ?? 0;
+  // Guard the list call the same way as /v1/account above: a transient non-200
+  // (e.g. a rate-limit under the full concurrent run) would otherwise read as
+  // `length ?? 0`, manufacturing a false "counter drift" against a live count.
+  if (agents.status !== 200 || !Array.isArray(agents.body?.agents)) {
+    info(SUITE, "usage-skip", `/v1/agents unavailable (${agents.status}), skipping usage-vs-list check`);
+    return;
+  }
+  const actual = agents.body.agents.length;
   const reported = limits.body.usage.agents!;
   const drift = Math.abs(reported - actual);
   // ±1 is benign timing under 1 RPS concurrent creates (the two HTTP calls
