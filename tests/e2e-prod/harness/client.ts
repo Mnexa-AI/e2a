@@ -1,4 +1,5 @@
 import { loadEnv, type ProdEnv } from "./env.ts";
+import { recordRequest } from "./coverage.ts";
 
 export interface RawResponse<T = unknown> {
   status: number;
@@ -60,6 +61,8 @@ export class ApiClient {
       body = typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body);
       headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
     }
+    // Record the exercised operation for the coverage gate (best-effort).
+    recordRequest(method, url.pathname);
     const t0 = performance.now();
     // redirect: "manual" stops fetch from transparently following 3xx
     // responses. The default `"follow"` makes tests assert against
