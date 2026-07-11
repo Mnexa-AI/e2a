@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Resolver } from "node:dns/promises";
 import { ApiClient } from "../harness/client.ts";
 import { uniqueSlug } from "../harness/fixtures.ts";
-import { writeReport, info } from "../harness/report.ts";
+import { writeReport, info, warn } from "../harness/report.ts";
 
 // The FULL custom-domain lifecycle — the one flow prod e2e structurally can't do
 // because it needs REAL DNS: register → publish the verify records → verifyDomain
@@ -57,22 +57,36 @@ async function cfCreateRecord(rec: {
   return j.result.id;
 }
 
+// cfDeleteRecord removes a record and SURFACES failures — a swallowed delete
+// leaks a record in the SHARED conformance zone, accumulating across CI runs.
 async function cfDeleteRecord(id: string): Promise<void> {
-  await fetch(`${CF_API}/zones/${CF_ZONE}/dns_records/${id}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${CF_TOKEN}` },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${CF_API}/zones/${CF_ZONE}/dns_records/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${CF_TOKEN}` },
+    });
+  } catch (e) {
+    warn(SUITE, "cf-cleanup", `CF record ${id} delete threw — MANUAL CLEANUP NEEDED: ${String(e)}`);
+    return;
+  }
+  if (!res.ok) {
+    warn(SUITE, "cf-cleanup", `CF record ${id} delete failed HTTP ${res.status} — MANUAL CLEANUP NEEDED`);
+  }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// waitForPublicDns polls Google Public DNS (the resolver the GCP VM forwards to)
-// until BOTH the ownership TXT and the inbound MX resolve, so the server's first
-// verify lookup is guaranteed to hit them — avoiding the 30-min negative cache.
+// waitForPublicDns polls Google Public DNS until BOTH the ownership TXT and the
+// inbound MX resolve, so the server's first verify lookup is guaranteed to hit
+// them — avoiding the 30-min negative cache. Queries 8.8.8.8 ONLY (not 1.1.1.1):
+// the gate must confirm on the resolver family the GCP VM forwards to. A positive
+// answer from Cloudflare while the Google/VM path still lags would let a premature
+// verify negative-cache the miss — the exact failure this wait exists to prevent.
 // Uses an explicit-server Resolver so it never reads the local cache.
 async function waitForPublicDns(domain: string, txtValue: string, mxHost: string): Promise<boolean> {
   const r = new Resolver();
-  r.setServers(["8.8.8.8", "1.1.1.1"]);
+  r.setServers(["8.8.8.8"]);
   for (let i = 0; i < 30; i++) {
     let txtOk = false;
     let mxOk = false;
@@ -105,7 +119,7 @@ test("domain lifecycle: register → DNS TXT+MX → verify (happy path) → cust
   try {
     // 1. register the throwaway domain → returns the records to publish.
     const reg = await client.post<{
-      dns_records: Array<{ type: string; name: string; value: string; purpose: string }>;
+      dns_records: Array<{ type: string; name: string; value: string; purpose: string; priority?: number | null }>;
     }>("/v1/domains", { body: { domain } });
     assert.equal(reg.status, 201, `register ${domain}: ${reg.raw.slice(0, 200)}`);
     registered = true;
@@ -115,9 +129,10 @@ test("domain lifecycle: register → DNS TXT+MX → verify (happy path) → cust
     assert.ok(mx, "register returns an inbound MX record");
 
     // 2. publish BOTH the ownership TXT and the inbound MX in the ISOLATED zone.
-    //    `verified` requires the MX too, not just the TXT.
+    //    `verified` requires the MX too, not just the TXT. Echo the MX priority
+    //    the API returned rather than hardcoding it.
     dnsIds.push(await cfCreateRecord({ type: "TXT", name: txt!.name, content: txt!.value }));
-    dnsIds.push(await cfCreateRecord({ type: "MX", name: mx!.name, content: mx!.value, priority: 10 }));
+    dnsIds.push(await cfCreateRecord({ type: "MX", name: mx!.name, content: mx!.value, priority: mx!.priority ?? 10 }));
 
     // 3. wait for BOTH records to be publicly visible BEFORE the first verify —
     //    otherwise the server negative-caches the miss for the SOA minimum (30min).
@@ -155,10 +170,53 @@ test("domain lifecycle: register → DNS TXT+MX → verify (happy path) → cust
     assert.equal(gotAgent.status, 200, `read custom-domain agent: ${gotAgent.raw.slice(0, 200)}`);
     assert.equal(gotAgent.body?.domain_verified, true, "custom-domain agent reports domain_verified=true on read");
   } finally {
-    // 6. teardown — agent, domain, then the DNS records (a leaked record is a failure).
-    if (agentEmail) await client.delete(`/v1/agents/${encodeURIComponent(agentEmail)}?confirm=DELETE`);
-    if (registered) await client.delete(`/v1/domains/${domain}?confirm=DELETE`);
+    // 6. teardown — each step guarded so an early failure can't strand a
+    //    shared-zone DNS record (the highest-value leak). CF records are
+    //    independent of the e2a domain/agent, so they're cleaned unconditionally.
+    if (agentEmail) {
+      try {
+        await client.delete(`/v1/agents/${encodeURIComponent(agentEmail)}?confirm=DELETE`);
+      } catch (e) {
+        warn(SUITE, "cleanup", `agent ${agentEmail} delete threw: ${String(e)}`);
+      }
+    }
+    if (registered) {
+      try {
+        await client.delete(`/v1/domains/${domain}?confirm=DELETE`);
+      } catch (e) {
+        warn(SUITE, "cleanup", `domain ${domain} delete threw: ${String(e)}`);
+      }
+    }
     for (const id of dnsIds) await cfDeleteRecord(id);
+  }
+});
+
+test("domain verify NEGATIVE control: an unpublished domain does NOT verify (guards against a DNS short-circuit)", { skip }, async () => {
+  // A domain with NO DNS published must NOT verify. If the server ever ran in a
+  // non-production/dev mode, checkDomainRecords short-circuits to TXTFound:true /
+  // MX:"found" with ZERO real lookups — which would silently turn the happy-path
+  // test above into a tautology (green while the published DNS is never consulted).
+  // This asserts the real DNS path is live. Uses its own throwaway domain that we
+  // never verify for real, so poisoning its 30-min negative cache is harmless.
+  const domain = `${uniqueSlug("dlneg")}.${CF_ZONE_NAME}`;
+  let registered = false;
+  try {
+    const reg = await client.post("/v1/domains", { body: { domain } });
+    assert.equal(reg.status, 201, `register ${domain}: ${reg.raw.slice(0, 200)}`);
+    registered = true;
+    const v = await client.post<{ verified: boolean; mx?: string }>(`/v1/domains/${domain}/verify`);
+    // The discriminating assertion: verified MUST be false. A dev-mode
+    // short-circuit would report verified=true here and fail this test.
+    assert.equal(v.body?.verified, false, `unpublished domain must report verified=false, got ${v.status} ${v.raw.slice(0, 160)}`);
+    assert.equal(v.status, 412, `unpublished domain verify → 412 not-verified, got ${v.status}`);
+  } finally {
+    if (registered) {
+      try {
+        await client.delete(`/v1/domains/${domain}?confirm=DELETE`);
+      } catch (e) {
+        warn(SUITE, "cleanup", `neg-control domain ${domain} delete threw: ${String(e)}`);
+      }
+    }
   }
 });
 

@@ -58,6 +58,26 @@ import { writeReport, info } from "../harness/report.ts";
 const SUITE = "21-webhook-events";
 const client = new ApiClient();
 
+// Staging-only: prod runs the events log OFF (list/get/redeliver → 501
+// events_log_disabled), so against a non-staging target we skip the whole suite
+// cleanly rather than hard-fail every test — mirroring siblings 15/22. Probe once
+// at module load (top-level await; the runner waits for module eval to finish).
+let skip: string | false = false;
+try {
+  const eventsProbe = await client.get("/v1/events", { query: { limit: 1 } });
+  if (eventsProbe.status === 501) {
+    skip = "events log disabled on this target (prod); this suite is staging-only";
+  }
+} catch {
+  // Probe couldn't reach the target — do NOT skip. Let the tests run and surface
+  // the real connectivity error rather than masking an outage as a clean skip.
+}
+
+// sinceNow returns a `since` filter with a few seconds of slack, so host/server
+// clock skew (host clock ahead of the server's) can't place `since` after a
+// just-emitted event's server-side created_at and hide it → false RED.
+const sinceNow = () => new Date(Date.now() - 5000).toISOString();
+
 // Real, deliverable recipient: SES accepts + 200s it and drops it (no real
 // mailbox), so email.sent / review_approved actually reach the "sent" state.
 const SIMULATOR = "success@simulator.amazonses.com";
@@ -199,6 +219,28 @@ async function pollDelivery(
   return null;
 }
 
+// pollEventFanout: GET the specific event and poll until its OWN delivery_status
+// shows it fanned out to >=1 subscriber. Message-scoped — the server counts
+// webhook_subscriber_deliveries WHERE event_id = THIS event — so, unlike the
+// account-wide deliveries list (pollDelivery), it CANNOT be satisfied by another
+// concurrently-running suite's same-typed delivery under `node --test` file
+// parallelism. This is the correlated proof that THIS event was fanned out.
+async function pollEventFanout(
+  eventId: string,
+  timeoutMs = 15000,
+): Promise<NonNullable<EventJSON["delivery_status"]> | null> {
+  const deadline = Date.now() + timeoutMs;
+  let delay = 500;
+  while (Date.now() < deadline) {
+    const r = await client.get<EventJSON>(`/v1/events/${eventId}`);
+    const ds = r.body?.delivery_status;
+    if (r.status === 200 && ds && (ds.matched_webhooks ?? 0) >= 1) return ds;
+    await sleep(delay);
+    delay = Math.min(Math.floor(delay * 1.5), 3000);
+  }
+  return null;
+}
+
 function assertEventShape(e: EventJSON, expect: { type: string; agentId: string; messageId?: string }): void {
   // EventJSON required fields (openapi): id,type,schema_version,created_at,status,data.
   assert.ok(typeof e.id === "string" && e.id.startsWith("evt_"), `event id has evt_ prefix: ${e.id}`);
@@ -221,10 +263,10 @@ function assertEventShape(e: EventJSON, expect: { type: string; agentId: string;
 }
 
 // ---- email.sent: a REAL send (no hold) to the SES simulator ----
-test("emit: email.sent — real send emits the event and attempts a delivery", async () => {
+test("emit: email.sent — real send emits the event and attempts a delivery", { skip }, async () => {
   const email = await createAgent("sent");
   const hook = await createHook(["email.sent"]);
-  const since = new Date().toISOString();
+  const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit sent"), body: "real send to SES simulator" },
@@ -240,10 +282,9 @@ test("emit: email.sent — real send emits the event and attempts a delivery", a
     assert.ok(ev, `email.sent event for ${messageId} must appear in listEvents within 15s`);
     assertEventShape(ev!, { type: "email.sent", agentId: email, messageId });
 
-    const del = await pollDelivery(hook.id, "email.sent");
-    assert.ok(del, `a delivery ATTEMPT (attempts>=1) for email.sent must appear on webhook ${hook.id}`);
-    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.sent", `emitted evt=${ev!.id}, delivery whd=${del!.id} attempts=${del!.attempts} last_status=${del!.last_status_code} (405 = no real sink, delivery leg ran)`);
+    const fanout = await pollEventFanout(ev!.id);
+    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
+    info(SUITE, "email.sent", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (delivered=${fanout!.delivered ?? 0} pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
   } finally {
     await delHook(hook.id);
     await delAgent(email);
@@ -251,10 +292,10 @@ test("emit: email.sent — real send emits the event and attempts a delivery", a
 });
 
 // ---- email.pending_review: hold-all-outbound BEFORE send → 202 ----
-test("emit: email.pending_review — held send emits the event and attempts a delivery", async () => {
+test("emit: email.pending_review — held send emits the event and attempts a delivery", { skip }, async () => {
   const email = await createAgent("pending", true);
   const hook = await createHook(["email.pending_review"]);
-  const since = new Date().toISOString();
+  const since = sinceNow();
   let heldId: string | null = null;
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
@@ -273,10 +314,9 @@ test("emit: email.pending_review — held send emits the event and attempts a de
     // Payload is direction-aware (outbound HITL hold).
     assert.equal(ev!.data.direction, "outbound", "pending_review payload carries direction=outbound");
 
-    const del = await pollDelivery(hook.id, "email.pending_review");
-    assert.ok(del, `a delivery ATTEMPT for email.pending_review must appear on webhook ${hook.id}`);
-    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.pending_review", `emitted evt=${ev!.id}, delivery whd=${del!.id} attempts=${del!.attempts}`);
+    const fanout = await pollEventFanout(ev!.id);
+    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
+    info(SUITE, "email.pending_review", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
   } finally {
     // Resolve the hold explicitly (reject), then delete (delete cascades anyway).
     if (heldId) await client.post(`/v1/reviews/${heldId}/reject`, { body: { reason: "e2e pending-emit cleanup" } });
@@ -286,10 +326,10 @@ test("emit: email.pending_review — held send emits the event and attempts a de
 });
 
 // ---- email.review_rejected: reject a held message (no send) ----
-test("emit: email.review_rejected — rejecting a hold emits the event and attempts a delivery", async () => {
+test("emit: email.review_rejected — rejecting a hold emits the event and attempts a delivery", { skip }, async () => {
   const email = await createAgent("reject", true);
   const hook = await createHook(["email.review_rejected"]);
-  const since = new Date().toISOString();
+  const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit reject"), body: "will be rejected" },
@@ -311,10 +351,9 @@ test("emit: email.review_rejected — rejecting a hold emits the event and attem
     assertEventShape(ev!, { type: "email.review_rejected", agentId: email, messageId: heldId });
     assert.equal(ev!.data.rejection_reason, reason, "payload echoes the rejection reason");
 
-    const del = await pollDelivery(hook.id, "email.review_rejected");
-    assert.ok(del, `a delivery ATTEMPT for email.review_rejected must appear on webhook ${hook.id}`);
-    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.review_rejected", `emitted evt=${ev!.id}, delivery whd=${del!.id} attempts=${del!.attempts}`);
+    const fanout = await pollEventFanout(ev!.id);
+    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
+    info(SUITE, "email.review_rejected", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
   } finally {
     await delHook(hook.id);
     await delAgent(email);
@@ -322,10 +361,10 @@ test("emit: email.review_rejected — rejecting a hold emits the event and attem
 });
 
 // ---- email.review_approved: approve a held message addressed to the simulator ----
-test("emit: email.review_approved — approving a hold (to the simulator) emits the event and attempts a delivery", async () => {
+test("emit: email.review_approved — approving a hold (to the simulator) emits the event and attempts a delivery", { skip }, async () => {
   const email = await createAgent("approve", true);
   const hook = await createHook(["email.review_approved"]);
-  const since = new Date().toISOString();
+  const since = sinceNow();
   let heldId: string | null = null;
   let resolved = false;
   try {
@@ -349,10 +388,9 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
     assertEventShape(ev!, { type: "email.review_approved", agentId: email, messageId: heldId! });
     assert.equal(ev!.data.direction, "outbound", "review_approved payload carries direction=outbound");
 
-    const del = await pollDelivery(hook.id, "email.review_approved");
-    assert.ok(del, `a delivery ATTEMPT for email.review_approved must appear on webhook ${hook.id}`);
-    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.review_approved", `emitted evt=${ev!.id}, delivery whd=${del!.id} attempts=${del!.attempts}`);
+    const fanout = await pollEventFanout(ev!.id);
+    assert.ok(fanout, `event ${ev!.id} must fan out to the subscribed webhook (matched_webhooks>=1) within 15s`);
+    info(SUITE, "email.review_approved", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s) (delivered=${fanout!.delivered ?? 0} pending=${fanout!.pending ?? 0} failed=${fanout!.failed ?? 0})`);
   } finally {
     // If approve didn't resolve the hold, reject it so nothing lingers.
     if (heldId && !resolved) {
@@ -364,10 +402,10 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
 });
 
 // ---- Events read API: listEvents envelope + filters ----
-test("events: listEvents returns PageEventJSON envelope and honors type/agent_id/since/limit filters", async () => {
+test("events: listEvents returns PageEventJSON envelope and honors type/agent_id/since/limit filters", { skip }, async () => {
   const email = await createAgent("list");
   const hook = await createHook(["email.sent"]);
-  const since = new Date().toISOString();
+  const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit list"), body: "for listEvents" },
@@ -420,10 +458,10 @@ test("events: listEvents returns PageEventJSON envelope and honors type/agent_id
 });
 
 // ---- Events read API: getEvent (+ 404) ----
-test("events: getEvent returns the EventJSON by evt_ id; nonexistent → 404", async () => {
+test("events: getEvent returns the EventJSON by evt_ id; nonexistent → 404", { skip }, async () => {
   const email = await createAgent("get");
   const hook = await createHook(["email.sent"]);
-  const since = new Date().toISOString();
+  const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit get"), body: "for getEvent" },
@@ -449,10 +487,10 @@ test("events: getEvent returns the EventJSON by evt_ id; nonexistent → 404", a
 });
 
 // ---- Events read API: redeliverEvent (re-queues a delivery) ----
-test("events: redeliverEvent re-queues a delivery for the event; a new attempt appears", async () => {
+test("events: redeliverEvent re-queues a delivery for the event; a new attempt appears", { skip }, async () => {
   const email = await createAgent("redeliver");
   const hook = await createHook(["email.sent"]);
-  const since = new Date().toISOString();
+  const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit redeliver"), body: "for redeliver" },
