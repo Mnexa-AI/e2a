@@ -36,9 +36,12 @@ function wsUrl(email: string): string {
 
 function openWS(url: string, key?: string | null, timeoutMs = 5_000): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    if (key) u.searchParams.set("token", key);
-    const ws = new WebSocket(u.toString());
+    // The server authenticates the WS handshake via the `Authorization: Bearer`
+    // header — the `?token=` query param was retired (it leaked the key via the
+    // Referer header / access logs). undici's WebSocket accepts per-connection
+    // headers via the init object (not in the DOM lib's type, hence the cast).
+    const init = key ? { headers: { Authorization: `Bearer ${key}` } } : undefined;
+    const ws = new WebSocket(url, init as unknown as string[]);
     const t = setTimeout(() => {
       try {
         ws.close();
