@@ -38,7 +38,7 @@ func TestPollRateLimited(t *testing.T) {
 			}
 			return nil, errors.New("no")
 		},
-		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
+		ListWebhooks: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.Webhook, error) {
 			t.Error("ListWebhooks must NOT be reached when poll-limited")
 			return nil, nil
 		},
@@ -78,7 +78,7 @@ func TestPollRateHeadersOnAllowed(t *testing.T) {
 		Authenticator: func(r *http.Request) (*identity.User, error) {
 			return &identity.User{ID: "u_1"}, nil
 		},
-		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
+		ListWebhooks: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.Webhook, error) {
 			reached = true
 			return []identity.Webhook{}, nil
 		},
@@ -118,7 +118,7 @@ func TestNonPollLimitedReadNotThrottled(t *testing.T) {
 		Authenticator: func(r *http.Request) (*identity.User, error) {
 			return &identity.User{ID: "u_1"}, nil
 		},
-		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+		ListAgents: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.AgentIdentity, error) {
 			reached = true
 			return []identity.AgentIdentity{}, nil
 		},
@@ -152,7 +152,7 @@ func TestPollRateLimitExemptInternalClass(t *testing.T) {
 		Authenticator: func(r *http.Request) (*identity.User, error) {
 			return &identity.User{ID: "u_int", AccountClass: "internal"}, nil
 		},
-		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
+		ListWebhooks: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.Webhook, error) {
 			reached = true
 			return []identity.Webhook{}, nil
 		},

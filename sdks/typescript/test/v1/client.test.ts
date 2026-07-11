@@ -310,33 +310,29 @@ describe("E2AClient", () => {
     expect(calls[1]).toContain("cursor=cur_2");
   });
 
-  // ── Pagination: cursorless (single-page) endpoints ──────────────
-  // agents/domains/webhooks have no cursor param. Even if the server returns a
-  // non-null next_cursor, the pager must stop after one page (it can't forward a
-  // cursor; surfacing one would loop page 1 and trip the cycle guard). This locks
-  // the intentional cursor-drop. (webhooks.deliveries is covered below.)
+  // ── Pagination: keyset-cursor list endpoints ────────────────────
+  // agents/domains/webhooks/templates/starter-templates/api-keys are all
+  // keyset-paginated on (created_at, id) now — the AutoPager must thread
+  // next_cursor to completion, exactly like messages/events/suppressions. This
+  // locks in the consistent-pagination contract (no more silent single-page cap).
 
   it.each([
-    ["agents", () => client.agents.list(), { id: "ag_1", email: "bot@test.dev" }],
-    ["domains", () => client.domains.list(), { domain: "test.dev" }],
-    ["webhooks", () => client.webhooks.list(), { id: "wh_1" }],
-    ["templates", () => client.templates.list(), { id: "tmpl_1", name: "Welcome" }],
-    ["templates.listStarters", () => client.templates.listStarters(), { alias: "welcome" }],
-  ] as const)("%s.list stops after one page even if the server returns a next_cursor", async (_name, lister, item) => {
-    let calls = 0;
-    globalThis.fetch = vi.fn(async () => {
-      calls++;
-      const text = JSON.stringify({ items: [item], next_cursor: "should_be_ignored" });
-      return {
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        text: async () => text,
-        blob: async () => new Blob([text]),
-      } as unknown as Response;
-    }) as unknown as typeof fetch;
-    const items = await lister().toArray({ limit: 100 });
-    expect(items).toHaveLength(1);
-    expect(calls).toBe(1);
+    ["agents", () => client.agents.list(), [{ id: "ag_1" }, { id: "ag_2" }], (r: { id: string }) => r.id],
+    ["domains", () => client.domains.list(), [{ domain: "a.dev" }, { domain: "b.dev" }], (r: { domain: string }) => r.domain],
+    ["webhooks", () => client.webhooks.list(), [{ id: "wh_1" }, { id: "wh_2" }], (r: { id: string }) => r.id],
+    ["templates", () => client.templates.list(), [{ id: "t_1", name: "A" }, { id: "t_2", name: "B" }], (r: { id: string }) => r.id],
+    ["templates.listStarters", () => client.templates.listStarters(), [{ alias: "welcome" }, { alias: "receipt" }], (r: { alias: string }) => r.alias],
+    ["account.apiKeys", () => client.account.apiKeys.list(), [{ id: "key_1" }, { id: "key_2" }], (r: { id: string }) => r.id],
+  ] as const)("%s.list threads next_cursor across pages", async (_name, lister, rows, keyOf) => {
+    const { fn, calls } = pagingFetch({
+      "": { items: [rows[0]], next_cursor: "cur_2" },
+      cur_2: { items: [rows[1]], next_cursor: null },
+    });
+    globalThis.fetch = fn as unknown as typeof fetch;
+    const items = await (lister() as { toArray: (o: { limit: number }) => Promise<unknown[]> }).toArray({ limit: 50 });
+    expect(items.map((it) => keyOf(it as never))).toEqual([keyOf(rows[0] as never), keyOf(rows[1] as never)]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("cursor=cur_2");
   });
 
   // ── Templates (beta) ────────────────────────────────────────────
@@ -500,26 +496,20 @@ describe("E2AClient", () => {
     }
   });
 
-  // ── webhooks.deliveries pager termination (review finding) ──────
+  // ── webhooks.deliveries pagination ──────────────────────────────
 
-  it("webhooks.deliveries terminates even if the page carries a next_cursor", async () => {
-    // The endpoint has no cursor param; surfacing next_cursor would make the
-    // pager re-fetch the same page and trip the cycle guard. It must stop after
-    // one page regardless.
-    let calls = 0;
-    globalThis.fetch = vi.fn(async () => {
-      calls++;
-      const text = JSON.stringify({ items: [{ id: "del_1" }], next_cursor: "should_be_ignored" });
-      return {
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        text: async () => text,
-        blob: async () => new Blob([text]),
-      } as unknown as Response;
-    }) as unknown as typeof fetch;
+  it("webhooks.deliveries threads next_cursor across pages", async () => {
+    // The delivery log is keyset-paginated now — the AutoPager walks the cursor
+    // to completion instead of silently capping at one page.
+    const { fn, calls } = pagingFetch({
+      "": { items: [{ id: "del_1" }], next_cursor: "cur_2" },
+      cur_2: { items: [{ id: "del_2" }], next_cursor: null },
+    });
+    globalThis.fetch = fn as unknown as typeof fetch;
     const items = await client.webhooks.deliveries("wh_1").toArray({ limit: 100 });
-    expect(items).toHaveLength(1);
-    expect(calls).toBe(1); // single page, no loop
+    expect(items.map((d) => d.id)).toEqual(["del_1", "del_2"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("cursor=cur_2");
   });
 
   // ── account + suppressions smoke (thin passthroughs) ────────────

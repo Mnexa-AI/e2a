@@ -24,23 +24,36 @@ type ReviewListItem struct {
 	FlagReason     string
 }
 
-// ListReviews returns every held (pending_review) message — BOTH directions —
-// across all of userID's agents, newest-first. This is the operator review
-// queue: it intentionally includes held inbound (which every agent-facing read
-// path excludes). SECURITY: account-scoped reviewer flow only; the user join is
-// the tenant-isolation guard.
-func (s *Store) ListReviews(ctx context.Context, userID string) ([]ReviewListItem, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT m.id, m.agent_id, m.direction, m.sender, m.to_recipients,
-		        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
-		        COALESCE(m.status, ''), m.created_at,
-		        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
-		   FROM messages m
-		   JOIN agent_identities a ON a.id = m.agent_id
-		  WHERE a.user_id = $1 AND m.status = 'pending_review' AND m.expires_at > now()
-		  ORDER BY m.created_at DESC`,
-		userID,
-	)
+// ListReviews returns one page of held (pending_review) messages — BOTH
+// directions — across all of userID's agents, newest-first, keyset-paginated on
+// (created_at, id). The caller passes limit (fetch limit+1 to detect a further
+// page; limit<=0 returns every row unpaginated) and the after-key from the
+// previous page's last row (zero afterCreatedAt = first page). The review queue
+// grows unbounded with the pending-review backlog, so it needs real pagination
+// rather than returning the whole set. This is the operator review queue: it
+// intentionally includes held inbound (which every agent-facing read path
+// excludes). SECURITY: account-scoped reviewer flow only; the user join is the
+// tenant-isolation guard.
+func (s *Store) ListReviews(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]ReviewListItem, error) {
+	q := `SELECT m.id, m.agent_id, m.direction, m.sender, m.to_recipients,
+	        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
+	        COALESCE(m.status, ''), m.created_at,
+	        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
+	   FROM messages m
+	   JOIN agent_identities a ON a.id = m.agent_id
+	  WHERE a.user_id = $1 AND m.status = 'pending_review' AND m.expires_at > now()`
+	args := []interface{}{userID}
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (m.created_at < $%d OR (m.created_at = $%d AND m.id < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterID)
+	}
+	q += ` ORDER BY m.created_at DESC, m.id DESC`
+	if limit > 0 {
+		q += fmt.Sprintf(` LIMIT $%d`, len(args)+1)
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

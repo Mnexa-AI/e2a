@@ -232,7 +232,7 @@ func TestHandleCreateAPIKey_AcceptsExpiresAt(t *testing.T) {
 	}
 
 	// Round-trip through the DB to confirm it was actually persisted.
-	keys, _ := store.ListAPIKeys(ctx, user.ID)
+	keys, _ := store.ListAPIKeys(ctx, user.ID, 0, time.Time{}, "")
 	if len(keys) != 1 || keys[0].ExpiresAt == nil || !keys[0].ExpiresAt.Equal(expiresAt) {
 		t.Errorf("persisted ExpiresAt mismatch: %+v", keys)
 	}

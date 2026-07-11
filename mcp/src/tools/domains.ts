@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "../client.js";
 import { z } from "zod";
-import { runTool, strictInputSchema } from "./util.js";
+import { runTool, strictInputSchema, paginationInput } from "./util.js";
 
 /**
  * Domain-management tools. Mirrors the four domain endpoints the
@@ -22,10 +22,17 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
       title: "List domains",
       annotations: { readOnlyHint: true },
       description:
-        "List every custom mail domain registered under the authenticated user, with verification status (verified / pending DNS / failed) and the verification token for each. Useful to discover which domains can already send/receive mail and which still need DNS records to be added. Read-only; cheap to call.",
-      inputSchema: strictInputSchema({}),
+        "List the custom mail domains registered under the authenticated user, newest first, with verification status (verified / pending DNS / failed) and the verification token for each. Useful to discover which domains can already send/receive mail and which still need DNS records to be added. **Cursor-paginated:** returns one page in `domains` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. Read-only; cheap to call.",
+      inputSchema: strictInputSchema({ ...paginationInput }),
     },
-    async () => runTool(async () => ({ domains: await client.listDomains() })),
+    async (args) =>
+      runTool(async () => {
+        const page = await client.listDomains({
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        });
+        return { domains: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 
   server.registerTool(

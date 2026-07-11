@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
@@ -92,14 +93,14 @@ func TestListWebhooksByUser_ScopesByOwner(t *testing.T) {
 	store.CreateWebhook(ctx, userA, "https://a2.example.com", "", []string{"email.received"}, identity.WebhookFilters{})
 	store.CreateWebhook(ctx, userB, "https://b1.example.com", "", []string{"email.received"}, identity.WebhookFilters{})
 
-	listA, err := store.ListWebhooksByUser(ctx, userA)
+	listA, err := store.ListWebhooksByUser(ctx, userA, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListWebhooksByUser A: %v", err)
 	}
 	if len(listA) != 2 {
 		t.Errorf("user A sees %d webhooks, want 2", len(listA))
 	}
-	listB, _ := store.ListWebhooksByUser(ctx, userB)
+	listB, _ := store.ListWebhooksByUser(ctx, userB, 0, time.Time{}, "")
 	if len(listB) != 1 {
 		t.Errorf("user B sees %d webhooks, want 1", len(listB))
 	}

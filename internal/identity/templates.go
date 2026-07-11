@@ -176,14 +176,28 @@ type TemplateSummary struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// ListTemplatesByUser returns every template owned by the user, newest
-// first — summaries only (no body/html_body).
-func (s *Store) ListTemplatesByUser(ctx context.Context, userID string) ([]TemplateSummary, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, COALESCE(alias, ''), subject, created_at, updated_at
-		 FROM templates WHERE user_id = $1 ORDER BY created_at DESC, id`,
-		userID,
-	)
+// Summaries only (no body/html_body).
+//
+// ListTemplatesByUser returns one page of the user's templates, newest-first,
+// keyset-paginated on (created_at, id). limit<=0 returns every template
+// unpaginated; a positive limit fetches that many (pass limit+1 to detect a
+// further page) starting after the (afterCreatedAt, afterID) key from the
+// previous page's last row (zero afterCreatedAt = first page).
+func (s *Store) ListTemplatesByUser(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]TemplateSummary, error) {
+	q := `SELECT id, user_id, name, COALESCE(alias, ''), subject, created_at, updated_at
+	 FROM templates WHERE user_id = $1`
+	args := []interface{}{userID}
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (created_at < $%d OR (created_at = $%d AND id < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterID)
+	}
+	q += ` ORDER BY created_at DESC, id DESC`
+	if limit > 0 {
+		q += fmt.Sprintf(` LIMIT $%d`, len(args)+1)
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

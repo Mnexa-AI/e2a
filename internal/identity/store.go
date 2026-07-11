@@ -784,23 +784,38 @@ func (s *Store) VerifyDomain(ctx context.Context, domain, userID string) error {
 	return nil
 }
 
-// ListDomainsByUser returns all domains owned by the user (excludes system rows).
 // AgentCount is computed inline via a correlated subquery — one round-trip
-// regardless of how many domains the user has, and the per-row count is
+// regardless of how many domains the page has, and the per-row count is
 // cheap because (agent_identities.user_id, agent_identities.domain) is
-// indexed via the existing idx_agent_identities_user.
-func (s *Store) ListDomainsByUser(ctx context.Context, userID string) ([]Domain, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT d.domain, d.user_id, d.verified, d.verification_token, d.created_at, d.verified_at,
-		        d.is_primary, d.last_checked_at,
-		        COALESCE(d.dkim_selector, ''), COALESCE(d.dkim_public_key, ''),
-		        d.sending_status, COALESCE(d.sending_error, ''), d.sending_dns_records, d.sending_last_checked_at,
-		        COALESCE(d.sending_dkim_status, ''), COALESCE(d.sending_mail_from_status, ''),
-		        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
-		 FROM domains d
-		 WHERE d.user_id = $1
-		 ORDER BY d.created_at DESC`, userID,
-	)
+// indexed via the existing idx_agent_identities_user. Excludes system rows.
+//
+// ListDomainsByUser returns one page of the user's domains, newest-first,
+// keyset-paginated on (created_at, domain) — domain is the table's unique key,
+// so it is the deterministic tiebreak. limit<=0 returns every domain
+// unpaginated; a positive limit fetches that many (pass limit+1 to detect a
+// further page) starting after the (afterCreatedAt, afterDomain) key from the
+// previous page's last row (zero afterCreatedAt = first page).
+func (s *Store) ListDomainsByUser(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterDomain string) ([]Domain, error) {
+	q := `SELECT d.domain, d.user_id, d.verified, d.verification_token, d.created_at, d.verified_at,
+	        d.is_primary, d.last_checked_at,
+	        COALESCE(d.dkim_selector, ''), COALESCE(d.dkim_public_key, ''),
+	        d.sending_status, COALESCE(d.sending_error, ''), d.sending_dns_records, d.sending_last_checked_at,
+	        COALESCE(d.sending_dkim_status, ''), COALESCE(d.sending_mail_from_status, ''),
+	        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
+	 FROM domains d
+	 WHERE d.user_id = $1`
+	args := []interface{}{userID}
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (d.created_at < $%d OR (d.created_at = $%d AND d.domain < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterDomain)
+	}
+	q += ` ORDER BY d.created_at DESC, d.domain DESC`
+	if limit > 0 {
+		q += fmt.Sprintf(` LIMIT $%d`, len(args)+1)
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1090,16 +1105,20 @@ func (s *Store) UpdateAgentName(ctx context.Context, agentID, userID, name strin
 	return nil
 }
 
-// ListAgentsByUser returns all agents owned by the user, joined with
-// domain verification AND enriched with per-agent stats for the
-// dashboard. Five correlated subqueries compute
-// inbound/outbound 7-day counts, pending approvals, last delivery, and
-// webhook health in a single round-trip. Other load paths
-// (GetAgentByID, GetAgentByEmail) intentionally don't compute these —
-// only the dashboard needs them.
-func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIdentity, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
+// Agents are joined with domain verification AND enriched with per-agent stats
+// for the dashboard. Five correlated subqueries compute inbound/outbound 7-day
+// counts, pending approvals, last delivery, and webhook health in a single
+// round-trip. Other load paths (GetAgentByID, GetAgentByEmail) intentionally
+// don't compute these — only the dashboard needs them.
+//
+// ListAgentsByUser returns one page of the user's agents, newest-first,
+// keyset-paginated on (created_at, id). limit<=0 returns every agent
+// unpaginated (the all-consumers: auth dashboard views + webhook filter
+// ownership validation); a positive limit fetches that many (pass limit+1 to
+// detect a further page) starting after the (afterCreatedAt, afterID) key from
+// the previous page's last row (zero afterCreatedAt = first page).
+func (s *Store) ListAgentsByUser(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]AgentIdentity, error) {
+	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
@@ -1128,9 +1147,19 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string) ([]AgentIde
 		        ) AS webhook_healthy
 		 FROM agent_identities a
 		 JOIN domains d ON a.domain = d.domain
-		 WHERE a.user_id = $1
-		 ORDER BY a.created_at DESC`, userID,
-	)
+		 WHERE a.user_id = $1`
+	args := []interface{}{userID}
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (a.created_at < $%d OR (a.created_at = $%d AND a.id < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterID)
+	}
+	q += ` ORDER BY a.created_at DESC, a.id DESC`
+	if limit > 0 {
+		q += fmt.Sprintf(` LIMIT $%d`, len(args)+1)
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -3902,12 +3931,27 @@ func (s *Store) userOwnsAgent(ctx context.Context, agentID, userID string) (bool
 	return exists, err
 }
 
-func (s *Store) ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
-		   FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
-		userID,
-	)
+// ListAPIKeys returns one page of the user's live (non-revoked) API keys,
+// newest-first, keyset-paginated on (created_at, id). limit<=0 returns every
+// key unpaginated (the all-consumers: auth dashboard + prober seed); a positive
+// limit fetches that many (pass limit+1 to detect a further page) starting after
+// the (afterCreatedAt, afterID) key from the previous page's last row (zero
+// afterCreatedAt = first page).
+func (s *Store) ListAPIKeys(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]APIKey, error) {
+	q := `SELECT id, user_id, name, key_prefix, COALESCE(scope, 'account'), agent_id, created_at, last_used_at, expires_at
+	   FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL`
+	args := []interface{}{userID}
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (created_at < $%d OR (created_at = $%d AND id < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterID)
+	}
+	q += ` ORDER BY created_at DESC, id DESC`
+	if limit > 0 {
+		q += fmt.Sprintf(` LIMIT $%d`, len(args)+1)
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

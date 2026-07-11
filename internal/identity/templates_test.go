@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
@@ -188,14 +189,14 @@ func TestListTemplatesByUser_ScopesByOwner(t *testing.T) {
 	store.CreateTemplate(ctx, userA, identity.TemplateCreate{Name: "A2", Subject: "S", Body: "B"})
 	store.CreateTemplate(ctx, userB, identity.TemplateCreate{Name: "B1", Subject: "S", Body: "B"})
 
-	listA, err := store.ListTemplatesByUser(ctx, userA)
+	listA, err := store.ListTemplatesByUser(ctx, userA, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListTemplatesByUser A: %v", err)
 	}
 	if len(listA) != 2 {
 		t.Errorf("user A sees %d templates, want 2", len(listA))
 	}
-	listB, _ := store.ListTemplatesByUser(ctx, userB)
+	listB, _ := store.ListTemplatesByUser(ctx, userB, 0, time.Time{}, "")
 	if len(listB) != 1 {
 		t.Errorf("user B sees %d templates, want 1", len(listB))
 	}
@@ -212,7 +213,7 @@ func TestListTemplatesByUser_SummaryShape(t *testing.T) {
 		t.Fatalf("CreateTemplate: %v", err)
 	}
 
-	list, err := store.ListTemplatesByUser(ctx, userID)
+	list, err := store.ListTemplatesByUser(ctx, userID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListTemplatesByUser: %v", err)
 	}

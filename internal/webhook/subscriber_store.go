@@ -187,11 +187,15 @@ func (s *SubscriberStore) DeleteExpiredSubscriberDeliveries(ctx context.Context)
 	}
 }
 
-// ListDeliveriesByWebhook returns up to `limit` delivery rows for the
-// webhook, most-recent first. When status is non-empty, restricts to
-// that status (pending|delivered|failed). Limit is bounded by the
-// caller; this method does not enforce a cap.
-func (s *SubscriberStore) ListDeliveriesByWebhook(ctx context.Context, webhookID, status string, limit int) ([]SubscriberDelivery, error) {
+// ListDeliveriesByWebhook returns one page of delivery rows for the webhook,
+// most-recent first, keyset-paginated on (created_at, id). When status is
+// non-empty, restricts to that status (pending|delivered|failed). The caller
+// passes limit (fetch limit+1 to detect a further page) and the after-key from
+// the previous page's last row (zero afterCreatedAt = first page). The delivery
+// log grows unbounded on a busy webhook, so it needs real pagination rather than
+// silently truncating at a fixed cap. Limit is bounded by the caller; this
+// method does not enforce a cap.
+func (s *SubscriberStore) ListDeliveriesByWebhook(ctx context.Context, webhookID, status string, limit int, afterCreatedAt time.Time, afterID string) ([]SubscriberDelivery, error) {
 	var (
 		rowsErr error
 		out     []SubscriberDelivery
@@ -204,10 +208,15 @@ func (s *SubscriberStore) ListDeliveriesByWebhook(ctx context.Context, webhookID
 	      WHERE webhook_id = $1`
 	args := []interface{}{webhookID}
 	if status != "" {
-		q += ` AND status = $2`
+		q += fmt.Sprintf(` AND status = $%d`, len(args)+1)
 		args = append(args, status)
 	}
-	q += ` ORDER BY created_at DESC LIMIT $` + fmt.Sprintf("%d", len(args)+1)
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (created_at < $%d OR (created_at = $%d AND id < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterID)
+	}
+	q += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT $%d`, len(args)+1)
 	args = append(args, limit)
 
 	rows, err := s.pool.Query(ctx, q, args...)

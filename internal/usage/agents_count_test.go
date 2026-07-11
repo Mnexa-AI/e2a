@@ -3,6 +3,7 @@ package usage_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
@@ -70,7 +71,8 @@ func TestCountAgentsByUser_ExcludesOrphanedAgents(t *testing.T) {
 	}
 
 	// The list is the source of truth for "an agent"; the count must match it.
-	agents, err := idStore.ListAgentsByUser(ctx, user.ID)
+	// limit<=0 returns every agent unpaginated (first page = zero keyset).
+	agents, err := idStore.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListAgentsByUser: %v", err)
 	}
