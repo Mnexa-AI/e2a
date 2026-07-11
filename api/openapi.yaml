@@ -2440,6 +2440,25 @@ paths:
     get:
       description: "API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys."
       operationId: listApiKeys
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -2602,8 +2621,27 @@ paths:
         - account
   /v1/agents:
     get:
-      description: List the agents owned by the authenticated account.
+      description: List the agents owned by the authenticated account, newest first, with cursor pagination.
       operationId: listAgents
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -3442,7 +3480,27 @@ paths:
         - agents
   /v1/domains:
     get:
+      description: List the domains owned by the authenticated account, newest first, with cursor pagination.
       operationId: listDomains
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -3739,6 +3797,25 @@ paths:
     get:
       description: "The review queue: every message held in pending_review across the account's inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds."
       operationId: listReviews
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -3866,6 +3943,25 @@ paths:
     get:
       description: "List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: listStarterTemplates
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -3918,6 +4014,25 @@ paths:
     get:
       description: "List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: listTemplates
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -4077,7 +4192,27 @@ paths:
         - templates
   /v1/webhooks:
     get:
+      description: List the webhooks owned by the authenticated account, newest first, with cursor pagination.
       operationId: listWebhooks
+      parameters:
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
       responses:
         "200":
           content:
@@ -4222,6 +4357,13 @@ paths:
               - pending
               - delivered
               - failed
+            type: string
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.
             type: string
         - explode: false
           in: query

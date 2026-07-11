@@ -21,6 +21,7 @@ from e2a.v1.errors import (
 from e2a.v1.webhook_signature import WebhookEvent
 from e2a.v1.generated.models import (
     AgentView,
+    APIKeyView,
     AttachmentView,
     ConversationSummaryView,
     DomainView,
@@ -412,43 +413,59 @@ async def test_suppressions_list_threads_cursor(httpx_mock):
     assert "cursor=cur_2" in str(reqs[1].url)
 
 
-# ── pagination: cursorless (single-page) endpoints ──────────────────
-# agents/domains/webhooks/deliveries have NO cursor query param. Even if the
-# server hands back a non-null next_cursor, the pager must stop after exactly one
-# page: it can't forward a cursor, and following it would re-fetch page 1 and
-# trip the AutoPager cycle guard. This locks the intentional cursor-drop so a
-# future "fix" that surfaces next_cursor (without a cursor param) is caught.
+# ── pagination: keyset-cursor list endpoints ────────────────────────
+# agents/domains/webhooks/deliveries/api-keys are all keyset-paginated on
+# (created_at, id) now — the AutoPager must thread next_cursor to completion,
+# exactly like messages/events/suppressions. This locks in the
+# consistent-pagination contract (no more silent single-page cap).
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "fixture, lister",
+    "page1, page2, lister, key",
     [
         (
-            {"items": [_valid(AgentView, id="ag_1", email="bot@test.dev")], "next_cursor": "IGNORE_ME"},
+            {"items": [_valid(AgentView, id="ag_1", email="a@test.dev")], "next_cursor": "cur_2"},
+            {"items": [_valid(AgentView, id="ag_2", email="b@test.dev")], "next_cursor": None},
             lambda c: c.agents.list(),
+            lambda r: r.id,
         ),
         (
-            {"items": [_valid(DomainView, domain="test.dev")], "next_cursor": "IGNORE_ME"},
+            {"items": [_valid(DomainView, domain="a.dev")], "next_cursor": "cur_2"},
+            {"items": [_valid(DomainView, domain="b.dev")], "next_cursor": None},
             lambda c: c.domains.list(),
+            lambda r: r.domain,
         ),
         (
-            {"items": [_valid(WebhookView, id="wh_1")], "next_cursor": "IGNORE_ME"},
+            {"items": [_valid(WebhookView, id="wh_1")], "next_cursor": "cur_2"},
+            {"items": [_valid(WebhookView, id="wh_2")], "next_cursor": None},
             lambda c: c.webhooks.list(),
+            lambda r: r.id,
         ),
         (
-            {"items": [_valid(WebhookDeliveryView, id="del_1")], "next_cursor": "IGNORE_ME"},
+            {"items": [_valid(WebhookDeliveryView, id="del_1")], "next_cursor": "cur_2"},
+            {"items": [_valid(WebhookDeliveryView, id="del_2")], "next_cursor": None},
             lambda c: c.webhooks.deliveries("wh_1"),
+            lambda r: r.id,
+        ),
+        (
+            {"items": [_valid(APIKeyView, id="key_1")], "next_cursor": "cur_2"},
+            {"items": [_valid(APIKeyView, id="key_2")], "next_cursor": None},
+            lambda c: c.account.api_keys.list(),
+            lambda r: r.id,
         ),
     ],
-    ids=["agents", "domains", "webhooks", "deliveries"],
+    ids=["agents", "domains", "webhooks", "deliveries", "api_keys"],
 )
-async def test_cursorless_lists_stop_after_one_page(httpx_mock, fixture, lister):
-    httpx_mock.add_response(json=fixture)
+async def test_keyset_lists_thread_cursor(httpx_mock, page1, page2, lister, key):
+    httpx_mock.add_response(json=page1)
+    httpx_mock.add_response(json=page2)
     async with _client() as c:
         items = await lister(c).to_list(limit=100)
-    assert len(items) == 1
-    assert len(httpx_mock.get_requests()) == 1
+    assert len(items) == 2
+    reqs = httpx_mock.get_requests()
+    assert len(reqs) == 2
+    assert "cursor=cur_2" in str(reqs[1].url)
 
 
 # ── error mapping ───────────────────────────────────────────────────

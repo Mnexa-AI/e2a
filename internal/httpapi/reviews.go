@@ -56,6 +56,13 @@ func reviewView(it identity.ReviewListItem) ReviewView {
 type listReviewsOutput struct{ Body Page[ReviewView] }
 type reviewDetailOutput struct{ Body MessageView }
 
+// listReviewsInput carries the standard cursor/limit (PageParams). The review
+// queue is keyset-paginated on (created_at, id); it grows with the
+// pending-review backlog, so it must not return the whole set in one page.
+type listReviewsInput struct {
+	PageParams
+}
+
 type getReviewInput struct {
 	ID string `path:"id"`
 }
@@ -102,7 +109,7 @@ func (s *Server) registerReviews() {
 	}, s.handleRejectReview)
 }
 
-func (s *Server) handleListReviews(ctx context.Context, _ *struct{}) (*listReviewsOutput, error) {
+func (s *Server) handleListReviews(ctx context.Context, in *listReviewsInput) (*listReviewsOutput, error) {
 	p, err := s.requireAccountScope(ctx)
 	if err != nil {
 		return nil, err
@@ -110,15 +117,32 @@ func (s *Server) handleListReviews(ctx context.Context, _ *struct{}) (*listRevie
 	if s.deps.ListReviews == nil {
 		return nil, NewError(http.StatusNotImplemented, "not_implemented", "reviews are not available on this deployment")
 	}
-	items, err := s.deps.ListReviews(ctx, p.User.ID)
+	afterCreatedAt, afterID, err := s.decodeKeyset(in.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := effectiveLimit(in.Limit)
+	// Fetch limit+1 to detect a further page.
+	items, err := s.deps.ListReviews(ctx, p.User.ID, limit+1, afterCreatedAt, afterID)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list reviews")
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
 	}
 	views := make([]ReviewView, 0, len(items))
 	for _, it := range items {
 		views = append(views, reviewView(it))
 	}
-	return &listReviewsOutput{Body: NewPage(views, "")}, nil
+	var nextCursor string
+	if hasMore {
+		last := items[len(items)-1]
+		if nextCursor, err = s.encodeKeyset(last.CreatedAt, last.ID); err != nil {
+			return nil, err
+		}
+	}
+	return &listReviewsOutput{Body: NewPage(views, nextCursor)}, nil
 }
 
 // requireOwnedReview resolves a held message by id, scoped to the account, and

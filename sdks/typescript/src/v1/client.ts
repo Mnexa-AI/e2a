@@ -199,11 +199,12 @@ export class E2AClient {
 
 class AgentsResource {
   constructor(private readonly api: PromiseAgentsApi) {}
-  list(): AutoPager<AgentView> {
-    // No cursor param: omit next_cursor so the pager stops after one page — it
-    // can't forward a cursor, and surfacing one would re-fetch page 1 and trip
-    // the cycle guard. Single-page at GA; see webhooks.deliveries.
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listAgents())).items ?? [] }));
+  list(params: { limit?: number } = {}): AutoPager<AgentView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion.
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listAgents(cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   get(email: string): Promise<AgentView> {
     return call(() => this.api.getAgent(email));
@@ -306,9 +307,12 @@ class MessagesResource {
 class ReviewsResource {
   constructor(private readonly api: PromiseReviewsApi) {}
   /** List every held message across the account's inboxes. */
-  list(): AutoPager<ReviewView> {
-    // No cursor param: single-page at GA — see AgentsResource.list / domains.
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listReviews())).items ?? [] }));
+  list(params: { limit?: number } = {}): AutoPager<ReviewView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion.
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listReviews(cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   /** Full detail of one held message (body + recipients + screening context). */
   get(id: string): Promise<MessageView> {
@@ -333,9 +337,12 @@ class TemplatesResource {
   constructor(private readonly api: PromiseTemplatesApi) {}
   /** List the account's stored templates, newest first. Summary rows only (no
    *  body/html_body sources) — `get(id)` returns the full sources. */
-  list(): AutoPager<TemplateSummaryView> {
-    // No cursor param: single-page at GA — see AgentsResource.list / domains.
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listTemplates())).items ?? [] }));
+  list(params: { limit?: number } = {}): AutoPager<TemplateSummaryView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion.
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listTemplates(cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   /** Fetch one stored template by id (tmpl_…), including its sources. */
   get(id: string): Promise<TemplateView> {
@@ -364,9 +371,12 @@ class TemplatesResource {
   }
   /** List the pre-built starter templates shipped with the deployment (catalog
    *  metadata + variables; `getStarter(alias)` adds the full body sources). */
-  listStarters(): AutoPager<StarterTemplateView> {
-    // No cursor param: single-page at GA — see AgentsResource.list / domains.
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listStarterTemplates())).items ?? [] }));
+  listStarters(params: { limit?: number } = {}): AutoPager<StarterTemplateView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion.
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listStarterTemplates(cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   /** Fetch one starter by alias, including its full body sources. Starters are
    *  read-only masters — copy one with `create({ fromStarter: alias })`. */
@@ -392,9 +402,12 @@ class ConversationsResource {
 
 class DomainsResource {
   constructor(private readonly api: PromiseDomainsApi) {}
-  list(): AutoPager<DomainView> {
-    // No cursor param: single-page at GA — see AgentsResource.list / deliveries.
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listDomains())).items ?? [] }));
+  list(params: { limit?: number } = {}): AutoPager<DomainView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion.
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listDomains(cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   get(domain: string): Promise<DomainView> {
     return call(() => this.api.getDomain(domain));
@@ -462,9 +475,12 @@ class WebhooksResource {
     return this.messages.get(d.recipient, d.message_id);
   }
 
-  list(): AutoPager<WebhookView> {
-    // No cursor param: single-page at GA — see AgentsResource.list / deliveries.
-    return new AutoPager(async () => ({ items: (await call(() => this.api.listWebhooks())).items ?? [] }));
+  list(params: { limit?: number } = {}): AutoPager<WebhookView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion.
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listWebhooks(cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
   }
   get(id: string): Promise<WebhookView> {
     return call(() => this.api.getWebhook(id));
@@ -485,12 +501,12 @@ class WebhooksResource {
     return call(() => this.api.testWebhook(id, body));
   }
   deliveries(id: string, params: { status?: "pending" | "delivered" | "failed"; limit?: number } = {}): AutoPager<WebhookDeliveryView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion. The status
+    // filter is pinned into the cursor server-side (a continuation must not
+    // change it), which the AutoPager honors by keeping status constant.
     return new AutoPager(async (cursor) => {
-      void cursor; // listWebhookDeliveries has no cursor param — single page by contract.
-      const page = await call(() => this.api.listWebhookDeliveries(id, params.status, params.limit));
-      // Drop next_cursor: we can't pass it back (no cursor param), so surfacing
-      // it would make the pager re-fetch the same page and trip the cycle guard.
-      return { items: page.items ?? [], next_cursor: undefined };
+      const page = await call(() => this.api.listWebhookDeliveries(id, params.status, cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
 }
@@ -510,11 +526,11 @@ class SuppressionsResource {
 
 class APIKeysResource {
   constructor(private readonly api: PromiseAccountApi) {}
-  list(): AutoPager<APIKeyView> {
+  list(params: { limit?: number } = {}): AutoPager<APIKeyView> {
+    // Cursor-paginated: the AutoPager walks next_cursor to completion.
     return new AutoPager(async (cursor) => {
-      void cursor; // listApiKeys has no cursor param — single page by contract.
-      const page = await call(() => this.api.listApiKeys());
-      return { items: page.items ?? [], next_cursor: undefined };
+      const page = await call(() => this.api.listApiKeys(cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
   // create returns the one-time plaintext key in `.key` — store it now.

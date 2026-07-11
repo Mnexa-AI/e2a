@@ -63,14 +63,14 @@ func TestSubscriberStore_DeliveryLifecycle(t *testing.T) {
 	}
 
 	// ListDeliveriesByWebhook — all, then filtered by status.
-	all, err := ss.ListDeliveriesByWebhook(ctx, wh.ID, "", 100)
+	all, err := ss.ListDeliveriesByWebhook(ctx, wh.ID, "", 100, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListDeliveriesByWebhook: %v", err)
 	}
 	if len(all) < 2 {
 		t.Errorf("list all: got %d, want >=2", len(all))
 	}
-	if failed, _ := ss.ListDeliveriesByWebhook(ctx, wh.ID, "failed", 100); len(failed) != 1 {
+	if failed, _ := ss.ListDeliveriesByWebhook(ctx, wh.ID, "failed", 100, time.Time{}, ""); len(failed) != 1 {
 		t.Errorf("list failed: got %d, want 1", len(failed))
 	}
 

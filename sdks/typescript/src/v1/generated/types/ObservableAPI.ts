@@ -316,11 +316,13 @@ export class ObservableAccountApi {
     /**
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listApiKeysWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageAPIKeyView>> {
+    public listApiKeysWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageAPIKeyView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listApiKeys(_config);
+        const requestContextPromise = this.requestFactory.listApiKeys(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -340,9 +342,11 @@ export class ObservableAccountApi {
     /**
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listApiKeys(_options?: ConfigurationOptions): Observable<PageAPIKeyView> {
-        return this.listApiKeysWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageAPIKeyView>) => apiResponse.data));
+    public listApiKeys(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageAPIKeyView> {
+        return this.listApiKeysWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageAPIKeyView>) => apiResponse.data));
     }
 
     /**
@@ -538,13 +542,15 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listAgentsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageAgentView>> {
+    public listAgentsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageAgentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listAgents(_config);
+        const requestContextPromise = this.requestFactory.listAgents(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -562,11 +568,13 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listAgents(_options?: ConfigurationOptions): Observable<PageAgentView> {
-        return this.listAgentsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageAgentView>) => apiResponse.data));
+    public listAgents(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageAgentView> {
+        return this.listAgentsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageAgentView>) => apiResponse.data));
     }
 
     /**
@@ -856,12 +864,15 @@ export class ObservableDomainsApi {
     }
 
     /**
+     * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listDomainsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageDomainView>> {
+    public listDomainsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageDomainView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listDomains(_config);
+        const requestContextPromise = this.requestFactory.listDomains(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -879,10 +890,13 @@ export class ObservableDomainsApi {
     }
 
     /**
+     * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listDomains(_options?: ConfigurationOptions): Observable<PageDomainView> {
-        return this.listDomainsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageDomainView>) => apiResponse.data));
+    public listDomains(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageDomainView> {
+        return this.listDomainsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageDomainView>) => apiResponse.data));
     }
 
     /**
@@ -1618,11 +1632,13 @@ export class ObservableReviewsApi {
     /**
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listReviewsWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageReviewView>> {
+    public listReviewsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageReviewView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listReviews(_config);
+        const requestContextPromise = this.requestFactory.listReviews(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1642,9 +1658,11 @@ export class ObservableReviewsApi {
     /**
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listReviews(_options?: ConfigurationOptions): Observable<PageReviewView> {
-        return this.listReviewsWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageReviewView>) => apiResponse.data));
+    public listReviews(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageReviewView> {
+        return this.listReviewsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageReviewView>) => apiResponse.data));
     }
 
     /**
@@ -1840,11 +1858,13 @@ export class ObservableTemplatesApi {
     /**
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listStarterTemplatesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageStarterTemplateView>> {
+    public listStarterTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageStarterTemplateView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listStarterTemplates(_config);
+        const requestContextPromise = this.requestFactory.listStarterTemplates(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1864,19 +1884,23 @@ export class ObservableTemplatesApi {
     /**
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listStarterTemplates(_options?: ConfigurationOptions): Observable<PageStarterTemplateView> {
-        return this.listStarterTemplatesWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageStarterTemplateView>) => apiResponse.data));
+    public listStarterTemplates(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageStarterTemplateView> {
+        return this.listStarterTemplatesWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageStarterTemplateView>) => apiResponse.data));
     }
 
     /**
      * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listTemplatesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageTemplateSummaryView>> {
+    public listTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageTemplateSummaryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listTemplates(_config);
+        const requestContextPromise = this.requestFactory.listTemplates(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1896,9 +1920,11 @@ export class ObservableTemplatesApi {
     /**
      * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listTemplates(_options?: ConfigurationOptions): Observable<PageTemplateSummaryView> {
-        return this.listTemplatesWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageTemplateSummaryView>) => apiResponse.data));
+    public listTemplates(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageTemplateSummaryView> {
+        return this.listTemplatesWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageTemplateSummaryView>) => apiResponse.data));
     }
 
     /**
@@ -2090,12 +2116,13 @@ export class ObservableWebhooksApi {
      * List webhook deliveries
      * @param id
      * @param [status]
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the status filter.
      * @param [limit]
      */
-    public listWebhookDeliveriesWithHttpInfo(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookDeliveryView>> {
+    public listWebhookDeliveriesWithHttpInfo(id: string, status?: 'pending' | 'delivered' | 'failed', cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookDeliveryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listWebhookDeliveries(id, status, limit, _config);
+        const requestContextPromise = this.requestFactory.listWebhookDeliveries(id, status, cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2117,19 +2144,23 @@ export class ObservableWebhooksApi {
      * List webhook deliveries
      * @param id
      * @param [status]
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the status filter.
      * @param [limit]
      */
-    public listWebhookDeliveries(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: ConfigurationOptions): Observable<PageWebhookDeliveryView> {
-        return this.listWebhookDeliveriesWithHttpInfo(id, status, limit, _options).pipe(map((apiResponse: HttpInfo<PageWebhookDeliveryView>) => apiResponse.data));
+    public listWebhookDeliveries(id: string, status?: 'pending' | 'delivered' | 'failed', cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageWebhookDeliveryView> {
+        return this.listWebhookDeliveriesWithHttpInfo(id, status, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageWebhookDeliveryView>) => apiResponse.data));
     }
 
     /**
+     * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listWebhooksWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookView>> {
+    public listWebhooksWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listWebhooks(_config);
+        const requestContextPromise = this.requestFactory.listWebhooks(cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2147,10 +2178,13 @@ export class ObservableWebhooksApi {
     }
 
     /**
+     * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listWebhooks(_options?: ConfigurationOptions): Observable<PageWebhookView> {
-        return this.listWebhooksWithHttpInfo(_options).pipe(map((apiResponse: HttpInfo<PageWebhookView>) => apiResponse.data));
+    public listWebhooks(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageWebhookView> {
+        return this.listWebhooksWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageWebhookView>) => apiResponse.data));
     }
 
     /**

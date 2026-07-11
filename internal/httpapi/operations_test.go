@@ -86,7 +86,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 				return nil, errors.New("unauthorized")
 			}
 		},
-		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+		ListAgents: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.AgentIdentity, error) {
 			if userID != "u_1" {
 				return nil, errors.New("unexpected user")
 			}
@@ -115,7 +115,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 				CreatedAt: time.Unix(1700000000, 0).UTC(), UpdatedAt: time.Unix(1700000000, 0).UTC(),
 			}, nil
 		},
-		ListTemplates: func(ctx context.Context, userID string) ([]identity.TemplateSummary, error) {
+		ListTemplates: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.TemplateSummary, error) {
 			tp := sampleTemplate()
 			return []identity.TemplateSummary{{
 				ID: tp.ID, UserID: tp.UserID, Name: tp.Name, Alias: tp.Alias,
@@ -225,7 +225,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 				CreatedAt: time.Unix(1700000400, 0).UTC(), ExpiresAt: expiresAt,
 			}, nil
 		},
-		ListAPIKeys: func(ctx context.Context, userID string) ([]identity.APIKey, error) {
+		ListAPIKeys: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.APIKey, error) {
 			if userID != "u_1" {
 				return nil, errors.New("unexpected user")
 			}
@@ -352,7 +352,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 				return nil, errors.New("not registered")
 			}
 		},
-		ListDomains: func(ctx context.Context, userID string) ([]identity.Domain, error) {
+		ListDomains: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterDomain string) ([]identity.Domain, error) {
 			return []identity.Domain{{Domain: "acme.com", Verified: true, VerificationToken: "e2a-verify=tok", IsPrimary: true, AgentCount: 2}}, nil
 		},
 		ClaimDomain: func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
@@ -434,7 +434,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 			}
 			return &identity.Webhook{ID: "wh_1", URL: url, Description: description, Events: events, Filters: filters, SigningSecret: "whsec_xyz", Enabled: true, CreatedAt: time.Unix(1700000000, 0).UTC()}, nil
 		},
-		ListWebhooks: func(ctx context.Context, userID string) ([]identity.Webhook, error) {
+		ListWebhooks: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.Webhook, error) {
 			return []identity.Webhook{{ID: "wh_1", URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, SigningSecret: "whsec_should_be_hidden", CreatedAt: time.Unix(1700000000, 0).UTC()}}, nil
 		},
 		GetWebhook: func(ctx context.Context, webhookID, userID string) (*identity.Webhook, error) {
@@ -472,7 +472,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 		TestWebhookInsert: func(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error) {
 			return "whd_test_1", nil
 		},
-		ListDeliveries: func(ctx context.Context, webhookID, status string, limit int) ([]webhook.SubscriberDelivery, error) {
+		ListDeliveries: func(ctx context.Context, webhookID, status string, limit int, afterCreatedAt time.Time, afterID string) ([]webhook.SubscriberDelivery, error) {
 			return []webhook.SubscriberDelivery{
 				{ID: "whd_1", EventType: "email.received", Status: "delivered", Attempts: 1, NextRetryAt: time.Unix(1700000000, 0).UTC(), CreatedAt: time.Unix(1700000000, 0).UTC()},
 			}, nil

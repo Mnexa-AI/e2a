@@ -209,7 +209,7 @@ func TestListAPIKeys(t *testing.T) {
 	store.CreateAPIKey(ctx, user.ID, "key-1", nil)
 	store.CreateAPIKey(ctx, user.ID, "key-2", nil)
 
-	keys, err := store.ListAPIKeys(ctx, user.ID)
+	keys, err := store.ListAPIKeys(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListAPIKeys: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestDeleteAPIKey(t *testing.T) {
 		t.Fatalf("DeleteAPIKey: %v", err)
 	}
 
-	keys, _ := store.ListAPIKeys(ctx, user.ID)
+	keys, _ := store.ListAPIKeys(ctx, user.ID, 0, time.Time{}, "")
 	if len(keys) != 0 {
 		t.Errorf("expected 0 keys after delete, got %d", len(keys))
 	}
@@ -274,7 +274,7 @@ func TestAPIKey_ListReturnsLastUsedAtAndExpiresAt(t *testing.T) {
 	neverExpires, _ := store.CreateAPIKey(ctx, user.ID, "never-expires", nil)
 
 	// Before any use, last_used_at is NULL on both rows.
-	keys, err := store.ListAPIKeys(ctx, user.ID)
+	keys, err := store.ListAPIKeys(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListAPIKeys: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestAPIKey_ListReturnsLastUsedAtAndExpiresAt(t *testing.T) {
 	if _, err := store.GetUserByAPIKey(ctx, withExpiry.PlaintextKey); err != nil {
 		t.Fatalf("GetUserByAPIKey: %v", err)
 	}
-	keys, _ = store.ListAPIKeys(ctx, user.ID)
+	keys, _ = store.ListAPIKeys(ctx, user.ID, 0, time.Time{}, "")
 	for _, k := range keys {
 		if k.ID == withExpiry.ID {
 			if k.LastUsedAt == nil {
@@ -981,7 +981,7 @@ func TestListDomainsByUser_ReturnsEnrichmentColumns(t *testing.T) {
 
 	store.ClaimOrCreateDomain(ctx, "no-agent.example.com", user.ID)
 
-	domains, err := store.ListDomainsByUser(ctx, user.ID)
+	domains, err := store.ListDomainsByUser(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListDomainsByUser: %v", err)
 	}
@@ -1272,7 +1272,7 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 		 VALUES ($1, 'delivered', 1, '', now(), now())`,
 		m.ID)
 
-	agents, err := store.ListAgentsByUser(ctx, user.ID)
+	agents, err := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListAgentsByUser: %v", err)
 	}
@@ -1320,7 +1320,7 @@ func TestListAgentsByUser_WebhookUnhealthyOnRecentFailure(t *testing.T) {
 		 VALUES ($1, 'failed', 3, '500 internal', now(), now() - interval '5 minutes')`,
 		m.ID)
 
-	agents, _ := store.ListAgentsByUser(ctx, user.ID)
+	agents, _ := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
 	if agents[0].WebhookHealthy {
 		t.Error("WebhookHealthy = true, want false on recent failed delivery")
 	}
@@ -1345,7 +1345,7 @@ func TestListAgentsByUser_OldFailureDoesNotPoisonHealth(t *testing.T) {
 		 VALUES ($1, 'failed', 5, 'stale', now() - interval '3 days', now() - interval '3 days')`,
 		m.ID)
 
-	agents, _ := store.ListAgentsByUser(ctx, user.ID)
+	agents, _ := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
 	if !agents[0].WebhookHealthy {
 		t.Error("WebhookHealthy = false, want true (3-day-old failure shouldn't poison health)")
 	}

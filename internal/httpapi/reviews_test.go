@@ -20,7 +20,7 @@ func reviewsServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("unauthorized")
 		},
-		ListReviews: func(ctx context.Context, userID string) ([]identity.ReviewListItem, error) {
+		ListReviews: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.ReviewListItem, error) {
 			if userID != "u_1" {
 				return nil, errors.New("unexpected user")
 			}

@@ -62,13 +62,13 @@ describe("McpClient templates (SDK-backed)", () => {
   function mockTemplatesSdk() {
     return {
       templates: {
-        list: vi.fn(() => ({ toArray: async () => [{ id: "tmpl_1", name: "Welcome" }] })),
+        list: vi.fn(() => ({ page: async () => ({ items: [{ id: "tmpl_1", name: "Welcome" }], next_cursor: undefined }) })),
         get: vi.fn(async (id: string) => ({ id, name: "Welcome", htmlBody: "<p>Hi</p>" })),
         create: vi.fn(async () => ({ id: "tmpl_new", name: "Approvals" })),
         update: vi.fn(async (id: string) => ({ id, name: "Welcome" })),
         delete: vi.fn(async () => undefined),
         validate: vi.fn(async () => ({ valid: true, errors: [], suggestedData: { name: "example" } })),
-        listStarters: vi.fn(() => ({ toArray: async () => [{ alias: "welcome" }] })),
+        listStarters: vi.fn(() => ({ page: async () => ({ items: [{ alias: "welcome" }], next_cursor: undefined }) })),
         getStarter: vi.fn(async (alias: string) => ({ alias, body: "Hi {{name}}" })),
       },
     };
@@ -78,7 +78,7 @@ describe("McpClient templates (SDK-backed)", () => {
     const sdk = mockTemplatesSdk();
     const c = new McpClient(sdk as never, "", "account");
 
-    expect(await c.listTemplates()).toEqual([{ id: "tmpl_1", name: "Welcome" }]);
+    expect(await c.listTemplates()).toEqual({ items: [{ id: "tmpl_1", name: "Welcome" }], next_cursor: undefined });
     expect(sdk.templates.list).toHaveBeenCalledOnce();
 
     await c.getTemplate("tmpl_1");
@@ -96,7 +96,7 @@ describe("McpClient templates (SDK-backed)", () => {
     await c.validateTemplate({ subject: "Hi {{name}}", testData: { name: "Ada" } });
     expect(sdk.templates.validate).toHaveBeenCalledWith({ subject: "Hi {{name}}", testData: { name: "Ada" } });
 
-    expect(await c.listStarterTemplates()).toEqual([{ alias: "welcome" }]);
+    expect(await c.listStarterTemplates()).toEqual({ items: [{ alias: "welcome" }], next_cursor: undefined });
     expect(sdk.templates.listStarters).toHaveBeenCalledOnce();
 
     await c.getStarterTemplate("welcome");

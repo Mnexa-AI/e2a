@@ -186,7 +186,7 @@ func TestListAgentsByUserIncludesHITL(t *testing.T) {
 		t.Fatalf("UpdateAgentHITL: %v", err)
 	}
 
-	agents, err := store.ListAgentsByUser(ctx, user.ID)
+	agents, err := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListAgentsByUser: %v", err)
 	}

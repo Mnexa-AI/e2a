@@ -145,6 +145,22 @@ export interface AccountApiGetAccountRequest {
 }
 
 export interface AccountApiListApiKeysRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AccountApilistApiKeys
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof AccountApilistApiKeys
+     */
+    limit?: number
 }
 
 export interface AccountApiListSuppressionsRequest {
@@ -287,7 +303,7 @@ export class ObjectAccountApi {
      * @param param the request object
      */
     public listApiKeysWithHttpInfo(param: AccountApiListApiKeysRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageAPIKeyView>> {
-        return this.api.listApiKeysWithHttpInfo( options).toPromise();
+        return this.api.listApiKeysWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -296,7 +312,7 @@ export class ObjectAccountApi {
      * @param param the request object
      */
     public listApiKeys(param: AccountApiListApiKeysRequest = {}, options?: ConfigurationOptions): Promise<PageAPIKeyView> {
-        return this.api.listApiKeys( options).toPromise();
+        return this.api.listApiKeys(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -369,6 +385,22 @@ export interface AgentsApiGetAgentProtectionRequest {
 }
 
 export interface AgentsApiListAgentsRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApilistAgents
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof AgentsApilistAgents
+     */
+    limit?: number
 }
 
 export interface AgentsApiPutAgentProtectionRequest {
@@ -493,21 +525,21 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
      * @param param the request object
      */
     public listAgentsWithHttpInfo(param: AgentsApiListAgentsRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageAgentView>> {
-        return this.api.listAgentsWithHttpInfo( options).toPromise();
+        return this.api.listAgentsWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
-     * List the agents owned by the authenticated account.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
      * @param param the request object
      */
     public listAgents(param: AgentsApiListAgentsRequest = {}, options?: ConfigurationOptions): Promise<PageAgentView> {
-        return this.api.listAgents( options).toPromise();
+        return this.api.listAgents(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -702,6 +734,22 @@ export interface DomainsApiGetDomainRequest {
 }
 
 export interface DomainsApiListDomainsRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof DomainsApilistDomains
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof DomainsApilistDomains
+     */
+    limit?: number
 }
 
 export interface DomainsApiRegisterDomainRequest {
@@ -763,19 +811,21 @@ export class ObjectDomainsApi {
     }
 
     /**
+     * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
      * @param param the request object
      */
     public listDomainsWithHttpInfo(param: DomainsApiListDomainsRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageDomainView>> {
-        return this.api.listDomainsWithHttpInfo( options).toPromise();
+        return this.api.listDomainsWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
+     * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
      * @param param the request object
      */
     public listDomains(param: DomainsApiListDomainsRequest = {}, options?: ConfigurationOptions): Promise<PageDomainView> {
-        return this.api.listDomains( options).toPromise();
+        return this.api.listDomains(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1527,6 +1577,22 @@ export interface ReviewsApiGetReviewRequest {
 }
 
 export interface ReviewsApiListReviewsRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof ReviewsApilistReviews
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof ReviewsApilistReviews
+     */
+    limit?: number
 }
 
 export interface ReviewsApiRejectReviewRequest {
@@ -1594,7 +1660,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public listReviewsWithHttpInfo(param: ReviewsApiListReviewsRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageReviewView>> {
-        return this.api.listReviewsWithHttpInfo( options).toPromise();
+        return this.api.listReviewsWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1603,7 +1669,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public listReviews(param: ReviewsApiListReviewsRequest = {}, options?: ConfigurationOptions): Promise<PageReviewView> {
-        return this.api.listReviews( options).toPromise();
+        return this.api.listReviews(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1669,9 +1735,41 @@ export interface TemplatesApiGetTemplateRequest {
 }
 
 export interface TemplatesApiListStarterTemplatesRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof TemplatesApilistStarterTemplates
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof TemplatesApilistStarterTemplates
+     */
+    limit?: number
 }
 
 export interface TemplatesApiListTemplatesRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof TemplatesApilistTemplates
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof TemplatesApilistTemplates
+     */
+    limit?: number
 }
 
 export interface TemplatesApiUpdateTemplateRequest {
@@ -1784,7 +1882,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public listStarterTemplatesWithHttpInfo(param: TemplatesApiListStarterTemplatesRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageStarterTemplateView>> {
-        return this.api.listStarterTemplatesWithHttpInfo( options).toPromise();
+        return this.api.listStarterTemplatesWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1793,7 +1891,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public listStarterTemplates(param: TemplatesApiListStarterTemplatesRequest = {}, options?: ConfigurationOptions): Promise<PageStarterTemplateView> {
-        return this.api.listStarterTemplates( options).toPromise();
+        return this.api.listStarterTemplates(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1802,7 +1900,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public listTemplatesWithHttpInfo(param: TemplatesApiListTemplatesRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageTemplateSummaryView>> {
-        return this.api.listTemplatesWithHttpInfo( options).toPromise();
+        return this.api.listTemplatesWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1811,7 +1909,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public listTemplates(param: TemplatesApiListTemplatesRequest = {}, options?: ConfigurationOptions): Promise<PageTemplateSummaryView> {
-        return this.api.listTemplates( options).toPromise();
+        return this.api.listTemplates(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1900,6 +1998,13 @@ export interface WebhooksApiListWebhookDeliveriesRequest {
      */
     status?: 'pending' | 'delivered' | 'failed'
     /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the status filter.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WebhooksApilistWebhookDeliveries
+     */
+    cursor?: string
+    /**
      * 
      * Minimum: 1
      * Maximum: 500
@@ -1911,6 +2016,22 @@ export interface WebhooksApiListWebhookDeliveriesRequest {
 }
 
 export interface WebhooksApiListWebhooksRequest {
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof WebhooksApilistWebhooks
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof WebhooksApilistWebhooks
+     */
+    limit?: number
 }
 
 export interface WebhooksApiRotateWebhookSecretRequest {
@@ -2023,7 +2144,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public listWebhookDeliveriesWithHttpInfo(param: WebhooksApiListWebhookDeliveriesRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageWebhookDeliveryView>> {
-        return this.api.listWebhookDeliveriesWithHttpInfo(param.id, param.status, param.limit,  options).toPromise();
+        return this.api.listWebhookDeliveriesWithHttpInfo(param.id, param.status, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -2032,23 +2153,25 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public listWebhookDeliveries(param: WebhooksApiListWebhookDeliveriesRequest, options?: ConfigurationOptions): Promise<PageWebhookDeliveryView> {
-        return this.api.listWebhookDeliveries(param.id, param.status, param.limit,  options).toPromise();
+        return this.api.listWebhookDeliveries(param.id, param.status, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
+     * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
      * @param param the request object
      */
     public listWebhooksWithHttpInfo(param: WebhooksApiListWebhooksRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageWebhookView>> {
-        return this.api.listWebhooksWithHttpInfo( options).toPromise();
+        return this.api.listWebhooksWithHttpInfo(param.cursor, param.limit,  options).toPromise();
     }
 
     /**
+     * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
      * @param param the request object
      */
     public listWebhooks(param: WebhooksApiListWebhooksRequest = {}, options?: ConfigurationOptions): Promise<PageWebhookView> {
-        return this.api.listWebhooks( options).toPromise();
+        return this.api.listWebhooks(param.cursor, param.limit,  options).toPromise();
     }
 
     /**

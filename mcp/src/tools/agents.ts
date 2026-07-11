@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "../client.js";
 import { z } from "zod";
-import { runTool, strictInputSchema } from "./util.js";
+import { runTool, strictInputSchema, paginationInput } from "./util.js";
 
 export function registerAgentTools(server: McpServer, client: McpClient): void {
   server.registerTool(
@@ -10,10 +10,17 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
       title: "List agents",
       annotations: { readOnlyHint: true },
       description:
-        "List every agent inbox owned by the authenticated user. Useful for orientation — which inbox to send `from` or query messages against. Read-only.",
-      inputSchema: strictInputSchema({}),
+        "List the agent inboxes owned by the authenticated user, newest first. Useful for orientation — which inbox to send `from` or query messages against. **Cursor-paginated:** returns one page in `agents` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. Read-only.",
+      inputSchema: strictInputSchema({ ...paginationInput }),
     },
-    async () => runTool(async () => ({ agents: await client.listAgents() })),
+    async (args) =>
+      runTool(async () => {
+        const page = await client.listAgents({
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        });
+        return { agents: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 
   server.registerTool(

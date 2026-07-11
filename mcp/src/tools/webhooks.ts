@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "../client.js";
 import { z } from "zod";
-import { runTool, strictInputSchema } from "./util.js";
+import { runTool, strictInputSchema, paginationInput } from "./util.js";
 
 /**
  * Webhook-subscriber tools (top-level webhooks-as-a-resource).
@@ -49,10 +49,17 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       title: "List webhook subscribers",
       annotations: { readOnlyHint: true },
       description:
-        "Returns every webhook subscriber owned by the authenticated user, enabled + disabled, with their event subscriptions, filters, and last-delivered timestamp. signing_secret is omitted (it is only ever returned on create + rotate). Read-only; cheap.",
-      inputSchema: strictInputSchema({}),
+        "Returns the webhook subscribers owned by the authenticated user, newest first, enabled + disabled, with their event subscriptions, filters, and last-delivered timestamp. signing_secret is omitted (it is only ever returned on create + rotate). **Cursor-paginated:** returns one page in `webhooks` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. Read-only; cheap.",
+      inputSchema: strictInputSchema({ ...paginationInput }),
     },
-    async () => runTool(async () => ({ webhooks: await client.listWebhooks() })),
+    async (args) =>
+      runTool(async () => {
+        const page = await client.listWebhooks({
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        });
+        return { webhooks: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 
   server.registerTool(
@@ -190,28 +197,24 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       title: "List recent delivery attempts for a webhook",
       annotations: { readOnlyHint: true },
       description:
-        "Returns the most recent delivery rows for one webhook. Each row includes status (pending|delivered|failed), attempts, last_error, last_status_code, and timestamps. The way to debug why a subscriber is missing events, or to check the outcome of a `test_webhook` call. Read-only. Distinct from `list_events` (the account-wide event log); this is the per-webhook delivery ledger.",
+        "Returns the delivery rows for one webhook, newest first. Each row includes status (pending|delivered|failed), attempts, last_error, last_status_code, and timestamps. The way to debug why a subscriber is missing events, or to check the outcome of a `test_webhook` call. **Cursor-paginated:** returns one page in `deliveries` plus a `next_cursor` when more remain — pass it back as `cursor` (keep the same `status` filter). Read-only. Distinct from `list_events` (the account-wide event log); this is the per-webhook delivery ledger.",
       inputSchema: strictInputSchema({
         id: z.string().min(1).describe("Webhook id (wh_…)."),
         status: z
           .enum(["pending", "delivered", "failed"])
           .optional()
           .describe("Optionally restrict to one delivery status."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("Max rows to return."),
+        ...paginationInput,
       }),
     },
     async (args) =>
-      runTool(async () => ({
-        deliveries: await client.listWebhookDeliveries(args.id, {
+      runTool(async () => {
+        const page = await client.listWebhookDeliveries(args.id, {
           ...(args.status !== undefined ? { status: args.status } : {}),
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
           ...(args.limit !== undefined ? { limit: args.limit } : {}),
-        }),
-      })),
+        });
+        return { deliveries: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 }

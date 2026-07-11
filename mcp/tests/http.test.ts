@@ -27,9 +27,10 @@ function makeStubClient(): McpClient {
     rejectMessage: vi.fn(async () => ({ messageId: "x", status: "rejected" })),
     // Templates (beta) — SDK-backed via the shared E2AClient, so a
     // factory-built session supports them like any other tool.
-    listTemplates: vi.fn(async () => [
-      { id: "tmpl_1", name: "Welcome", alias: "welcome", subject: "Welcome, {{name}}!" },
-    ]),
+    listTemplates: vi.fn(async () => ({
+      items: [{ id: "tmpl_1", name: "Welcome", alias: "welcome", subject: "Welcome, {{name}}!" }],
+      next_cursor: undefined,
+    })),
   };
   return stub as unknown as McpClient;
 }

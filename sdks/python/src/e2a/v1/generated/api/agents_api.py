@@ -1121,6 +1121,8 @@ class AgentsApi:
     @validate_call
     async def list_agents(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1136,8 +1138,12 @@ class AgentsApi:
     ) -> PageAgentView:
         """List agents
 
-        List the agents owned by the authenticated account.
+        List the agents owned by the authenticated account, newest first, with cursor pagination.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1161,6 +1167,8 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._list_agents_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1184,6 +1192,8 @@ class AgentsApi:
     @validate_call
     async def list_agents_with_http_info(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1199,8 +1209,12 @@ class AgentsApi:
     ) -> ApiResponse[PageAgentView]:
         """List agents
 
-        List the agents owned by the authenticated account.
+        List the agents owned by the authenticated account, newest first, with cursor pagination.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1224,6 +1238,8 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._list_agents_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1247,6 +1263,8 @@ class AgentsApi:
     @validate_call
     async def list_agents_without_preload_content(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1262,8 +1280,12 @@ class AgentsApi:
     ) -> RESTResponseType:
         """List agents
 
-        List the agents owned by the authenticated account.
+        List the agents owned by the authenticated account, newest first, with cursor pagination.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1287,6 +1309,8 @@ class AgentsApi:
         """ # noqa: E501
 
         _param = self._list_agents_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1305,6 +1329,8 @@ class AgentsApi:
 
     def _list_agents_serialize(
         self,
+        cursor,
+        limit,
         _request_auth,
         _content_type,
         _headers,
@@ -1327,6 +1353,14 @@ class AgentsApi:
 
         # process the path parameters
         # process the query parameters
+        if cursor is not None:
+            
+            _query_params.append(('cursor', cursor))
+            
+        if limit is not None:
+            
+            _query_params.append(('limit', limit))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter

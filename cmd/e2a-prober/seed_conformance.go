@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -72,7 +73,7 @@ func seedAccount(ctx context.Context, store *identity.Store, pool *pgxpool.Pool,
 		}
 	}
 	res := &seededAccount{AgentEmail: agentEmail, Domain: domain}
-	keys, err := store.ListAPIKeys(ctx, user.ID)
+	keys, err := store.ListAPIKeys(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		return nil, fmt.Errorf("list api keys for %s: %w", email, err)
 	}

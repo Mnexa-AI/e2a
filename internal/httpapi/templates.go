@@ -295,7 +295,12 @@ func (s *Server) handleCreateTemplate(ctx context.Context, in *createTemplateInp
 	return &templateOutput{Body: templateView(tp)}, nil
 }
 
-func (s *Server) handleListTemplates(ctx context.Context, _ *struct{}) (*listTemplatesOutput, error) {
+// listTemplatesInput carries the standard cursor/limit (PageParams).
+type listTemplatesInput struct {
+	PageParams
+}
+
+func (s *Server) handleListTemplates(ctx context.Context, in *listTemplatesInput) (*listTemplatesOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
@@ -303,17 +308,32 @@ func (s *Server) handleListTemplates(ctx context.Context, _ *struct{}) (*listTem
 	if s.deps.ListTemplates == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "templates unavailable")
 	}
-	tps, err := s.deps.ListTemplates(ctx, user.ID)
+	afterCreatedAt, afterID, err := s.decodeKeyset(in.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := effectiveLimit(in.Limit)
+	// Fetch limit+1 to detect a further page.
+	tps, err := s.deps.ListTemplates(ctx, user.ID, limit+1, afterCreatedAt, afterID)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list templates")
+	}
+	hasMore := len(tps) > limit
+	if hasMore {
+		tps = tps[:limit]
 	}
 	items := make([]TemplateSummaryView, 0, len(tps))
 	for i := range tps {
 		items = append(items, templateSummaryView(&tps[i]))
 	}
-	// Single-page at launch (no server-side cursoring): next_cursor null,
-	// same as webhooks/agents.
-	return &listTemplatesOutput{Body: NewPage(items, "")}, nil
+	var nextCursor string
+	if hasMore {
+		last := tps[len(tps)-1]
+		if nextCursor, err = s.encodeKeyset(last.CreatedAt, last.ID); err != nil {
+			return nil, err
+		}
+	}
+	return &listTemplatesOutput{Body: NewPage(items, nextCursor)}, nil
 }
 
 func (s *Server) handleGetTemplate(ctx context.Context, in *TemplateIDParam) (*templateOutput, error) {

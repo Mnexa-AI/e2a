@@ -240,20 +240,24 @@ export class PromiseAccountApi {
     /**
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listApiKeysWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAPIKeyView>> {
+    public listApiKeysWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAPIKeyView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listApiKeysWithHttpInfo(observableOptions);
+        const result = this.api.listApiKeysWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listApiKeys(_options?: PromiseConfigurationOptions): Promise<PageAPIKeyView> {
+    public listApiKeys(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageAPIKeyView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listApiKeys(observableOptions);
+        const result = this.api.listApiKeys(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -391,22 +395,26 @@ export class PromiseAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listAgentsWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAgentView>> {
+    public listAgentsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAgentView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listAgentsWithHttpInfo(observableOptions);
+        const result = this.api.listAgentsWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * List the agents owned by the authenticated account.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listAgents(_options?: PromiseConfigurationOptions): Promise<PageAgentView> {
+    public listAgents(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageAgentView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listAgents(observableOptions);
+        const result = this.api.listAgents(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -615,20 +623,26 @@ export class PromiseDomainsApi {
     }
 
     /**
+     * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listDomainsWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageDomainView>> {
+    public listDomainsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageDomainView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listDomainsWithHttpInfo(observableOptions);
+        const result = this.api.listDomainsWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
+     * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listDomains(_options?: PromiseConfigurationOptions): Promise<PageDomainView> {
+    public listDomains(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageDomainView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listDomains(observableOptions);
+        const result = this.api.listDomains(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -1165,20 +1179,24 @@ export class PromiseReviewsApi {
     /**
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listReviewsWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageReviewView>> {
+    public listReviewsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageReviewView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listReviewsWithHttpInfo(observableOptions);
+        const result = this.api.listReviewsWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listReviews(_options?: PromiseConfigurationOptions): Promise<PageReviewView> {
+    public listReviews(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageReviewView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listReviews(observableOptions);
+        const result = this.api.listReviews(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -1316,40 +1334,48 @@ export class PromiseTemplatesApi {
     /**
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listStarterTemplatesWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageStarterTemplateView>> {
+    public listStarterTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageStarterTemplateView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listStarterTemplatesWithHttpInfo(observableOptions);
+        const result = this.api.listStarterTemplatesWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listStarterTemplates(_options?: PromiseConfigurationOptions): Promise<PageStarterTemplateView> {
+    public listStarterTemplates(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageStarterTemplateView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listStarterTemplates(observableOptions);
+        const result = this.api.listStarterTemplates(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listTemplatesWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageTemplateSummaryView>> {
+    public listTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageTemplateSummaryView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listTemplatesWithHttpInfo(observableOptions);
+        const result = this.api.listTemplatesWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listTemplates(_options?: PromiseConfigurationOptions): Promise<PageTemplateSummaryView> {
+    public listTemplates(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageTemplateSummaryView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listTemplates(observableOptions);
+        const result = this.api.listTemplates(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -1483,11 +1509,12 @@ export class PromiseWebhooksApi {
      * List webhook deliveries
      * @param id
      * @param [status]
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the status filter.
      * @param [limit]
      */
-    public listWebhookDeliveriesWithHttpInfo(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageWebhookDeliveryView>> {
+    public listWebhookDeliveriesWithHttpInfo(id: string, status?: 'pending' | 'delivered' | 'failed', cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageWebhookDeliveryView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listWebhookDeliveriesWithHttpInfo(id, status, limit, observableOptions);
+        const result = this.api.listWebhookDeliveriesWithHttpInfo(id, status, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -1496,29 +1523,36 @@ export class PromiseWebhooksApi {
      * List webhook deliveries
      * @param id
      * @param [status]
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the status filter.
      * @param [limit]
      */
-    public listWebhookDeliveries(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: PromiseConfigurationOptions): Promise<PageWebhookDeliveryView> {
+    public listWebhookDeliveries(id: string, status?: 'pending' | 'delivered' | 'failed', cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageWebhookDeliveryView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listWebhookDeliveries(id, status, limit, observableOptions);
+        const result = this.api.listWebhookDeliveries(id, status, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
+     * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listWebhooksWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<PageWebhookView>> {
+    public listWebhooksWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageWebhookView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listWebhooksWithHttpInfo(observableOptions);
+        const result = this.api.listWebhooksWithHttpInfo(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
+     * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
      */
-    public listWebhooks(_options?: PromiseConfigurationOptions): Promise<PageWebhookView> {
+    public listWebhooks(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageWebhookView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listWebhooks(observableOptions);
+        const result = this.api.listWebhooks(cursor, limit, observableOptions);
         return result.toPromise();
     }
 
