@@ -1,0 +1,111 @@
+"""Live ergonomic e2e for the Python SDK against a RUNNING server (staging).
+
+Exercises the real hand-written ergonomic surface (``client.messages.*`` /
+``client.agents.*`` / ``client.info``), so a green run attests the published
+Python SDK actually works against a live deployment — the parity signal the
+raw-HTTP contract runner (``test_contract.py``) can't give.
+
+Gated on staging creds; skips cleanly when absent, so it stays inert in the
+default test run. Env is aligned with the contract runner + the TS live test
+(``E2A_TEST_*`` naming). The agent email is required because Python's message
+methods take the inbox as their first positional argument:
+
+    E2A_TEST_BASE_URL     e.g. https://api-staging.e2a.dev (or a local tunnel)
+    E2A_TEST_API_KEY      an API key for the target account
+    E2A_TEST_AGENT_EMAIL  a shared-domain inbox on that account (self-send target)
+
+Run:
+    E2A_TEST_BASE_URL=… E2A_TEST_API_KEY=… E2A_TEST_AGENT_EMAIL=… \\
+        uv run pytest tests/test_e2e.py
+"""
+
+import asyncio
+import os
+import time
+
+import pytest
+
+from e2a import E2AClient, E2ANotFoundError
+
+BASE_URL = os.environ.get("E2A_TEST_BASE_URL", "")
+API_KEY = os.environ.get("E2A_TEST_API_KEY", "")
+AGENT = os.environ.get("E2A_TEST_AGENT_EMAIL", "")
+
+pytestmark = [
+    pytest.mark.anyio,
+    pytest.mark.skipif(
+        not BASE_URL or not API_KEY or not AGENT,
+        reason="E2A_TEST_BASE_URL, E2A_TEST_API_KEY, E2A_TEST_AGENT_EMAIL required for live e2e",
+    ),
+]
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    # Pin the asyncio backend so these don't also try to run under trio.
+    return "asyncio"
+
+
+async def test_info_reports_deployment() -> None:
+    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+        info = await client.info()
+        assert info is not None
+
+
+async def test_send_find_get_reply_self_loopback() -> None:
+    # A FRESH shared-domain agent (no protection) so the self-send delivers
+    # immediately and loops back — the seeded conformance inbox may hold outbound
+    # for review, which would never land in the inbox.
+    domain = AGENT.split("@", 1)[1]
+    bot = f"py-sdk-live-{int(time.time() * 1000):x}@{domain}"
+    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+        created = await client.agents.create({"email": bot, "name": "py-sdk live e2e"})
+        assert created.email == bot
+        try:
+            subject = f"py-sdk-live {int(time.time() * 1000)}"
+            sent = await client.messages.send(
+                bot,
+                {"to": [bot], "subject": subject, "body": "Hello from the Python SDK live e2e"},
+            )
+            assert sent.message_id
+            assert sent.status in ("sent", "accepted")
+
+            # Self-send loopback lands an inbound copy in the same inbox; poll.
+            found = None
+            for _ in range(12):
+                msgs = await client.messages.list(bot, limit=20).to_list(limit=20)
+                found = next((m for m in msgs if m.subject == subject), None)
+                if found:
+                    break
+                await asyncio.sleep(1.5)
+            assert found is not None, f"a message with subject {subject!r} must appear within ~18s"
+
+            full = await client.messages.get(bot, found.message_id)
+            assert full.message_id == found.message_id
+            assert full.subject == subject
+            # NB: not asserting body — a self-send LOOPBACK delivers an inbound
+            # message with an empty parsed body on staging (delivery mechanism,
+            # not a full MIME round-trip). The parity signal is the round-trip.
+
+            reply = await client.messages.reply(
+                bot, found.message_id, {"body": "Reply from the Python SDK live e2e"}
+            )
+            assert reply.message_id
+            assert reply.status in ("sent", "accepted", "pending_review")
+        finally:
+            await client.agents.delete(bot)
+
+
+async def test_list_bounded_page() -> None:
+    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+        msgs = await client.messages.list(AGENT, limit=2).to_list(limit=2)
+        assert len(msgs) <= 2
+        for m in msgs:
+            assert m.message_id
+            assert m.recipient
+
+
+async def test_get_nonexistent_raises_not_found() -> None:
+    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+        with pytest.raises(E2ANotFoundError):
+            await client.messages.get(AGENT, f"msg_nonexistent_{int(time.time())}")
