@@ -15,11 +15,16 @@
  * cross-language scenarios.yaml migration (tracked separately); this runner is
  * gated behind live-server env vars and is not part of the unit build.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { parse as yamlParse } from "yaml";
 import { WSListener } from "../../src/v1/ws.js";
+import { Seeder, seedEnabled, sweepLeaks } from "./seed.js";
+
+// When the isolated CF zone + SMTP port are configured, store-dependent scenarios
+// are SEEDED over the API (verified domains + real inbound) instead of skipped.
+const SEED = seedEnabled();
 
 // Minimal raw-HTTP driver — the scenario runner needs a generic
 // request(method, path, body) shim, not the ergonomic client surface.
@@ -86,6 +91,9 @@ interface Step {
   subject?: string;
   verify_domain?: string;
   expect?: Expectation;
+  /** After assertions, extract response json-paths into vars (Go-runner parity):
+   *  { var_name: "json.path" } → resolvable later as {var_name}. */
+  capture?: Record<string, string>;
 }
 
 interface Expectation {
@@ -163,6 +171,9 @@ class Runner {
   private wsListener: WSListener | null = null;
   /** Buffer of notifications received from WSListener. */
   private wsMessages: string[] = [];
+  private seeder: Seeder | null;
+  /** Placeholder test domain → real minted+verified domain (seed mode only). */
+  private domainSubs: Record<string, string> = {};
 
   constructor(
     private readonly baseUrl: string,
@@ -170,6 +181,7 @@ class Runner {
     private readonly scenario: Scenario,
   ) {
     this.api = new RawApi(apiKey, baseUrl);
+    this.seeder = SEED ? new Seeder(baseUrl, apiKey) : null;
   }
 
   resolve(s: string): string {
@@ -177,6 +189,14 @@ class Runner {
     s = s.replaceAll("{api_key}", this.apiKey);
     for (const [k, v] of Object.entries(this.vars)) {
       s = s.replaceAll(`{${k}}`, v);
+    }
+    // In seed mode, scenarios' hardcoded placeholder domains (crud.test.dev, …)
+    // are rewritten to the real minted+verified domains everywhere they appear
+    // (bodies, paths, body_match expectations). Longest placeholder first so a
+    // shorter one can't corrupt a prefix-sharing longer one (ws.test.dev vs
+    // wsauth.test.dev) — latent today (one domain per scenario), cheap to anchor.
+    for (const placeholder of Object.keys(this.domainSubs).sort((a, b) => b.length - a.length)) {
+      s = s.replaceAll(placeholder, this.domainSubs[placeholder]);
     }
     return s;
   }
@@ -204,38 +224,60 @@ class Runner {
     return this.authOverride(step) !== undefined;
   }
 
-  /** Returns true if setup requires store access (scenario should be skipped). */
+  /** Runs setup. Returns true if setup needs store access we DON'T have (→ skip).
+   *  In seed mode, store-dependent setup (verify_domain, inject_message) is
+   *  satisfied over the API instead, and this always returns false. */
   async executeSetup(): Promise<boolean> {
     if (!this.scenario.setup) return false;
 
     for (const s of this.scenario.setup) {
-      if (s.inject_message) return true;
-      if (s.verify_domain) return true;
-
       if (s.register_domain) {
-        try {
-          await this.api.registerDomain({ domain: this.resolve(s.register_domain) });
-        } catch (err) {
-          if (err instanceof RawApiError && err.statusCode === 409) {
-            /* already exists */
-          } else {
-            throw err;
+        const placeholder = s.register_domain;
+        if (this.seeder) {
+          // Mint + register a real domain (not verified yet); rewrite the placeholder.
+          this.domainSubs[placeholder] = await this.seeder.registerDomain(placeholder.split(".")[0]);
+        } else {
+          try {
+            await this.api.registerDomain({ domain: this.resolve(placeholder) });
+          } catch (err) {
+            if (!(err instanceof RawApiError && err.statusCode === 409)) throw err;
           }
         }
+        continue;
+      }
+
+      if (s.verify_domain) {
+        if (!this.seeder) return true; // no store access → skip the scenario
+        const placeholder = s.verify_domain;
+        let real = this.domainSubs[placeholder];
+        if (!real) {
+          real = await this.seeder.registerDomain(placeholder.split(".")[0]);
+          this.domainSubs[placeholder] = real;
+        }
+        await this.seeder.verifyDomain(real);
+        continue;
       }
 
       if (s.register_agent) {
-        const email = this.resolve(s.register_agent.email);
+        const email = this.resolve(s.register_agent.email); // domainSubs applied
         try {
           await this.api.registerAgent({ email });
         } catch (err) {
-          if (err instanceof RawApiError && err.statusCode === 409) {
-            /* already exists */
-          } else {
-            throw err;
-          }
+          if (!(err instanceof RawApiError && err.statusCode === 409)) throw err;
         }
         this.vars["agent_email"] = email;
+        continue;
+      }
+
+      if (s.inject_message) {
+        if (!this.seeder) return true; // no store access → skip the scenario
+        const im = s.inject_message;
+        this.vars["injected_message_id"] = await this.seeder.injectMessage(
+          this.resolve(im.agent_email),
+          this.resolve(im.from),
+          this.resolve(im.subject),
+        );
+        continue;
       }
     }
     return false;
@@ -248,7 +290,13 @@ class Runner {
           await this.execRequest(step);
           break;
         case "inject_message":
-          throw new Error(`step ${step.id}: inject_message not supported in TS runner`);
+          if (!this.seeder) throw new Error(`step ${step.id}: inject_message needs seeding (set the CF zone + SMTP env)`);
+          this.vars["injected_message_id"] = await this.seeder.injectMessage(
+            this.resolve(step.agent_email!),
+            this.resolve(step.from!),
+            this.resolve(step.subject!),
+          );
+          break;
         case "ws_connect":
           await this.execWSConnect(step);
           break;
@@ -259,18 +307,30 @@ class Runner {
           await this.execWSRead(step);
           break;
         case "verify_and_retry":
-          throw new Error(`step ${step.id}: verify_and_retry not supported in TS runner`);
+          if (!this.seeder) throw new Error(`step ${step.id}: verify_and_retry needs seeding (set the CF zone env)`);
+          await this.execVerifyAndRetry(step);
+          break;
         default:
           throw new Error(`step ${step.id}: unknown action ${step.action}`);
       }
     }
   }
 
-  cleanup(): void {
+  async cleanup(): Promise<void> {
     if (this.wsListener) {
       this.wsListener.close();
       this.wsListener = null;
     }
+    if (this.seeder) await this.seeder.cleanup();
+  }
+
+  /** verify_and_retry: verify the (registered) domain, then run the request. */
+  private async execVerifyAndRetry(step: Step): Promise<void> {
+    const placeholder = step.verify_domain!;
+    const real = this.domainSubs[placeholder];
+    if (!real) throw new Error(`step ${step.id}: ${placeholder} was not registered in setup`);
+    await this.seeder!.verifyDomain(real);
+    await this.execRequest(step);
   }
 
   // ── Step executors ──────────────────────────────────────────
@@ -315,25 +375,25 @@ class Runner {
       }
     }
 
-    if (!ex) return;
-
-    if (ex.status) {
+    if (ex?.status) {
       expect(status, `step ${step.id}: status`).toBe(ex.status);
     }
 
-    if (!ex.body_contains?.length && !ex.body_match && !ex.body_excludes?.length) return;
+    const hasBodyChecks = Boolean(ex?.body_contains?.length || ex?.body_match || ex?.body_excludes?.length);
+    const hasCapture = Boolean(step.capture && Object.keys(step.capture).length);
+    if (!hasBodyChecks && !hasCapture) return;
 
     const json = JSON.parse(rawBody) as Record<string, unknown>;
 
-    for (const key of ex.body_contains ?? []) {
+    for (const key of ex?.body_contains ?? []) {
       const resolved = this.resolve(key);
       expect(json, `step ${step.id}: body_contains ${resolved}`).toHaveProperty(resolved);
     }
-    for (const key of ex.body_excludes ?? []) {
+    for (const key of ex?.body_excludes ?? []) {
       const resolved = this.resolve(key);
       expect(json, `step ${step.id}: body_excludes ${resolved}`).not.toHaveProperty(resolved);
     }
-    if (ex.body_match) {
+    if (ex?.body_match) {
       for (const [jsonPath, expected] of Object.entries(ex.body_match)) {
         const resolvedPath = this.resolve(jsonPath);
         const actual = jsonPathGet(json, resolvedPath);
@@ -343,6 +403,14 @@ class Runner {
           `step ${step.id}: body_match ${resolvedPath} = ${JSON.stringify(actual)}, want ${JSON.stringify(resolvedExpected)}`,
         ).toBe(true);
       }
+    }
+
+    // Capture phase — AFTER assertions (Go-runner parity): extract a response
+    // json-path into a var so later steps can reference it as {name}.
+    for (const [name, srcPath] of Object.entries(step.capture ?? {})) {
+      const val = jsonPathGet(json, this.resolve(srcPath));
+      if (val === undefined) throw new Error(`step ${step.id}: capture path ${srcPath} not found in response`);
+      this.vars[name] = String(val);
     }
   }
 
@@ -442,21 +510,48 @@ function scenarioNeedsStore(sc: Scenario): boolean {
 const baseUrl = process.env.E2A_TEST_BASE_URL;
 const apiKey = process.env.E2A_TEST_API_KEY;
 
+// These scenarios assert account-GLOBAL collection state, which assumes an
+// isolated/empty account — not the shared staging conformance account (it holds
+// the shared domain + concurrent seeded domains + other suites' fresh agents):
+//   agent_crud            — items.length:0 after delete
+//   domain_crud           — items.length:1 on /v1/domains
+//   placeholder_resolution — items[0].email == {agent_email} (i.e. "my agent is
+//                            the account-newest"; races with concurrent suites)
+// Their behavior is covered by the resource-scoped e2e-prod suites; the Go/local
+// runner still covers them against a fresh DB. Skip regardless of seeding.
+const ACCOUNT_GLOBAL = new Set(["agent_crud", "domain_crud", "placeholder_resolution"]);
+
 describe.skipIf(!baseUrl || !apiKey)("Contract scenarios", () => {
   const scenarios = loadScenarios();
 
   for (const sc of scenarios) {
-    const needsStore = scenarioNeedsStore(sc);
+    // Store-dependent scenarios run when SEED supplies their preconditions over
+    // the API; otherwise they skip. Account-global scenarios skip regardless.
+    const skip = ACCOUNT_GLOBAL.has(sc.name) || (scenarioNeedsStore(sc) && !SEED);
 
-    (needsStore ? it.skip : it)(sc.name, async () => {
-      const runner = new Runner(baseUrl!, apiKey!, sc);
-      try {
-        const skipped = await runner.executeSetup();
-        if (skipped) return;
-        await runner.executeSteps();
-      } finally {
-        runner.cleanup();
-      }
-    });
+    (skip ? it.skip : it)(
+      sc.name,
+      async () => {
+        const runner = new Runner(baseUrl!, apiKey!, sc);
+        try {
+          const skipped = await runner.executeSetup();
+          if (skipped) return;
+          await runner.executeSteps();
+        } finally {
+          await runner.cleanup();
+        }
+      },
+      // Seeding mints + CF-verifies a real domain (variable DNS propagation), so
+      // seeded scenarios need a generous budget with headroom over the worst-case
+      // ~270s (register + propagate + verify); non-seeded stay snappy.
+      SEED ? 420_000 : 20_000,
+    );
   }
+
+  // Safety-net teardown: if any seeded scenario timed out (skipping its own
+  // finally), sweep leftover seeded domains + CF records so nothing leaks into the
+  // shared zone/account. No-op when seeding is off.
+  afterAll(async () => {
+    if (SEED) await sweepLeaks(baseUrl!, apiKey!);
+  }, 120_000);
 });
