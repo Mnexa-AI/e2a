@@ -109,10 +109,14 @@ test("mcp: list_messages tool works against the inbox", async () => {
     info(SUITE, "list-messages-absent", "no list_messages tool — skipping");
     return;
   }
-  // list_messages is cursor-paginated — it has no page_size/limit param (the
-  // strict schema rejects both; the arg-validation tests below rely on that).
-  // Just ask for the inbox folder.
-  const r = await callTool(mcp, "list_messages", { direction: "inbound" });
+  // list_messages is cursor-paginated (no page_size/limit — the strict schema
+  // rejects both; the arg-validation tests below rely on that). Pass `email`
+  // explicitly: the conformance credential is ACCOUNT-scoped, so the server
+  // won't guess which of the account's agents' inbox to read.
+  const r = await callTool(mcp, "list_messages", {
+    email: apiClient.env.primaryAgentEmail,
+    direction: "inbound",
+  });
   assert.equal(r.isError, undefined, `list_messages isError: ${JSON.stringify(r)}`);
   const text = r.content?.find((c) => c.type === "text")?.text;
   assert.ok(text, "text content present");
