@@ -15,6 +15,17 @@ Maps each exercised concrete path to the most-specific matching operationId, the
 compares the covered set to the full catalog (minus an explicit allowlist of
 operations the black-box suite legitimately must not call).
 
+SCOPE: this gate covers the 56 typed /v1 OpenAPI operations (the operationId
+catalog). Non-/v1 surface (billing, MCP, OAuth machine endpoints, /api/health,
+/webhooks/*) and the webhook EVENT types are NOT operationIds and are out of scope
+here — they have their own dedicated suites (e.g. 21-webhook-events for event
+emission). Exercised paths that don't map to a /v1 operationId are reported (as
+"unmapped") but do not affect the pass/fail verdict.
+
+"Covered" means the suite issued a request to the operation that returned a 2xx
+(the harness only records successes — see harness/coverage.ts), i.e. the operation
+was actually exercised, not merely probed with a rejected request.
+
 Usage: python3 coverage_gate.py [--openapi PATH] [--reports DIR]
 Exit 0 = all covered (or allowlisted); 1 = coverage gap; 2 = usage/IO error.
 """
@@ -31,6 +42,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # knowingly forgoing.
 ALLOWLIST = {
     "deleteAccount": "destructive — the suite must never delete its own account",
+    "deleteSuppression": "no happy path black-box: a suppression is created only by a "
+    "real SES bounce/complaint (no createSuppression API), so there's nothing to delete; "
+    "the 404-unknown-address path is exercised by 19-account",
 }
 
 
@@ -51,8 +65,13 @@ def load_ops(openapi_path):
 
 
 def match_op(method, segments, ops):
-    """Most-specific (most literal segments) operationId matching a concrete path."""
-    best, best_literals = None, -1
+    """Most-specific (most literal segments) operationId matching a concrete path.
+
+    Raises on an ambiguous match (two different operations tie at the same literal
+    count) rather than silently picking one by dict order — that would let a path
+    over-attribute coverage to the wrong op. Doesn't happen with today's spec, but
+    a future literal-sibling of a {param} route would trigger it."""
+    best, best_literals, tied = None, -1, set()
     for m, tsegs, opid in ops:
         if m != method or len(tsegs) != len(segments):
             continue
@@ -67,15 +86,23 @@ def match_op(method, segments, ops):
                 break
             else:
                 literals += 1
-        if ok and literals > best_literals:
-            best, best_literals = opid, literals
+        if not ok:
+            continue
+        if literals > best_literals:
+            best, best_literals, tied = opid, literals, {opid}
+        elif literals == best_literals:
+            tied.add(opid)
+    if len(tied) > 1:
+        raise ValueError(
+            f"ambiguous match for {method} /{'/'.join(segments)}: {sorted(tied)} tie at {best_literals} literal segments"
+        )
     return best
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--openapi", default=os.path.join(HERE, "../../api/openapi.yaml"))
-    ap.add_argument("--reports", default=os.path.join(HERE, "reports"))
+    ap.add_argument("--reports", default=os.path.join(HERE, "reports", "coverage"))
     args = ap.parse_args()
 
     if not os.path.exists(args.openapi):
@@ -85,7 +112,14 @@ def main():
     ops = load_ops(args.openapi)
     all_ids = {opid for _, _, opid in ops}
 
-    shards = glob.glob(os.path.join(args.reports, "coverage-*.json"))
+    # An allowlist entry that no longer matches a real operationId is a silent hole
+    # (e.g. the op was renamed) — fail loudly so the allowlist can't drift stale.
+    stale = set(ALLOWLIST) - all_ids
+    if stale:
+        print(f"coverage_gate: allowlist entries not in the spec (renamed/removed?): {sorted(stale)}", file=sys.stderr)
+        return 2
+
+    shards = glob.glob(os.path.join(args.reports, "*.json"))
     if not shards:
         print(f"coverage_gate: no coverage shards in {args.reports} — did the suite run?", file=sys.stderr)
         return 2
@@ -107,10 +141,15 @@ def main():
     allowlisted = missing & set(ALLOWLIST)
     uncovered = missing - set(ALLOWLIST)
 
-    print(f"OpenAPI operations : {len(all_ids)}")
-    print(f"Covered            : {len(covered_ids)}")
+    print(f"OpenAPI operations : {len(all_ids)}  (/v1 operationId scope)")
+    print(f"Covered (2xx)      : {len(covered_ids)}")
     print(f"Allowlisted        : {len(allowlisted)} " + (str(sorted(allowlisted)) if allowlisted else ""))
-    print(f"Coverage shards    : {len(shards)}  (exercised pairs: {len(exercised)}, non-/v1: {len(non_v1)})")
+    print(f"Coverage shards    : {len(shards)}  (exercised 2xx pairs: {len(exercised)}, unmapped non-/v1: {len(non_v1)})")
+    if non_v1:
+        # Printed for visibility (a mistyped /v1 path would land here), but out of
+        # scope for the gate — non-/v1 surface has its own suites.
+        for pair in sorted(non_v1)[:20]:
+            print(f"    non-/v1: {pair}")
 
     if uncovered:
         print(f"\nUNCOVERED ({len(uncovered)}):")
