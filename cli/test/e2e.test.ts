@@ -109,8 +109,13 @@ describe.skipIf(!live)("cli live parity", () => {
       if (rows.length === 0) await sleep(1500);
     }
     expect(rows.length, "the loopback message must appear in `messages list`").toBeGreaterThan(0);
-    // Every NDJSON row is a parseable object with an id.
-    for (const line of rows) expect(JSON.parse(line).id ?? JSON.parse(line).messageId).toBeTruthy();
+    // Correlate to OUR send: fetch the row's message and check the subject matches
+    // (a fresh inbox only holds the loopback, but this proves it's genuinely ours).
+    const firstId = JSON.parse(rows[0]).id ?? JSON.parse(rows[0]).messageId;
+    expect(firstId).toBeTruthy();
+    const gotMsg = run(["messages", "get", firstId, "--agent", bot, "--json"]);
+    expect(gotMsg.code, gotMsg.stderr).toBe(0);
+    expect(JSON.parse(gotMsg.stdout).subject).toBe(subject);
   }, 40_000);
 
   it("keys create → list → delete (exit 0 each)", () => {
@@ -119,13 +124,17 @@ describe.skipIf(!live)("cli live parity", () => {
     const key = JSON.parse(created.stdout);
     const keyId = key.id ?? key.keyId;
     expect(keyId).toBeTruthy();
+    try {
+      const list = run(["keys", "list", "--json"]);
+      expect(list.code, list.stderr).toBe(0);
+      expect(list.stdout).toContain(keyId);
 
-    const list = run(["keys", "list", "--json"]);
-    expect(list.code, list.stderr).toBe(0);
-    expect(list.stdout).toContain(keyId);
-
-    const del = run(["keys", "delete", keyId]);
-    expect(del.code, del.stderr).toBe(0);
+      const del = run(["keys", "delete", keyId]);
+      expect(del.code, del.stderr).toBe(0);
+    } finally {
+      // Guarantee the key never lingers on staging even if an assertion threw.
+      run(["keys", "delete", keyId]);
+    }
   });
 
   it("honors the frozen exit-code contract (usage=2, auth=4)", () => {

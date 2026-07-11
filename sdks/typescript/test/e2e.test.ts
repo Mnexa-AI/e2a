@@ -36,7 +36,8 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
 
   it("info() reports the deployment", async () => {
     const info = await client.info();
-    expect(info).toBeTruthy();
+    expect(typeof info.version).toBe("string");
+    expect(info.version.length).toBeGreaterThan(0);
   });
 
   it("agents.create → send → find in inbox → get → reply (self loopback) → delete", async () => {
@@ -55,28 +56,29 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
       expect(sent.messageId).toBeTruthy();
       expect(["sent", "accepted"]).toContain(sent.status);
 
-      // A self-send loopback lands an inbound copy in the same inbox; poll for it.
+      // A self-send loopback lands an INBOUND copy in the same inbox; poll for it.
+      // Filter to inbound so the just-sent outbound copy (same subject) can't match.
       let found: { messageId: string } | undefined;
       for (let i = 0; i < 12 && !found; i++) {
-        const msgs = await client.messages.list(bot, { limit: 20 }).toArray({ limit: 20 });
+        const msgs = await client.messages.list(bot, { direction: "inbound", limit: 20 }).toArray({ limit: 20 });
         found = msgs.find((m) => m.subject === subject);
         if (!found) await sleep(1500);
       }
-      expect(found, `a message with subject "${subject}" must appear in the inbox within ~18s`).toBeTruthy();
+      expect(found, `an inbound message with subject "${subject}" must appear within ~18s`).toBeTruthy();
 
       const full = await client.messages.get(bot, found!.messageId);
       expect(full.messageId).toBe(found!.messageId);
       expect(full.subject).toBe(subject);
-      // NB: not asserting body.text — a self-send LOOPBACK delivers an inbound
-      // message with an empty parsed body on staging (the loopback path is a
-      // delivery mechanism, not a full MIME round-trip). The SDK-parity signal is
-      // the send→list→get→reply round-trip + id/subject correlation, above.
+      // The delivered body is under `parsed` (inbound-extracted MIME), not `body`
+      // (the held-outbound draft field, which is null for inbound by design).
+      expect(full.parsed?.text ?? "").toContain(bodyText);
 
       const reply = await client.messages.reply(bot, found!.messageId, {
         body: "Reply from the TS SDK live e2e",
       });
       expect(reply.messageId).toBeTruthy();
-      expect(["sent", "accepted", "pending_review"]).toContain(reply.status);
+      // Fresh unprotected inbox → the reply sends immediately (same as the send).
+      expect(["sent", "accepted"]).toContain(reply.status);
     } finally {
       await client.agents.delete(bot);
     }
