@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 from urllib.parse import quote, urlparse, urlunparse
 
-from .errors import E2AAuthError, E2AError, E2APermissionError
+from .errors import E2AAuthError, E2AError, E2ANotFoundError, E2APermissionError
 
 __all__ = ["WSNotification", "WSStream"]
 
@@ -64,6 +64,16 @@ def _fatal_error_for_status(status: int, exc: BaseException) -> Optional[E2AErro
     if status == 403:
         return E2APermissionError(
             code="forbidden",
+            message=f"WebSocket handshake rejected: HTTP {status}",
+            status=status,
+            retryable=False,
+        )
+    if status == 404:
+        # The agent doesn't exist OR isn't yours — the server collapses the
+        # cross-tenant case into not_found so the handshake can't be used to
+        # enumerate which agent addresses exist across accounts.
+        return E2ANotFoundError(
+            code="not_found",
             message=f"WebSocket handshake rejected: HTTP {status}",
             status=status,
             retryable=False,

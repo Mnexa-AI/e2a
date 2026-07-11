@@ -131,14 +131,15 @@ func TestSendSetsAgentAsSender(t *testing.T) {
 }
 
 // TestSendNotOwnedAgent: sending through an agent the caller does not own is a
-// 403 (resolveOwnedAgent), never a cross-tenant send.
+// 404 not_found (resolveOwnedAgent — indistinguishable from a nonexistent
+// agent), never a cross-tenant send.
 func TestSendNotOwnedAgent(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40nope.com/messages", "good", map[string]any{
 		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
 	})
-	if code != 403 {
-		t.Fatalf("want 403 for an unowned agent, got %d", code)
+	if code != 404 {
+		t.Fatalf("want 404 for an unowned agent, got %d", code)
 	}
 }
 
@@ -277,8 +278,8 @@ func TestReplyMessageNotFound(t *testing.T) {
 func TestReplyNotOwnedAgent(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": "x"})
-	if code != 403 {
-		t.Fatalf("want 403, got %d", code)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
 	}
 }
 
@@ -320,7 +321,7 @@ func TestTestSendSent(t *testing.T) {
 func TestTestSendNotOwned(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/test", "good", nil)
-	if code != 403 {
-		t.Fatalf("want 403, got %d", code)
+	if code != 404 {
+		t.Fatalf("want 404, got %d", code)
 	}
 }

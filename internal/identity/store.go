@@ -970,6 +970,7 @@ func (s *Store) CreateAgentTx(ctx context.Context, tx pgx.Tx, agentEmail, domain
 // in-transaction callers without duplicating the SQL.
 type agentExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, name, userID string) (*AgentIdentity, error) {
@@ -983,12 +984,26 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		HITLTTLSeconds:       HITLDefaultTTLSeconds,
 		HITLExpirationAction: HITLDefaultExpirationAct,
 	}
-	_, err := exec.Exec(ctx,
+	// Report the same domain_verified the read paths (GetAgentByID /
+	// ListAgentsByUser) derive from domains.verified. createAgent builds the
+	// identity in-memory from only the INSERT columns, so DomainVerified would
+	// otherwise be the Go zero value (false) regardless of the domain's real
+	// state — wrong for an agent on a verified domain, and it would flip to the
+	// correct value on the next GET.
+	//
+	// The scalar subquery in RETURNING folds the read back into the INSERT: one
+	// round-trip, and no post-commit window (a separate SELECT after the INSERT
+	// auto-commits on the pool path would, if it errored transiently, surface a
+	// 500 even though the agent row is already committed — a retry then 409s).
+	// The FK on agent_identities.domain guarantees the domains row exists and is
+	// visible here, so the subquery always resolves to a non-NULL bool. Works
+	// identically on the pool and inside a caller-owned tx.
+	if err := exec.QueryRow(ctx,
 		`INSERT INTO agent_identities (id, domain, user_id, name, public, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING (SELECT verified FROM domains WHERE domain = $2)`,
 		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
-	)
-	if err != nil {
+	).Scan(&a.DomainVerified); err != nil {
 		return nil, err
 	}
 	a.populateEmail()

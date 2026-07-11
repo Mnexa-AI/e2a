@@ -282,11 +282,11 @@ test("getAttachment: unauthenticated returns 401", async () => {
   assert.equal(r.status, 401, `missing bearer → 401, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("getAttachment: unowned agent returns 403 (anti-enumeration; matches resolveOwnedAgent)", async () => {
+test("getAttachment: unowned agent returns 404 not_found (anti-enumeration; matches resolveOwnedAgent)", async () => {
   const r = await client.get(
     `/v1/agents/${encodeURIComponent(`nobody-${Date.now()}@example.com`)}/messages/msg_x/attachments/0`,
   );
-  assert.equal(r.status, 403, `unowned agent → 403 forbidden, got ${r.status}: ${r.raw.slice(0, 200)}`);
+  assert.equal(r.status, 404, `unowned agent → 404 not_found, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
 test("download: missing token returns 401", async () => {

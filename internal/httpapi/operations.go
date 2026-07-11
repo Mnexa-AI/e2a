@@ -140,9 +140,13 @@ func (s *Server) registerAgents() {
 
 // resolveOwnedAgent authenticates the caller, loads the agent by address,
 // and verifies ownership — the shared front half of every per-agent
-// operation. It mirrors the legacy resolveAgentForUser behavior: a missing
-// or non-owned agent is reported as 403 (the legacy surface does not
-// distinguish the two, and preserving that is a Slice-1 non-goal to change).
+// operation. A missing OR non-owned agent is reported as 404 not_found,
+// consistent with every other per-resource lookup on the surface (messages,
+// domains, webhooks, templates, events, conversations, reviews). The two
+// cases are deliberately conflated into one indistinguishable 404 so the
+// response never reveals that another account's agent exists (anti-enumeration).
+// A genuine scope-403 — an agent-scoped credential reaching a different agent —
+// is a distinct case handled below and is NOT collapsed into the 404.
 func (s *Server) resolveOwnedAgent(ctx context.Context, address string) (*identity.AgentIdentity, error) {
 	p, err := s.requirePrincipal(ctx)
 	if err != nil {
@@ -153,7 +157,7 @@ func (s *Server) resolveOwnedAgent(ctx context.Context, address string) (*identi
 	}
 	ag, err := s.deps.GetAgent(ctx, identity.NormalizeEmail(address))
 	if err != nil || ag == nil || ag.UserID != p.User.ID {
-		return nil, NewError(http.StatusForbidden, "forbidden", "agent not found")
+		return nil, NewError(http.StatusNotFound, "not_found", "agent not found")
 	}
 	// Hard scope ceiling (Slice 5a): an agent-scoped credential is pinned to a
 	// single agent. Even though the owner owns this agent, a credential bound

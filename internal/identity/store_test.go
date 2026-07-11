@@ -40,8 +40,51 @@ func TestCreateAgent(t *testing.T) {
 	if a.Domain != "bot.example.com" {
 		t.Errorf("Domain = %q, want %q", a.Domain, "bot.example.com")
 	}
+	// bot.example.com was claimed but never verified, so the create response
+	// must report DomainVerified=false — matching what GetAgentByID would read
+	// from domains.verified. (This is the meaningful false case: the store
+	// permits agents on unverified domains.)
 	if a.DomainVerified {
-		t.Error("expected DomainVerified=false for new agent")
+		t.Error("expected DomainVerified=false for agent on an unverified domain")
+	}
+}
+
+// TestCreateAgentVerifiedDomain pins the bug fix: when the agent's domain is
+// verified, the create response must report DomainVerified=true immediately —
+// not the Go zero value that createAgent used to leave unset (which flipped to
+// true only on a follow-up GET). Mirrors the value GetAgentByID reads back.
+func TestCreateAgentVerifiedDomain(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, err := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-create-agent-verified")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+
+	if _, err := store.ClaimOrCreateDomain(ctx, "verified.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	if err := store.VerifyDomain(ctx, "verified.example.com", user.ID); err != nil {
+		t.Fatalf("VerifyDomain: %v", err)
+	}
+
+	a, err := store.CreateAgent(ctx, "agent@verified.example.com", "verified.example.com", "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if !a.DomainVerified {
+		t.Error("expected DomainVerified=true for agent on a verified domain (create response must not return a stale zero value)")
+	}
+
+	// And the create response must agree with the authoritative read path.
+	got, err := store.GetAgentByID(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetAgentByID: %v", err)
+	}
+	if got.DomainVerified != a.DomainVerified {
+		t.Errorf("create DomainVerified=%v disagrees with GetAgentByID=%v", a.DomainVerified, got.DomainVerified)
 	}
 }
 

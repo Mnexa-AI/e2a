@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import { EventEmitter } from "node:events";
-import { E2AError, E2AAuthError, E2APermissionError } from "./errors.js";
+import { E2AError, E2AAuthError, E2APermissionError, E2ANotFoundError } from "./errors.js";
 
 // Map a fatal (non-retryable) WebSocket handshake rejection status to a typed
 // error — mirrors the Python SDK's _fatal_error_for_status (F6). A 4xx means the
@@ -10,6 +10,9 @@ function fatalErrorForStatus(status: number): E2AError {
   const message = `WebSocket handshake rejected: HTTP ${status}`;
   if (status === 401) return new E2AAuthError({ code: "unauthorized", message, status, retryable: false });
   if (status === 403) return new E2APermissionError({ code: "forbidden", message, status, retryable: false });
+  // 404 — the agent doesn't exist OR isn't yours (the server collapses the
+  // cross-tenant case into not_found so the handshake can't enumerate agents).
+  if (status === 404) return new E2ANotFoundError({ code: "not_found", message, status, retryable: false });
   return new E2AError({ code: "websocket_rejected", message, status, retryable: false });
 }
 
