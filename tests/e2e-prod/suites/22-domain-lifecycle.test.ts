@@ -174,14 +174,15 @@ test("domain lifecycle: register → DNS TXT+MX → verify (happy path) → cust
     assert.equal(got.body?.verified, true, "GET domain reflects verified=true");
 
     agentEmail = `bot@${domain}`;
-    const ag = await client.post<{ email: string }>("/v1/agents", {
+    const ag = await client.post<{ email: string; domain_verified: boolean }>("/v1/agents", {
       body: { email: agentEmail, name: "lifecycle bot" },
     });
     assert.equal(ag.status, 201, `create custom-domain agent: ${ag.raw.slice(0, 200)}`);
-    // NOTE: the CREATE response's domain_verified is a stale zero — createAgent
-    // builds the struct in-memory from the INSERT and never JOINs d.verified
-    // (OSS store.go createAgent). The authoritative value comes from a READ,
-    // which JOINs the live domain.verified. Assert on the read.
+    // The CREATE response must report the authoritative domain_verified up
+    // front — createAgent reads back domains.verified after the INSERT rather
+    // than returning a stale in-memory zero (OSS store.go createAgent). It must
+    // agree with the READ path, which JOINs the live domain.verified.
+    assert.equal(ag.body?.domain_verified, true, "custom-domain agent reports domain_verified=true on create");
     const gotAgent = await client.get<{ domain_verified: boolean }>(`/v1/agents/${encodeURIComponent(agentEmail)}`);
     assert.equal(gotAgent.status, 200, `read custom-domain agent: ${gotAgent.raw.slice(0, 200)}`);
     assert.equal(gotAgent.body?.domain_verified, true, "custom-domain agent reports domain_verified=true on read");

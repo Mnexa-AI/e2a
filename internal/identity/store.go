@@ -970,6 +970,7 @@ func (s *Store) CreateAgentTx(ctx context.Context, tx pgx.Tx, agentEmail, domain
 // in-transaction callers without duplicating the SQL.
 type agentExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, name, userID string) (*AgentIdentity, error) {
@@ -989,6 +990,19 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
 	)
 	if err != nil {
+		return nil, err
+	}
+	// Report the same domain_verified the read paths (GetAgentByID /
+	// ListAgentsByUser) derive from domains.verified. createAgent builds the
+	// identity in-memory from only the INSERT columns, so DomainVerified would
+	// otherwise be the Go zero value (false) regardless of the domain's real
+	// state — wrong for an agent on a verified domain, and it would flip to the
+	// correct value on the next GET. Read it back in the same executor so it
+	// works for both the pool and an open tx: the just-inserted agent's FK
+	// guarantees the domain row exists and is visible within this transaction.
+	if err := exec.QueryRow(ctx,
+		`SELECT verified FROM domains WHERE domain = $1`, a.Domain,
+	).Scan(&a.DomainVerified); err != nil {
 		return nil, err
 	}
 	a.populateEmail()
