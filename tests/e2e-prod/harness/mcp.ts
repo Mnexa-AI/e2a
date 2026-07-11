@@ -125,10 +125,15 @@ export class StdioMcpClient implements McpClient {
 export class HttpMcpClient implements McpClient {
   private nextId = 1;
   private lastErr = "";
-  constructor(
-    private readonly url: string,
-    private readonly apiKey: string,
-  ) {}
+  private readonly url: string;
+  private readonly apiKey: string;
+  // Assign in the body (not constructor parameter properties): Node's
+  // --experimental-strip-types only erases annotations, it can't emit the
+  // implicit field assignments that `private` parameters require.
+  constructor(url: string, apiKey: string) {
+    this.url = url;
+    this.apiKey = apiKey;
+  }
 
   // Stateless — nothing to spawn or hand-shake.
   async start(): Promise<void> {}
