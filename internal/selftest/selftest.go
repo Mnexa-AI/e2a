@@ -57,6 +57,7 @@ type Probe struct {
 	AgentEmail    string        // the synthetic probe agent address
 	SMTPAddr      string        // host:port of the inbound SMTP listener
 	WebhookSecret string        // signing secret of the probe webhook (HMAC verify)
+	MCPBaseURL    string        // deployed streamable-HTTP MCP endpoint, e.g. http://mcp-server:3000/mcp; empty ⇒ mcp scenario skips
 	Sink          *HTTPSink     // receives the webhook callback for the round-trip
 	HTTP          *http.Client  // nil → defaultHTTPClient
 	Timeout       time.Duration // round-trip await timeout; 0 → defaultRoundTripTimeout

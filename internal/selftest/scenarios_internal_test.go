@@ -7,6 +7,9 @@ package selftest
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -115,4 +118,92 @@ func TestRunWorst_WithFailure(t *testing.T) {
 	if Worst(nil) != StatusFail {
 		t.Errorf("Worst(nil) = %s, want fail", Worst(nil))
 	}
+}
+
+// mcpStub is a minimal streamable-HTTP MCP server: it decodes the JSON-RPC
+// method and answers over SSE (the SDK's default framing), so it exercises the
+// scenario's real transport + SSE parsing. tools/list returns the given tool
+// names; tools/call returns a non-error text result.
+func mcpStub(t *testing.T, toolNames []string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var req struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &req)
+		var result string
+		switch req.Method {
+		case "tools/list":
+			tools := make([]string, 0, len(toolNames))
+			for _, n := range toolNames {
+				tools = append(tools, fmt.Sprintf(`{"name":%q}`, n))
+			}
+			result = fmt.Sprintf(`{"tools":[%s]}`, joinComma(tools))
+		case "tools/call":
+			result = `{"content":[{"type":"text","text":"agent@probe.test"}],"isError":false}`
+		default:
+			result = `{}`
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":%s}\n\n", req.ID, result)
+	}))
+}
+
+func joinComma(ss []string) string {
+	out := ""
+	for i, s := range ss {
+		if i > 0 {
+			out += ","
+		}
+		out += s
+	}
+	return out
+}
+
+func TestScenarioMCPHTTPRoundTrip(t *testing.T) {
+	// Unconfigured (no MCP URL) → skip-as-pass, so a prober without an MCP
+	// endpoint stays green.
+	if r := scenarioMCPHTTPRoundTrip(context.Background(), failProbe("http://127.0.0.1:1", "", nil)); r.Status != StatusPass {
+		t.Errorf("unconfigured MCP: status = %s (%q), want pass (skip)", r.Status, r.Detail)
+	}
+
+	// Happy path over the real SSE transport: tools/list (incl. whoami) then a
+	// whoami tool call.
+	srv := mcpStub(t, []string{"whoami", "create_agent", "list_agents"})
+	defer srv.Close()
+	p := failProbe("http://127.0.0.1:1", "", nil)
+	p.MCPBaseURL = srv.URL
+	if r := scenarioMCPHTTPRoundTrip(context.Background(), p); r.Status != StatusPass {
+		t.Errorf("happy path: status = %s (%q), want pass", r.Status, r.Detail)
+	}
+}
+
+func TestScenarioMCPHTTPRoundTrip_Fail(t *testing.T) {
+	// tools/list succeeds but omits whoami → the registry is wrong.
+	srv := mcpStub(t, []string{"send_message"})
+	defer srv.Close()
+	p := failProbe("http://127.0.0.1:1", "", nil)
+	p.MCPBaseURL = srv.URL
+	mustFail(t, "tools/list missing whoami", scenarioMCPHTTPRoundTrip(context.Background(), p))
+
+	// 500 from the MCP endpoint → fail.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv2.Close()
+	p2 := failProbe("http://127.0.0.1:1", "", nil)
+	p2.MCPBaseURL = srv2.URL
+	mustFail(t, "mcp 500", scenarioMCPHTTPRoundTrip(context.Background(), p2))
+
+	// Endpoint unreachable → fail.
+	p3 := failProbe("http://127.0.0.1:1", "", nil)
+	p3.MCPBaseURL = "http://127.0.0.1:1/mcp"
+	mustFail(t, "mcp unreachable", scenarioMCPHTTPRoundTrip(context.Background(), p3))
 }
