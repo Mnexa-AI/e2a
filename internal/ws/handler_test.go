@@ -184,6 +184,106 @@ func TestHandler_QueryTokenRejected(t *testing.T) {
 	}
 }
 
+// TestHandler_HandshakeError_JSONEnvelope pins the fix: a handshake rejection
+// (before the WebSocket upgrade) returns the SAME canonical error envelope the
+// REST /v1 surface does — Content-Type: application/json, a body that unmarshals
+// to {error:{code,message,request_id}} with non-empty fields, and an
+// X-Request-Id header that matches the body's request_id — so a client's shared
+// envelope-based error handling works identically on a failed WS handshake.
+func TestHandler_HandshakeError_JSONEnvelope(t *testing.T) {
+	type envelope struct {
+		Error struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+
+	cases := []struct {
+		name        string
+		store       *mockStore
+		token       string
+		wantStatus  int
+		wantCode    string
+		wantWWWAuth bool // 401s must advertise the RFC 6750 Bearer challenge
+	}{
+		{
+			name:        "missing bearer",
+			store:       &mockStore{},
+			token:       "",
+			wantStatus:  http.StatusUnauthorized,
+			wantCode:    "unauthorized",
+			wantWWWAuth: true,
+		},
+		{
+			name:        "invalid token",
+			store:       &mockStore{user: nil, userErr: fmt.Errorf("not found")},
+			token:       "bad_key",
+			wantStatus:  http.StatusUnauthorized,
+			wantCode:    "unauthorized",
+			wantWWWAuth: true,
+		},
+		{
+			name:       "not owner",
+			store:      &mockStore{user: newTestUser(), agent: newTestAgent("other_user")},
+			token:      "valid_key",
+			wantStatus: http.StatusForbidden,
+			wantCode:   "forbidden",
+		},
+		{
+			name:       "agent not found",
+			store:      &mockStore{user: newTestUser(), agentErr: fmt.Errorf("not found")},
+			token:      "valid_key",
+			wantStatus: http.StatusNotFound,
+			wantCode:   "not_found",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := NewHub()
+			defer hub.Close()
+			srv := startServer(t, NewHandler(hub, tc.store))
+
+			resp := doHTTP(t, srv, "bot@agents.e2a.dev", tc.token)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status: got %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+			if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("Content-Type: got %q, want application/json", ct)
+			}
+
+			body, _ := io.ReadAll(resp.Body)
+			var env envelope
+			if err := json.Unmarshal(body, &env); err != nil {
+				t.Fatalf("body is not the JSON envelope: %v (body=%s)", err, body)
+			}
+			if env.Error.Code != tc.wantCode {
+				t.Fatalf("code: got %q, want %q", env.Error.Code, tc.wantCode)
+			}
+			if env.Error.Message == "" {
+				t.Fatal("envelope message is empty")
+			}
+			if env.Error.RequestID == "" {
+				t.Fatal("envelope request_id is empty")
+			}
+
+			// Header must echo the same request id that's in the body.
+			if h := resp.Header.Get("X-Request-Id"); h != env.Error.RequestID {
+				t.Fatalf("X-Request-Id header %q != body request_id %q", h, env.Error.RequestID)
+			}
+
+			if tc.wantWWWAuth {
+				if wa := resp.Header.Get("WWW-Authenticate"); wa != `Bearer realm="e2a"` {
+					t.Fatalf("401 must carry WWW-Authenticate Bearer challenge, got %q", wa)
+				}
+			}
+		})
+	}
+}
+
 func TestHandler_InvalidToken(t *testing.T) {
 	hub := NewHub()
 	defer hub.Close()
