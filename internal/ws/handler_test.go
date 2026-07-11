@@ -224,11 +224,14 @@ func TestHandler_HandshakeError_JSONEnvelope(t *testing.T) {
 			wantWWWAuth: true,
 		},
 		{
-			name:       "not owner",
+			// Cross-tenant: the agent exists but belongs to another account.
+			// Must be INDISTINGUISHABLE from a nonexistent agent (both 404
+			// not_found) so the handshake isn't an existence-enumeration oracle.
+			name:       "not owner (cross-tenant)",
 			store:      &mockStore{user: newTestUser(), agent: newTestAgent("other_user")},
 			token:      "valid_key",
-			wantStatus: http.StatusForbidden,
-			wantCode:   "forbidden",
+			wantStatus: http.StatusNotFound,
+			wantCode:   "not_found",
 		},
 		{
 			name:       "agent not found",
@@ -315,6 +318,13 @@ func TestHandler_AgentNotFound(t *testing.T) {
 	}
 }
 
+// TestHandler_NotOwner pins the anti-enumeration behavior: an agent that exists
+// but belongs to a DIFFERENT account returns 404 not_found — the same response
+// as a nonexistent agent (TestHandler_AgentNotFound) — so an authenticated
+// caller can't probe which agent addresses exist across tenants. This mirrors
+// the REST resolveOwnedAgent, which refuses to distinguish the two. The
+// same-account agent-scope ceiling is a genuine authorization error and stays
+// 403 (TestHandler_AgentScoped_WrongAgent_Forbidden).
 func TestHandler_NotOwner(t *testing.T) {
 	hub := NewHub()
 	defer hub.Close()
@@ -327,8 +337,8 @@ func TestHandler_NotOwner(t *testing.T) {
 
 	resp := doHTTP(t, srv, "bot@agents.e2a.dev", "valid_key")
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-tenant not-owned must be 404 (anti-enumeration), got %d", resp.StatusCode)
 	}
 }
 

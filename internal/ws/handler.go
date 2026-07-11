@@ -86,9 +86,15 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 		httpapi.WriteError(w, r, http.StatusNotFound, "not_found", "agent not found")
 		return
 	}
-	// Tenant ownership: the agent must belong to the credential's user.
+	// Tenant ownership: the agent must belong to the credential's user. A
+	// cross-tenant miss returns 404 not_found — the SAME response as a
+	// nonexistent agent above — so an authenticated caller can't tell "this
+	// address doesn't exist" from "it exists but isn't yours". Emitting 403
+	// here would make the WS handshake an agent-existence enumeration oracle
+	// across tenants; collapsing both into 404 closes it (mirrors the REST
+	// resolveOwnedAgent, which likewise refuses to distinguish the two).
 	if agent.UserID != principal.User.ID {
-		httpapi.WriteError(w, r, http.StatusForbidden, "forbidden", "not authorized for this agent")
+		httpapi.WriteError(w, r, http.StatusNotFound, "not_found", "agent not found")
 		return
 	}
 	// Agent-scope confinement (HIGH-1): an agent-scoped credential is pinned to
