@@ -317,9 +317,14 @@ func (p *Probe) do(ctx context.Context, method, u string, body []byte) (int, []b
 // alone — no initialize handshake, no Mcp-Session-Id. It authenticates with the
 // probe agent's own Bearer key (the MCP server forwards it to the backend).
 //
-// When E2A_PROBE_MCP_URL is unset the scenario SKIPS (returns pass) so a prober
-// with no MCP endpoint configured — e.g. a stack without the mcp-server — stays
-// green rather than warning.
+// E2A_PROBE_MCP_URL is the in-cluster endpoint (e.g. http://mcp-server:3000/mcp),
+// matching how the other probe vars address containers directly. NOTE: the MCP
+// server enforces a Host allowlist (MCP_ALLOWED_HOSTS) on /mcp and 421s anything
+// else, so that URL's host MUST be in the deployment's allowlist — the staging
+// compose adds the in-cluster service name there. When E2A_PROBE_MCP_URL is unset
+// the scenario SKIPS (returns pass) so a prober with no MCP endpoint configured
+// stays green rather than warning; the release pipeline's prober gate separately
+// asserts the scenario actually ran (didn't skip) on staging.
 func scenarioMCPHTTPRoundTrip(ctx context.Context, p *Probe) Result {
 	if p.MCPBaseURL == "" {
 		return pass("skipped: E2A_PROBE_MCP_URL unset")
@@ -369,8 +374,27 @@ func scenarioMCPHTTPRoundTrip(ctx context.Context, p *Probe) Result {
 	if isErr, _ := res["isError"].(bool); isErr {
 		return fail("mcp whoami call: tool result isError=true")
 	}
-	if content, ok := res["content"].([]any); !ok || len(content) == 0 {
+	content, ok := res["content"].([]any)
+	if !ok || len(content) == 0 {
 		return fail("mcp whoami call: empty tool result content")
+	}
+	// Require an actual non-empty text block — a bare 200 with an empty/typeless
+	// content array (a backend returning nothing useful) must not pass.
+	hasText := false
+	for _, c := range content {
+		cm, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := cm["type"].(string); t == "text" {
+			if s, _ := cm["text"].(string); strings.TrimSpace(s) != "" {
+				hasText = true
+				break
+			}
+		}
+	}
+	if !hasText {
+		return fail("mcp whoami call: result has no non-empty text content")
 	}
 	return pass("mcp http tools/list + whoami round-trip ok")
 }
@@ -420,6 +444,10 @@ func parseJSONRPCEnvelope(raw []byte, contentType string) (map[string]any, error
 			var data strings.Builder
 			for _, line := range strings.Split(event, "\n") {
 				if after, ok := strings.CutPrefix(line, "data:"); ok {
+					// SSE joins successive data: lines within one event with \n.
+					if data.Len() > 0 {
+						data.WriteByte('\n')
+					}
 					data.WriteString(strings.TrimPrefix(after, " "))
 				}
 			}

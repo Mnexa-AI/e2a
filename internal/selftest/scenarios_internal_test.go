@@ -207,3 +207,99 @@ func TestScenarioMCPHTTPRoundTrip_Fail(t *testing.T) {
 	p3.MCPBaseURL = "http://127.0.0.1:1/mcp"
 	mustFail(t, "mcp unreachable", scenarioMCPHTTPRoundTrip(context.Background(), p3))
 }
+
+// sseMsg frames a JSON-RPC result as one SSE message event.
+func sseMsg(id int, result string) string {
+	return fmt.Sprintf("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":%s}\n\n", id, result)
+}
+
+// mcpWhoamiStub answers tools/list with a whoami tool, and tools/call with the
+// caller-supplied result JSON — to drive the whoami-result assertion branches.
+func mcpWhoamiStub(t *testing.T, whoamiResult string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if req.Method == "tools/list" {
+			fmt.Fprint(w, sseMsg(req.ID, `{"tools":[{"name":"whoami"}]}`))
+			return
+		}
+		fmt.Fprint(w, sseMsg(req.ID, whoamiResult))
+	}))
+}
+
+func TestScenarioMCPHTTPRoundTrip_WhoamiBranches(t *testing.T) {
+	cases := []struct {
+		name   string
+		result string
+	}{
+		{"isError true", `{"content":[{"type":"text","text":"boom"}],"isError":true}`},
+		{"empty content", `{"content":[]}`},
+		{"content but no text block", `{"content":[{"type":"image","data":"x"}]}`},
+		{"no result object", `null`},
+	}
+	for _, tc := range cases {
+		srv := mcpWhoamiStub(t, tc.result)
+		p := failProbe("http://127.0.0.1:1", "", nil)
+		p.MCPBaseURL = srv.URL
+		mustFail(t, "whoami "+tc.name, scenarioMCPHTTPRoundTrip(context.Background(), p))
+		srv.Close()
+	}
+
+	// JSON-RPC error envelope on the whoami call → fail.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if req.Method == "tools/list" {
+			fmt.Fprint(w, sseMsg(req.ID, `{"tools":[{"name":"whoami"}]}`))
+			return
+		}
+		fmt.Fprintf(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":-32603,\"message\":\"internal\"}}\n\n", req.ID)
+	}))
+	defer srv.Close()
+	p := failProbe("http://127.0.0.1:1", "", nil)
+	p.MCPBaseURL = srv.URL
+	mustFail(t, "whoami json-rpc error", scenarioMCPHTTPRoundTrip(context.Background(), p))
+}
+
+func TestParseJSONRPCEnvelope(t *testing.T) {
+	// application/json body (enableJsonResponse path).
+	env, err := parseJSONRPCEnvelope([]byte(`{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`), "application/json")
+	if err != nil || env["result"] == nil {
+		t.Fatalf("json branch: env=%v err=%v", env, err)
+	}
+
+	// SSE with a ping/comment line, CRLF terminators, and a charset param — all
+	// of which a real proxy/SDK may emit.
+	sse := ":ping\r\nevent: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\r\n\r\n"
+	env, err = parseJSONRPCEnvelope([]byte(sse), "text/event-stream; charset=utf-8")
+	if err != nil || env["result"] == nil {
+		t.Fatalf("sse+comment+crlf branch: env=%v err=%v", env, err)
+	}
+
+	// One JSON object split across two data: lines (joined with \n → valid JSON).
+	split := "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\ndata: \"result\":{\"ok\":true}}\n\n"
+	env, err = parseJSONRPCEnvelope([]byte(split), "text/event-stream")
+	if err != nil || env["result"] == nil {
+		t.Fatalf("sse multi-data join: env=%v err=%v", env, err)
+	}
+
+	// Non-JSON body (e.g. an HTML error page from a proxy) → error, never a pass.
+	if _, err := parseJSONRPCEnvelope([]byte("<html>bad gateway</html>"), "text/html"); err == nil {
+		t.Error("html body: want decode error")
+	}
+	// SSE stream carrying no JSON-RPC message → error.
+	if _, err := parseJSONRPCEnvelope([]byte(":keep-alive\n\nevent: ping\ndata: {}\n\n"), "text/event-stream"); err == nil {
+		t.Error("sse without jsonrpc message: want error")
+	}
+}
