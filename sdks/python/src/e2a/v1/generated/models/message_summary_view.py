@@ -38,8 +38,8 @@ class MessageSummaryView(BaseModel):
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
     var_from: StrictStr = Field(alias="from")
+    id: StrictStr
     labels: List[StrictStr]
-    message_id: StrictStr
     read_status: StrictStr
     recipient: StrictStr
     reply_to: Optional[List[StrictStr]] = Field(default=None, description="The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here).")
@@ -50,7 +50,7 @@ class MessageSummaryView(BaseModel):
     to: List[StrictStr]
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["auth", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "labels", "message_id", "read_status", "recipient", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["auth", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "id", "labels", "read_status", "recipient", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -116,8 +116,8 @@ class MessageSummaryView(BaseModel):
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
             "from": obj.get("from"),
+            "id": obj.get("id"),
             "labels": obj.get("labels"),
-            "message_id": obj.get("message_id"),
             "read_status": obj.get("read_status"),
             "recipient": obj.get("recipient"),
             "reply_to": obj.get("reply_to"),

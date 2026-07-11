@@ -15,7 +15,7 @@ func TestListConversationsEnvelope(t *testing.T) {
 		t.Fatalf("want 1 conversation, got %d (%v)", len(items), body)
 	}
 	c := items[0].(map[string]any)
-	if c["conversation_id"] != "conv_1" || c["message_count"].(float64) != 2 || c["has_unread"] != true {
+	if c["id"] != "conv_1" || c["message_count"].(float64) != 2 || c["has_unread"] != true {
 		t.Fatalf("unexpected conversation summary: %+v", c)
 	}
 	// next_cursor is always null for conversations (legacy single-page parity).
@@ -32,7 +32,7 @@ func TestGetConversationShape(t *testing.T) {
 	}
 	// Summary fields must be flattened to the top level (embedding), with
 	// participants/labels/messages alongside.
-	if body["conversation_id"] != "conv_1" {
+	if body["id"] != "conv_1" {
 		t.Fatalf("missing flattened summary fields: %v", body)
 	}
 	parts, _ := body["participants"].([]any)
@@ -41,7 +41,7 @@ func TestGetConversationShape(t *testing.T) {
 	if len(parts) != 2 || len(labels) != 1 || len(msgs) != 1 {
 		t.Fatalf("unexpected detail: participants=%v labels=%v messages=%v", parts, labels, msgs)
 	}
-	if msgs[0].(map[string]any)["message_id"] != "msg_1" {
+	if msgs[0].(map[string]any)["id"] != "msg_1" {
 		t.Fatalf("unexpected member message: %v", msgs[0])
 	}
 }

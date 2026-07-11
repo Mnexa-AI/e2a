@@ -30,7 +30,7 @@ async function inConversation(
     sort: "asc",
     limit: 100,
   })) {
-    if (m.messageId === notification.message_id) return true;
+    if (m.id === notification.message_id) return true;
     if (++scanned >= 500) break; // NaN-since safety bound
   }
   return false;

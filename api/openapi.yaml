@@ -345,13 +345,13 @@ components:
     ConversationDetailView:
       additionalProperties: false
       properties:
-        conversation_id:
-          type: string
         first_message_at:
           format: date-time
           type: string
         has_unread:
           type: boolean
+        id:
+          type: string
         inbound_count:
           format: int64
           type: integer
@@ -384,7 +384,7 @@ components:
         - participants
         - labels
         - messages
-        - conversation_id
+        - id
         - last_message_at
         - first_message_at
         - message_count
@@ -397,13 +397,13 @@ components:
     ConversationSummaryView:
       additionalProperties: false
       properties:
-        conversation_id:
-          type: string
         first_message_at:
           format: date-time
           type: string
         has_unread:
           type: boolean
+        id:
+          type: string
         inbound_count:
           format: int64
           type: integer
@@ -421,7 +421,7 @@ components:
           format: int64
           type: integer
       required:
-        - conversation_id
+        - id
         - last_message_at
         - first_message_at
         - message_count
@@ -1110,12 +1110,12 @@ components:
           type: boolean
         from:
           type: string
+        id:
+          type: string
         labels:
           items:
             type: string
           type: array
-        message_id:
-          type: string
         read_status:
           type: string
         recipient:
@@ -1145,7 +1145,7 @@ components:
         webhook_status:
           type: string
       required:
-        - message_id
+        - id
         - direction
         - from
         - to
@@ -1195,12 +1195,12 @@ components:
           type: boolean
         from:
           type: string
+        id:
+          type: string
         labels:
           items:
             type: string
           type: array
-        message_id:
-          type: string
         parsed:
           $ref: "#/components/schemas/MessageParsedView"
         raw_message:
@@ -1235,7 +1235,7 @@ components:
         webhook_status:
           type: string
       required:
-        - message_id
+        - id
         - from
         - to
         - cc

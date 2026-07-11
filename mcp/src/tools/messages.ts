@@ -439,7 +439,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         // route also uses. Bytes are NOT returned here; call get_attachment for
         // one. `raw_message` is omitted so the LLM never sees the full MIME blob.
         return {
-          message_id: email.messageId,
+          id: email.id,
           conversation_id: email.conversationId,
           from: email._from,
           recipient: email.recipient,

@@ -27,8 +27,8 @@ export class MessageSummaryView {
     'flagReason'?: string;
     'flagged'?: boolean;
     '_from': string;
+    'id': string;
     'labels': Array<string>;
-    'messageId': string;
     'readStatus': string;
     'recipient': string;
     /**
@@ -115,15 +115,15 @@ export class MessageSummaryView {
             "format": ""
         },
         {
-            "name": "labels",
-            "baseName": "labels",
-            "type": "Array<string>",
+            "name": "id",
+            "baseName": "id",
+            "type": "string",
             "format": ""
         },
         {
-            "name": "messageId",
-            "baseName": "message_id",
-            "type": "string",
+            "name": "labels",
+            "baseName": "labels",
+            "type": "Array<string>",
             "format": ""
         },
         {

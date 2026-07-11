@@ -14,9 +14,9 @@ import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { HttpFile } from '../http/http.js';
 
 export class ConversationDetailView {
-    'conversationId': string;
     'firstMessageAt': Date;
     'hasUnread': boolean;
+    'id': string;
     'inboundCount': number;
     'labels': Array<string>;
     'lastMessageAt': Date;
@@ -33,12 +33,6 @@ export class ConversationDetailView {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "conversationId",
-            "baseName": "conversation_id",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "firstMessageAt",
             "baseName": "first_message_at",
             "type": "Date",
@@ -48,6 +42,12 @@ export class ConversationDetailView {
             "name": "hasUnread",
             "baseName": "has_unread",
             "type": "boolean",
+            "format": ""
+        },
+        {
+            "name": "id",
+            "baseName": "id",
+            "type": "string",
             "format": ""
         },
         {

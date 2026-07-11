@@ -231,7 +231,7 @@ async def test_get_attachment_hits_endpoint_and_maps_view(httpx_mock):
 async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
     # email.received is metadata-only; fetch_message resolves (recipient,
     # message_id) into the full-message GET.
-    httpx_mock.add_response(json=_valid(MessageView, message_id="msg_9", subject="Hi"))
+    httpx_mock.add_response(json=_valid(MessageView, id="msg_9", subject="Hi"))
     event = WebhookEvent(
         type="email.received",
         data={"message_id": "msg_9", "recipient": "bot@test.dev"},
@@ -239,7 +239,7 @@ async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
     )
     async with _client() as c:
         msg = await c.webhooks.fetch_message(event)
-    assert msg.message_id == "msg_9"
+    assert msg.id == "msg_9"
     req = httpx_mock.get_requests()[-1]
     assert req.method == "GET"
     assert "/messages/msg_9" in str(req.url)
@@ -360,11 +360,11 @@ async def test_send_uses_caller_idempotency_key(httpx_mock):
 
 @pytest.mark.anyio
 async def test_messages_list_threads_cursor(httpx_mock):
-    httpx_mock.add_response(json={"items": [_valid(MessageSummaryView, message_id="msg_1")], "next_cursor": "cur_2"})
-    httpx_mock.add_response(json={"items": [_valid(MessageSummaryView, message_id="msg_2")], "next_cursor": None})
+    httpx_mock.add_response(json={"items": [_valid(MessageSummaryView, id="msg_1")], "next_cursor": "cur_2"})
+    httpx_mock.add_response(json={"items": [_valid(MessageSummaryView, id="msg_2")], "next_cursor": None})
     async with _client() as c:
         items = await c.messages.list("bot@test.dev").to_list(limit=50)
-    assert [m.message_id for m in items] == ["msg_1", "msg_2"]
+    assert [m.id for m in items] == ["msg_1", "msg_2"]
     reqs = httpx_mock.get_requests()
     assert len(reqs) == 2
     assert "cursor=cur_2" in str(reqs[1].url)
@@ -379,14 +379,14 @@ async def test_messages_list_threads_cursor(httpx_mock):
 @pytest.mark.anyio
 async def test_conversations_list_threads_cursor(httpx_mock):
     httpx_mock.add_response(
-        json={"items": [_valid(ConversationSummaryView, conversation_id="conv_1")], "next_cursor": "cur_2"}
+        json={"items": [_valid(ConversationSummaryView, id="conv_1")], "next_cursor": "cur_2"}
     )
     httpx_mock.add_response(
-        json={"items": [_valid(ConversationSummaryView, conversation_id="conv_2")], "next_cursor": None}
+        json={"items": [_valid(ConversationSummaryView, id="conv_2")], "next_cursor": None}
     )
     async with _client() as c:
         items = await c.conversations.list("bot@test.dev").to_list(limit=50)
-    assert [cv.conversation_id for cv in items] == ["conv_1", "conv_2"]
+    assert [cv.id for cv in items] == ["conv_1", "conv_2"]
     reqs = httpx_mock.get_requests()
     assert len(reqs) == 2
     assert "cursor=cur_2" in str(reqs[1].url)

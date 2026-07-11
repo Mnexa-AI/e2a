@@ -25,12 +25,12 @@ const mockInvalidateMessages =
 const mockInvalidateUnread =
   invalidateAgentUnread as jest.MockedFunction<typeof invalidateAgentUnread>;
 
-// Each test uses a distinct message_id: useSWR keys the body cache by id and
+// Each test uses a distinct id: useSWR keys the body cache by id and
 // that cache is process-global, so reusing an id would leak one test's body
 // into the next.
 function msg(id: string): MessageSummary {
   return {
-    message_id: id,
+    id: id,
     direction: "inbound",
     from: "james@x.com",
     to: ["support@acme.dev"],

@@ -133,7 +133,7 @@ export async function sendAgentTestEmail(
 // api/openapi.yaml. Kept local; the dashboard projects it into the
 // MessageSummary type the UI reads.
 type MessageSummaryWire = {
-  message_id: string;
+  id: string;
   direction: "inbound" | "outbound";
   from: string;
   to?: string[] | null;
@@ -160,7 +160,7 @@ type PageMessageSummaryWire = {
 
 function projectSummary(w: MessageSummaryWire): import("../types").MessageSummary {
   return {
-    message_id: w.message_id,
+    id: w.id,
     direction: w.direction,
     from: w.from,
     to: w.to ?? [],
@@ -240,7 +240,7 @@ export async function getInboxUnread(
 
 // Wire shape of MessageView (GET /v1/agents/{address}/messages/{id}).
 type MessageViewWire = {
-  message_id: string;
+  id: string;
   from: string;
   to?: string[] | null;
   cc?: string[] | null;
@@ -271,7 +271,7 @@ function projectPending(
   w: MessageViewWire,
 ): PendingMessageDetail {
   return {
-    id: w.message_id,
+    id: w.id,
     agent_email: email,
     direction: "outbound",
     subject: w.subject,
@@ -336,7 +336,7 @@ export async function getMessageDetail(
   return {
     direction: "inbound",
     data: {
-      message_id: w.message_id,
+      id: w.id,
       from: w.from,
       to: w.to ?? [],
       cc: w.cc ?? [],

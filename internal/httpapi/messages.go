@@ -20,7 +20,7 @@ import (
 // read-state is exposed as `read_status` (MSG-1); the four status axes are
 // read_status / hitl_status / delivery_status / webhook_status.
 type MessageView struct {
-	MessageID      string   `json:"message_id"`
+	ID             string   `json:"id"`
 	From           string   `json:"from"`
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc" nullable:"false"`
@@ -128,7 +128,7 @@ type MessageBodyView struct {
 
 func messageViewFromIdentity(m *identity.Message) MessageView {
 	v := MessageView{
-		MessageID:      m.ID,
+		ID:             m.ID,
 		From:           m.Sender,
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
@@ -217,7 +217,7 @@ type messageOutput struct {
 // dependency on the surface it replaces; it moves home when legacy is
 // deleted at the 1Z cutover.
 type MessageSummaryView struct {
-	ID             string   `json:"message_id"`
+	ID             string   `json:"id"`
 	Direction      string   `json:"direction" enum:"inbound,outbound"`
 	From           string   `json:"from"`
 	To             []string `json:"to" nullable:"false"`

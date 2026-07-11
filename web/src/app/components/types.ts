@@ -90,7 +90,7 @@ export type PendingMessageInboundContext = {
 // app's `status` (delivery) + `review_status` (review) fields below. The
 // dashboard inbox uses this projection directly.
 export type MessageSummary = {
-  message_id: string;
+  id: string;
   direction: "inbound" | "outbound";
   from: string;
   to: string[];
@@ -130,7 +130,7 @@ export type ListMessagesResponse = {
 // `auth_headers` + `raw_message`, and the parsed text/plain body comes
 // through `body.text`.
 export type InboundMessageDetail = {
-  message_id: string;
+  id: string;
   from: string;
   to: string[];
   cc: string[];

@@ -9,7 +9,7 @@ function isoMinutesAgo(now: Date, n: number): string {
 
 function msg(partial: Partial<MessageSummary>): MessageSummary {
   return {
-    message_id: "msg_" + Math.random().toString(36).slice(2, 8),
+    id: "msg_" + Math.random().toString(36).slice(2, 8),
     direction: "inbound",
     from: "sender@example.com",
     to: ["agent@example.com"],
@@ -26,8 +26,8 @@ describe("groupIntoThreads", () => {
 
   it("groups messages with the same conversation_id into one thread", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "m1", conversation_id: "conv_A", subject: "Q3 contract", created_at: isoMinutesAgo(NOW, 25) }),
-      msg({ message_id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["maya@stripe.com"], recipient: "maya@stripe.com", subject: "Re: Q3 contract", created_at: isoMinutesAgo(NOW, 13) }),
+      msg({ id: "m1", conversation_id: "conv_A", subject: "Q3 contract", created_at: isoMinutesAgo(NOW, 25) }),
+      msg({ id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["maya@stripe.com"], recipient: "maya@stripe.com", subject: "Re: Q3 contract", created_at: isoMinutesAgo(NOW, 13) }),
     ];
     const threads = groupIntoThreads(rows, NOW);
     expect(threads).toHaveLength(1);
@@ -35,12 +35,12 @@ describe("groupIntoThreads", () => {
     expect(threads[0].conversationId).toBe("conv_A");
     expect(threads[0].msgCount).toBe(2);
     // Ordered oldest → newest inside the thread.
-    expect(threads[0].messages.map((m) => m.message_id)).toEqual(["m1", "m2"]);
+    expect(threads[0].messages.map((m) => m.id)).toEqual(["m1", "m2"]);
   });
 
   it("orphan messages (no conversation_id) become single-message threads keyed orphan:<id>", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "m_solo", subject: "GitHub PR merged", created_at: isoMinutesAgo(NOW, 30) }),
+      msg({ id: "m_solo", subject: "GitHub PR merged", created_at: isoMinutesAgo(NOW, 30) }),
     ];
     const threads = groupIntoThreads(rows, NOW);
     expect(threads).toHaveLength(1);
@@ -56,13 +56,13 @@ describe("groupIntoThreads", () => {
   it("real conversation_id starting with 'orphan:' does NOT collide with the synthetic namespace", () => {
     const rows: MessageSummary[] = [
       msg({
-        message_id: "m_collide",
+        id: "m_collide",
         conversation_id: "orphan:nefarious",
         subject: "Operator-controlled conv_id",
         created_at: isoMinutesAgo(NOW, 30),
       }),
       msg({
-        message_id: "nefarious",
+        id: "nefarious",
         subject: "Real orphan",
         created_at: isoMinutesAgo(NOW, 25),
       }),
@@ -75,17 +75,17 @@ describe("groupIntoThreads", () => {
     expect(keys).toEqual(["conv:orphan:nefarious", "orphan:nefarious"]);
     const real = threads.find((t) => t.key === "conv:orphan:nefarious");
     const synthetic = threads.find((t) => t.key === "orphan:nefarious");
-    expect(real?.messages[0].message_id).toBe("m_collide");
+    expect(real?.messages[0].id).toBe("m_collide");
     expect(real?.conversationId).toBe("orphan:nefarious");
-    expect(synthetic?.messages[0].message_id).toBe("nefarious");
+    expect(synthetic?.messages[0].id).toBe("nefarious");
     expect(synthetic?.conversationId).toBeUndefined();
   });
 
   it("derives state='pending' when any message in the thread is pending_approval", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "m1", conversation_id: "conv_A", from: "maya@stripe.com", created_at: isoMinutesAgo(NOW, 25) }),
+      msg({ id: "m1", conversation_id: "conv_A", from: "maya@stripe.com", created_at: isoMinutesAgo(NOW, 25) }),
       msg({
-        message_id: "m2",
+        id: "m2",
         conversation_id: "conv_A",
         direction: "outbound",
         to: ["maya@stripe.com"],
@@ -100,8 +100,8 @@ describe("groupIntoThreads", () => {
 
   it("derives state='closed' when all messages are older than 7 days", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "m1", conversation_id: "conv_A", created_at: isoMinutesAgo(NOW, 8 * 24 * 60) }),
-      msg({ message_id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["x@example.com"], created_at: isoMinutesAgo(NOW, 7 * 24 * 60 + 60) }),
+      msg({ id: "m1", conversation_id: "conv_A", created_at: isoMinutesAgo(NOW, 8 * 24 * 60) }),
+      msg({ id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["x@example.com"], created_at: isoMinutesAgo(NOW, 7 * 24 * 60 + 60) }),
     ];
     const threads = groupIntoThreads(rows, NOW);
     expect(threads[0].state).toBe("closed");
@@ -109,9 +109,9 @@ describe("groupIntoThreads", () => {
 
   it("derives state='handed-off' when outbound messages address two different recipients", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "m1", conversation_id: "conv_A", from: "customer@example.com", created_at: isoMinutesAgo(NOW, 60) }),
-      msg({ message_id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["agent@partner.com"], recipient: "agent@partner.com", created_at: isoMinutesAgo(NOW, 50) }),
-      msg({ message_id: "m3", conversation_id: "conv_A", direction: "outbound", to: ["billing@acme.io"], recipient: "billing@acme.io", created_at: isoMinutesAgo(NOW, 40) }),
+      msg({ id: "m1", conversation_id: "conv_A", from: "customer@example.com", created_at: isoMinutesAgo(NOW, 60) }),
+      msg({ id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["agent@partner.com"], recipient: "agent@partner.com", created_at: isoMinutesAgo(NOW, 50) }),
+      msg({ id: "m3", conversation_id: "conv_A", direction: "outbound", to: ["billing@acme.io"], recipient: "billing@acme.io", created_at: isoMinutesAgo(NOW, 40) }),
     ];
     const threads = groupIntoThreads(rows, NOW);
     expect(threads[0].state).toBe("handed-off");
@@ -119,8 +119,8 @@ describe("groupIntoThreads", () => {
 
   it("derives state='active' for recent threads with single outbound target", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "m1", conversation_id: "conv_A", created_at: isoMinutesAgo(NOW, 30) }),
-      msg({ message_id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["x@example.com"], recipient: "x@example.com", created_at: isoMinutesAgo(NOW, 20) }),
+      msg({ id: "m1", conversation_id: "conv_A", created_at: isoMinutesAgo(NOW, 30) }),
+      msg({ id: "m2", conversation_id: "conv_A", direction: "outbound", to: ["x@example.com"], recipient: "x@example.com", created_at: isoMinutesAgo(NOW, 20) }),
     ];
     const threads = groupIntoThreads(rows, NOW);
     expect(threads[0].state).toBe("active");
@@ -128,10 +128,10 @@ describe("groupIntoThreads", () => {
 
   it("pending threads sort to the top, then by lastMessageAt DESC", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "a1", conversation_id: "conv_OLD", created_at: isoMinutesAgo(NOW, 200) }),
-      msg({ message_id: "b1", conversation_id: "conv_NEW", created_at: isoMinutesAgo(NOW, 10) }),
+      msg({ id: "a1", conversation_id: "conv_OLD", created_at: isoMinutesAgo(NOW, 200) }),
+      msg({ id: "b1", conversation_id: "conv_NEW", created_at: isoMinutesAgo(NOW, 10) }),
       msg({
-        message_id: "c1",
+        id: "c1",
         conversation_id: "conv_PEND",
         direction: "outbound",
         to: ["x@example.com"],
@@ -146,7 +146,7 @@ describe("groupIntoThreads", () => {
   it("counterparty for inbound uses the sender; for outbound uses to[0]", () => {
     const rows: MessageSummary[] = [
       msg({
-        message_id: "m1",
+        id: "m1",
         conversation_id: "conv_X",
         direction: "outbound",
         from: "support@acme.io",
@@ -161,13 +161,13 @@ describe("groupIntoThreads", () => {
 
   it("subject falls back to the first non-empty subject in the thread, else (no subject)", () => {
     const rows: MessageSummary[] = [
-      msg({ message_id: "m1", conversation_id: "conv_X", subject: "", created_at: isoMinutesAgo(NOW, 30) }),
-      msg({ message_id: "m2", conversation_id: "conv_X", subject: "Re: real subject", created_at: isoMinutesAgo(NOW, 10) }),
+      msg({ id: "m1", conversation_id: "conv_X", subject: "", created_at: isoMinutesAgo(NOW, 30) }),
+      msg({ id: "m2", conversation_id: "conv_X", subject: "Re: real subject", created_at: isoMinutesAgo(NOW, 10) }),
     ];
     expect(groupIntoThreads(rows, NOW)[0].subject).toBe("Re: real subject");
 
     const orphan = groupIntoThreads(
-      [msg({ message_id: "m_orphan", subject: "" })],
+      [msg({ id: "m_orphan", subject: "" })],
       NOW,
     );
     expect(orphan[0].subject).toBe("(no subject)");
@@ -178,8 +178,8 @@ describe("findThread", () => {
   const NOW = new Date("2026-05-24T12:00:00Z");
   const threads = groupIntoThreads(
     [
-      msg({ message_id: "m1", conversation_id: "conv_A", created_at: isoMinutesAgo(NOW, 30) }),
-      msg({ message_id: "m_solo", created_at: isoMinutesAgo(NOW, 20) }),
+      msg({ id: "m1", conversation_id: "conv_A", created_at: isoMinutesAgo(NOW, 30) }),
+      msg({ id: "m_solo", created_at: isoMinutesAgo(NOW, 20) }),
     ],
     NOW,
   );

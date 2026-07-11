@@ -206,10 +206,10 @@ export class Seeder {
     await smtpInject({ from, to: agentEmail, subject, body: "contract-seed injected inbound body" });
     for (let i = 0; i < 15; i++) {
       const page = (await (await this.raw("GET", `/v1/agents/${encodeURIComponent(agentEmail)}/messages?limit=20`)).json()) as {
-        items: Array<{ message_id: string; subject: string }>;
+        items: Array<{ id: string; subject: string }>;
       };
       const hit = page.items.find((m) => m.subject === subject);
-      if (hit) return hit.message_id;
+      if (hit) return hit.id;
       await sleep(2000);
     }
     throw new Error(`seed: injected message (subject "${subject}") never appeared in ${agentEmail}`);

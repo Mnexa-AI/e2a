@@ -14,7 +14,7 @@ function makeStubClient(): McpClient {
     agentEmail: "bot@example.com",
     scope: "account" as const,
     whoami: vi.fn(async () => ({ user: "owner@example.com", scope: "account", agentAddress: undefined })),
-    getMessage: vi.fn(async (id: string) => ({ messageId: id })),
+    getMessage: vi.fn(async (id: string) => ({ id })),
     getAgent: vi.fn(async (e: string) => ({ id: e, email: e })),
     send: vi.fn(async () => ({ messageId: "msg_sent", status: "sent" })),
     reply: vi.fn(async () => ({ messageId: "msg_reply", status: "sent" })),

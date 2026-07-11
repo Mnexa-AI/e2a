@@ -13,12 +13,12 @@ function mockSdk() {
     reviews: {
       approve: vi.fn(async () => ({ messageId: "msg_p", status: "sent" })),
       reject: vi.fn(async () => ({ messageId: "msg_p", status: "rejected" })),
-      get: vi.fn(async () => ({ messageId: "msg_p" })),
+      get: vi.fn(async () => ({ id: "msg_p" })),
     },
     messages: {
-      get: vi.fn(async () => ({ messageId: "msg_p" })),
+      get: vi.fn(async () => ({ id: "msg_p" })),
       // ownerOfPending scans outbound to resolve the owning inbox.
-      list: vi.fn(() => ({ toArray: async () => [{ messageId: "msg_p" }] })),
+      list: vi.fn(() => ({ toArray: async () => [{ id: "msg_p" }] })),
     },
     agents: {
       list: vi.fn(() => ({ toArray: async () => [{ email: "bot@test.dev" }] })),

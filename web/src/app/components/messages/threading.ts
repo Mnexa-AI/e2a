@@ -5,7 +5,7 @@
 // a malicious or accidental conversation_id from colliding with the
 // synthetic namespace, we prefix BOTH kinds:
 //   - real conv_id → key `conv:<conv_id>`
-//   - synthetic    → key `orphan:<message_id>`
+//   - synthetic    → key `orphan:<id>`
 // Prefixes are added by this code, never extracted from operator input
 // — even if the SDK caller sends `conversation_id="orphan:foo"`, the
 // resulting thread key is `conv:orphan:foo`, which does not collide
@@ -104,7 +104,7 @@ export function groupIntoThreads(
   for (const m of rows) {
     const key = m.conversation_id
       ? `conv:${m.conversation_id}`
-      : `orphan:${m.message_id}`;
+      : `orphan:${m.id}`;
     const bucket = buckets.get(key);
     if (bucket) bucket.push(m);
     else buckets.set(key, [m]);
@@ -112,13 +112,13 @@ export function groupIntoThreads(
 
   const threads: Thread[] = [];
   for (const [key, bucket] of buckets) {
-    // Order oldest → newest. Stable on created_at; ties broken by message_id
+    // Order oldest → newest. Stable on created_at; ties broken by id
     // so the order is deterministic even at sub-second resolution.
     bucket.sort((a, b) => {
       const ad = new Date(a.created_at).getTime();
       const bd = new Date(b.created_at).getTime();
       if (ad !== bd) return ad - bd;
-      return a.message_id.localeCompare(b.message_id);
+      return a.id.localeCompare(b.id);
     });
 
     const latest = bucket[bucket.length - 1];

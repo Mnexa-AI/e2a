@@ -224,7 +224,7 @@ function FocusContent({
   const convLink = msg?.direction === "outbound"
     ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.id}`}`
     : msg?.direction === "inbound"
-      ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.message_id}`}`
+      ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.id}`}`
       : inboxLink;
 
   // Both approve and reject invalidate four SWR caches so the rest
@@ -327,8 +327,8 @@ function FocusContent({
   }
 
   // Direction-specific shaping for the title row + identity line.
-  // PendingMessageDetail uses `id`, InboundMessageDetail uses
-  // `message_id`; everything else lives at the same key under both
+  // Both PendingMessageDetail and InboundMessageDetail expose the own
+  // id as `id`; everything else lives at the same key under both
   // shapes, so we only narrow at the points where the shapes differ.
   const direction = msg.direction;
   const directionLabel =
@@ -342,7 +342,7 @@ function FocusContent({
   const to = direction === "outbound" ? msg.data.to?.[0] ?? "" : email;
   const convId = msg.data.conversation_id;
   const createdAt = msg.data.created_at;
-  const messageId = direction === "outbound" ? msg.data.id : msg.data.message_id;
+  const messageId = msg.data.id;
   const inReplyTo =
     direction === "outbound" && msg.data.inbound
       ? {

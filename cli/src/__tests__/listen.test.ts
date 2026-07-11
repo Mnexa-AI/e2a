@@ -155,7 +155,7 @@ describe("listen notification handling", () => {
 
   it("fetches and prints raw JSON for --json mode", async () => {
     const full = {
-      messageId: "msg_123",
+      id: "msg_123",
       _from: "alice@example.com",
       recipient: "bot@agents.e2a.dev",
       subject: "Hello",
@@ -178,7 +178,7 @@ describe("listen notification handling", () => {
 
   it("forwards exact raw JSON to a generic webhook", async () => {
     const full = {
-      messageId: "msg_123",
+      id: "msg_123",
       _from: "alice@example.com",
       recipient: "bot@agents.e2a.dev",
       subject: "Hello",
@@ -225,7 +225,7 @@ describe("listen notification handling", () => {
     // No parsed/body text — exercise the rawMessage decode fallback.
     const raw = "Subject: Hello\r\n\r\nHi there!";
     const full = {
-      messageId: "msg_123",
+      id: "msg_123",
       _from: "alice@example.com",
       recipient: "bot@agents.e2a.dev",
       subject: "Hello",

@@ -149,7 +149,7 @@ test("reviews: getReview returns full MessageView; nonexistent id → 404", asyn
   const { email, id, subject } = await createHeldReview("get");
   try {
     const r = await client.get<{
-      message_id: string;
+      id: string;
       direction: string;
       review_status: string;
       subject: string;
@@ -157,9 +157,9 @@ test("reviews: getReview returns full MessageView; nonexistent id → 404", asyn
       to?: string[];
     }>(`/v1/reviews/${id}`);
     assert.equal(r.status, 200, `getReview expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
-    // getReview returns a MessageView (id-addressed by the msg_ id). The list
-    // exposes the same id as `id`; the detail view keys it `message_id`.
-    assert.equal(r.body?.message_id, id, "MessageView.message_id equals the review id");
+    // getReview returns a MessageView (id-addressed by the msg_ id). Both the
+    // list (ReviewView) and the detail (MessageView) key the own id as `id`.
+    assert.equal(r.body?.id, id, "MessageView.id equals the review id");
     assert.equal(r.body?.direction, "outbound");
     assert.equal(r.body?.review_status, "pending_review");
     assert.equal(r.body?.subject, subject);

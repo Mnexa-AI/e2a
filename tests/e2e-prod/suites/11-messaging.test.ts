@@ -38,7 +38,7 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
     if (s.body?.message_id) queued.push(s.body.message_id);
   }
 
-  const page1 = await client.get<{ items: Array<{ message_id: string }>; next_cursor?: string | null }>(
+  const page1 = await client.get<{ items: Array<{ id: string }>; next_cursor?: string | null }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
     { query: { limit: 3, direction: "all" } },
   );
@@ -50,15 +50,16 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
     for (const id of queued) await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
     return;
   }
-  const page2 = await client.get<{ items: Array<{ message_id: string }>; next_cursor?: string | null }>(
+  const page2 = await client.get<{ items: Array<{ id: string }>; next_cursor?: string | null }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
     { query: { limit: 3, cursor: page1.body.next_cursor, direction: "all" } },
   );
   assert.equal(page2.status, 200, `page2 status ${page2.status}: ${page2.raw.slice(0, 200)}`);
-  // MessageSummaryView identifies items by `message_id` (not `id`) — mapping the
-  // wrong field made every id undefined and produced a phantom cross-page overlap.
-  const ids1 = new Set((page1.body!.items ?? []).map((m) => m.message_id));
-  const ids2 = new Set((page2.body!.items ?? []).map((m) => m.message_id));
+  // MessageSummaryView identifies items by `id` (its own primary key; a
+  // referenced OTHER resource would be `<noun>_id`). Mapping the wrong field
+  // made every id undefined and produced a phantom cross-page overlap.
+  const ids1 = new Set((page1.body!.items ?? []).map((m) => m.id));
+  const ids2 = new Set((page2.body!.items ?? []).map((m) => m.id));
   const overlap = [...ids1].filter((id) => ids2.has(id));
   if (overlap.length > 0) {
     fail(SUITE, "pagination-duplicate-ids", `${overlap.length} ids appear on both pages: ${overlap.slice(0, 5).join(",")}`);

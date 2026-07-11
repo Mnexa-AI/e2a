@@ -180,8 +180,8 @@ describe("E2AClient", () => {
       calls.push(url);
       const cursor = new URL(url).searchParams.get("cursor");
       const text = cursor
-        ? JSON.stringify({ items: [{ message_id: "msg_2" }], next_cursor: null })
-        : JSON.stringify({ items: [{ message_id: "msg_1" }], next_cursor: "cur_2" });
+        ? JSON.stringify({ items: [{ id: "msg_2" }], next_cursor: null })
+        : JSON.stringify({ items: [{ id: "msg_1" }], next_cursor: "cur_2" });
       return {
         status: 200,
         headers: new Headers({ "content-type": "application/json" }),
@@ -191,7 +191,7 @@ describe("E2AClient", () => {
     }) as unknown as typeof fetch;
 
     const items = await client.messages.list("bot@test.dev").toArray({ limit: 50 });
-    expect(items.map((m) => m.messageId)).toEqual(["msg_1", "msg_2"]);
+    expect(items.map((m) => m.id)).toEqual(["msg_1", "msg_2"]);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain("cursor=cur_2");
   });
@@ -216,7 +216,7 @@ describe("E2AClient", () => {
 
   // ── webhooks.fetchMessage: email.received is metadata-only ──────
   it("webhooks.fetchMessage resolves (recipient, message_id) → GET the full message", async () => {
-    globalThis.fetch = mockFetch(200, { message_id: "msg_9", subject: "Hi", raw_message: "..." });
+    globalThis.fetch = mockFetch(200, { id: "msg_9", subject: "Hi", raw_message: "..." });
     const event = {
       id: "evt_1",
       type: "email.received",
@@ -228,7 +228,7 @@ describe("E2AClient", () => {
     // the fetch keys carried by the metadata-only event drive the URL
     expect(url).toContain("/messages/msg_9");
     expect(url).toContain("bot%40test.dev");
-    expect(msg.messageId).toBe("msg_9");
+    expect(msg.id).toBe("msg_9");
   });
 
   it("webhooks.fetchMessage rejects a non-received event or missing fetch keys", async () => {
@@ -276,12 +276,12 @@ describe("E2AClient", () => {
 
   it("conversations.list threads next_cursor across pages", async () => {
     const { fn, calls } = pagingFetch({
-      "": { items: [{ conversation_id: "conv_1" }], next_cursor: "cur_2" },
-      cur_2: { items: [{ conversation_id: "conv_2" }], next_cursor: null },
+      "": { items: [{ id: "conv_1" }], next_cursor: "cur_2" },
+      cur_2: { items: [{ id: "conv_2" }], next_cursor: null },
     });
     globalThis.fetch = fn as unknown as typeof fetch;
     const items = await client.conversations.list("bot@test.dev").toArray({ limit: 50 });
-    expect(items.map((c) => c.conversationId)).toEqual(["conv_1", "conv_2"]);
+    expect(items.map((c) => c.id)).toEqual(["conv_1", "conv_2"]);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain("cursor=cur_2");
   });

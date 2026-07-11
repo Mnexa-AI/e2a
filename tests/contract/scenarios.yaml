@@ -184,7 +184,7 @@ scenarios:
         expect:
           status: 200
           body_contains:
-            - message_id
+            - id
             - auth_headers
             - raw_message
 

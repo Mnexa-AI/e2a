@@ -130,7 +130,7 @@ function makeStubClient(
     // MessageView. Attachments are decoded by the tool from
     // `rawMessage`; the default raw carries one small PDF.
     getMessage: vi.fn(async (id: string, _addr?: string) => ({
-      messageId: id,
+      id,
       conversationId: "conv_x",
       _from: "alice@example.com",
       recipient: "bot@example.com",
@@ -574,7 +574,7 @@ describe("e2a MCP server", () => {
     expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", undefined);
     const content = res.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
-    expect(parsed.message_id).toBe("msg_abc");
+    expect(parsed.id).toBe("msg_abc");
     expect(parsed.from).toBe("alice@example.com");
     expect(parsed.body_text).toBe("hello world");
     // Critical: attachments surfaced as metadata-only (no `data`)

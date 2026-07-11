@@ -33,8 +33,8 @@ export class MessageView {
     'flagReason'?: string;
     'flagged'?: boolean;
     '_from': string;
+    'id': string;
     'labels': Array<string>;
-    'messageId': string;
     'parsed'?: MessageParsedView;
     'rawMessage': string;
     'readStatus': string;
@@ -141,15 +141,15 @@ export class MessageView {
             "format": ""
         },
         {
-            "name": "labels",
-            "baseName": "labels",
-            "type": "Array<string>",
+            "name": "id",
+            "baseName": "id",
+            "type": "string",
             "format": ""
         },
         {
-            "name": "messageId",
-            "baseName": "message_id",
-            "type": "string",
+            "name": "labels",
+            "baseName": "labels",
+            "type": "Array<string>",
             "format": ""
         },
         {

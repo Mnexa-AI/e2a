@@ -323,7 +323,7 @@ export class McpClient {
       const rows = await this.sdk.messages
         .list(address, { direction: "outbound" })
         .toArray({ limit: DEFAULT_LIST_LIMIT });
-      if (rows.some((r) => r.messageId === messageId)) return address;
+      if (rows.some((r) => r.id === messageId)) return address;
     }
     throw new Error(
       `pending message ${messageId} not found on any owned agent (it may have already been approved, rejected, or expired).`,

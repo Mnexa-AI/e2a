@@ -29,7 +29,7 @@ const READ_STATUSES = ["unread", "read", "all"] as const;
 // draining a mailbox costs half the round trips.
 const MAX_PAGE_SIZE = 100;
 
-// Default output is TSV (message_id, from, created_at) in ascending order —
+// Default output is TSV (id, from, created_at) in ascending order —
 // the shape a shell poll loop wants (`while IFS=$'\t' read -r id from at`).
 // --json emits one full summary object per line (NDJSON), in the SDK's
 // camelCase model shape like `listen --json`.
@@ -70,7 +70,7 @@ export async function messagesList(opts: MessagesListOptions): Promise<void> {
       process.stdout.write(JSON.stringify(withWireFrom(m)) + "\n");
     } else {
       process.stdout.write(
-        `${m.messageId}\t${sanitizeTsvField(m._from)}\t${m.createdAt.toISOString()}\n`,
+        `${m.id}\t${sanitizeTsvField(m._from)}\t${m.createdAt.toISOString()}\n`,
       );
     }
     count++;

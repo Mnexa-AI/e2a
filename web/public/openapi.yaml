@@ -345,13 +345,13 @@ components:
     ConversationDetailView:
       additionalProperties: false
       properties:
-        conversation_id:
-          type: string
         first_message_at:
           format: date-time
           type: string
         has_unread:
           type: boolean
+        id:
+          type: string
         inbound_count:
           format: int64
           type: integer
@@ -384,7 +384,7 @@ components:
         - participants
         - labels
         - messages
-        - conversation_id
+        - id
         - last_message_at
         - first_message_at
         - message_count
@@ -397,13 +397,13 @@ components:
     ConversationSummaryView:
       additionalProperties: false
       properties:
-        conversation_id:
-          type: string
         first_message_at:
           format: date-time
           type: string
         has_unread:
           type: boolean
+        id:
+          type: string
         inbound_count:
           format: int64
           type: integer
@@ -421,7 +421,7 @@ components:
           format: int64
           type: integer
       required:
-        - conversation_id
+        - id
         - last_message_at
         - first_message_at
         - message_count
@@ -876,6 +876,9 @@ components:
           type: string
         html_body:
           type: string
+        reply_to:
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
+          type: string
         to:
           items:
             type: string
@@ -1107,17 +1110,18 @@ components:
           type: boolean
         from:
           type: string
+        id:
+          type: string
         labels:
           items:
             type: string
           type: array
-        message_id:
-          type: string
         read_status:
           type: string
         recipient:
           type: string
         reply_to:
+          description: The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here).
           items:
             type: string
           type: array
@@ -1141,7 +1145,7 @@ components:
         webhook_status:
           type: string
       required:
-        - message_id
+        - id
         - direction
         - from
         - to
@@ -1191,12 +1195,12 @@ components:
           type: boolean
         from:
           type: string
+        id:
+          type: string
         labels:
           items:
             type: string
           type: array
-        message_id:
-          type: string
         parsed:
           $ref: "#/components/schemas/MessageParsedView"
         raw_message:
@@ -1207,6 +1211,7 @@ components:
         recipient:
           type: string
         reply_to:
+          description: The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).
           items:
             type: string
           type: array
@@ -1230,7 +1235,7 @@ components:
         webhook_status:
           type: string
       required:
-        - message_id
+        - id
         - from
         - to
         - cc
@@ -1675,6 +1680,9 @@ components:
           type: string
         reply_all:
           type: boolean
+        reply_to:
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
+          type: string
       required:
         - body
       type: object
@@ -1769,6 +1777,9 @@ components:
           type: string
         html_body:
           description: Literal HTML body. Mutually exclusive with template_id/template_alias.
+          type: string
+        reply_to:
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. "Support <support@acme.com>"). Defaults to the sending agent's own address.
           type: string
         subject:
           description: Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).

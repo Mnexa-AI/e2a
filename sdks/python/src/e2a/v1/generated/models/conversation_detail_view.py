@@ -28,9 +28,9 @@ class ConversationDetailView(BaseModel):
     """
     ConversationDetailView
     """ # noqa: E501
-    conversation_id: StrictStr
     first_message_at: datetime
     has_unread: StrictBool
+    id: StrictStr
     inbound_count: StrictInt
     labels: List[StrictStr]
     last_message_at: datetime
@@ -40,7 +40,7 @@ class ConversationDetailView(BaseModel):
     messages: List[MessageSummaryView]
     outbound_count: StrictInt
     participants: List[StrictStr]
-    __properties: ClassVar[List[str]] = ["conversation_id", "first_message_at", "has_unread", "inbound_count", "labels", "last_message_at", "latest_sender", "latest_subject", "message_count", "messages", "outbound_count", "participants"]
+    __properties: ClassVar[List[str]] = ["first_message_at", "has_unread", "id", "inbound_count", "labels", "last_message_at", "latest_sender", "latest_subject", "message_count", "messages", "outbound_count", "participants"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -100,9 +100,9 @@ class ConversationDetailView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "conversation_id": obj.get("conversation_id"),
             "first_message_at": obj.get("first_message_at"),
             "has_unread": obj.get("has_unread"),
+            "id": obj.get("id"),
             "inbound_count": obj.get("inbound_count"),
             "labels": obj.get("labels"),
             "last_message_at": obj.get("last_message_at"),

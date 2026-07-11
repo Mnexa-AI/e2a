@@ -14,7 +14,7 @@ function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
     scope: "account" as const,
-    getMessage: vi.fn(async () => ({ messageId: "m" })),
+    getMessage: vi.fn(async () => ({ id: "m" })),
     getAgent: vi.fn(async () => ({ id: "x@y", email: "x@y" })),
     listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
     listEvents: vi.fn(async () => ({

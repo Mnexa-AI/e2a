@@ -71,7 +71,7 @@ const AGENT_EMAIL = "support@acme.io";
 // EMPTY strings. Direction + pending-state are NOT recoverable here —
 // they're threaded via the URL params. Body comes through `body.text`.
 const OUTBOUND_PENDING = {
-  message_id: "msg_pending",
+  id: "msg_pending",
   from: "",
   to: ["maya@stripe.com"],
   cc: [],
@@ -87,7 +87,7 @@ const OUTBOUND_PENDING = {
 };
 
 const INBOUND_DETAIL = {
-  message_id: "msg_in1",
+  id: "msg_in1",
   from: "maya@stripe.com",
   to: [AGENT_EMAIL],
   cc: [],
@@ -215,7 +215,7 @@ describe("AgentMessageFocusPage", () => {
     setSearchParams({ email: "support@acme.io", id: "msg_in2", direction: "inbound" });
     mockDetail({
       ...INBOUND_DETAIL,
-      message_id: "msg_in2",
+      id: "msg_in2",
       parsed: { text: "Decoded body via parsed.text" },
       raw_message: btoa(
         "Content-Type: text/html\r\n" +
@@ -239,7 +239,7 @@ describe("AgentMessageFocusPage", () => {
     setSearchParams({ email: "support@acme.io", id: "msg_in3", direction: "inbound" });
     mockDetail({
       ...INBOUND_DETAIL,
-      message_id: "msg_in3",
+      id: "msg_in3",
       parsed: { text: "Hello there", html: "<div>Hello <b>there</b></div>" },
     });
 
@@ -505,7 +505,7 @@ describe("AgentMessageFocusPage", () => {
 
     const OTHER = {
       ...OUTBOUND_PENDING,
-      message_id: "msg_other",
+      id: "msg_other",
       subject: "Different subject",
       body: { text: "Different body content" },
     };
