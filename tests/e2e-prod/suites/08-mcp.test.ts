@@ -47,13 +47,17 @@ test("mcp: list_agents returns user's agents", async () => {
   assert.ok(parsed.agents!.some((a) => a.email === apiClient.env.primaryAgentEmail), "primary agent listed");
 });
 
-test("mcp: whoami returns the env-pinned default agent", async () => {
+test("mcp: whoami returns the credential's identity", async () => {
   const r = await callTool(mcp, "whoami");
   assert.equal(r.isError, undefined, `whoami isError: ${JSON.stringify(r)}`);
   const text = r.content?.find((c) => c.type === "text")?.text;
   assert.ok(text, "text content present");
-  const parsed = JSON.parse(text!) as { email?: string };
-  assert.equal(parsed.email, apiClient.env.primaryAgentEmail, "whoami returns the pinned agent");
+  // whoami returns the identity the Bearer credential belongs to — the account
+  // user (email + scope) plus, for an agent-scoped credential, agent_address. It
+  // never guesses a "default" agent, so over the HTTP transport (no env pin) we
+  // assert it identifies the conformance account, whatever the exact shape.
+  assert.ok(/conformance/.test(text!), `whoami identifies the conformance account: ${text!.slice(0, 200)}`);
+  info(SUITE, "whoami-identity", text!.slice(0, 200));
 });
 
 test("mcp: unknown tool name produces an error result (isError or JSON-RPC error)", async () => {
@@ -105,10 +109,10 @@ test("mcp: list_messages tool works against the inbox", async () => {
     info(SUITE, "list-messages-absent", "no list_messages tool — skipping");
     return;
   }
-  // page_size is the actual MCP tool param (not `limit`, which is the
-  // raw HTTP API name). Use page_size here; the strict-schema test
-  // below specifically verifies unknown keys like `limit` are rejected.
-  const r = await callTool(mcp, "list_messages", { page_size: 5 });
+  // list_messages is cursor-paginated — it has no page_size/limit param (the
+  // strict schema rejects both; the arg-validation tests below rely on that).
+  // Just ask for the inbox folder.
+  const r = await callTool(mcp, "list_messages", { direction: "inbound" });
   assert.equal(r.isError, undefined, `list_messages isError: ${JSON.stringify(r)}`);
   const text = r.content?.find((c) => c.type === "text")?.text;
   assert.ok(text, "text content present");
