@@ -15,12 +15,12 @@
  * cross-language scenarios.yaml migration (tracked separately); this runner is
  * gated behind live-server env vars and is not part of the unit build.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { parse as yamlParse } from "yaml";
 import { WSListener } from "../../src/v1/ws.js";
-import { Seeder, seedEnabled } from "./seed.js";
+import { Seeder, seedEnabled, sweepLeaks } from "./seed.js";
 
 // When the isolated CF zone + SMTP port are configured, store-dependent scenarios
 // are SEEDED over the API (verified domains + real inbound) instead of skipped.
@@ -192,9 +192,11 @@ class Runner {
     }
     // In seed mode, scenarios' hardcoded placeholder domains (crud.test.dev, …)
     // are rewritten to the real minted+verified domains everywhere they appear
-    // (bodies, paths, body_match expectations).
-    for (const [placeholder, real] of Object.entries(this.domainSubs)) {
-      s = s.replaceAll(placeholder, real);
+    // (bodies, paths, body_match expectations). Longest placeholder first so a
+    // shorter one can't corrupt a prefix-sharing longer one (ws.test.dev vs
+    // wsauth.test.dev) — latent today (one domain per scenario), cheap to anchor.
+    for (const placeholder of Object.keys(this.domainSubs).sort((a, b) => b.length - a.length)) {
+      s = s.replaceAll(placeholder, this.domainSubs[placeholder]);
     }
     return s;
   }
@@ -508,13 +510,16 @@ function scenarioNeedsStore(sc: Scenario): boolean {
 const baseUrl = process.env.E2A_TEST_BASE_URL;
 const apiKey = process.env.E2A_TEST_API_KEY;
 
-// These scenarios assert account-GLOBAL collection state — agent_crud:
-// items.length:0 after delete; domain_crud: items.length:1 on /v1/domains — which
-// assumes an isolated/empty account, not the shared staging conformance account
-// (it holds the shared domain + any concurrent seeded domains). Their CRUD
-// behavior is covered by the resource-scoped e2e-prod suites, so skip regardless
-// of seeding. (The Go/local runner still covers them against a fresh DB.)
-const ACCOUNT_GLOBAL = new Set(["agent_crud", "domain_crud"]);
+// These scenarios assert account-GLOBAL collection state, which assumes an
+// isolated/empty account — not the shared staging conformance account (it holds
+// the shared domain + concurrent seeded domains + other suites' fresh agents):
+//   agent_crud            — items.length:0 after delete
+//   domain_crud           — items.length:1 on /v1/domains
+//   placeholder_resolution — items[0].email == {agent_email} (i.e. "my agent is
+//                            the account-newest"; races with concurrent suites)
+// Their behavior is covered by the resource-scoped e2e-prod suites; the Go/local
+// runner still covers them against a fresh DB. Skip regardless of seeding.
+const ACCOUNT_GLOBAL = new Set(["agent_crud", "domain_crud", "placeholder_resolution"]);
 
 describe.skipIf(!baseUrl || !apiKey)("Contract scenarios", () => {
   const scenarios = loadScenarios();
@@ -537,8 +542,16 @@ describe.skipIf(!baseUrl || !apiKey)("Contract scenarios", () => {
         }
       },
       // Seeding mints + CF-verifies a real domain (variable DNS propagation), so
-      // seeded scenarios need a generous budget; non-seeded stay snappy.
-      SEED ? 300_000 : 20_000,
+      // seeded scenarios need a generous budget with headroom over the worst-case
+      // ~270s (register + propagate + verify); non-seeded stay snappy.
+      SEED ? 420_000 : 20_000,
     );
   }
+
+  // Safety-net teardown: if any seeded scenario timed out (skipping its own
+  // finally), sweep leftover seeded domains + CF records so nothing leaks into the
+  // shared zone/account. No-op when seeding is off.
+  afterAll(async () => {
+    if (SEED) await sweepLeaks(baseUrl!, apiKey!);
+  }, 120_000);
 });

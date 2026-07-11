@@ -34,6 +34,46 @@ export function seedEnabled(): boolean {
   return Boolean(CF_TOKEN && CF_ZONE && CF_ZONE_NAME && SMTP_PORT > 0);
 }
 
+/**
+ * afterAll safety-net: independent of per-test cleanup, delete any leftover seeded
+ * domains (+ their agents) on the account and any CF records tagged with our seed
+ * comment. So a test that times out mid-run (skipping its finally) still can't
+ * permanently leak into the SHARED zone/account. Best-effort; never throws.
+ */
+export async function sweepLeaks(baseUrl: string, apiKey: string): Promise<void> {
+  if (!seedEnabled()) return;
+  const raw = (method: string, path: string) =>
+    fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${apiKey}` } });
+  try {
+    const domains =
+      ((await (await raw("GET", "/v1/domains")).json()) as { items?: Array<{ domain: string }> }).items ?? [];
+    const seeded = new Set(domains.map((d) => d.domain).filter((d) => d.endsWith(`.${CF_ZONE_NAME}`)));
+    if (seeded.size) {
+      const agents =
+        ((await (await raw("GET", "/v1/agents")).json()) as { items?: Array<{ email: string }> }).items ?? [];
+      for (const a of agents) {
+        if (seeded.has(a.email.split("@")[1])) {
+          await raw("DELETE", `/v1/agents/${encodeURIComponent(a.email)}?confirm=DELETE`).catch(() => {});
+        }
+      }
+      for (const d of seeded) await raw("DELETE", `/v1/domains/${d}?confirm=DELETE`).catch(() => {});
+    }
+  } catch {
+    /* best-effort */
+  }
+  try {
+    const res = await fetch(`${CF_API}/zones/${CF_ZONE}/dns_records?per_page=100`, {
+      headers: { Authorization: `Bearer ${CF_TOKEN}` },
+    });
+    const j = (await res.json()) as { result?: Array<{ id: string; comment?: string }> };
+    for (const rec of j.result ?? []) {
+      if (rec.comment?.includes("e2a contract-seed")) await cfDelete(rec.id);
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
 function slug(prefix: string): string {
   // Unique-enough per scenario; the runner also namespaces by scenario name.
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
@@ -79,7 +119,8 @@ async function waitForPublicDns(domain: string, txtValue: string, mxHost: string
       /* propagating */
     }
     try {
-      mxOk = (await r.resolveMx(domain)).some((m) => m.exchange.replace(/\.$/, "").toLowerCase() === mxHost.toLowerCase());
+      const wantMx = mxHost.replace(/\.$/, "").toLowerCase();
+      mxOk = (await r.resolveMx(domain)).some((m) => m.exchange.replace(/\.$/, "").toLowerCase() === wantMx);
     } catch {
       /* propagating */
     }
@@ -202,51 +243,62 @@ export class Seeder {
 
 /**
  * Minimal plaintext SMTP client — enough to hand a message to the inbound
- * listener (no AUTH, no STARTTLS; the inbound port is plaintext). Rejects on any
- * non-2xx/3xx reply. Handles multiline greetings/EHLO (ignores non-final lines).
+ * listener (no AUTH, no STARTTLS; the inbound port is plaintext). Lock-steps
+ * through the exchange, sending the next command after each positive final reply.
+ *
+ * Resolves as soon as the message is ACCEPTED (the 250 after the DATA payload) —
+ * QUIT is fire-and-forget, so a server that closes without a 221 doesn't cause a
+ * spurious timeout. Multiline replies (`NNN-…` continuation lines) are ignored;
+ * final lines are `NNN ` (space). Tolerates bare-LF as well as CRLF framing.
+ * Only ever fails on a >=400 reply, an error, or a timeout — never false-positive.
  */
 export function smtpInject(m: { from: string; to: string; subject: string; body: string }): Promise<void> {
   return new Promise((resolve, reject) => {
     const sock = net.createConnection({ host: SMTP_HOST, port: SMTP_PORT });
     sock.setEncoding("utf8");
-    sock.setTimeout(20000, () => {
+    let done = false;
+    const fail = (e: Error) => {
+      if (done) return;
+      done = true;
       sock.destroy();
-      reject(new Error("smtp: timeout"));
-    });
+      reject(e);
+    };
+    sock.setTimeout(20000, () => fail(new Error("smtp: timeout")));
+    sock.on("error", fail);
 
-    const data =
+    const payload =
       `From: ${m.from}\r\nTo: ${m.to}\r\nSubject: ${m.subject}\r\n` +
       `Message-ID: <${slug("seed")}@conformance.local>\r\n\r\n${m.body}\r\n.`;
-    const steps = [`EHLO conformance.local`, `MAIL FROM:<${m.from}>`, `RCPT TO:<${m.to}>`, `DATA`, data, `QUIT`];
+    // The reply to the LAST step (the payload) is the queue-ack → accepted.
+    const steps = [`EHLO conformance.local`, `MAIL FROM:<${m.from}>`, `RCPT TO:<${m.to}>`, `DATA`, payload];
 
     let i = 0;
     let buf = "";
-    let greeted = false;
     sock.on("data", (chunk: string) => {
+      if (done) return;
       buf += chunk;
-      // Process each complete final reply line ("NNN " with a space, not "NNN-").
       let nl: number;
-      while ((nl = buf.indexOf("\r\n")) !== -1) {
+      while ((nl = buf.search(/\r?\n/)) !== -1) {
         const line = buf.slice(0, nl);
-        buf = buf.slice(nl + 2);
-        if (!/^\d{3} /.test(line)) continue; // skip multiline continuation lines
+        buf = buf.slice(buf[nl] === "\r" ? nl + 2 : nl + 1);
+        if (!/^\d{3} /.test(line)) continue; // multiline continuation line
         const code = Number(line.slice(0, 3));
-        if (code >= 400) {
-          sock.destroy();
-          reject(new Error(`smtp: ${line}`));
-          return;
-        }
-        if (!greeted) {
-          greeted = true; // 220 greeting
-        }
-        if (i >= steps.length) {
-          sock.end();
+        if (code >= 400) return fail(new Error(`smtp: ${line}`));
+        if (i < steps.length) {
+          sock.write(steps[i++] + "\r\n"); // reply to greeting/prev step → send next
+        } else {
+          // Positive reply to the payload = message queued. Done.
+          done = true;
+          try {
+            sock.write("QUIT\r\n"); // best-effort; we don't wait for the 221
+            sock.end();
+          } catch {
+            /* socket may already be closing */
+          }
           resolve();
           return;
         }
-        sock.write(steps[i++] + "\r\n");
       }
     });
-    sock.on("error", reject);
   });
 }
