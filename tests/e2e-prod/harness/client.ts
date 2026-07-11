@@ -1,4 +1,5 @@
 import { loadEnv, type ProdEnv } from "./env.ts";
+import { recordRequest } from "./coverage.ts";
 
 export interface RawResponse<T = unknown> {
   status: number;
@@ -71,6 +72,9 @@ export class ApiClient {
     // a 3xx from any of our routes is a real signal that callers must
     // see, not transparently swallow.
     const res = await fetch(url, { method, headers, body, redirect: "manual" });
+    // Record the exercised operation for the coverage gate — only on a 2xx (see
+    // coverage.ts), so negative/rejected probes don't over-claim coverage.
+    recordRequest(method, url.pathname, res.status);
     const raw = await res.text();
     const latencyMs = performance.now() - t0;
     let parsed: T | null = null;
