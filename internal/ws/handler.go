@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/httpapi"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"nhooyr.io/websocket"
 )
@@ -51,16 +52,28 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	// Python SDKs and the CLI) are non-browser and set the header on the
 	// handshake. (A short-lived connect ticket is the path to add later if an
 	// in-browser client ever needs to connect — browsers can't set headers.)
+	// Handshake rejections happen BEFORE the WebSocket upgrade (the connection
+	// is still a plain HTTP request, not yet hijacked), so they return the same
+	// canonical error envelope every /v1 REST endpoint does — httpapi.WriteError
+	// emits {error:{code,message,request_id}} + the X-Request-Id header, reusing
+	// the request id the chi-root middleware already stamped. A client's shared
+	// envelope-based error handling then works identically on a failed WS
+	// handshake and a failed REST call. Status codes are UNCHANGED from the prior
+	// behavior. WWW-Authenticate (RFC 6750 §3) is set before WriteError writes the
+	// status line, since headers can't be added once the status is flushed; on the
+	// prod stack the authChallenge middleware also (re)asserts it on any 401.
 	token := bearerToken(r)
 	if token == "" {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="e2a"`)
-		http.Error(w, "missing credential — send Authorization: Bearer <api_key>", http.StatusUnauthorized)
+		httpapi.WriteError(w, r, http.StatusUnauthorized, "unauthorized",
+			"missing credential — send Authorization: Bearer <api_key>")
 		return
 	}
 
 	principal, err := h.store.GetPrincipalByAPIKey(r.Context(), token)
 	if err != nil || principal == nil || principal.User == nil {
-		http.Error(w, "invalid token", http.StatusUnauthorized)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="e2a"`)
+		httpapi.WriteError(w, r, http.StatusUnauthorized, "unauthorized", "invalid token")
 		return
 	}
 
@@ -70,19 +83,25 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	email := identity.NormalizeEmail(rawEmail)
 	agent, err := h.store.GetAgentByEmail(r.Context(), email)
 	if err != nil {
-		http.Error(w, "agent not found", http.StatusNotFound)
+		httpapi.WriteError(w, r, http.StatusNotFound, "not_found", "agent not found")
 		return
 	}
-	// Tenant ownership: the agent must belong to the credential's user.
+	// Tenant ownership: the agent must belong to the credential's user. A
+	// cross-tenant miss returns 404 not_found — the SAME response as a
+	// nonexistent agent above — so an authenticated caller can't tell "this
+	// address doesn't exist" from "it exists but isn't yours". Emitting 403
+	// here would make the WS handshake an agent-existence enumeration oracle
+	// across tenants; collapsing both into 404 closes it (mirrors the REST
+	// resolveOwnedAgent, which likewise refuses to distinguish the two).
 	if agent.UserID != principal.User.ID {
-		http.Error(w, "not authorized for this agent", http.StatusForbidden)
+		httpapi.WriteError(w, r, http.StatusNotFound, "not_found", "agent not found")
 		return
 	}
 	// Agent-scope confinement (HIGH-1): an agent-scoped credential is pinned to
 	// its one bound agent — it may not open a different agent's stream even
 	// within the same account. Mirrors the REST resolveOwnedAgent pin.
 	if principal.Scope == identity.ScopeAgent && principal.AgentID != agent.ID {
-		http.Error(w, "not authorized for this agent", http.StatusForbidden)
+		httpapi.WriteError(w, r, http.StatusForbidden, "forbidden", "not authorized for this agent")
 		return
 	}
 

@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -300,8 +299,5 @@ func writeRawError(w http.ResponseWriter, r *http.Request, status int, code, msg
 	if details != nil {
 		env = env.WithDetails(details)
 	}
-	env.Err.RequestID = RequestIDFromContext(r.Context())
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(env)
+	writeRawEnvelope(w, r, env)
 }

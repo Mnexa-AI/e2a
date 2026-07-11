@@ -15,6 +15,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -179,6 +180,40 @@ func stampRequestID(ctx huma.Context, status string, v any) (any, error) {
 		ctx.SetHeader("Retry-After", strconv.Itoa(env.retryAfter))
 	}
 	return v, nil
+}
+
+// writeRawEnvelope serializes an ErrorEnvelope to a raw (non-Huma)
+// ResponseWriter, giving handlers that bypass Huma the SAME error contract every
+// operation emits. It reuses the request id the requestID middleware already
+// stamped (the production chi root always sets one, so header == body == what
+// REST would return) and mints one only when absent (a direct call in a test),
+// then mirrors it onto the X-Request-Id header and sets Content-Type:
+// application/json before writing the status + body. This is the one place raw
+// chi routes stay in lockstep with the Huma surface on the envelope shape.
+// (The middleware path uses the huma.Context-based writeEnvelope in ratelimit.go.)
+func writeRawEnvelope(w http.ResponseWriter, r *http.Request, env *ErrorEnvelope) {
+	id := RequestIDFromContext(r.Context())
+	if id == "" {
+		id = newRequestID()
+	}
+	env.Err.RequestID = id
+	w.Header().Set(requestIDHeader, id)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(env.status)
+	_ = json.NewEncoder(w).Encode(env)
+}
+
+// WriteError writes the canonical v1 error envelope to a raw ResponseWriter for
+// handlers OUTSIDE this package that bypass Huma — specifically the WebSocket
+// upgrade handshake (internal/ws), which authenticates and authorizes BEFORE the
+// upgrade and so rejects a bad handshake with a normal HTTP response. Routing
+// those rejections through here makes the WS handshake body byte-for-byte
+// consistent with every /v1 REST endpoint: {error:{code,message,request_id}} +
+// X-Request-Id. The caller supplies the status and a code from the REST
+// vocabulary (unauthorized / forbidden / not_found / bad_request); status codes
+// are the caller's to choose so this never rewrites them.
+func WriteError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	writeRawEnvelope(w, r, NewError(status, code, message))
 }
 
 // installErrorEnvelope wires the envelope constructor globally. It is called
