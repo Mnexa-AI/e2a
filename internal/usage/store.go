@@ -108,10 +108,25 @@ func (s *Store) GetAccountClass(ctx context.Context, userID string) (AccountClas
 	return AccountClass(class), nil
 }
 
+// CountAgentsByUser returns the number of ACTIVE agents owned by the user —
+// active meaning the agent's domain row still exists. The INNER JOIN on
+// domains mirrors identity.Store.ListAgentsByUser EXACTLY (same
+// `agent_identities a JOIN domains d ON a.domain = d.domain WHERE a.user_id`
+// predicate), so this count is guaranteed to equal the length of the
+// /v1/agents list. Without the join an orphaned agent (one whose domain row
+// is gone) would inflate the count above the list length, silently consuming
+// a plan slot and letting usage.agents exceed max_agents while the agent is
+// invisible to the user. Both consumers — the account usage view
+// (usage.Agents) and the max_agents cap in limits.DBEnforcer.CheckAgentCreate
+// — therefore count only agents the user can actually see and manage, so an
+// orphaned agent neither shows up as usage nor blocks creating a new one.
 func (s *Store) CountAgentsByUser(ctx context.Context, userID string) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM agent_identities WHERE user_id = $1`, userID,
+		`SELECT COUNT(*)
+		   FROM agent_identities a
+		   JOIN domains d ON a.domain = d.domain
+		  WHERE a.user_id = $1`, userID,
 	).Scan(&count)
 	return count, err
 }
