@@ -322,7 +322,7 @@ class TemplatesApi:
     @validate_call
     async def delete_template(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -340,8 +340,8 @@ class TemplatesApi:
 
         Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -365,7 +365,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._delete_template_serialize(
-            id=id,
+            template_id=template_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -389,7 +389,7 @@ class TemplatesApi:
     @validate_call
     async def delete_template_with_http_info(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -407,8 +407,8 @@ class TemplatesApi:
 
         Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -432,7 +432,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._delete_template_serialize(
-            id=id,
+            template_id=template_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -456,7 +456,7 @@ class TemplatesApi:
     @validate_call
     async def delete_template_without_preload_content(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -474,8 +474,8 @@ class TemplatesApi:
 
         Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -499,7 +499,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._delete_template_serialize(
-            id=id,
+            template_id=template_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -518,7 +518,7 @@ class TemplatesApi:
 
     def _delete_template_serialize(
         self,
-        id,
+        template_id,
         _request_auth,
         _content_type,
         _headers,
@@ -540,8 +540,8 @@ class TemplatesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if template_id is not None:
+            _path_params['template_id'] = template_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -564,7 +564,7 @@ class TemplatesApi:
 
         return self.api_client.param_serialize(
             method='DELETE',
-            resource_path='/v1/templates/{id}',
+            resource_path='/v1/templates/{template_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -844,7 +844,7 @@ class TemplatesApi:
     @validate_call
     async def get_template(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -862,8 +862,8 @@ class TemplatesApi:
 
         Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -887,7 +887,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._get_template_serialize(
-            id=id,
+            template_id=template_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -911,7 +911,7 @@ class TemplatesApi:
     @validate_call
     async def get_template_with_http_info(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -929,8 +929,8 @@ class TemplatesApi:
 
         Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -954,7 +954,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._get_template_serialize(
-            id=id,
+            template_id=template_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -978,7 +978,7 @@ class TemplatesApi:
     @validate_call
     async def get_template_without_preload_content(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -996,8 +996,8 @@ class TemplatesApi:
 
         Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1021,7 +1021,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._get_template_serialize(
-            id=id,
+            template_id=template_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1040,7 +1040,7 @@ class TemplatesApi:
 
     def _get_template_serialize(
         self,
-        id,
+        template_id,
         _request_auth,
         _content_type,
         _headers,
@@ -1062,8 +1062,8 @@ class TemplatesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if template_id is not None:
+            _path_params['template_id'] = template_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -1086,7 +1086,7 @@ class TemplatesApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/templates/{id}',
+            resource_path='/v1/templates/{template_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1597,7 +1597,7 @@ class TemplatesApi:
     @validate_call
     async def update_template(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         update_template_request: UpdateTemplateRequest,
         _request_timeout: Union[
             None,
@@ -1616,8 +1616,8 @@ class TemplatesApi:
 
         Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param update_template_request: (required)
         :type update_template_request: UpdateTemplateRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1643,7 +1643,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._update_template_serialize(
-            id=id,
+            template_id=template_id,
             update_template_request=update_template_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1668,7 +1668,7 @@ class TemplatesApi:
     @validate_call
     async def update_template_with_http_info(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         update_template_request: UpdateTemplateRequest,
         _request_timeout: Union[
             None,
@@ -1687,8 +1687,8 @@ class TemplatesApi:
 
         Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param update_template_request: (required)
         :type update_template_request: UpdateTemplateRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1714,7 +1714,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._update_template_serialize(
-            id=id,
+            template_id=template_id,
             update_template_request=update_template_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1739,7 +1739,7 @@ class TemplatesApi:
     @validate_call
     async def update_template_without_preload_content(
         self,
-        id: StrictStr,
+        template_id: StrictStr,
         update_template_request: UpdateTemplateRequest,
         _request_timeout: Union[
             None,
@@ -1758,8 +1758,8 @@ class TemplatesApi:
 
         Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
 
-        :param id: (required)
-        :type id: str
+        :param template_id: (required)
+        :type template_id: str
         :param update_template_request: (required)
         :type update_template_request: UpdateTemplateRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1785,7 +1785,7 @@ class TemplatesApi:
         """ # noqa: E501
 
         _param = self._update_template_serialize(
-            id=id,
+            template_id=template_id,
             update_template_request=update_template_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1805,7 +1805,7 @@ class TemplatesApi:
 
     def _update_template_serialize(
         self,
-        id,
+        template_id,
         update_template_request,
         _request_auth,
         _content_type,
@@ -1828,8 +1828,8 @@ class TemplatesApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if template_id is not None:
+            _path_params['template_id'] = template_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -1867,7 +1867,7 @@ class TemplatesApi:
 
         return self.api_client.param_serialize(
             method='PATCH',
-            resource_path='/v1/templates/{id}',
+            resource_path='/v1/templates/{template_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

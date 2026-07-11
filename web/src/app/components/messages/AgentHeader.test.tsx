@@ -22,7 +22,7 @@ jest.mock("next/link", () => {
 });
 
 const verified: DashboardAgent = {
-  id: "a",
+  agent_id: "a",
   domain: "acme.dev",
   email: "support@acme.dev",
   name: "support",

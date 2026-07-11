@@ -47,7 +47,7 @@ function stageList(initial: unknown[] = [], agentsList: unknown[] = []) {
         status: 201,
         json: () =>
           Promise.resolve({
-            id: "apk_new",
+            api_key_id: "apk_new",
             name: body.name,
             key_prefix: "e2a_abcd",
             key: "e2a_abcd_PLAINTEXT",
@@ -156,7 +156,7 @@ describe("API keys page — Expires-in select", () => {
 
 describe("API keys table — Expires column", () => {
   const baseKey = {
-    id: "apk_1",
+    api_key_id: "apk_1",
     user_id: "usr_x",
     name: "ci-token",
     key_prefix: "e2a_abcd",
@@ -222,7 +222,7 @@ describe("API keys table — Expires column", () => {
 
 describe("API keys — agent scope", () => {
   const inbox = {
-    id: "support@acme.io",
+    agent_id: "support@acme.io",
     domain: "acme.io",
     email: "support@acme.io",
     name: "Support",
@@ -280,14 +280,14 @@ describe("API keys — agent scope", () => {
   it("renders the Scope column: Account vs the bound inbox", async () => {
     stageList([
       {
-        id: "apk_a",
+        api_key_id: "apk_a",
         name: "admin",
         key_prefix: "e2a_acct_x",
         scope: "account",
         created_at: "2026-04-01T10:00:00Z",
       },
       {
-        id: "apk_b",
+        api_key_id: "apk_b",
         name: "bot",
         key_prefix: "e2a_agt_x",
         scope: "agent",

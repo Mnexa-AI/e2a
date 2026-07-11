@@ -14,7 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class AccountUserView {
     'email': string;
-    'id': string;
+    'userId': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -28,8 +28,8 @@ export class AccountUserView {
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
+            "name": "userId",
+            "baseName": "user_id",
             "type": "string",
             "format": ""
         }    ];

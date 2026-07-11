@@ -156,22 +156,22 @@ export class PromiseAccountApi {
     /**
      * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
      * Revoke an API key
-     * @param id
+     * @param apiKeyId
      */
-    public deleteApiKeyWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteApiKeyWithHttpInfo(apiKeyId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteApiKeyWithHttpInfo(id, observableOptions);
+        const result = this.api.deleteApiKeyWithHttpInfo(apiKeyId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
      * Revoke an API key
-     * @param id
+     * @param apiKeyId
      */
-    public deleteApiKey(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteApiKey(apiKeyId: string, _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteApiKey(id, observableOptions);
+        const result = this.api.deleteApiKey(apiKeyId, observableOptions);
         return result.toPromise();
     }
 
@@ -503,11 +503,11 @@ export class PromiseConversationsApi {
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
      * @param email
-     * @param id
+     * @param conversationId
      */
-    public getConversationWithHttpInfo(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ConversationDetailView>> {
+    public getConversationWithHttpInfo(email: string, conversationId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ConversationDetailView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getConversationWithHttpInfo(email, id, observableOptions);
+        const result = this.api.getConversationWithHttpInfo(email, conversationId, observableOptions);
         return result.toPromise();
     }
 
@@ -515,11 +515,11 @@ export class PromiseConversationsApi {
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
      * @param email
-     * @param id
+     * @param conversationId
      */
-    public getConversation(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<ConversationDetailView> {
+    public getConversation(email: string, conversationId: string, _options?: PromiseConfigurationOptions): Promise<ConversationDetailView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getConversation(email, id, observableOptions);
+        const result = this.api.getConversation(email, conversationId, observableOptions);
         return result.toPromise();
     }
 
@@ -695,21 +695,21 @@ export class PromiseEventsApi {
 
     /**
      * Get an event
-     * @param id
+     * @param eventId
      */
-    public getEventWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<EventJSON>> {
+    public getEventWithHttpInfo(eventId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<EventJSON>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getEventWithHttpInfo(id, observableOptions);
+        const result = this.api.getEventWithHttpInfo(eventId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Get an event
-     * @param id
+     * @param eventId
      */
-    public getEvent(id: string, _options?: PromiseConfigurationOptions): Promise<EventJSON> {
+    public getEvent(eventId: string, _options?: PromiseConfigurationOptions): Promise<EventJSON> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getEvent(id, observableOptions);
+        const result = this.api.getEvent(eventId, observableOptions);
         return result.toPromise();
     }
 
@@ -752,24 +752,24 @@ export class PromiseEventsApi {
     /**
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
-     * @param id
+     * @param eventId
      * @param redeliverEventRequest
      */
-    public redeliverEventWithHttpInfo(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RedeliverView>> {
+    public redeliverEventWithHttpInfo(eventId: string, redeliverEventRequest: RedeliverEventRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RedeliverView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.redeliverEventWithHttpInfo(id, redeliverEventRequest, observableOptions);
+        const result = this.api.redeliverEventWithHttpInfo(eventId, redeliverEventRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
-     * @param id
+     * @param eventId
      * @param redeliverEventRequest
      */
-    public redeliverEvent(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: PromiseConfigurationOptions): Promise<RedeliverView> {
+    public redeliverEvent(eventId: string, redeliverEventRequest: RedeliverEventRequest, _options?: PromiseConfigurationOptions): Promise<RedeliverView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.redeliverEvent(id, redeliverEventRequest, observableOptions);
+        const result = this.api.redeliverEvent(eventId, redeliverEventRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -796,13 +796,13 @@ export class PromiseMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
      * Approve a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessageWithHttpInfo(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public approveMessageWithHttpInfo(email: string, messageId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.approveMessageWithHttpInfo(email, id, approveRequest, idempotencyKey, observableOptions);
+        const result = this.api.approveMessageWithHttpInfo(email, messageId, approveRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
@@ -810,13 +810,13 @@ export class PromiseMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
      * Approve a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessage(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public approveMessage(email: string, messageId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.approveMessage(email, id, approveRequest, idempotencyKey, observableOptions);
+        const result = this.api.approveMessage(email, messageId, approveRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
@@ -824,14 +824,14 @@ export class PromiseMessagesApi {
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param email
-     * @param id
+     * @param messageId
      * @param forwardRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public forwardMessageWithHttpInfo(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public forwardMessageWithHttpInfo(email: string, messageId: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.forwardMessageWithHttpInfo(email, id, forwardRequest, idempotencyKey, wait, observableOptions);
+        const result = this.api.forwardMessageWithHttpInfo(email, messageId, forwardRequest, idempotencyKey, wait, observableOptions);
         return result.toPromise();
     }
 
@@ -839,14 +839,14 @@ export class PromiseMessagesApi {
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param email
-     * @param id
+     * @param messageId
      * @param forwardRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public forwardMessage(email: string, messageId: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.forwardMessage(email, id, forwardRequest, idempotencyKey, wait, observableOptions);
+        const result = this.api.forwardMessage(email, messageId, forwardRequest, idempotencyKey, wait, observableOptions);
         return result.toPromise();
     }
 
@@ -854,13 +854,13 @@ export class PromiseMessagesApi {
      * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param email
-     * @param id
+     * @param messageId
      * @param index
      * @param [inline] When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
      */
-    public getAttachmentWithHttpInfo(email: string, id: string, index: number, inline?: boolean, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AttachmentView>> {
+    public getAttachmentWithHttpInfo(email: string, messageId: string, index: number, inline?: boolean, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AttachmentView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getAttachmentWithHttpInfo(email, id, index, inline, observableOptions);
+        const result = this.api.getAttachmentWithHttpInfo(email, messageId, index, inline, observableOptions);
         return result.toPromise();
     }
 
@@ -868,13 +868,13 @@ export class PromiseMessagesApi {
      * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param email
-     * @param id
+     * @param messageId
      * @param index
      * @param [inline] When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
      */
-    public getAttachment(email: string, id: string, index: number, inline?: boolean, _options?: PromiseConfigurationOptions): Promise<AttachmentView> {
+    public getAttachment(email: string, messageId: string, index: number, inline?: boolean, _options?: PromiseConfigurationOptions): Promise<AttachmentView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getAttachment(email, id, index, inline, observableOptions);
+        const result = this.api.getAttachment(email, messageId, index, inline, observableOptions);
         return result.toPromise();
     }
 
@@ -882,11 +882,11 @@ export class PromiseMessagesApi {
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
      * @param email The agent\&#39;s full email address.
-     * @param id The message id, e.g. msg_abc123.
+     * @param messageId The message id, e.g. msg_abc123.
      */
-    public getMessageWithHttpInfo(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
+    public getMessageWithHttpInfo(email: string, messageId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getMessageWithHttpInfo(email, id, observableOptions);
+        const result = this.api.getMessageWithHttpInfo(email, messageId, observableOptions);
         return result.toPromise();
     }
 
@@ -894,11 +894,11 @@ export class PromiseMessagesApi {
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
      * @param email The agent\&#39;s full email address.
-     * @param id The message id, e.g. msg_abc123.
+     * @param messageId The message id, e.g. msg_abc123.
      */
-    public getMessage(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
+    public getMessage(email: string, messageId: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getMessage(email, id, observableOptions);
+        const result = this.api.getMessage(email, messageId, observableOptions);
         return result.toPromise();
     }
 
@@ -950,12 +950,12 @@ export class PromiseMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
      * Reject a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param rejectRequest
      */
-    public rejectMessageWithHttpInfo(email: string, id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
+    public rejectMessageWithHttpInfo(email: string, messageId: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rejectMessageWithHttpInfo(email, id, rejectRequest, observableOptions);
+        const result = this.api.rejectMessageWithHttpInfo(email, messageId, rejectRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -963,12 +963,12 @@ export class PromiseMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
      * Reject a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param rejectRequest
      */
-    public rejectMessage(email: string, id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
+    public rejectMessage(email: string, messageId: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rejectMessage(email, id, rejectRequest, observableOptions);
+        const result = this.api.rejectMessage(email, messageId, rejectRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -976,14 +976,14 @@ export class PromiseMessagesApi {
      * Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.
      * Reply to a message
      * @param email
-     * @param id
+     * @param messageId
      * @param replyRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public replyToMessageWithHttpInfo(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public replyToMessageWithHttpInfo(email: string, messageId: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.replyToMessageWithHttpInfo(email, id, replyRequest, idempotencyKey, wait, observableOptions);
+        const result = this.api.replyToMessageWithHttpInfo(email, messageId, replyRequest, idempotencyKey, wait, observableOptions);
         return result.toPromise();
     }
 
@@ -991,14 +991,14 @@ export class PromiseMessagesApi {
      * Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.
      * Reply to a message
      * @param email
-     * @param id
+     * @param messageId
      * @param replyRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public replyToMessage(email: string, messageId: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.replyToMessage(email, id, replyRequest, idempotencyKey, wait, observableOptions);
+        const result = this.api.replyToMessage(email, messageId, replyRequest, idempotencyKey, wait, observableOptions);
         return result.toPromise();
     }
 
@@ -1034,12 +1034,12 @@ export class PromiseMessagesApi {
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
      * @param email
-     * @param id
+     * @param messageId
      * @param updateMessageRequest
      */
-    public updateMessageWithHttpInfo(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
+    public updateMessageWithHttpInfo(email: string, messageId: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateMessageWithHttpInfo(email, id, updateMessageRequest, observableOptions);
+        const result = this.api.updateMessageWithHttpInfo(email, messageId, updateMessageRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -1047,12 +1047,12 @@ export class PromiseMessagesApi {
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
      * @param email
-     * @param id
+     * @param messageId
      * @param updateMessageRequest
      */
-    public updateMessage(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<UpdateMessageResultView> {
+    public updateMessage(email: string, messageId: string, updateMessageRequest: UpdateMessageRequest, _options?: PromiseConfigurationOptions): Promise<UpdateMessageResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateMessage(email, id, updateMessageRequest, observableOptions);
+        const result = this.api.updateMessage(email, messageId, updateMessageRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -1117,48 +1117,48 @@ export class PromiseReviewsApi {
     /**
      * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
      * Approve a held message
-     * @param id
+     * @param reviewId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveReviewWithHttpInfo(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
+    public approveReviewWithHttpInfo(reviewId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.approveReviewWithHttpInfo(id, approveRequest, idempotencyKey, observableOptions);
+        const result = this.api.approveReviewWithHttpInfo(reviewId, approveRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
      * Approve a held message
-     * @param id
+     * @param reviewId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveReview(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
+    public approveReview(reviewId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.approveReview(id, approveRequest, idempotencyKey, observableOptions);
+        const result = this.api.approveReview(reviewId, approveRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
      * Get a held message (full detail)
-     * @param id
+     * @param reviewId
      */
-    public getReviewWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
+    public getReviewWithHttpInfo(reviewId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getReviewWithHttpInfo(id, observableOptions);
+        const result = this.api.getReviewWithHttpInfo(reviewId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
      * Get a held message (full detail)
-     * @param id
+     * @param reviewId
      */
-    public getReview(id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
+    public getReview(reviewId: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getReview(id, observableOptions);
+        const result = this.api.getReview(reviewId, observableOptions);
         return result.toPromise();
     }
 
@@ -1185,24 +1185,24 @@ export class PromiseReviewsApi {
     /**
      * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
      * Reject a held message
-     * @param id
+     * @param reviewId
      * @param rejectRequest
      */
-    public rejectReviewWithHttpInfo(id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
+    public rejectReviewWithHttpInfo(reviewId: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rejectReviewWithHttpInfo(id, rejectRequest, observableOptions);
+        const result = this.api.rejectReviewWithHttpInfo(reviewId, rejectRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
      * Reject a held message
-     * @param id
+     * @param reviewId
      * @param rejectRequest
      */
-    public rejectReview(id: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
+    public rejectReview(reviewId: string, rejectRequest: RejectRequest, _options?: PromiseConfigurationOptions): Promise<RejectResultView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rejectReview(id, rejectRequest, observableOptions);
+        const result = this.api.rejectReview(reviewId, rejectRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -1250,22 +1250,22 @@ export class PromiseTemplatesApi {
     /**
      * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
-     * @param id
+     * @param templateId
      */
-    public deleteTemplateWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteTemplateWithHttpInfo(templateId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteTemplateWithHttpInfo(id, observableOptions);
+        const result = this.api.deleteTemplateWithHttpInfo(templateId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
-     * @param id
+     * @param templateId
      */
-    public deleteTemplate(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteTemplate(templateId: string, _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteTemplate(id, observableOptions);
+        const result = this.api.deleteTemplate(templateId, observableOptions);
         return result.toPromise();
     }
 
@@ -1294,22 +1294,22 @@ export class PromiseTemplatesApi {
     /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
-     * @param id
+     * @param templateId
      */
-    public getTemplateWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TemplateView>> {
+    public getTemplateWithHttpInfo(templateId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TemplateView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getTemplateWithHttpInfo(id, observableOptions);
+        const result = this.api.getTemplateWithHttpInfo(templateId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
-     * @param id
+     * @param templateId
      */
-    public getTemplate(id: string, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
+    public getTemplate(templateId: string, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getTemplate(id, observableOptions);
+        const result = this.api.getTemplate(templateId, observableOptions);
         return result.toPromise();
     }
 
@@ -1356,24 +1356,24 @@ export class PromiseTemplatesApi {
     /**
      * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
-     * @param id
+     * @param templateId
      * @param updateTemplateRequest
      */
-    public updateTemplateWithHttpInfo(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TemplateView>> {
+    public updateTemplateWithHttpInfo(templateId: string, updateTemplateRequest: UpdateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TemplateView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateTemplateWithHttpInfo(id, updateTemplateRequest, observableOptions);
+        const result = this.api.updateTemplateWithHttpInfo(templateId, updateTemplateRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
-     * @param id
+     * @param templateId
      * @param updateTemplateRequest
      */
-    public updateTemplate(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
+    public updateTemplate(templateId: string, updateTemplateRequest: UpdateTemplateRequest, _options?: PromiseConfigurationOptions): Promise<TemplateView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateTemplate(id, updateTemplateRequest, observableOptions);
+        const result = this.api.updateTemplate(templateId, updateTemplateRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -1440,67 +1440,67 @@ export class PromiseWebhooksApi {
 
     /**
      * Delete a webhook
-     * @param id
+     * @param webhookId
      */
-    public deleteWebhookWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteWebhookWithHttpInfo(webhookId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteWebhookWithHttpInfo(id, observableOptions);
+        const result = this.api.deleteWebhookWithHttpInfo(webhookId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Delete a webhook
-     * @param id
+     * @param webhookId
      */
-    public deleteWebhook(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteWebhook(webhookId: string, _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteWebhook(id, observableOptions);
+        const result = this.api.deleteWebhook(webhookId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Get a webhook
-     * @param id
+     * @param webhookId
      */
-    public getWebhookWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<WebhookView>> {
+    public getWebhookWithHttpInfo(webhookId: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<WebhookView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getWebhookWithHttpInfo(id, observableOptions);
+        const result = this.api.getWebhookWithHttpInfo(webhookId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Get a webhook
-     * @param id
+     * @param webhookId
      */
-    public getWebhook(id: string, _options?: PromiseConfigurationOptions): Promise<WebhookView> {
+    public getWebhook(webhookId: string, _options?: PromiseConfigurationOptions): Promise<WebhookView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.getWebhook(id, observableOptions);
+        const result = this.api.getWebhook(webhookId, observableOptions);
         return result.toPromise();
     }
 
     /**
      * The per-webhook delivery log (read-only debug view).
      * List webhook deliveries
-     * @param id
+     * @param webhookId
      * @param [status]
      * @param [limit]
      */
-    public listWebhookDeliveriesWithHttpInfo(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageWebhookDeliveryView>> {
+    public listWebhookDeliveriesWithHttpInfo(webhookId: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageWebhookDeliveryView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listWebhookDeliveriesWithHttpInfo(id, status, limit, observableOptions);
+        const result = this.api.listWebhookDeliveriesWithHttpInfo(webhookId, status, limit, observableOptions);
         return result.toPromise();
     }
 
     /**
      * The per-webhook delivery log (read-only debug view).
      * List webhook deliveries
-     * @param id
+     * @param webhookId
      * @param [status]
      * @param [limit]
      */
-    public listWebhookDeliveries(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: PromiseConfigurationOptions): Promise<PageWebhookDeliveryView> {
+    public listWebhookDeliveries(webhookId: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: PromiseConfigurationOptions): Promise<PageWebhookDeliveryView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listWebhookDeliveries(id, status, limit, observableOptions);
+        const result = this.api.listWebhookDeliveries(webhookId, status, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -1525,72 +1525,72 @@ export class PromiseWebhooksApi {
     /**
      * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
-     * @param id
+     * @param webhookId
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RotateSecretResponse>> {
+    public rotateWebhookSecretWithHttpInfo(webhookId: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<RotateSecretResponse>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rotateWebhookSecretWithHttpInfo(id, idempotencyKey, observableOptions);
+        const result = this.api.rotateWebhookSecretWithHttpInfo(webhookId, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
-     * @param id
+     * @param webhookId
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<RotateSecretResponse> {
+    public rotateWebhookSecret(webhookId: string, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<RotateSecretResponse> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.rotateWebhookSecret(id, idempotencyKey, observableOptions);
+        const result = this.api.rotateWebhookSecret(webhookId, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
      * Fire a synthetic event
-     * @param id
+     * @param webhookId
      * @param testWebhookRequest
      */
-    public testWebhookWithHttpInfo(id: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TestWebhookResponse>> {
+    public testWebhookWithHttpInfo(webhookId: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<TestWebhookResponse>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.testWebhookWithHttpInfo(id, testWebhookRequest, observableOptions);
+        const result = this.api.testWebhookWithHttpInfo(webhookId, testWebhookRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
      * Fire a synthetic event
-     * @param id
+     * @param webhookId
      * @param testWebhookRequest
      */
-    public testWebhook(id: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<TestWebhookResponse> {
+    public testWebhook(webhookId: string, testWebhookRequest: TestWebhookRequest, _options?: PromiseConfigurationOptions): Promise<TestWebhookResponse> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.testWebhook(id, testWebhookRequest, observableOptions);
+        const result = this.api.testWebhook(webhookId, testWebhookRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
      * Update a webhook
-     * @param id
+     * @param webhookId
      * @param updateWebhookRequest
      */
-    public updateWebhookWithHttpInfo(id: string, updateWebhookRequest: UpdateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<WebhookView>> {
+    public updateWebhookWithHttpInfo(webhookId: string, updateWebhookRequest: UpdateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<WebhookView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateWebhookWithHttpInfo(id, updateWebhookRequest, observableOptions);
+        const result = this.api.updateWebhookWithHttpInfo(webhookId, updateWebhookRequest, observableOptions);
         return result.toPromise();
     }
 
     /**
      * Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
      * Update a webhook
-     * @param id
+     * @param webhookId
      * @param updateWebhookRequest
      */
-    public updateWebhook(id: string, updateWebhookRequest: UpdateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<WebhookView> {
+    public updateWebhook(webhookId: string, updateWebhookRequest: UpdateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<WebhookView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.updateWebhook(id, updateWebhookRequest, observableOptions);
+        const result = this.api.updateWebhook(webhookId, updateWebhookRequest, observableOptions);
         return result.toPromise();
     }
 

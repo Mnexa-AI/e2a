@@ -95,7 +95,7 @@ class WebhookEvent:
 
     type: str
     data: Any = None
-    id: Optional[str] = None
+    event_id: Optional[str] = None
     created_at: Optional[str] = None
     #: The full parsed envelope (all fields, for forward-compatibility).
     raw: Mapping[str, Any] = field(default_factory=dict)
@@ -131,7 +131,7 @@ def construct_event(
     return WebhookEvent(
         type=parsed["type"],
         data=parsed.get("data"),
-        id=parsed.get("id"),
+        event_id=parsed.get("event_id"),
         created_at=parsed.get("created_at"),
         raw=parsed,
     )

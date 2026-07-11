@@ -27,8 +27,8 @@ class AccountUserView(BaseModel):
     AccountUserView
     """ # noqa: E501
     email: StrictStr
-    id: StrictStr
-    __properties: ClassVar[List[str]] = ["email", "id"]
+    user_id: StrictStr
+    __properties: ClassVar[List[str]] = ["email", "user_id"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -82,7 +82,7 @@ class AccountUserView(BaseModel):
 
         _obj = cls.model_validate({
             "email": obj.get("email"),
-            "id": obj.get("id")
+            "user_id": obj.get("user_id")
         })
         return _obj
 

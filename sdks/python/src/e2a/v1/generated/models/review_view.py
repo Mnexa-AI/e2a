@@ -34,11 +34,11 @@ class ReviewView(BaseModel):
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
     var_from: StrictStr = Field(alias="from")
-    id: StrictStr
+    review_id: StrictStr
     review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")
     subject: StrictStr
     to: List[StrictStr]
-    __properties: ClassVar[List[str]] = ["agent", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "id", "review_status", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "review_id", "review_status", "subject", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -98,7 +98,7 @@ class ReviewView(BaseModel):
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
             "from": obj.get("from"),
-            "id": obj.get("id"),
+            "review_id": obj.get("review_id"),
             "review_status": obj.get("review_status"),
             "subject": obj.get("subject"),
             "to": obj.get("to")

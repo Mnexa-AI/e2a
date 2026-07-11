@@ -29,11 +29,11 @@ class TemplateSummaryView(BaseModel):
     """ # noqa: E501
     alias: Optional[StrictStr] = Field(default=None, description="Optional per-user unique handle usable as template_alias on send.")
     created_at: datetime
-    id: StrictStr
     name: StrictStr
     subject: StrictStr
+    template_id: StrictStr
     updated_at: datetime
-    __properties: ClassVar[List[str]] = ["alias", "created_at", "id", "name", "subject", "updated_at"]
+    __properties: ClassVar[List[str]] = ["alias", "created_at", "name", "subject", "template_id", "updated_at"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -88,9 +88,9 @@ class TemplateSummaryView(BaseModel):
         _obj = cls.model_validate({
             "alias": obj.get("alias"),
             "created_at": obj.get("created_at"),
-            "id": obj.get("id"),
             "name": obj.get("name"),
             "subject": obj.get("subject"),
+            "template_id": obj.get("template_id"),
             "updated_at": obj.get("updated_at")
         })
         return _obj

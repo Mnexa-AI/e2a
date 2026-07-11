@@ -400,7 +400,7 @@ function ConsentForm({
           <legend className="text-sm font-medium px-2">Choose an inbox</legend>
 
           {agents.map((a) => (
-            <label key={a.id} className="flex items-center gap-2 py-1 cursor-pointer">
+            <label key={a.agent_id} className="flex items-center gap-2 py-1 cursor-pointer">
               <input
                 type="radio"
                 name="agent_choice"

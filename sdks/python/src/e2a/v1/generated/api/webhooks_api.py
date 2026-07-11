@@ -321,7 +321,7 @@ class WebhooksApi:
     @validate_call
     async def delete_webhook(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -338,8 +338,8 @@ class WebhooksApi:
         """Delete a webhook
 
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -363,7 +363,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._delete_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -387,7 +387,7 @@ class WebhooksApi:
     @validate_call
     async def delete_webhook_with_http_info(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -404,8 +404,8 @@ class WebhooksApi:
         """Delete a webhook
 
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -429,7 +429,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._delete_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -453,7 +453,7 @@ class WebhooksApi:
     @validate_call
     async def delete_webhook_without_preload_content(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -470,8 +470,8 @@ class WebhooksApi:
         """Delete a webhook
 
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -495,7 +495,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._delete_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -514,7 +514,7 @@ class WebhooksApi:
 
     def _delete_webhook_serialize(
         self,
-        id,
+        webhook_id,
         _request_auth,
         _content_type,
         _headers,
@@ -536,8 +536,8 @@ class WebhooksApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if webhook_id is not None:
+            _path_params['webhook_id'] = webhook_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -560,7 +560,7 @@ class WebhooksApi:
 
         return self.api_client.param_serialize(
             method='DELETE',
-            resource_path='/v1/webhooks/{id}',
+            resource_path='/v1/webhooks/{webhook_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -579,7 +579,7 @@ class WebhooksApi:
     @validate_call
     async def get_webhook(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -596,8 +596,8 @@ class WebhooksApi:
         """Get a webhook
 
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -621,7 +621,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._get_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -645,7 +645,7 @@ class WebhooksApi:
     @validate_call
     async def get_webhook_with_http_info(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -662,8 +662,8 @@ class WebhooksApi:
         """Get a webhook
 
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -687,7 +687,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._get_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -711,7 +711,7 @@ class WebhooksApi:
     @validate_call
     async def get_webhook_without_preload_content(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -728,8 +728,8 @@ class WebhooksApi:
         """Get a webhook
 
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -753,7 +753,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._get_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -772,7 +772,7 @@ class WebhooksApi:
 
     def _get_webhook_serialize(
         self,
-        id,
+        webhook_id,
         _request_auth,
         _content_type,
         _headers,
@@ -794,8 +794,8 @@ class WebhooksApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if webhook_id is not None:
+            _path_params['webhook_id'] = webhook_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -818,7 +818,7 @@ class WebhooksApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/webhooks/{id}',
+            resource_path='/v1/webhooks/{webhook_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -837,7 +837,7 @@ class WebhooksApi:
     @validate_call
     async def list_webhook_deliveries(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         status: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
@@ -857,8 +857,8 @@ class WebhooksApi:
 
         The per-webhook delivery log (read-only debug view).
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param status:
         :type status: str
         :param limit:
@@ -886,7 +886,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._list_webhook_deliveries_serialize(
-            id=id,
+            webhook_id=webhook_id,
             status=status,
             limit=limit,
             _request_auth=_request_auth,
@@ -912,7 +912,7 @@ class WebhooksApi:
     @validate_call
     async def list_webhook_deliveries_with_http_info(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         status: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
@@ -932,8 +932,8 @@ class WebhooksApi:
 
         The per-webhook delivery log (read-only debug view).
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param status:
         :type status: str
         :param limit:
@@ -961,7 +961,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._list_webhook_deliveries_serialize(
-            id=id,
+            webhook_id=webhook_id,
             status=status,
             limit=limit,
             _request_auth=_request_auth,
@@ -987,7 +987,7 @@ class WebhooksApi:
     @validate_call
     async def list_webhook_deliveries_without_preload_content(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         status: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
@@ -1007,8 +1007,8 @@ class WebhooksApi:
 
         The per-webhook delivery log (read-only debug view).
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param status:
         :type status: str
         :param limit:
@@ -1036,7 +1036,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._list_webhook_deliveries_serialize(
-            id=id,
+            webhook_id=webhook_id,
             status=status,
             limit=limit,
             _request_auth=_request_auth,
@@ -1057,7 +1057,7 @@ class WebhooksApi:
 
     def _list_webhook_deliveries_serialize(
         self,
-        id,
+        webhook_id,
         status,
         limit,
         _request_auth,
@@ -1081,8 +1081,8 @@ class WebhooksApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if webhook_id is not None:
+            _path_params['webhook_id'] = webhook_id
         # process the query parameters
         if status is not None:
             
@@ -1113,7 +1113,7 @@ class WebhooksApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/webhooks/{id}/deliveries',
+            resource_path='/v1/webhooks/{webhook_id}/deliveries',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1375,7 +1375,7 @@ class WebhooksApi:
     @validate_call
     async def rotate_webhook_secret(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
@@ -1394,8 +1394,8 @@ class WebhooksApi:
 
         Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param idempotency_key:
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
@@ -1421,7 +1421,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._rotate_webhook_secret_serialize(
-            id=id,
+            webhook_id=webhook_id,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1446,7 +1446,7 @@ class WebhooksApi:
     @validate_call
     async def rotate_webhook_secret_with_http_info(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
@@ -1465,8 +1465,8 @@ class WebhooksApi:
 
         Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param idempotency_key:
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
@@ -1492,7 +1492,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._rotate_webhook_secret_serialize(
-            id=id,
+            webhook_id=webhook_id,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1517,7 +1517,7 @@ class WebhooksApi:
     @validate_call
     async def rotate_webhook_secret_without_preload_content(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
@@ -1536,8 +1536,8 @@ class WebhooksApi:
 
         Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param idempotency_key:
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
@@ -1563,7 +1563,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._rotate_webhook_secret_serialize(
-            id=id,
+            webhook_id=webhook_id,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1583,7 +1583,7 @@ class WebhooksApi:
 
     def _rotate_webhook_secret_serialize(
         self,
-        id,
+        webhook_id,
         idempotency_key,
         _request_auth,
         _content_type,
@@ -1606,8 +1606,8 @@ class WebhooksApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if webhook_id is not None:
+            _path_params['webhook_id'] = webhook_id
         # process the query parameters
         # process the header parameters
         if idempotency_key is not None:
@@ -1632,7 +1632,7 @@ class WebhooksApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/webhooks/{id}/rotate-secret',
+            resource_path='/v1/webhooks/{webhook_id}/rotate-secret',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1651,7 +1651,7 @@ class WebhooksApi:
     @validate_call
     async def test_webhook(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         test_webhook_request: TestWebhookRequest,
         _request_timeout: Union[
             None,
@@ -1670,8 +1670,8 @@ class WebhooksApi:
 
         Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param test_webhook_request: (required)
         :type test_webhook_request: TestWebhookRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1697,7 +1697,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._test_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             test_webhook_request=test_webhook_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1722,7 +1722,7 @@ class WebhooksApi:
     @validate_call
     async def test_webhook_with_http_info(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         test_webhook_request: TestWebhookRequest,
         _request_timeout: Union[
             None,
@@ -1741,8 +1741,8 @@ class WebhooksApi:
 
         Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param test_webhook_request: (required)
         :type test_webhook_request: TestWebhookRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1768,7 +1768,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._test_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             test_webhook_request=test_webhook_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1793,7 +1793,7 @@ class WebhooksApi:
     @validate_call
     async def test_webhook_without_preload_content(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         test_webhook_request: TestWebhookRequest,
         _request_timeout: Union[
             None,
@@ -1812,8 +1812,8 @@ class WebhooksApi:
 
         Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param test_webhook_request: (required)
         :type test_webhook_request: TestWebhookRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1839,7 +1839,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._test_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             test_webhook_request=test_webhook_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1859,7 +1859,7 @@ class WebhooksApi:
 
     def _test_webhook_serialize(
         self,
-        id,
+        webhook_id,
         test_webhook_request,
         _request_auth,
         _content_type,
@@ -1882,8 +1882,8 @@ class WebhooksApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if webhook_id is not None:
+            _path_params['webhook_id'] = webhook_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -1921,7 +1921,7 @@ class WebhooksApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/webhooks/{id}/test',
+            resource_path='/v1/webhooks/{webhook_id}/test',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1940,7 +1940,7 @@ class WebhooksApi:
     @validate_call
     async def update_webhook(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         update_webhook_request: UpdateWebhookRequest,
         _request_timeout: Union[
             None,
@@ -1959,8 +1959,8 @@ class WebhooksApi:
 
         Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param update_webhook_request: (required)
         :type update_webhook_request: UpdateWebhookRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1986,7 +1986,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._update_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             update_webhook_request=update_webhook_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2011,7 +2011,7 @@ class WebhooksApi:
     @validate_call
     async def update_webhook_with_http_info(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         update_webhook_request: UpdateWebhookRequest,
         _request_timeout: Union[
             None,
@@ -2030,8 +2030,8 @@ class WebhooksApi:
 
         Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param update_webhook_request: (required)
         :type update_webhook_request: UpdateWebhookRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -2057,7 +2057,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._update_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             update_webhook_request=update_webhook_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2082,7 +2082,7 @@ class WebhooksApi:
     @validate_call
     async def update_webhook_without_preload_content(
         self,
-        id: StrictStr,
+        webhook_id: StrictStr,
         update_webhook_request: UpdateWebhookRequest,
         _request_timeout: Union[
             None,
@@ -2101,8 +2101,8 @@ class WebhooksApi:
 
         Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
 
-        :param id: (required)
-        :type id: str
+        :param webhook_id: (required)
+        :type webhook_id: str
         :param update_webhook_request: (required)
         :type update_webhook_request: UpdateWebhookRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -2128,7 +2128,7 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._update_webhook_serialize(
-            id=id,
+            webhook_id=webhook_id,
             update_webhook_request=update_webhook_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2148,7 +2148,7 @@ class WebhooksApi:
 
     def _update_webhook_serialize(
         self,
-        id,
+        webhook_id,
         update_webhook_request,
         _request_auth,
         _content_type,
@@ -2171,8 +2171,8 @@ class WebhooksApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if webhook_id is not None:
+            _path_params['webhook_id'] = webhook_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -2210,7 +2210,7 @@ class WebhooksApi:
 
         return self.api_client.param_serialize(
             method='PATCH',
-            resource_path='/v1/webhooks/{id}',
+            resource_path='/v1/webhooks/{webhook_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

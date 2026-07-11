@@ -29,7 +29,7 @@ const hitlDefaults = {
 };
 
 const localAgent = {
-  id: "ag_local",
+  agent_id: "ag_local",
   domain: "agents.e2a.dev",
   email: "bot@agents.e2a.dev",
   name: "bot",
@@ -42,7 +42,7 @@ const localAgent = {
 };
 
 const cloudAgent = {
-  id: "ag_cloud",
+  agent_id: "ag_cloud",
   domain: "mail.acme.com",
   email: "support@mail.acme.com",
   name: "support",
@@ -55,7 +55,7 @@ const cloudAgent = {
 };
 
 const unverifiedAgent = {
-  id: "ag_unv",
+  agent_id: "ag_unv",
   domain: "pending.com",
   email: "info@pending.com",
   name: "info",

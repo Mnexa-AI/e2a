@@ -32,7 +32,7 @@ jest.mock("next/link", () => {
 jest.mock("../AuthProvider", () => ({
   useAuth: () => ({
     user: {
-      id: "usr_test",
+      user_id: "usr_test",
       email: "alice@example.com",
       name: "Alice",
       created_at: "2026-04-01T10:00:00Z",

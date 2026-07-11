@@ -46,7 +46,7 @@ class ReviewsApi:
     @validate_call
     async def approve_review(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -66,8 +66,8 @@ class ReviewsApi:
 
         Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
         :param idempotency_key:
@@ -95,7 +95,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._approve_review_serialize(
-            id=id,
+            review_id=review_id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -121,7 +121,7 @@ class ReviewsApi:
     @validate_call
     async def approve_review_with_http_info(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -141,8 +141,8 @@ class ReviewsApi:
 
         Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
         :param idempotency_key:
@@ -170,7 +170,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._approve_review_serialize(
-            id=id,
+            review_id=review_id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -196,7 +196,7 @@ class ReviewsApi:
     @validate_call
     async def approve_review_without_preload_content(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -216,8 +216,8 @@ class ReviewsApi:
 
         Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
         :param idempotency_key:
@@ -245,7 +245,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._approve_review_serialize(
-            id=id,
+            review_id=review_id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -266,7 +266,7 @@ class ReviewsApi:
 
     def _approve_review_serialize(
         self,
-        id,
+        review_id,
         approve_request,
         idempotency_key,
         _request_auth,
@@ -290,8 +290,8 @@ class ReviewsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if review_id is not None:
+            _path_params['review_id'] = review_id
         # process the query parameters
         # process the header parameters
         if idempotency_key is not None:
@@ -332,7 +332,7 @@ class ReviewsApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/reviews/{id}/approve',
+            resource_path='/v1/reviews/{review_id}/approve',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -351,7 +351,7 @@ class ReviewsApi:
     @validate_call
     async def get_review(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -369,8 +369,8 @@ class ReviewsApi:
 
         Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -394,7 +394,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._get_review_serialize(
-            id=id,
+            review_id=review_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -418,7 +418,7 @@ class ReviewsApi:
     @validate_call
     async def get_review_with_http_info(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -436,8 +436,8 @@ class ReviewsApi:
 
         Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -461,7 +461,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._get_review_serialize(
-            id=id,
+            review_id=review_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -485,7 +485,7 @@ class ReviewsApi:
     @validate_call
     async def get_review_without_preload_content(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -503,8 +503,8 @@ class ReviewsApi:
 
         Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -528,7 +528,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._get_review_serialize(
-            id=id,
+            review_id=review_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -547,7 +547,7 @@ class ReviewsApi:
 
     def _get_review_serialize(
         self,
-        id,
+        review_id,
         _request_auth,
         _content_type,
         _headers,
@@ -569,8 +569,8 @@ class ReviewsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if review_id is not None:
+            _path_params['review_id'] = review_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -593,7 +593,7 @@ class ReviewsApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/reviews/{id}',
+            resource_path='/v1/reviews/{review_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -858,7 +858,7 @@ class ReviewsApi:
     @validate_call
     async def reject_review(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         reject_request: RejectRequest,
         _request_timeout: Union[
             None,
@@ -877,8 +877,8 @@ class ReviewsApi:
 
         Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param reject_request: (required)
         :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -904,7 +904,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._reject_review_serialize(
-            id=id,
+            review_id=review_id,
             reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -929,7 +929,7 @@ class ReviewsApi:
     @validate_call
     async def reject_review_with_http_info(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         reject_request: RejectRequest,
         _request_timeout: Union[
             None,
@@ -948,8 +948,8 @@ class ReviewsApi:
 
         Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param reject_request: (required)
         :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -975,7 +975,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._reject_review_serialize(
-            id=id,
+            review_id=review_id,
             reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1000,7 +1000,7 @@ class ReviewsApi:
     @validate_call
     async def reject_review_without_preload_content(
         self,
-        id: StrictStr,
+        review_id: StrictStr,
         reject_request: RejectRequest,
         _request_timeout: Union[
             None,
@@ -1019,8 +1019,8 @@ class ReviewsApi:
 
         Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
 
-        :param id: (required)
-        :type id: str
+        :param review_id: (required)
+        :type review_id: str
         :param reject_request: (required)
         :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1046,7 +1046,7 @@ class ReviewsApi:
         """ # noqa: E501
 
         _param = self._reject_review_serialize(
-            id=id,
+            review_id=review_id,
             reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1066,7 +1066,7 @@ class ReviewsApi:
 
     def _reject_review_serialize(
         self,
-        id,
+        review_id,
         reject_request,
         _request_auth,
         _content_type,
@@ -1089,8 +1089,8 @@ class ReviewsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if review_id is not None:
+            _path_params['review_id'] = review_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -1128,7 +1128,7 @@ class ReviewsApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/reviews/{id}/reject',
+            resource_path='/v1/reviews/{review_id}/reject',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

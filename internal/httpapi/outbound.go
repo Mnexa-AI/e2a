@@ -151,7 +151,7 @@ func (s *Server) registerOutbound() {
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reply",
+		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{message_id}/reply",
 		Summary: "Reply to a message", Tags: []string{"messages"},
 		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
@@ -160,7 +160,7 @@ func (s *Server) registerOutbound() {
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/forward",
+		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{message_id}/forward",
 		Summary: "Forward a message", Tags: []string{"messages"},
 		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
@@ -227,7 +227,7 @@ type ReplyRequest struct {
 
 type replyInput struct {
 	Address        string `path:"email"`
-	ID             string `path:"id"`
+	ID             string `path:"message_id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
 	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
@@ -363,7 +363,7 @@ type ForwardRequest struct {
 
 type forwardInput struct {
 	Address        string `path:"email"`
-	ID             string `path:"id"`
+	ID             string `path:"message_id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
 	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`

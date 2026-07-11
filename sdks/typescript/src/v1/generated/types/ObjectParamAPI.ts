@@ -125,7 +125,7 @@ export interface AccountApiDeleteApiKeyRequest {
      * @type string
      * @memberof AccountApideleteApiKey
      */
-    id: string
+    apiKeyId: string
 }
 
 export interface AccountApiDeleteSuppressionRequest {
@@ -215,7 +215,7 @@ export class ObjectAccountApi {
      * @param param the request object
      */
     public deleteApiKeyWithHttpInfo(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
-        return this.api.deleteApiKeyWithHttpInfo(param.id,  options).toPromise();
+        return this.api.deleteApiKeyWithHttpInfo(param.apiKeyId,  options).toPromise();
     }
 
     /**
@@ -224,7 +224,7 @@ export class ObjectAccountApi {
      * @param param the request object
      */
     public deleteApiKey(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<void> {
-        return this.api.deleteApiKey(param.id,  options).toPromise();
+        return this.api.deleteApiKey(param.apiKeyId,  options).toPromise();
     }
 
     /**
@@ -583,7 +583,7 @@ export interface ConversationsApiGetConversationRequest {
      * @type string
      * @memberof ConversationsApigetConversation
      */
-    id: string
+    conversationId: string
 }
 
 export interface ConversationsApiListConversationsRequest {
@@ -639,7 +639,7 @@ export class ObjectConversationsApi {
      * @param param the request object
      */
     public getConversationWithHttpInfo(param: ConversationsApiGetConversationRequest, options?: ConfigurationOptions): Promise<HttpInfo<ConversationDetailView>> {
-        return this.api.getConversationWithHttpInfo(param.email, param.id,  options).toPromise();
+        return this.api.getConversationWithHttpInfo(param.email, param.conversationId,  options).toPromise();
     }
 
     /**
@@ -648,7 +648,7 @@ export class ObjectConversationsApi {
      * @param param the request object
      */
     public getConversation(param: ConversationsApiGetConversationRequest, options?: ConfigurationOptions): Promise<ConversationDetailView> {
-        return this.api.getConversation(param.email, param.id,  options).toPromise();
+        return this.api.getConversation(param.email, param.conversationId,  options).toPromise();
     }
 
     /**
@@ -824,7 +824,7 @@ export interface EventsApiGetEventRequest {
      * @type string
      * @memberof EventsApigetEvent
      */
-    id: string
+    eventId: string
 }
 
 export interface EventsApiListEventsRequest {
@@ -895,7 +895,7 @@ export interface EventsApiRedeliverEventRequest {
      * @type string
      * @memberof EventsApiredeliverEvent
      */
-    id: string
+    eventId: string
     /**
      * 
      * @type RedeliverEventRequest
@@ -916,7 +916,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public getEventWithHttpInfo(param: EventsApiGetEventRequest, options?: ConfigurationOptions): Promise<HttpInfo<EventJSON>> {
-        return this.api.getEventWithHttpInfo(param.id,  options).toPromise();
+        return this.api.getEventWithHttpInfo(param.eventId,  options).toPromise();
     }
 
     /**
@@ -924,7 +924,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public getEvent(param: EventsApiGetEventRequest, options?: ConfigurationOptions): Promise<EventJSON> {
-        return this.api.getEvent(param.id,  options).toPromise();
+        return this.api.getEvent(param.eventId,  options).toPromise();
     }
 
     /**
@@ -951,7 +951,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public redeliverEventWithHttpInfo(param: EventsApiRedeliverEventRequest, options?: ConfigurationOptions): Promise<HttpInfo<RedeliverView>> {
-        return this.api.redeliverEventWithHttpInfo(param.id, param.redeliverEventRequest,  options).toPromise();
+        return this.api.redeliverEventWithHttpInfo(param.eventId, param.redeliverEventRequest,  options).toPromise();
     }
 
     /**
@@ -960,7 +960,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public redeliverEvent(param: EventsApiRedeliverEventRequest, options?: ConfigurationOptions): Promise<RedeliverView> {
-        return this.api.redeliverEvent(param.id, param.redeliverEventRequest,  options).toPromise();
+        return this.api.redeliverEvent(param.eventId, param.redeliverEventRequest,  options).toPromise();
     }
 
 }
@@ -982,7 +982,7 @@ export interface MessagesApiApproveMessageRequest {
      * @type string
      * @memberof MessagesApiapproveMessage
      */
-    id: string
+    messageId: string
     /**
      * 
      * @type ApproveRequest
@@ -1012,7 +1012,7 @@ export interface MessagesApiForwardMessageRequest {
      * @type string
      * @memberof MessagesApiforwardMessage
      */
-    id: string
+    messageId: string
     /**
      * 
      * @type ForwardRequest
@@ -1049,7 +1049,7 @@ export interface MessagesApiGetAttachmentRequest {
      * @type string
      * @memberof MessagesApigetAttachment
      */
-    id: string
+    messageId: string
     /**
      * 
      * Minimum: 0
@@ -1081,7 +1081,7 @@ export interface MessagesApiGetMessageRequest {
      * @type string
      * @memberof MessagesApigetMessage
      */
-    id: string
+    messageId: string
 }
 
 export interface MessagesApiListMessagesRequest {
@@ -1187,7 +1187,7 @@ export interface MessagesApiRejectMessageRequest {
      * @type string
      * @memberof MessagesApirejectMessage
      */
-    id: string
+    messageId: string
     /**
      * 
      * @type RejectRequest
@@ -1210,7 +1210,7 @@ export interface MessagesApiReplyToMessageRequest {
      * @type string
      * @memberof MessagesApireplyToMessage
      */
-    id: string
+    messageId: string
     /**
      * 
      * @type ReplyRequest
@@ -1277,7 +1277,7 @@ export interface MessagesApiUpdateMessageRequest {
      * @type string
      * @memberof MessagesApiupdateMessage
      */
-    id: string
+    messageId: string
     /**
      * 
      * @type UpdateMessageRequest
@@ -1299,7 +1299,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public approveMessageWithHttpInfo(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.approveMessageWithHttpInfo(param.email, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.approveMessageWithHttpInfo(param.email, param.messageId, param.approveRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1308,7 +1308,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public approveMessage(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.approveMessage(param.email, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.approveMessage(param.email, param.messageId, param.approveRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1317,7 +1317,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public forwardMessageWithHttpInfo(param: MessagesApiForwardMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.forwardMessageWithHttpInfo(param.email, param.id, param.forwardRequest, param.idempotencyKey, param.wait,  options).toPromise();
+        return this.api.forwardMessageWithHttpInfo(param.email, param.messageId, param.forwardRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1326,7 +1326,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public forwardMessage(param: MessagesApiForwardMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.forwardMessage(param.email, param.id, param.forwardRequest, param.idempotencyKey, param.wait,  options).toPromise();
+        return this.api.forwardMessage(param.email, param.messageId, param.forwardRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1335,7 +1335,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public getAttachmentWithHttpInfo(param: MessagesApiGetAttachmentRequest, options?: ConfigurationOptions): Promise<HttpInfo<AttachmentView>> {
-        return this.api.getAttachmentWithHttpInfo(param.email, param.id, param.index, param.inline,  options).toPromise();
+        return this.api.getAttachmentWithHttpInfo(param.email, param.messageId, param.index, param.inline,  options).toPromise();
     }
 
     /**
@@ -1344,7 +1344,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public getAttachment(param: MessagesApiGetAttachmentRequest, options?: ConfigurationOptions): Promise<AttachmentView> {
-        return this.api.getAttachment(param.email, param.id, param.index, param.inline,  options).toPromise();
+        return this.api.getAttachment(param.email, param.messageId, param.index, param.inline,  options).toPromise();
     }
 
     /**
@@ -1353,7 +1353,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public getMessageWithHttpInfo(param: MessagesApiGetMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<MessageView>> {
-        return this.api.getMessageWithHttpInfo(param.email, param.id,  options).toPromise();
+        return this.api.getMessageWithHttpInfo(param.email, param.messageId,  options).toPromise();
     }
 
     /**
@@ -1362,7 +1362,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public getMessage(param: MessagesApiGetMessageRequest, options?: ConfigurationOptions): Promise<MessageView> {
-        return this.api.getMessage(param.email, param.id,  options).toPromise();
+        return this.api.getMessage(param.email, param.messageId,  options).toPromise();
     }
 
     /**
@@ -1389,7 +1389,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public rejectMessageWithHttpInfo(param: MessagesApiRejectMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
-        return this.api.rejectMessageWithHttpInfo(param.email, param.id, param.rejectRequest,  options).toPromise();
+        return this.api.rejectMessageWithHttpInfo(param.email, param.messageId, param.rejectRequest,  options).toPromise();
     }
 
     /**
@@ -1398,7 +1398,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public rejectMessage(param: MessagesApiRejectMessageRequest, options?: ConfigurationOptions): Promise<RejectResultView> {
-        return this.api.rejectMessage(param.email, param.id, param.rejectRequest,  options).toPromise();
+        return this.api.rejectMessage(param.email, param.messageId, param.rejectRequest,  options).toPromise();
     }
 
     /**
@@ -1407,7 +1407,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public replyToMessageWithHttpInfo(param: MessagesApiReplyToMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.replyToMessageWithHttpInfo(param.email, param.id, param.replyRequest, param.idempotencyKey, param.wait,  options).toPromise();
+        return this.api.replyToMessageWithHttpInfo(param.email, param.messageId, param.replyRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1416,7 +1416,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public replyToMessage(param: MessagesApiReplyToMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.replyToMessage(param.email, param.id, param.replyRequest, param.idempotencyKey, param.wait,  options).toPromise();
+        return this.api.replyToMessage(param.email, param.messageId, param.replyRequest, param.idempotencyKey, param.wait,  options).toPromise();
     }
 
     /**
@@ -1443,7 +1443,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public updateMessageWithHttpInfo(param: MessagesApiUpdateMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<UpdateMessageResultView>> {
-        return this.api.updateMessageWithHttpInfo(param.email, param.id, param.updateMessageRequest,  options).toPromise();
+        return this.api.updateMessageWithHttpInfo(param.email, param.messageId, param.updateMessageRequest,  options).toPromise();
     }
 
     /**
@@ -1452,7 +1452,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public updateMessage(param: MessagesApiUpdateMessageRequest, options?: ConfigurationOptions): Promise<UpdateMessageResultView> {
-        return this.api.updateMessage(param.email, param.id, param.updateMessageRequest,  options).toPromise();
+        return this.api.updateMessage(param.email, param.messageId, param.updateMessageRequest,  options).toPromise();
     }
 
 }
@@ -1500,7 +1500,7 @@ export interface ReviewsApiApproveReviewRequest {
      * @type string
      * @memberof ReviewsApiapproveReview
      */
-    id: string
+    reviewId: string
     /**
      * 
      * @type ApproveRequest
@@ -1523,7 +1523,7 @@ export interface ReviewsApiGetReviewRequest {
      * @type string
      * @memberof ReviewsApigetReview
      */
-    id: string
+    reviewId: string
 }
 
 export interface ReviewsApiListReviewsRequest {
@@ -1536,7 +1536,7 @@ export interface ReviewsApiRejectReviewRequest {
      * @type string
      * @memberof ReviewsApirejectReview
      */
-    id: string
+    reviewId: string
     /**
      * 
      * @type RejectRequest
@@ -1558,7 +1558,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public approveReviewWithHttpInfo(param: ReviewsApiApproveReviewRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.approveReviewWithHttpInfo(param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.approveReviewWithHttpInfo(param.reviewId, param.approveRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1567,7 +1567,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public approveReview(param: ReviewsApiApproveReviewRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.approveReview(param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
+        return this.api.approveReview(param.reviewId, param.approveRequest, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -1576,7 +1576,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public getReviewWithHttpInfo(param: ReviewsApiGetReviewRequest, options?: ConfigurationOptions): Promise<HttpInfo<MessageView>> {
-        return this.api.getReviewWithHttpInfo(param.id,  options).toPromise();
+        return this.api.getReviewWithHttpInfo(param.reviewId,  options).toPromise();
     }
 
     /**
@@ -1585,7 +1585,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public getReview(param: ReviewsApiGetReviewRequest, options?: ConfigurationOptions): Promise<MessageView> {
-        return this.api.getReview(param.id,  options).toPromise();
+        return this.api.getReview(param.reviewId,  options).toPromise();
     }
 
     /**
@@ -1612,7 +1612,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public rejectReviewWithHttpInfo(param: ReviewsApiRejectReviewRequest, options?: ConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
-        return this.api.rejectReviewWithHttpInfo(param.id, param.rejectRequest,  options).toPromise();
+        return this.api.rejectReviewWithHttpInfo(param.reviewId, param.rejectRequest,  options).toPromise();
     }
 
     /**
@@ -1621,7 +1621,7 @@ export class ObjectReviewsApi {
      * @param param the request object
      */
     public rejectReview(param: ReviewsApiRejectReviewRequest, options?: ConfigurationOptions): Promise<RejectResultView> {
-        return this.api.rejectReview(param.id, param.rejectRequest,  options).toPromise();
+        return this.api.rejectReview(param.reviewId, param.rejectRequest,  options).toPromise();
     }
 
 }
@@ -1645,7 +1645,7 @@ export interface TemplatesApiDeleteTemplateRequest {
      * @type string
      * @memberof TemplatesApideleteTemplate
      */
-    id: string
+    templateId: string
 }
 
 export interface TemplatesApiGetStarterTemplateRequest {
@@ -1665,7 +1665,7 @@ export interface TemplatesApiGetTemplateRequest {
      * @type string
      * @memberof TemplatesApigetTemplate
      */
-    id: string
+    templateId: string
 }
 
 export interface TemplatesApiListStarterTemplatesRequest {
@@ -1681,7 +1681,7 @@ export interface TemplatesApiUpdateTemplateRequest {
      * @type string
      * @memberof TemplatesApiupdateTemplate
      */
-    id: string
+    templateId: string
     /**
      * 
      * @type UpdateTemplateRequest
@@ -1730,7 +1730,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public deleteTemplateWithHttpInfo(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
-        return this.api.deleteTemplateWithHttpInfo(param.id,  options).toPromise();
+        return this.api.deleteTemplateWithHttpInfo(param.templateId,  options).toPromise();
     }
 
     /**
@@ -1739,7 +1739,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public deleteTemplate(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<void> {
-        return this.api.deleteTemplate(param.id,  options).toPromise();
+        return this.api.deleteTemplate(param.templateId,  options).toPromise();
     }
 
     /**
@@ -1766,7 +1766,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public getTemplateWithHttpInfo(param: TemplatesApiGetTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<TemplateView>> {
-        return this.api.getTemplateWithHttpInfo(param.id,  options).toPromise();
+        return this.api.getTemplateWithHttpInfo(param.templateId,  options).toPromise();
     }
 
     /**
@@ -1775,7 +1775,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public getTemplate(param: TemplatesApiGetTemplateRequest, options?: ConfigurationOptions): Promise<TemplateView> {
-        return this.api.getTemplate(param.id,  options).toPromise();
+        return this.api.getTemplate(param.templateId,  options).toPromise();
     }
 
     /**
@@ -1820,7 +1820,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public updateTemplateWithHttpInfo(param: TemplatesApiUpdateTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<TemplateView>> {
-        return this.api.updateTemplateWithHttpInfo(param.id, param.updateTemplateRequest,  options).toPromise();
+        return this.api.updateTemplateWithHttpInfo(param.templateId, param.updateTemplateRequest,  options).toPromise();
     }
 
     /**
@@ -1829,7 +1829,7 @@ export class ObjectTemplatesApi {
      * @param param the request object
      */
     public updateTemplate(param: TemplatesApiUpdateTemplateRequest, options?: ConfigurationOptions): Promise<TemplateView> {
-        return this.api.updateTemplate(param.id, param.updateTemplateRequest,  options).toPromise();
+        return this.api.updateTemplate(param.templateId, param.updateTemplateRequest,  options).toPromise();
     }
 
     /**
@@ -1871,7 +1871,7 @@ export interface WebhooksApiDeleteWebhookRequest {
      * @type string
      * @memberof WebhooksApideleteWebhook
      */
-    id: string
+    webhookId: string
 }
 
 export interface WebhooksApiGetWebhookRequest {
@@ -1881,7 +1881,7 @@ export interface WebhooksApiGetWebhookRequest {
      * @type string
      * @memberof WebhooksApigetWebhook
      */
-    id: string
+    webhookId: string
 }
 
 export interface WebhooksApiListWebhookDeliveriesRequest {
@@ -1891,7 +1891,7 @@ export interface WebhooksApiListWebhookDeliveriesRequest {
      * @type string
      * @memberof WebhooksApilistWebhookDeliveries
      */
-    id: string
+    webhookId: string
     /**
      * 
      * Defaults to: undefined
@@ -1920,7 +1920,7 @@ export interface WebhooksApiRotateWebhookSecretRequest {
      * @type string
      * @memberof WebhooksApirotateWebhookSecret
      */
-    id: string
+    webhookId: string
     /**
      * 
      * Defaults to: undefined
@@ -1937,7 +1937,7 @@ export interface WebhooksApiTestWebhookRequest {
      * @type string
      * @memberof WebhooksApitestWebhook
      */
-    id: string
+    webhookId: string
     /**
      * 
      * @type TestWebhookRequest
@@ -1953,7 +1953,7 @@ export interface WebhooksApiUpdateWebhookRequest {
      * @type string
      * @memberof WebhooksApiupdateWebhook
      */
-    id: string
+    webhookId: string
     /**
      * 
      * @type UpdateWebhookRequest
@@ -1990,7 +1990,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public deleteWebhookWithHttpInfo(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
-        return this.api.deleteWebhookWithHttpInfo(param.id,  options).toPromise();
+        return this.api.deleteWebhookWithHttpInfo(param.webhookId,  options).toPromise();
     }
 
     /**
@@ -1998,7 +1998,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public deleteWebhook(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<void> {
-        return this.api.deleteWebhook(param.id,  options).toPromise();
+        return this.api.deleteWebhook(param.webhookId,  options).toPromise();
     }
 
     /**
@@ -2006,7 +2006,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public getWebhookWithHttpInfo(param: WebhooksApiGetWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<WebhookView>> {
-        return this.api.getWebhookWithHttpInfo(param.id,  options).toPromise();
+        return this.api.getWebhookWithHttpInfo(param.webhookId,  options).toPromise();
     }
 
     /**
@@ -2014,7 +2014,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public getWebhook(param: WebhooksApiGetWebhookRequest, options?: ConfigurationOptions): Promise<WebhookView> {
-        return this.api.getWebhook(param.id,  options).toPromise();
+        return this.api.getWebhook(param.webhookId,  options).toPromise();
     }
 
     /**
@@ -2023,7 +2023,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public listWebhookDeliveriesWithHttpInfo(param: WebhooksApiListWebhookDeliveriesRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageWebhookDeliveryView>> {
-        return this.api.listWebhookDeliveriesWithHttpInfo(param.id, param.status, param.limit,  options).toPromise();
+        return this.api.listWebhookDeliveriesWithHttpInfo(param.webhookId, param.status, param.limit,  options).toPromise();
     }
 
     /**
@@ -2032,7 +2032,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public listWebhookDeliveries(param: WebhooksApiListWebhookDeliveriesRequest, options?: ConfigurationOptions): Promise<PageWebhookDeliveryView> {
-        return this.api.listWebhookDeliveries(param.id, param.status, param.limit,  options).toPromise();
+        return this.api.listWebhookDeliveries(param.webhookId, param.status, param.limit,  options).toPromise();
     }
 
     /**
@@ -2057,7 +2057,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public rotateWebhookSecretWithHttpInfo(param: WebhooksApiRotateWebhookSecretRequest, options?: ConfigurationOptions): Promise<HttpInfo<RotateSecretResponse>> {
-        return this.api.rotateWebhookSecretWithHttpInfo(param.id, param.idempotencyKey,  options).toPromise();
+        return this.api.rotateWebhookSecretWithHttpInfo(param.webhookId, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -2066,7 +2066,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public rotateWebhookSecret(param: WebhooksApiRotateWebhookSecretRequest, options?: ConfigurationOptions): Promise<RotateSecretResponse> {
-        return this.api.rotateWebhookSecret(param.id, param.idempotencyKey,  options).toPromise();
+        return this.api.rotateWebhookSecret(param.webhookId, param.idempotencyKey,  options).toPromise();
     }
 
     /**
@@ -2075,7 +2075,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public testWebhookWithHttpInfo(param: WebhooksApiTestWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<TestWebhookResponse>> {
-        return this.api.testWebhookWithHttpInfo(param.id, param.testWebhookRequest,  options).toPromise();
+        return this.api.testWebhookWithHttpInfo(param.webhookId, param.testWebhookRequest,  options).toPromise();
     }
 
     /**
@@ -2084,7 +2084,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public testWebhook(param: WebhooksApiTestWebhookRequest, options?: ConfigurationOptions): Promise<TestWebhookResponse> {
-        return this.api.testWebhook(param.id, param.testWebhookRequest,  options).toPromise();
+        return this.api.testWebhook(param.webhookId, param.testWebhookRequest,  options).toPromise();
     }
 
     /**
@@ -2093,7 +2093,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public updateWebhookWithHttpInfo(param: WebhooksApiUpdateWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<WebhookView>> {
-        return this.api.updateWebhookWithHttpInfo(param.id, param.updateWebhookRequest,  options).toPromise();
+        return this.api.updateWebhookWithHttpInfo(param.webhookId, param.updateWebhookRequest,  options).toPromise();
     }
 
     /**
@@ -2102,7 +2102,7 @@ export class ObjectWebhooksApi {
      * @param param the request object
      */
     public updateWebhook(param: WebhooksApiUpdateWebhookRequest, options?: ConfigurationOptions): Promise<WebhookView> {
-        return this.api.updateWebhook(param.id, param.updateWebhookRequest,  options).toPromise();
+        return this.api.updateWebhook(param.webhookId, param.updateWebhookRequest,  options).toPromise();
     }
 
 }

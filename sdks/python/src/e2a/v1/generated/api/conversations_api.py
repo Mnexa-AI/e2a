@@ -44,7 +44,7 @@ class ConversationsApi:
     async def get_conversation(
         self,
         email: StrictStr,
-        id: StrictStr,
+        conversation_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -64,8 +64,8 @@ class ConversationsApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param conversation_id: (required)
+        :type conversation_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -90,7 +90,7 @@ class ConversationsApi:
 
         _param = self._get_conversation_serialize(
             email=email,
-            id=id,
+            conversation_id=conversation_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -115,7 +115,7 @@ class ConversationsApi:
     async def get_conversation_with_http_info(
         self,
         email: StrictStr,
-        id: StrictStr,
+        conversation_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -135,8 +135,8 @@ class ConversationsApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param conversation_id: (required)
+        :type conversation_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -161,7 +161,7 @@ class ConversationsApi:
 
         _param = self._get_conversation_serialize(
             email=email,
-            id=id,
+            conversation_id=conversation_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -186,7 +186,7 @@ class ConversationsApi:
     async def get_conversation_without_preload_content(
         self,
         email: StrictStr,
-        id: StrictStr,
+        conversation_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -206,8 +206,8 @@ class ConversationsApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param conversation_id: (required)
+        :type conversation_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -232,7 +232,7 @@ class ConversationsApi:
 
         _param = self._get_conversation_serialize(
             email=email,
-            id=id,
+            conversation_id=conversation_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -252,7 +252,7 @@ class ConversationsApi:
     def _get_conversation_serialize(
         self,
         email,
-        id,
+        conversation_id,
         _request_auth,
         _content_type,
         _headers,
@@ -276,8 +276,8 @@ class ConversationsApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if conversation_id is not None:
+            _path_params['conversation_id'] = conversation_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -300,7 +300,7 @@ class ConversationsApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{email}/conversations/{id}',
+            resource_path='/v1/agents/{email}/conversations/{conversation_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

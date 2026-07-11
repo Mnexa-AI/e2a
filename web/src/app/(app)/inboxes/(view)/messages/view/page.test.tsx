@@ -462,7 +462,7 @@ describe("AgentMessageFocusPage", () => {
     );
     await mutate(
       agentsKey,
-      [{ id: "ag_1", email: "support@acme.io", hitl_enabled: true }],
+      [{ agent_id: "ag_1", email: "support@acme.io", hitl_enabled: true }],
       { revalidate: false },
     );
     // Fetch must NOT be called: any call indicates the page hit the

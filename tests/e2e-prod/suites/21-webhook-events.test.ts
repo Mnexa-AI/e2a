@@ -87,7 +87,7 @@ const sinceNow = () => new Date(Date.now() - 5000).toISOString();
 const SIMULATOR = "success@simulator.amazonses.com";
 
 interface EventJSON {
-  id: string;
+  event_id: string;
   type: string;
   schema_version: number;
   created_at: string;
@@ -103,7 +103,7 @@ interface PageEventJSON {
   next_cursor: string | null;
 }
 interface WebhookDeliveryView {
-  id: string;
+  delivery_id: string;
   event_type: string;
   status: string;
   attempts: number;
@@ -118,7 +118,7 @@ interface PageWebhookDeliveryView {
   next_cursor: string | null;
 }
 interface CreateWebhookResponse {
-  id: string;
+  webhook_id: string;
   url: string;
   events: string[];
   enabled: boolean;
@@ -164,7 +164,7 @@ async function createHook(events: string[]): Promise<CreateWebhookResponse> {
     body: { url: "https://example.com/e2e-webhook-events", events, description: `e2e ${uniqueSlug("whev")}` },
   });
   assert.equal(r.status, 201, `create webhook expected 201, got ${r.status}: ${r.raw.slice(0, 200)}`);
-  assert.ok(r.body?.id?.startsWith("wh_"), `webhook id has wh_ prefix: ${r.body?.id}`);
+  assert.ok(r.body?.webhook_id?.startsWith("wh_"), `webhook id has wh_ prefix: ${r.body?.webhook_id}`);
   return r.body!;
 }
 
@@ -213,7 +213,7 @@ async function pollDelivery(
     const r = await client.get<PageWebhookDeliveryView>(`/v1/webhooks/${webhookId}/deliveries`);
     if (r.status === 200 && r.body?.items) {
       const found = r.body.items.find(
-        (d) => d.event_type === eventType && d.attempts >= 1 && (!opts.deliveryId || d.id === opts.deliveryId),
+        (d) => d.event_type === eventType && d.attempts >= 1 && (!opts.deliveryId || d.delivery_id === opts.deliveryId),
       );
       if (found) return found;
     }
@@ -230,7 +230,7 @@ async function pollDelivery(
 // suite's same-typed event. Caveat: it counts ALL matching webhooks in the account,
 // not just ours, and the rows are inserted as status=pending (attempts=0) at
 // ENQUEUE — so this alone proves neither "our webhook was matched" nor "a delivery
-// attempt ran". Each emit test therefore ALSO asserts pollDelivery(hook.id) with
+// attempt ran". Each emit test therefore ALSO asserts pollDelivery(hook.webhook_id) with
 // attempts>=1: that endpoint is scoped to our fresh per-test webhook (ownership-
 // checked, webhook-id path param) and only advances attempts once the HTTP leg
 // fires. The pair — event-scoped fanout + webhook-scoped attempt — is what closes
@@ -253,7 +253,7 @@ async function pollEventFanout(
 
 function assertEventShape(e: EventJSON, expect: { type: string; agentId: string; messageId?: string }): void {
   // EventJSON required fields (openapi): id,type,schema_version,created_at,status,data.
-  assert.ok(typeof e.id === "string" && e.id.startsWith("evt_"), `event id has evt_ prefix: ${e.id}`);
+  assert.ok(typeof e.event_id === "string" && e.event_id.startsWith("evt_"), `event id has evt_ prefix: ${e.event_id}`);
   assert.equal(e.type, expect.type, "event.type matches the triggered type");
   assert.ok(typeof e.schema_version === "number" && e.schema_version >= 1, "schema_version is a positive integer");
   assert.ok(typeof e.created_at === "string" && e.created_at.length > 0, "created_at present");
@@ -294,16 +294,16 @@ test("emit: email.sent — real send emits the event and attempts a delivery", {
 
     // Event-scoped: THIS event fanned out to >=1 subscriber (matched_webhooks
     // counts webhook_subscriber_deliveries WHERE event_id = this unique event).
-    const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
+    const fanout = await pollEventFanout(ev!.event_id);
+    assert.ok(fanout, `event ${ev!.event_id} must fan out (matched_webhooks>=1) within 15s`);
     // Webhook-scoped: OUR fresh webhook's delivery leg actually RAN. The example.com
     // sink 405s the POST — attempts>=1 proves the leg fired (not delivery success).
-    const del = await pollDelivery(hook.id, "email.sent");
-    assert.ok(del, `a delivery ATTEMPT for email.sent must appear on webhook ${hook.id}`);
+    const del = await pollDelivery(hook.webhook_id, "email.sent");
+    assert.ok(del, `a delivery ATTEMPT for email.sent must appear on webhook ${hook.webhook_id}`);
     assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.sent", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts} last_status=${del!.last_status_code}`);
+    info(SUITE, "email.sent", `emitted evt=${ev!.event_id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.delivery_id} attempts=${del!.attempts} last_status=${del!.last_status_code}`);
   } finally {
-    await delHook(hook.id);
+    await delHook(hook.webhook_id);
     await delAgent(email);
   }
 });
@@ -331,16 +331,16 @@ test("emit: email.pending_review — held send emits the event and attempts a de
     // Payload is direction-aware (outbound HITL hold).
     assert.equal(ev!.data.direction, "outbound", "pending_review payload carries direction=outbound");
 
-    const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
-    const del = await pollDelivery(hook.id, "email.pending_review");
-    assert.ok(del, `a delivery ATTEMPT for email.pending_review must appear on webhook ${hook.id}`);
+    const fanout = await pollEventFanout(ev!.event_id);
+    assert.ok(fanout, `event ${ev!.event_id} must fan out (matched_webhooks>=1) within 15s`);
+    const del = await pollDelivery(hook.webhook_id, "email.pending_review");
+    assert.ok(del, `a delivery ATTEMPT for email.pending_review must appear on webhook ${hook.webhook_id}`);
     assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.pending_review", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
+    info(SUITE, "email.pending_review", `emitted evt=${ev!.event_id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.delivery_id} attempts=${del!.attempts}`);
   } finally {
     // Resolve the hold explicitly (reject), then delete (delete cascades anyway).
     if (heldId) await client.post(`/v1/reviews/${heldId}/reject`, { body: { reason: "e2e pending-emit cleanup" } });
-    await delHook(hook.id);
+    await delHook(hook.webhook_id);
     await delAgent(email);
   }
 });
@@ -371,14 +371,14 @@ test("emit: email.review_rejected — rejecting a hold emits the event and attem
     assertEventShape(ev!, { type: "email.review_rejected", agentId: email, messageId: heldId });
     assert.equal(ev!.data.rejection_reason, reason, "payload echoes the rejection reason");
 
-    const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
-    const del = await pollDelivery(hook.id, "email.review_rejected");
-    assert.ok(del, `a delivery ATTEMPT for email.review_rejected must appear on webhook ${hook.id}`);
+    const fanout = await pollEventFanout(ev!.event_id);
+    assert.ok(fanout, `event ${ev!.event_id} must fan out (matched_webhooks>=1) within 15s`);
+    const del = await pollDelivery(hook.webhook_id, "email.review_rejected");
+    assert.ok(del, `a delivery ATTEMPT for email.review_rejected must appear on webhook ${hook.webhook_id}`);
     assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.review_rejected", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
+    info(SUITE, "email.review_rejected", `emitted evt=${ev!.event_id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.delivery_id} attempts=${del!.attempts}`);
   } finally {
-    await delHook(hook.id);
+    await delHook(hook.webhook_id);
     await delAgent(email);
   }
 });
@@ -411,18 +411,18 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
     assertEventShape(ev!, { type: "email.review_approved", agentId: email, messageId: heldId! });
     assert.equal(ev!.data.direction, "outbound", "review_approved payload carries direction=outbound");
 
-    const fanout = await pollEventFanout(ev!.id);
-    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
-    const del = await pollDelivery(hook.id, "email.review_approved");
-    assert.ok(del, `a delivery ATTEMPT for email.review_approved must appear on webhook ${hook.id}`);
+    const fanout = await pollEventFanout(ev!.event_id);
+    assert.ok(fanout, `event ${ev!.event_id} must fan out (matched_webhooks>=1) within 15s`);
+    const del = await pollDelivery(hook.webhook_id, "email.review_approved");
+    assert.ok(del, `a delivery ATTEMPT for email.review_approved must appear on webhook ${hook.webhook_id}`);
     assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.review_approved", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
+    info(SUITE, "email.review_approved", `emitted evt=${ev!.event_id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.delivery_id} attempts=${del!.attempts}`);
   } finally {
     // If approve didn't resolve the hold, reject it so nothing lingers.
     if (heldId && !resolved) {
       await client.post(`/v1/reviews/${heldId}/reject`, { body: { reason: "e2e approve-emit cleanup" } });
     }
-    await delHook(hook.id);
+    await delHook(hook.webhook_id);
     await delAgent(email);
   }
 });
@@ -478,7 +478,7 @@ test("events: listEvents returns PageEventJSON envelope and honors type/agent_id
     assert.equal(none.status, 200);
     assert.equal(none.body!.items.length, 0, "since=future excludes all events");
   } finally {
-    await delHook(hook.id);
+    await delHook(hook.webhook_id);
     await delAgent(email);
   }
 });
@@ -499,15 +499,15 @@ test("events: getEvent returns the EventJSON by evt_ id; nonexistent → 404", {
     );
     assert.ok(ev, "seeded email.sent event present");
 
-    const got = await client.get<EventJSON>(`/v1/events/${ev!.id}`);
+    const got = await client.get<EventJSON>(`/v1/events/${ev!.event_id}`);
     assert.equal(got.status, 200, `getEvent expected 200, got ${got.status}: ${got.raw.slice(0, 200)}`);
-    assert.equal(got.body?.id, ev!.id, "getEvent echoes the requested id");
+    assert.equal(got.body?.event_id, ev!.event_id, "getEvent echoes the requested id");
     assertEventShape(got.body!, { type: "email.sent", agentId: email, messageId });
 
     const miss = await client.get(`/v1/events/evt_nonexistent_${Date.now()}`);
     assert.equal(miss.status, 404, `getEvent nonexistent expected 404, got ${miss.status}: ${miss.raw.slice(0, 200)}`);
   } finally {
-    await delHook(hook.id);
+    await delHook(hook.webhook_id);
     await delAgent(email);
   }
 });
@@ -528,14 +528,14 @@ test("events: redeliverEvent re-queues a delivery for the event; a new attempt a
     );
     assert.ok(ev, "seeded email.sent event present");
     // Wait for the original delivery so we can prove redeliver ADDS one.
-    const first = await pollDelivery(hook.id, "email.sent");
+    const first = await pollDelivery(hook.webhook_id, "email.sent");
     assert.ok(first, "original email.sent delivery attempt present before redeliver");
 
     // Single-webhook replay: RedeliverView carries event_id + status + top-level
     // delivery_id + webhook_id (probed status "pending"). requestBody is required.
-    const rd = await client.post<RedeliverView>(`/v1/events/${ev!.id}/redeliver`, { body: { webhook_id: hook.id } });
+    const rd = await client.post<RedeliverView>(`/v1/events/${ev!.event_id}/redeliver`, { body: { webhook_id: hook.webhook_id } });
     assert.equal(rd.status, 200, `redeliver expected 200, got ${rd.status}: ${rd.raw.slice(0, 200)}`);
-    assert.equal(rd.body?.event_id, ev!.id, "RedeliverView echoes the event id");
+    assert.equal(rd.body?.event_id, ev!.event_id, "RedeliverView echoes the event id");
     assert.ok(typeof rd.body?.status === "string" && rd.body.status.length > 0, "RedeliverView has a status");
     // Collect the new delivery id(s) from either the single or bulk shape.
     const newIds = [
@@ -543,19 +543,19 @@ test("events: redeliverEvent re-queues a delivery for the event; a new attempt a
       ...(rd.body?.deliveries ?? []).map((d) => d.delivery_id),
     ].filter((x): x is string => typeof x === "string" && x.length > 0);
     assert.ok(newIds.length >= 1, `redeliver returns at least one new delivery id: ${JSON.stringify(rd.body)}`);
-    assert.ok(newIds.includes(first!.id) === false, "redeliver id is distinct from the original delivery");
+    assert.ok(newIds.includes(first!.delivery_id) === false, "redeliver id is distinct from the original delivery");
 
     // The re-queued delivery must surface in the webhook's deliveries.
-    const requeued = await pollDelivery(hook.id, "email.sent", { deliveryId: newIds[0] });
-    assert.ok(requeued, `re-queued delivery ${newIds[0]} must appear on webhook ${hook.id}`);
+    const requeued = await pollDelivery(hook.webhook_id, "email.sent", { deliveryId: newIds[0] });
+    assert.ok(requeued, `re-queued delivery ${newIds[0]} must appear on webhook ${hook.webhook_id}`);
     assert.ok(requeued!.attempts >= 1, `re-queued delivery attempted (attempts=${requeued!.attempts})`);
-    info(SUITE, "redeliverEvent", `event=${ev!.id} original whd=${first!.id} → redelivered whd=${newIds[0]} status=${rd.body?.status}`);
+    info(SUITE, "redeliverEvent", `event=${ev!.event_id} original whd=${first!.delivery_id} → redelivered whd=${newIds[0]} status=${rd.body?.status}`);
 
     // Redeliver of a nonexistent event → 404.
     const miss = await client.post(`/v1/events/evt_nonexistent_${Date.now()}/redeliver`, { body: {} });
     assert.equal(miss.status, 404, `redeliver nonexistent expected 404, got ${miss.status}: ${miss.raw.slice(0, 200)}`);
   } finally {
-    await delHook(hook.id);
+    await delHook(hook.webhook_id);
     await delAgent(email);
   }
 });

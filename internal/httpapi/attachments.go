@@ -134,7 +134,7 @@ func (n *nativeAttachmentStore) VerifyDownload(token, messageID string, index in
 
 type attachmentParam struct {
 	Address   string `path:"email"`
-	MessageID string `path:"id"`
+	MessageID string `path:"message_id"`
 	Index     int    `path:"index" minimum:"0"`
 	Inline    bool   `query:"inline" doc:"When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url)."`
 }
@@ -161,7 +161,7 @@ func (s *Server) registerAttachments() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getAttachment",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{email}/messages/{id}/attachments/{index}",
+		Path:        "/v1/agents/{email}/messages/{message_id}/attachments/{index}",
 		Summary:     "Get an attachment (metadata + short-lived download URL)",
 		Description: "Returns one attachment's metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent's context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message's `attachments[]`.",
 		Tags:        []string{"messages"},

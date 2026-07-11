@@ -18,7 +18,7 @@ const SUITE = "19-account";
 const client = new ApiClient();
 
 interface AccountView {
-  user: { id: string; email: string };
+  user: { user_id: string; email: string };
   scope: "account" | "agent";
   plan_code: string;
   agent_address?: string;
@@ -27,7 +27,7 @@ interface AccountView {
   usage: { agents: number; domains: number; messages_month: number; storage_bytes: number };
 }
 interface ApiKeyView {
-  id: string;
+  api_key_id: string;
   name: string;
   key_prefix: string;
   scope: "account" | "agent";
@@ -66,7 +66,7 @@ test("getAccount: returns AccountView (user, scope, plan_code, limits, usage, up
   assert.equal(r.status, 200, `getAccount expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
   const b = r.body!;
   // user{id,email} required
-  assert.ok(b.user?.id, "user.id present");
+  assert.ok(b.user?.user_id, "user.id present");
   assert.ok(b.user?.email?.includes("@"), `user.email valid: ${b.user?.email}`);
   // scope enum
   assert.ok(b.scope === "account" || b.scope === "agent", `scope in {account,agent}: ${b.scope}`);
@@ -98,7 +98,7 @@ test("listApiKeys: PageAPIKeyView envelope; the authenticating key is present", 
   );
   for (const k of r.body!.items) {
     // APIKeyView required: id, name, key_prefix, scope, created_at — and NO secret.
-    assert.ok(k.id, "key.id present");
+    assert.ok(k.api_key_id, "key.id present");
     assert.equal(typeof k.name, "string", "key.name is a string");
     assert.ok(k.key_prefix, "key.key_prefix present");
     assert.ok(k.scope === "account" || k.scope === "agent", `key.scope in {account,agent}: ${k.scope}`);
@@ -126,7 +126,7 @@ test("createApiKey → list shows it → deleteApiKey (new key only) → gone", 
   // CreateAPIKeyResponse required: key (plaintext, once), id, name, key_prefix, scope, created_at.
   assert.ok(created.key, "plaintext key returned exactly once at creation");
   assert.ok(created.key.startsWith(created.key_prefix), "returned key begins with its key_prefix");
-  assert.ok(created.id, "created.id present");
+  assert.ok(created.api_key_id, "created.api_key_id present");
   assert.equal(created.name, name, "created.name echoes the request");
   assert.equal(created.scope, "account", "created.scope is account");
 
@@ -138,24 +138,24 @@ test("createApiKey → list shows it → deleteApiKey (new key only) → gone", 
     // Present in the list now.
     const list = await client.get<PageApiKeyView>("/v1/account/api-keys");
     assert.equal(list.status, 200);
-    assert.ok(list.body!.items.some((k) => k.id === created.id), "new key appears in listApiKeys");
+    assert.ok(list.body!.items.some((k) => k.api_key_id === created.api_key_id), "new key appears in listApiKeys");
 
     // Delete the NEW key (never the auth key).
     assert.ok(
       !client.env.apiKey.startsWith(created.key_prefix),
       "sanity: new key_prefix does not match the auth key before delete",
     );
-    const del = await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.id)}`);
+    const del = await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.api_key_id)}`);
     assert.equal(del.status, 204, `deleteApiKey expected 204 No Content, got ${del.status}: ${del.raw.slice(0, 200)}`);
     deleted = true;
 
     // Gone from the list.
     const after = await client.get<PageApiKeyView>("/v1/account/api-keys");
     assert.equal(after.status, 200);
-    assert.ok(!after.body!.items.some((k) => k.id === created.id), "deleted key is gone from listApiKeys");
+    assert.ok(!after.body!.items.some((k) => k.api_key_id === created.api_key_id), "deleted key is gone from listApiKeys");
   } finally {
     // Self-clean: if an assertion aborted before the delete, revoke the throwaway.
-    if (!deleted) await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.id)}`);
+    if (!deleted) await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.api_key_id)}`);
   }
 });
 

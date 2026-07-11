@@ -32,12 +32,12 @@ func TestListEventsCursorRoundTrip(t *testing.T) {
 	// with a NULL cursor (the over-fetch sees no further row, so no spurious
 	// empty page).
 	code, body := getJSON(t, srv.URL+"/v1/events?limit=1", "good")
-	if code != 200 || body["items"].([]any)[0].(map[string]any)["id"] != "evt_b" {
+	if code != 200 || body["items"].([]any)[0].(map[string]any)["event_id"] != "evt_b" {
 		t.Fatalf("page1: %d %v", code, body)
 	}
 	cur := body["next_cursor"].(string)
 	_, body = getJSON(t, srv.URL+"/v1/events?limit=1&cursor="+cur, "good")
-	if body["items"].([]any)[0].(map[string]any)["id"] != "evt_a" {
+	if body["items"].([]any)[0].(map[string]any)["event_id"] != "evt_a" {
 		t.Fatalf("page2: %v", body)
 	}
 	if body["next_cursor"] != nil {
@@ -66,7 +66,7 @@ func TestListEventsCursorRejectsChangedFilter(t *testing.T) {
 func TestGetEvent(t *testing.T) {
 	srv := testServer(t)
 	code, body := getJSON(t, srv.URL+"/v1/events/evt_a", "good")
-	if code != 200 || body["id"] != "evt_a" {
+	if code != 200 || body["event_id"] != "evt_a" {
 		t.Fatalf("want 200 evt_a, got %d %v", code, body)
 	}
 }

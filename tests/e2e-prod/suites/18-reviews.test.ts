@@ -24,7 +24,7 @@ const client = new ApiClient();
 const SINK = "blackhole+e2e@e2a.dev";
 
 interface Review {
-  id: string;
+  review_id: string;
   agent: string;
   direction: string;
   from: string;
@@ -82,7 +82,7 @@ test("reviews: listReviews returns PageReviewView envelope with the new held rev
       r.body!.next_cursor === null || typeof r.body!.next_cursor === "string",
       `next_cursor must be present as string|null, got ${JSON.stringify(r.body!.next_cursor)}`,
     );
-    const mine = r.body!.items.find((v) => v.id === id);
+    const mine = r.body!.items.find((v) => v.review_id === id);
     assert.ok(mine, `the just-created held review ${id} should appear in the account queue`);
     // ReviewView required fields: id, agent, direction, from, to, subject, review_status, created_at.
     assert.equal(mine!.agent, email, "review.agent is the sending inbox");
@@ -123,7 +123,7 @@ test("reviews: listReviews surfaces every held item; ?limit pagination is undocu
     }
     const all = await client.get<Page>("/v1/reviews");
     assert.equal(all.status, 200);
-    const ids = new Set(all.body!.items.map((v) => v.id));
+    const ids = new Set(all.body!.items.map((v) => v.review_id));
     for (const id of mine) {
       assert.ok(ids.has(id), `held review ${id} must appear in the account queue`);
     }

@@ -21,9 +21,9 @@ export class ConversationsApiRequestFactory extends BaseAPIRequestFactory {
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
      * @param email 
-     * @param id 
+     * @param conversationId 
      */
-    public async getConversation(email: string, id: string, _options?: Configuration): Promise<RequestContext> {
+    public async getConversation(email: string, conversationId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -32,16 +32,16 @@ export class ConversationsApiRequestFactory extends BaseAPIRequestFactory {
         }
 
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("ConversationsApi", "getConversation", "id");
+        // verify required parameter 'conversationId' is not null or undefined
+        if (conversationId === null || conversationId === undefined) {
+            throw new RequiredError("ConversationsApi", "getConversation", "conversationId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/agents/{email}/conversations/{id}'
+        const localVarPath = '/v1/agents/{email}/conversations/{conversation_id}'
             .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+            .replace('{' + 'conversation_id' + '}', encodeURIComponent(String(conversationId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);

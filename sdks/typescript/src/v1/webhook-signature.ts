@@ -72,7 +72,7 @@ export function verifyWebhookSignature(opts: VerifySignatureOptions): boolean {
  *  server emits per-type payload schemas (a tracked follow-up); until then it
  *  is `unknown` and callers narrow on `type`. */
 export interface WebhookEvent {
-  id?: string;
+  event_id?: string;
   type: string;
   created_at?: string;
   data: unknown;

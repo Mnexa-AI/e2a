@@ -142,7 +142,7 @@ The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Su
 
 #### Verifying the signature
 
-Any field in the payload — including `X-E2A-Auth-Verified` — is just the *server's claim* until you authenticate the delivery: anyone who can reach your webhook URL can POST a forged body. To make a security decision, **verify the delivery's envelope signature** — the `X-E2A-Signature` header — with your webhook's signing secret, a `whsec_…` value returned **once** when you create the subscription (`POST /v1/webhooks`); store it then. Rotate via `POST /v1/webhooks/{id}/rotate-secret` (24h grace window where the old secret still verifies). The envelope signature covers the whole payload, so once it verifies, the `X-E2A-Auth-*` claims inside are trustworthy too.
+Any field in the payload — including `X-E2A-Auth-Verified` — is just the *server's claim* until you authenticate the delivery: anyone who can reach your webhook URL can POST a forged body. To make a security decision, **verify the delivery's envelope signature** — the `X-E2A-Signature` header — with your webhook's signing secret, a `whsec_…` value returned **once** when you create the subscription (`POST /v1/webhooks`); store it then. Rotate via `POST /v1/webhooks/{webhook_id}/rotate-secret` (24h grace window where the old secret still verifies). The envelope signature covers the whole payload, so once it verifies, the `X-E2A-Auth-*` claims inside are trustworthy too.
 
 > The inner `X-E2A-Auth-Signature` (in the table above) is a separate mechanism, signed with the deployment's HMAC secret — **not** your `whsec_` — so a webhook subscriber neither needs nor can verify it. It exists for same-trust-domain consumers that receive these as relayed message headers (e.g. a self-hosted deployment holding the HMAC secret). Your verification path as a subscriber is the envelope signature.
 
@@ -196,7 +196,7 @@ When an agent's protection config holds an outbound message for review, `send` a
 
 Reviewers can approve or reject via:
 
-- **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{email}/messages/{id}/approve|reject` is **deprecated** but still works identically for back-compat.
+- **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{review_id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{email}/messages/{message_id}/approve|reject` is **deprecated** but still works identically for back-compat.
 - **MCP tools** — `approve_message` / `reject_message` (with `list_pending_messages` / `get_pending_message` to find them).
 - **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured).
 

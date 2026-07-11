@@ -119,7 +119,7 @@ describe("E2AClient", () => {
   // ── Auth + transport ────────────────────────────────────────────
 
   it("sends the bearer Authorization header", async () => {
-    globalThis.fetch = mockFetch(200, { id: "ag_1", email: "bot@test.dev" });
+    globalThis.fetch = mockFetch(200, { agent_id: "ag_1", email: "bot@test.dev" });
     await client.agents.get("bot@test.dev");
     expect(lastCall().headers["Authorization"]).toBe("Bearer e2a_test");
   });
@@ -127,7 +127,7 @@ describe("E2AClient", () => {
   // ── Agents ──────────────────────────────────────────────────────
 
   it("agents.get hits GET /v1/agents/{address} (URL-encoded)", async () => {
-    globalThis.fetch = mockFetch(200, { id: "ag_1", email: "bot@test.dev" });
+    globalThis.fetch = mockFetch(200, { agent_id: "ag_1", email: "bot@test.dev" });
     const agent = await client.agents.get("bot@test.dev");
     const { url, init } = lastCall();
     expect(init.method).toBe("GET");
@@ -137,17 +137,17 @@ describe("E2AClient", () => {
   });
 
   it("agents.create POSTs the body to /v1/agents", async () => {
-    globalThis.fetch = mockFetch(201, { id: "ag_new", email: "new@test.dev" });
+    globalThis.fetch = mockFetch(201, { agent_id: "ag_new", email: "new@test.dev" });
     const res = await client.agents.create({ email: "new@test.dev" });
     const { url, init } = lastCall();
     expect(init.method).toBe("POST");
     expect(url).toContain("/v1/agents");
     expect(JSON.parse(init.body as string)).toMatchObject({ email: "new@test.dev" });
-    expect(res.id).toBe("ag_new");
+    expect(res.agentId).toBe("ag_new");
   });
 
   it("agents.list returns an AutoPager over the agents array", async () => {
-    globalThis.fetch = mockFetch(200, { items: [{ id: "ag_1", email: "bot@test.dev" }], next_cursor: null });
+    globalThis.fetch = mockFetch(200, { items: [{ agent_id: "ag_1", email: "bot@test.dev" }], next_cursor: null });
     const items = await client.agents.list().toArray({ limit: 10 });
     expect(items).toHaveLength(1);
     expect(items[0].email).toBe("bot@test.dev");
@@ -218,7 +218,7 @@ describe("E2AClient", () => {
   it("webhooks.fetchMessage resolves (recipient, message_id) → GET the full message", async () => {
     globalThis.fetch = mockFetch(200, { message_id: "msg_9", subject: "Hi", raw_message: "..." });
     const event = {
-      id: "evt_1",
+      event_id: "evt_1",
       type: "email.received",
       data: { message_id: "msg_9", recipient: "bot@test.dev" },
     };
@@ -261,11 +261,11 @@ describe("E2AClient", () => {
 
   it("reviews.list reads GET /v1/reviews (single page)", async () => {
     globalThis.fetch = mockFetch(200, {
-      items: [{ id: "msg_r1", agent: "bot@test.dev", direction: "outbound" }],
+      items: [{ review_id: "msg_r1", agent: "bot@test.dev", direction: "outbound" }],
       next_cursor: null,
     });
     const items = await client.reviews.list().toArray({ limit: 50 });
-    expect(items.map((r) => r.id)).toEqual(["msg_r1"]);
+    expect(items.map((r) => r.reviewId)).toEqual(["msg_r1"]);
     expect(lastCall().url).toContain("/v1/reviews");
   });
 
@@ -288,12 +288,12 @@ describe("E2AClient", () => {
 
   it("events.list threads next_cursor across pages", async () => {
     const { fn, calls } = pagingFetch({
-      "": { items: [{ id: "evt_1" }], next_cursor: "cur_2" },
-      cur_2: { items: [{ id: "evt_2" }], next_cursor: null },
+      "": { items: [{ event_id: "evt_1" }], next_cursor: "cur_2" },
+      cur_2: { items: [{ event_id: "evt_2" }], next_cursor: null },
     });
     globalThis.fetch = fn as unknown as typeof fetch;
     const items = await client.events.list().toArray({ limit: 50 });
-    expect(items.map((e) => e.id)).toEqual(["evt_1", "evt_2"]);
+    expect(items.map((e) => e.eventId)).toEqual(["evt_1", "evt_2"]);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain("cursor=cur_2");
   });
@@ -317,10 +317,10 @@ describe("E2AClient", () => {
   // the intentional cursor-drop. (webhooks.deliveries is covered below.)
 
   it.each([
-    ["agents", () => client.agents.list(), { id: "ag_1", email: "bot@test.dev" }],
+    ["agents", () => client.agents.list(), { agent_id: "ag_1", email: "bot@test.dev" }],
     ["domains", () => client.domains.list(), { domain: "test.dev" }],
-    ["webhooks", () => client.webhooks.list(), { id: "wh_1" }],
-    ["templates", () => client.templates.list(), { id: "tmpl_1", name: "Welcome" }],
+    ["webhooks", () => client.webhooks.list(), { webhook_id: "wh_1" }],
+    ["templates", () => client.templates.list(), { template_id: "tmpl_1", name: "Welcome" }],
     ["templates.listStarters", () => client.templates.listStarters(), { alias: "welcome" }],
   ] as const)("%s.list stops after one page even if the server returns a next_cursor", async (_name, lister, item) => {
     let calls = 0;
@@ -345,7 +345,7 @@ describe("E2AClient", () => {
 
   it("templates.get hits GET /v1/templates/{id} and maps snake_case wire fields", async () => {
     globalThis.fetch = mockFetch(200, {
-      id: "tmpl_1",
+      template_id: "tmpl_1",
       name: "Welcome",
       subject: "Welcome, {{name}}!",
       body: "Hi {{name}}",
@@ -366,7 +366,7 @@ describe("E2AClient", () => {
 
   it("templates.create POSTs camelCase input as the snake_case wire body", async () => {
     globalThis.fetch = mockFetch(201, {
-      id: "tmpl_new", name: "Approvals", subject: "s", body: "b",
+      template_id: "tmpl_new", name: "Approvals", subject: "s", body: "b",
       created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
     });
     await client.templates.create({ fromStarter: "approval-request", alias: "my-approvals" });
@@ -383,7 +383,7 @@ describe("E2AClient", () => {
 
   it("templates.update PATCHes the id and keeps an explicit html_body:'' clear", async () => {
     globalThis.fetch = mockFetch(200, {
-      id: "tmpl_1", name: "Welcome", subject: "New {{x}}", body: "b",
+      template_id: "tmpl_1", name: "Welcome", subject: "New {{x}}", body: "b",
       created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-02T00:00:00Z",
     });
     await client.templates.update("tmpl_1", { subject: "New {{x}}", htmlBody: "" });
@@ -509,7 +509,7 @@ describe("E2AClient", () => {
     let calls = 0;
     globalThis.fetch = vi.fn(async () => {
       calls++;
-      const text = JSON.stringify({ items: [{ id: "del_1" }], next_cursor: "should_be_ignored" });
+      const text = JSON.stringify({ items: [{ delivery_id: "del_1" }], next_cursor: "should_be_ignored" });
       return {
         status: 200,
         headers: new Headers({ "content-type": "application/json" }),

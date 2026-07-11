@@ -28,15 +28,15 @@ class CreateAPIKeyResponse(BaseModel):
     CreateAPIKeyResponse
     """ # noqa: E501
     agent: Optional[StrictStr] = Field(default=None, description="Bound inbox email for agent-scoped keys; omitted for account scope.")
+    api_key_id: StrictStr
     created_at: datetime
     expires_at: Optional[datetime] = None
-    id: StrictStr
     key: StrictStr = Field(description="The secret key. Shown once; store it now — it cannot be retrieved later.")
     key_prefix: StrictStr = Field(description="Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).")
     last_used_at: Optional[datetime] = None
     name: StrictStr
     scope: StrictStr = Field(description="account = workspace admin; agent = bound to one inbox.")
-    __properties: ClassVar[List[str]] = ["agent", "created_at", "expires_at", "id", "key", "key_prefix", "last_used_at", "name", "scope"]
+    __properties: ClassVar[List[str]] = ["agent", "api_key_id", "created_at", "expires_at", "key", "key_prefix", "last_used_at", "name", "scope"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -90,9 +90,9 @@ class CreateAPIKeyResponse(BaseModel):
 
         _obj = cls.model_validate({
             "agent": obj.get("agent"),
+            "api_key_id": obj.get("api_key_id"),
             "created_at": obj.get("created_at"),
             "expires_at": obj.get("expires_at"),
-            "id": obj.get("id"),
             "key": obj.get("key"),
             "key_prefix": obj.get("key_prefix"),
             "last_used_at": obj.get("last_used_at"),

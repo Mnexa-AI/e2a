@@ -88,7 +88,7 @@ describe("message projection (v1 contract)", () => {
         ? okJson({
             items: [
               {
-                id: "m1",
+                review_id: "m1",
                 agent: "a@x.com",
                 direction: "outbound",
                 from: "a@x.com",
@@ -98,7 +98,7 @@ describe("message projection (v1 contract)", () => {
                 created_at: "2026-01-01T00:00:00Z",
               },
               {
-                id: "m2",
+                review_id: "m2",
                 agent: "a@x.com",
                 direction: "inbound",
                 from: "spammer@evil.com",

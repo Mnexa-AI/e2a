@@ -110,7 +110,7 @@ func TestCreateAgentHappyPath(t *testing.T) {
 	if code != 201 {
 		t.Fatalf("status %d body %v", code, body)
 	}
-	if body["id"] != "bot@acme.com" || body["domain"] != "acme.com" {
+	if body["agent_id"] != "bot@acme.com" || body["domain"] != "acme.com" {
 		t.Fatalf("unexpected create response: %v", body)
 	}
 }

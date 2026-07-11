@@ -37,7 +37,7 @@ func TestEnvelope_WireKeyIsType(t *testing.T) {
 	// Round-trip back through the Stripe-style shape a consumer parses.
 	var back struct {
 		Type string `json:"type"`
-		ID   string `json:"id"`
+		ID   string `json:"event_id"`
 	}
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)

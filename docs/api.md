@@ -69,7 +69,7 @@ Our commitment, and what you can rely on:
 - **Deprecation & sunset.** If we ever need to wind something down, it stays
   functional and is marked `deprecated` in the OpenAPI spec; we will not remove
   it within `/v1`. Endpoints currently marked deprecated (the agent-path
-  `…/messages/{id}/approve|reject`, superseded by `/v1/reviews/{id}/approve|reject`)
+  `…/messages/{message_id}/approve|reject`, superseded by `/v1/reviews/{review_id}/approve|reject`)
   keep working for the life of `/v1`.
 
 The canonical machine-readable contract is always
@@ -92,7 +92,7 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   all owned data; returns per-table row counts (GDPR Art. 17). Irreversible.
 - `GET /v1/account/export` — JSON dump of every record the account owns (GDPR
   Art. 15). Omits internal identifiers; see [data-handling.md](data-handling.md).
-- `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{id}` — mint
+- `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{api_key_id}` — mint
   (plaintext shown once), list (metadata only), and revoke API keys. Account
   scope only.
 - `GET /v1/account/suppressions`, `DELETE /v1/account/suppressions/{address}` —
@@ -141,7 +141,7 @@ single message.
   review_approved | failed`. **Always branch on `status`, not the HTTP code.**
   `accepted` (async pipeline) means the message is durably persisted and queued;
   the terminal outcome then arrives via the `email.sent` / `email.failed` webhook
-  events or `GET …/messages/{id}`. `provider_message_id` is absent until the
+  events or `GET …/messages/{message_id}`. `provider_message_id` is absent until the
   message is actually sent. Optional `?wait=sent` holds the request until the
   message reaches a terminal-or-held state or a bounded timeout (a synchronous
   server treats it as a no-op).
@@ -150,18 +150,18 @@ single message.
   `delivered`**: `sent` means the upstream provider (SES) accepted the message,
   not that the recipient's server did. Delivery/bounce/complaint are per-recipient
   async outcomes reported later via SNS and the corresponding webhook events.
-- `GET …/messages/{id}` — fetch one message (inbound or outbound), including the
+- `GET …/messages/{message_id}` — fetch one message (inbound or outbound), including the
   raw message and inbound auth headers. Reading an unread inbound message flips it
   to `read`.
-- `PATCH …/messages/{id}` — apply a labels delta (`add_labels` / `remove_labels`).
-- `POST …/messages/{id}/reply`, `POST …/messages/{id}/forward` — reply to /
+- `PATCH …/messages/{message_id}` — apply a labels delta (`add_labels` / `remove_labels`).
+- `POST …/messages/{message_id}/reply`, `POST …/messages/{message_id}/forward` — reply to /
   forward a message; `202` when held for review.
-- `GET …/messages/{id}/attachments/{index}` — attachment metadata + a short-lived
+- `GET …/messages/{message_id}/attachments/{index}` — attachment metadata + a short-lived
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
 
 > **Note:** the older per-message
-> `POST …/messages/{id}/approve` and `…/reject` endpoints still exist for
+> `POST …/messages/{message_id}/approve` and `…/reject` endpoints still exist for
 > back-compat but are **deprecated** — use the account-scoped **Reviews** queue
 > below, which addresses holds by id with no inbox email needed.
 
@@ -170,7 +170,7 @@ single message.
 Threads derived from `messages.conversation_id`.
 
 - `GET …/conversations` — list threads (`since`/`until`, cursor).
-- `GET …/conversations/{id}` — one thread with participants, labels, and member
+- `GET …/conversations/{conversation_id}` — one thread with participants, labels, and member
   messages.
 
 ### Reviews (`/v1/reviews`)
@@ -180,12 +180,12 @@ account's inboxes — outbound drafts awaiting send approval **and** inbound
 messages held by a screening gate. **Account-scoped credentials only**; an agent
 cannot see or resolve its own holds (self-approval would defeat the gate).
 
-- `GET /v1/reviews`, `GET /v1/reviews/{id}` — list the queue / full detail of one
+- `GET /v1/reviews`, `GET /v1/reviews/{review_id}` — list the queue / full detail of one
   held message.
-- `POST /v1/reviews/{id}/approve` — branches on direction: an outbound draft is
+- `POST /v1/reviews/{review_id}/approve` — branches on direction: an outbound draft is
   sent via SES (honors `Idempotency-Key` + optional reviewer overrides); an
   inbound hold is released to the inbox.
-- `POST /v1/reviews/{id}/reject` — outbound draft discarded (never sent); inbound
+- `POST /v1/reviews/{review_id}/reject` — outbound draft discarded (never sent); inbound
   hold dropped (never reaches the agent; payload retained, hidden, for forensics).
 
 ### Webhooks (`/v1/webhooks`)
@@ -195,12 +195,12 @@ own **per-webhook signing secret** that signs the payloads sent to it.
 
 - `GET /v1/webhooks`, `POST /v1/webhooks` — list / create (the secret is returned
   once, at creation).
-- `GET/PATCH/DELETE /v1/webhooks/{id}` — fetch / partial-update
+- `GET/PATCH/DELETE /v1/webhooks/{webhook_id}` — fetch / partial-update
   (`url`/`events`/`filters` are full-replace when present) / delete.
-- `POST /v1/webhooks/{id}/rotate-secret` — mint a new secret; the previous one
+- `POST /v1/webhooks/{webhook_id}/rotate-secret` — mint a new secret; the previous one
   stays valid for a 24h grace window.
-- `GET /v1/webhooks/{id}/deliveries` — the per-webhook delivery log (debug view).
-- `POST /v1/webhooks/{id}/test` — fire a one-off synthetic delivery.
+- `GET /v1/webhooks/{webhook_id}/deliveries` — the per-webhook delivery log (debug view).
+- `POST /v1/webhooks/{webhook_id}/test` — fire a one-off synthetic delivery.
 
 To verify an inbound webhook payload, pass the webhook's signing secret to the SDK
 helper — `construct_event(body, header, secret)` /
@@ -223,8 +223,8 @@ semantics.
 
 - `GET /v1/events` — filter by `type`/`agent_id`/`conversation_id`/`message_id`
   and time range; cursor pagination.
-- `GET /v1/events/{id}` — one event (returns `410 Gone` past retention).
-- `POST /v1/events/{id}/redeliver` — re-enqueue delivery for an event (to one
+- `GET /v1/events/{event_id}` — one event (returns `410 Gone` past retention).
+- `POST /v1/events/{event_id}/redeliver` — re-enqueue delivery for an event (to one
   webhook or all originally-matched). Receivers must dedup on event id.
 
 ## Real-time delivery (WebSocket)
@@ -235,7 +235,7 @@ appears in the URL). Not part of the OpenAPI document (it is not an HTTP
 request/response operation).
 
 The server pushes lightweight JSON notifications (metadata only); fetch full
-content via `GET /v1/agents/{email}/messages/{id}`:
+content via `GET /v1/agents/{email}/messages/{message_id}`:
 
 ```json
 {

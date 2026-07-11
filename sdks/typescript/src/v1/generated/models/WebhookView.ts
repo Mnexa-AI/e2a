@@ -23,9 +23,9 @@ export class WebhookView {
     */
     'events': Array<string>;
     'filters': WebhookFiltersView;
-    'id': string;
     'lastDeliveredAt'?: Date;
     'url': string;
+    'webhookId': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -69,12 +69,6 @@ export class WebhookView {
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "lastDeliveredAt",
             "baseName": "last_delivered_at",
             "type": "Date",
@@ -83,6 +77,12 @@ export class WebhookView {
         {
             "name": "url",
             "baseName": "url",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "webhookId",
+            "baseName": "webhook_id",
             "type": "string",
             "format": ""
         }    ];

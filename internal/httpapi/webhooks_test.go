@@ -228,7 +228,7 @@ func TestListWebhookDeliveries(t *testing.T) {
 		t.Fatalf("status %d body %v", code, body)
 	}
 	items, _ := body["items"].([]any)
-	if len(items) != 1 || items[0].(map[string]any)["id"] != "whd_1" {
+	if len(items) != 1 || items[0].(map[string]any)["delivery_id"] != "whd_1" {
 		t.Fatalf("unexpected deliveries: %v", body)
 	}
 	if body["next_cursor"] != nil {

@@ -374,7 +374,7 @@ wheels = [
 
 [[package]]
 name = "e2a"
-version = "3.0.0"
+version = "4.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -414,7 +414,7 @@ requires-dist = [
     { name = "twine", marker = "extra == 'dev'" },
     { name = "typing-extensions", specifier = ">=4.7" },
     { name = "urllib3", specifier = ">=1.25" },
-    { name = "websockets", marker = "extra == 'ws'", specifier = ">=12" },
+    { name = "websockets", marker = "extra == 'ws'", specifier = ">=14" },
 ]
 provides-extras = ["dev", "ws"]
 

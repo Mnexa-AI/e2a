@@ -74,20 +74,20 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
-     * @param id 
+     * @param templateId 
      */
-    public async deleteTemplate(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteTemplate(templateId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("TemplatesApi", "deleteTemplate", "id");
+        // verify required parameter 'templateId' is not null or undefined
+        if (templateId === null || templateId === undefined) {
+            throw new RequiredError("TemplatesApi", "deleteTemplate", "templateId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/templates/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/templates/{template_id}'
+            .replace('{' + 'template_id' + '}', encodeURIComponent(String(templateId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);
@@ -150,20 +150,20 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
-     * @param id 
+     * @param templateId 
      */
-    public async getTemplate(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async getTemplate(templateId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("TemplatesApi", "getTemplate", "id");
+        // verify required parameter 'templateId' is not null or undefined
+        if (templateId === null || templateId === undefined) {
+            throw new RequiredError("TemplatesApi", "getTemplate", "templateId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/templates/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/templates/{template_id}'
+            .replace('{' + 'template_id' + '}', encodeURIComponent(String(templateId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
@@ -248,15 +248,15 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
-     * @param id 
+     * @param templateId 
      * @param updateTemplateRequest 
      */
-    public async updateTemplate(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: Configuration): Promise<RequestContext> {
+    public async updateTemplate(templateId: string, updateTemplateRequest: UpdateTemplateRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("TemplatesApi", "updateTemplate", "id");
+        // verify required parameter 'templateId' is not null or undefined
+        if (templateId === null || templateId === undefined) {
+            throw new RequiredError("TemplatesApi", "updateTemplate", "templateId");
         }
 
 
@@ -267,8 +267,8 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/templates/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/templates/{template_id}'
+            .replace('{' + 'template_id' + '}', encodeURIComponent(String(templateId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.PATCH);

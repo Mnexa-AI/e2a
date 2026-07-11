@@ -20,7 +20,7 @@ from e2a.v1.generated.models.event_json import EventJSON
 def test_unknown_event_type_parses() -> None:
     e = EventJSON.from_dict(
         {
-            "id": "evt_1",
+            "event_id": "evt_1",
             "type": "email.some_future_type",  # not in the known catalog
             "status": "delivered",
             "schema_version": 1,
@@ -36,7 +36,7 @@ def test_unknown_event_type_parses() -> None:
 def test_unknown_event_status_parses() -> None:
     e = EventJSON.from_dict(
         {
-            "id": "evt_1",
+            "event_id": "evt_1",
             "type": "email.received",
             "status": "future_status",
             "schema_version": 1,

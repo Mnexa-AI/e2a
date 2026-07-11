@@ -15,11 +15,11 @@ import { HttpFile } from '../http/http.js';
 export class WebhookDeliveryView {
     'attempts': number;
     'createdAt': Date;
+    'deliveryId': string;
     /**
     * The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*).
     */
     'eventType': string;
-    'id': string;
     'lastAttemptAt'?: Date;
     'lastError'?: string;
     'lastStatusCode'?: number;
@@ -47,14 +47,14 @@ export class WebhookDeliveryView {
             "format": "date-time"
         },
         {
-            "name": "eventType",
-            "baseName": "event_type",
+            "name": "deliveryId",
+            "baseName": "delivery_id",
             "type": "string",
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
+            "name": "eventType",
+            "baseName": "event_type",
             "type": "string",
             "format": ""
         },

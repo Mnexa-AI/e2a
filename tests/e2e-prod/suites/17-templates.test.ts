@@ -39,7 +39,7 @@ interface Page<T> {
   next_cursor: string | null;
 }
 interface TemplateSummaryView {
-  id: string;
+  template_id: string;
   name: string;
   subject: string;
   alias?: string;
@@ -134,7 +134,7 @@ test("createTemplate + getTemplate + listTemplates + deleteTemplate lifecycle", 
       },
     });
     assert.equal(create.status, 201, `create → 201, got ${create.status}: ${create.raw.slice(0, 200)}`);
-    id = create.body!.id;
+    id = create.body!.template_id;
     assert.ok(id?.startsWith("tmpl_"), `id has tmpl_ prefix: ${id}`);
     assert.equal(create.body?.name, `e2e ${alias}`);
     assert.equal(create.body?.subject, "Hi {{name}}");
@@ -145,14 +145,14 @@ test("createTemplate + getTemplate + listTemplates + deleteTemplate lifecycle", 
 
     const got = await client.get<TemplateView>(`/v1/templates/${id}`);
     assert.equal(got.status, 200, `getTemplate → 200, got ${got.status}`);
-    assert.equal(got.body?.id, id);
+    assert.equal(got.body?.template_id, id);
     assert.equal(got.body?.body, "Hello {{name}}, welcome to {{company}}.", "get returns full body source");
 
     const list = await client.get<Page<TemplateSummaryView>>("/v1/templates");
     assert.equal(list.status, 200);
     assert.ok("next_cursor" in (list.body as object), "next_cursor present in page");
     assert.ok(
-      list.body!.items.some((t) => t.id === id),
+      list.body!.items.some((t) => t.template_id === id),
       "created template appears in listTemplates",
     );
 
@@ -160,7 +160,7 @@ test("createTemplate + getTemplate + listTemplates + deleteTemplate lifecycle", 
     assert.equal(del.status, 204, `deleteTemplate → 204, got ${del.status}: ${del.raw.slice(0, 200)}`);
     id = null;
 
-    const after = await client.get<ErrEnv>(`/v1/templates/${create.body!.id}`);
+    const after = await client.get<ErrEnv>(`/v1/templates/${create.body!.template_id}`);
     assert.equal(after.status, 404, `deleted template → 404, got ${after.status}`);
     assert.equal(after.body?.error?.code, "not_found");
   } finally {
@@ -176,7 +176,7 @@ test("updateTemplate (PATCH): partial update mutates name and bumps updated_at",
       body: { name: "before", subject: "S {{x}}", body: "B {{x}}", alias },
     });
     assert.equal(create.status, 201, `create → 201, got ${create.status}: ${create.raw.slice(0, 200)}`);
-    id = create.body!.id;
+    id = create.body!.template_id;
 
     const patch = await client.patch<TemplateView>(`/v1/templates/${id}`, {
       body: { name: "after", subject: "S2 {{x}}" },
@@ -205,7 +205,7 @@ test("createTemplate: from_starter copies a starter verbatim (201, carries prove
       body: { from_starter: starterAlias, alias },
     });
     assert.equal(create.status, 201, `from_starter create → 201, got ${create.status}: ${create.raw.slice(0, 200)}`);
-    id = create.body!.id;
+    id = create.body!.template_id;
     assert.ok(id?.startsWith("tmpl_"));
     assert.equal(create.body?.from_starter_alias, starterAlias, "from_starter_alias records provenance");
     assert.ok(create.body?.from_starter_version, "from_starter_version records catalog version at copy time");
@@ -288,7 +288,7 @@ test("createTemplate: duplicate alias returns 409 alias_taken", async () => {
       body: { name: "first", subject: "S {{x}}", body: "B {{x}}", alias },
     });
     assert.equal(first.status, 201, `first create → 201, got ${first.status}: ${first.raw.slice(0, 200)}`);
-    id = first.body!.id;
+    id = first.body!.template_id;
 
     const second = await client.post<ErrEnv>("/v1/templates", {
       body: { name: "second", subject: "S {{x}}", body: "B {{x}}", alias },

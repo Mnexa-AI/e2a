@@ -34,11 +34,11 @@ class CreateWebhookResponse(BaseModel):
     enabled: StrictBool
     events: List[StrictStr] = Field(description="The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable.")
     filters: WebhookFiltersView
-    id: StrictStr
     last_delivered_at: Optional[datetime] = None
     signing_secret: StrictStr
     url: StrictStr
-    __properties: ClassVar[List[str]] = ["auto_disabled_at", "created_at", "description", "enabled", "events", "filters", "id", "last_delivered_at", "signing_secret", "url"]
+    webhook_id: StrictStr
+    __properties: ClassVar[List[str]] = ["auto_disabled_at", "created_at", "description", "enabled", "events", "filters", "last_delivered_at", "signing_secret", "url", "webhook_id"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -100,10 +100,10 @@ class CreateWebhookResponse(BaseModel):
             "enabled": obj.get("enabled"),
             "events": obj.get("events"),
             "filters": WebhookFiltersView.from_dict(obj["filters"]) if obj.get("filters") is not None else None,
-            "id": obj.get("id"),
             "last_delivered_at": obj.get("last_delivered_at"),
             "signing_secret": obj.get("signing_secret"),
-            "url": obj.get("url")
+            "url": obj.get("url"),
+            "webhook_id": obj.get("webhook_id")
         })
         return _obj
 

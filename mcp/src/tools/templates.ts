@@ -60,10 +60,10 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         "Fetch one stored template by id (tmpl_…), including its subject/body/htmlBody sources. Templates copied from a " +
         "starter also carry fromStarterAlias/fromStarterVersion (read-only provenance). " + BETA,
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Template id (tmpl_…)."),
+        template_id: z.string().min(1).describe("Template id (tmpl_…)."),
       }),
     },
-    async (args) => runTool(() => client.getTemplate(args.id)),
+    async (args) => runTool(() => client.getTemplate(args.template_id)),
   );
 
   server.registerTool(
@@ -136,7 +136,7 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         "are unaffected — rendering happens at send time, so future sends pick up the new source. " +
         SYNTAX + " " + BETA,
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Template id (tmpl_…)."),
+        template_id: z.string().min(1).describe("Template id (tmpl_…)."),
         name: z.string().optional(),
         alias: z.string().optional().describe('Set to "" to clear the alias.'),
         subject: z.string().optional(),
@@ -146,7 +146,7 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
     },
     async (args) =>
       runTool(() =>
-        client.updateTemplate(args.id, {
+        client.updateTemplate(args.template_id, {
           ...(args.name !== undefined ? { name: args.name } : {}),
           ...(args.alias !== undefined ? { alias: args.alias } : {}),
           ...(args.subject !== undefined ? { subject: args.subject } : {}),
@@ -167,7 +167,7 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         "future sends referencing its id or alias will fail. Requires confirm:true so an LLM cannot delete on " +
         "ambiguous context. " + BETA,
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Template id (tmpl_…)."),
+        template_id: z.string().min(1).describe("Template id (tmpl_…)."),
         confirm: z.literal(true).describe("Must be true to proceed."),
       }),
     },
@@ -176,8 +176,8 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         if (args.confirm !== true) {
           throw new Error("delete_template requires confirm:true.");
         }
-        await client.deleteTemplate(args.id);
-        return { deleted: args.id };
+        await client.deleteTemplate(args.template_id);
+        return { deleted: args.template_id };
       }),
   );
 

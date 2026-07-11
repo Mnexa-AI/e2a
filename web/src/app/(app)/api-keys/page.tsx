@@ -305,7 +305,7 @@ export default function APIKeysPage() {
             >
               <option value="">Select an inbox…</option>
               {agents.map((a) => (
-                <option key={a.id} value={a.email}>
+                <option key={a.agent_id} value={a.email}>
                   {a.email}
                 </option>
               ))}
@@ -440,7 +440,7 @@ export default function APIKeysPage() {
               <tbody>
                 {sortedKeys.map((k, i) => (
                 <tr
-                  key={k.id}
+                  key={k.api_key_id}
                   style={{
                     borderTop:
                       i > 0 ? "1px solid var(--border-sub)" : "none",
@@ -505,7 +505,7 @@ export default function APIKeysPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() => handleDelete(k.id)}
+                      onClick={() => handleDelete(k.api_key_id)}
                       className="text-[12px] transition"
                       style={{ color: "var(--danger-strong)" }}
                     >

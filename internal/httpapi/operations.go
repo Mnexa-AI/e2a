@@ -57,7 +57,7 @@ func (s *Server) registerInfo() {
 // is identity + status only — an agent-scoped credential reading its own agent
 // no longer learns its detection tuning (closes audit #13).
 type AgentView struct {
-	ID             string    `json:"id"`
+	ID             string    `json:"agent_id"`
 	Domain         string    `json:"domain"`
 	Email          string    `json:"email"`
 	Name           string    `json:"name"`

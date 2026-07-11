@@ -17,7 +17,7 @@ export async function whoami(opts: WhoamiOptions): Promise<void> {
     return;
   }
 
-  process.stdout.write(`user:  ${account.user.email} (${account.user.id})\n`);
+  process.stdout.write(`user:  ${account.user.email} (${account.user.userId})\n`);
   process.stdout.write(`scope: ${account.scope}\n`);
   if (account.agentAddress) {
     process.stdout.write(`agent: ${account.agentAddress}\n`);

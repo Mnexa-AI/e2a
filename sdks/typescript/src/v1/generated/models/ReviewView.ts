@@ -23,7 +23,7 @@ export class ReviewView {
     'flagReason'?: string;
     'flagged'?: boolean;
     '_from': string;
-    'id': string;
+    'reviewId': string;
     /**
     * Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).
     */
@@ -79,8 +79,8 @@ export class ReviewView {
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
+            "name": "reviewId",
+            "baseName": "review_id",
             "type": "string",
             "format": ""
         },

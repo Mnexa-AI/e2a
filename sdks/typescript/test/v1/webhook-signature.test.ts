@@ -111,12 +111,12 @@ describe("verifyWebhookSignature", () => {
 
 describe("constructEvent", () => {
   it("verifies and parses a valid delivery into a typed event", () => {
-    const body = JSON.stringify({ id: "evt_1", type: "email.received", data: { message_id: "msg_1" } });
+    const body = JSON.stringify({ event_id: "evt_1", type: "email.received", data: { message_id: "msg_1" } });
     const t = Math.floor(Date.now() / 1000).toString();
     const header = `t=${t},v1=${sign(SECRET, t, body)}`;
     const event = constructEvent(body, header, SECRET);
     expect(event.type).toBe("email.received");
-    expect(event.id).toBe("evt_1");
+    expect(event.event_id).toBe("evt_1");
     expect((event.data as { message_id: string }).message_id).toBe("msg_1");
   });
 

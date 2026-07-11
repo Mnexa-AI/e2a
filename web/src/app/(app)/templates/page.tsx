@@ -236,7 +236,7 @@ function TemplatesTable({
         <tbody>
           {templates.map((t, i) => (
             <TemplateRow
-              key={t.id}
+              key={t.template_id}
               template={t}
               onChange={onChange}
               isFirstRow={i === 0}
@@ -266,7 +266,7 @@ function TemplateRow({
     setError("");
     try {
       const res = await fetch(
-        `/v1/templates/${encodeURIComponent(template.id)}`,
+        `/v1/templates/${encodeURIComponent(template.template_id)}`,
         { method: "DELETE", credentials: "include" },
       );
       if (!res.ok) {
@@ -291,7 +291,7 @@ function TemplateRow({
     >
       <td className="px-4 py-3">
         <Link
-          href={`/templates/edit?id=${encodeURIComponent(template.id)}`}
+          href={`/templates/edit?id=${encodeURIComponent(template.template_id)}`}
           className="font-medium hover:underline"
           style={{ color: "var(--fg)" }}
         >

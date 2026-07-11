@@ -110,12 +110,12 @@ def test_empty_secret_list_rejects() -> None:
 
 
 def test_construct_event_verifies_and_parses() -> None:
-    body = json.dumps({"id": "evt_1", "type": "email.received", "data": {"message_id": "msg_1"}})
+    body = json.dumps({"event_id": "evt_1", "type": "email.received", "data": {"message_id": "msg_1"}})
     t = str(int(time.time()))
     header = f"t={t},v1={_sign(SECRET, t, body)}"
     event = construct_event(body, header, SECRET)
     assert event.type == "email.received"
-    assert event.id == "evt_1"
+    assert event.event_id == "evt_1"
     assert event.data == {"message_id": "msg_1"}
     assert event.raw["type"] == "email.received"
 

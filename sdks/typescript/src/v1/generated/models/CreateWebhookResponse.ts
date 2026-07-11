@@ -23,10 +23,10 @@ export class CreateWebhookResponse {
     */
     'events': Array<string>;
     'filters': WebhookFiltersView;
-    'id': string;
     'lastDeliveredAt'?: Date;
     'signingSecret': string;
     'url': string;
+    'webhookId': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -70,12 +70,6 @@ export class CreateWebhookResponse {
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "lastDeliveredAt",
             "baseName": "last_delivered_at",
             "type": "Date",
@@ -90,6 +84,12 @@ export class CreateWebhookResponse {
         {
             "name": "url",
             "baseName": "url",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "webhookId",
+            "baseName": "webhook_id",
             "type": "string",
             "format": ""
         }    ];

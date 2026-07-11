@@ -14,7 +14,7 @@ func TestCreateTemplate(t *testing.T) {
 	if code != 201 {
 		t.Fatalf("want 201, got %d %v", code, body)
 	}
-	if body["id"] != "tmpl_new" || body["alias"] != "welcome-2" || body["subject"] != "Hello {{name}}" {
+	if body["template_id"] != "tmpl_new" || body["alias"] != "welcome-2" || body["subject"] != "Hello {{name}}" {
 		t.Fatalf("unexpected view: %v", body)
 	}
 	if body["created_at"] == nil || body["updated_at"] == nil {
@@ -127,7 +127,7 @@ func TestListTemplates(t *testing.T) {
 		t.Fatalf("unexpected items: %v", body)
 	}
 	item, _ := items[0].(map[string]any)
-	if item["id"] != "tmpl_1" || item["name"] != "Welcome" || item["alias"] != "welcome" || item["subject"] != "Hello {{name}}" {
+	if item["template_id"] != "tmpl_1" || item["name"] != "Welcome" || item["alias"] != "welcome" || item["subject"] != "Hello {{name}}" {
 		t.Fatalf("unexpected summary item: %v", item)
 	}
 	if item["created_at"] == nil || item["updated_at"] == nil {
@@ -148,7 +148,7 @@ func TestListTemplates(t *testing.T) {
 func TestGetTemplate(t *testing.T) {
 	srv := testServer(t)
 	code, body := getJSON(t, srv.URL+"/v1/templates/tmpl_1", "good")
-	if code != 200 || body["id"] != "tmpl_1" || body["alias"] != "welcome" {
+	if code != 200 || body["template_id"] != "tmpl_1" || body["alias"] != "welcome" {
 		t.Fatalf("want 200 tmpl_1, got %d %v", code, body)
 	}
 }

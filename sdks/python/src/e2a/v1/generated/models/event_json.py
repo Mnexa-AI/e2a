@@ -33,13 +33,13 @@ class EventJSON(BaseModel):
     created_at: datetime
     data: Dict[str, Any]
     delivery_status: Optional[DeliveryStatusJSON] = None
-    id: StrictStr
+    event_id: StrictStr
     message_id: Optional[StrictStr] = None
     schema_version: StrictInt
     status: StrictStr = Field(description="Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.")
     type: StrictStr = Field(description="Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_id", "conversation_id", "created_at", "data", "delivery_status", "id", "message_id", "schema_version", "status", "type"]
+    __properties: ClassVar[List[str]] = ["agent_id", "conversation_id", "created_at", "data", "delivery_status", "event_id", "message_id", "schema_version", "status", "type"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -107,7 +107,7 @@ class EventJSON(BaseModel):
             "created_at": obj.get("created_at"),
             "data": obj.get("data"),
             "delivery_status": DeliveryStatusJSON.from_dict(obj["delivery_status"]) if obj.get("delivery_status") is not None else None,
-            "id": obj.get("id"),
+            "event_id": obj.get("event_id"),
             "message_id": obj.get("message_id"),
             "schema_version": obj.get("schema_version"),
             "status": obj.get("status"),

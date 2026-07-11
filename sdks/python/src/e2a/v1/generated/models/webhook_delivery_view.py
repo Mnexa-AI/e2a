@@ -29,14 +29,14 @@ class WebhookDeliveryView(BaseModel):
     """ # noqa: E501
     attempts: StrictInt
     created_at: datetime
+    delivery_id: StrictStr
     event_type: StrictStr = Field(description="The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*).")
-    id: StrictStr
     last_attempt_at: Optional[datetime] = None
     last_error: Optional[StrictStr] = None
     last_status_code: Optional[StrictInt] = None
     next_retry_at: datetime
     status: StrictStr = Field(description="Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed.")
-    __properties: ClassVar[List[str]] = ["attempts", "created_at", "event_type", "id", "last_attempt_at", "last_error", "last_status_code", "next_retry_at", "status"]
+    __properties: ClassVar[List[str]] = ["attempts", "created_at", "delivery_id", "event_type", "last_attempt_at", "last_error", "last_status_code", "next_retry_at", "status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -91,8 +91,8 @@ class WebhookDeliveryView(BaseModel):
         _obj = cls.model_validate({
             "attempts": obj.get("attempts"),
             "created_at": obj.get("created_at"),
+            "delivery_id": obj.get("delivery_id"),
             "event_type": obj.get("event_type"),
-            "id": obj.get("id"),
             "last_attempt_at": obj.get("last_attempt_at"),
             "last_error": obj.get("last_error"),
             "last_status_code": obj.get("last_status_code"),

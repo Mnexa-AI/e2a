@@ -189,7 +189,7 @@ async def test_request_timeout_surfaces_as_connection_error(httpx_mock):
 
 @pytest.mark.anyio
 async def test_get_agent_sends_bearer_and_encodes_address(httpx_mock):
-    httpx_mock.add_response(json=_valid(AgentView, id="ag_1", email="bot@test.dev"))
+    httpx_mock.add_response(json=_valid(AgentView, agent_id="ag_1", email="bot@test.dev"))
     async with _client() as c:
         agent = await c.agents.get("bot@test.dev")
     assert agent.email == "bot@test.dev"
@@ -231,7 +231,7 @@ async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
     event = WebhookEvent(
         type="email.received",
         data={"message_id": "msg_9", "recipient": "bot@test.dev"},
-        id="evt_1",
+        event_id="evt_1",
     )
     async with _client() as c:
         msg = await c.webhooks.fetch_message(event)
@@ -273,10 +273,10 @@ async def test_send_error_surfaces_machine_code(httpx_mock):
 
 @pytest.mark.anyio
 async def test_create_agent_posts_body(httpx_mock):
-    httpx_mock.add_response(status_code=201, json=_valid(AgentView, id="ag_new", email="new@test.dev"))
+    httpx_mock.add_response(status_code=201, json=_valid(AgentView, agent_id="ag_new", email="new@test.dev"))
     async with _client() as c:
         res = await c.agents.create({"email": "new@test.dev"})
-    assert res.id == "ag_new"
+    assert res.agent_id == "ag_new"
     req = httpx_mock.get_requests()[-1]
     assert req.method == "POST"
     assert str(req.url).endswith("/v1/agents")
@@ -285,7 +285,7 @@ async def test_create_agent_posts_body(httpx_mock):
 @pytest.mark.anyio
 async def test_agents_list_autopager(httpx_mock):
     httpx_mock.add_response(
-        json={"items": [_valid(AgentView, id="ag_1", email="bot@test.dev")], "next_cursor": None}
+        json={"items": [_valid(AgentView, agent_id="ag_1", email="bot@test.dev")], "next_cursor": None}
     )
     async with _client() as c:
         items = await c.agents.list().to_list(limit=10)
@@ -332,11 +332,11 @@ async def test_reviews_reject_hits_reviews_path(httpx_mock):
 @pytest.mark.anyio
 async def test_reviews_list_reads_reviews_endpoint(httpx_mock):
     httpx_mock.add_response(
-        json={"items": [_valid(ReviewView, id="msg_r1")], "next_cursor": None}
+        json={"items": [_valid(ReviewView, review_id="msg_r1")], "next_cursor": None}
     )
     async with _client() as c:
         items = await c.reviews.list().to_list(limit=50)
-    assert [r.id for r in items] == ["msg_r1"]
+    assert [r.review_id for r in items] == ["msg_r1"]
     req = httpx_mock.get_requests()[-1]
     assert req.method == "GET"
     assert "/v1/reviews" in str(req.url)
@@ -390,11 +390,11 @@ async def test_conversations_list_threads_cursor(httpx_mock):
 
 @pytest.mark.anyio
 async def test_events_list_threads_cursor(httpx_mock):
-    httpx_mock.add_response(json={"items": [_valid(EventJSON, id="evt_1")], "next_cursor": "cur_2"})
-    httpx_mock.add_response(json={"items": [_valid(EventJSON, id="evt_2")], "next_cursor": None})
+    httpx_mock.add_response(json={"items": [_valid(EventJSON, event_id="evt_1")], "next_cursor": "cur_2"})
+    httpx_mock.add_response(json={"items": [_valid(EventJSON, event_id="evt_2")], "next_cursor": None})
     async with _client() as c:
         items = await c.events.list().to_list(limit=50)
-    assert [e.id for e in items] == ["evt_1", "evt_2"]
+    assert [e.event_id for e in items] == ["evt_1", "evt_2"]
     reqs = httpx_mock.get_requests()
     assert len(reqs) == 2
     assert "cursor=cur_2" in str(reqs[1].url)
@@ -425,7 +425,7 @@ async def test_suppressions_list_threads_cursor(httpx_mock):
     "fixture, lister",
     [
         (
-            {"items": [_valid(AgentView, id="ag_1", email="bot@test.dev")], "next_cursor": "IGNORE_ME"},
+            {"items": [_valid(AgentView, agent_id="ag_1", email="bot@test.dev")], "next_cursor": "IGNORE_ME"},
             lambda c: c.agents.list(),
         ),
         (
@@ -433,11 +433,11 @@ async def test_suppressions_list_threads_cursor(httpx_mock):
             lambda c: c.domains.list(),
         ),
         (
-            {"items": [_valid(WebhookView, id="wh_1")], "next_cursor": "IGNORE_ME"},
+            {"items": [_valid(WebhookView, webhook_id="wh_1")], "next_cursor": "IGNORE_ME"},
             lambda c: c.webhooks.list(),
         ),
         (
-            {"items": [_valid(WebhookDeliveryView, id="del_1")], "next_cursor": "IGNORE_ME"},
+            {"items": [_valid(WebhookDeliveryView, delivery_id="del_1")], "next_cursor": "IGNORE_ME"},
             lambda c: c.webhooks.deliveries("wh_1"),
         ),
     ],
@@ -489,7 +489,7 @@ async def test_422_maps_to_validation(httpx_mock):
 @pytest.mark.anyio
 async def test_retries_500_then_succeeds(httpx_mock):
     httpx_mock.add_response(status_code=503, json={"error": {"code": "x", "message": "down"}})
-    httpx_mock.add_response(json=_valid(AgentView, id="ag_1", email="bot@test.dev"))
+    httpx_mock.add_response(json=_valid(AgentView, agent_id="ag_1", email="bot@test.dev"))
     async with _client() as c:
         agent = await c.agents.get("bot@test.dev")  # GET is retryable
     assert agent.email == "bot@test.dev"

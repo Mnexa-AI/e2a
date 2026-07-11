@@ -36,7 +36,7 @@ export async function keysCreate(opts: KeysCreateOptions): Promise<void> {
   // the shown-once warning goes to stderr so it can't pollute the capture.
   process.stdout.write(created.key + "\n");
   process.stderr.write(
-    `Key ${created.id} created (${opts.agent ? `agent-scoped: ${opts.agent}` : "account-scoped"}). Shown once — store it now.\n`,
+    `Key ${created.apiKeyId} created (${opts.agent ? `agent-scoped: ${opts.agent}` : "account-scoped"}). Shown once — store it now.\n`,
   );
 }
 
@@ -47,7 +47,7 @@ export async function keysList(opts: KeysListOptions): Promise<void> {
       process.stdout.write(JSON.stringify(k) + "\n");
     } else {
       process.stdout.write(
-        `${k.id}\t${k.keyPrefix}\t${k.scope}${k.agent ? `\t${k.agent}` : "\t"}\t${k.name || ""}\n`,
+        `${k.apiKeyId}\t${k.keyPrefix}\t${k.scope}${k.agent ? `\t${k.agent}` : "\t"}\t${k.name || ""}\n`,
       );
     }
   }

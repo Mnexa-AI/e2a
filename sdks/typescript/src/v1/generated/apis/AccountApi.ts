@@ -110,20 +110,20 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
      * Revoke an API key
-     * @param id 
+     * @param apiKeyId 
      */
-    public async deleteApiKey(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteApiKey(apiKeyId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("AccountApi", "deleteApiKey", "id");
+        // verify required parameter 'apiKeyId' is not null or undefined
+        if (apiKeyId === null || apiKeyId === undefined) {
+            throw new RequiredError("AccountApi", "deleteApiKey", "apiKeyId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/account/api-keys/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/account/api-keys/{api_key_id}'
+            .replace('{' + 'api_key_id' + '}', encodeURIComponent(String(apiKeyId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);

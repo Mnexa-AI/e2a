@@ -20,7 +20,7 @@ import (
 // ReviewView is one item in the review queue — non-secret summary of a held
 // message of either direction.
 type ReviewView struct {
-	ID    string `json:"id"`
+	ID    string `json:"review_id"`
 	Agent string `json:"agent" doc:"The inbox (agent address) the held message belongs to."`
 	// Direction: outbound = a draft awaiting send approval; inbound = a screened
 	// incoming message awaiting release.
@@ -57,18 +57,18 @@ type listReviewsOutput struct{ Body Page[ReviewView] }
 type reviewDetailOutput struct{ Body MessageView }
 
 type getReviewInput struct {
-	ID string `path:"id"`
+	ID string `path:"review_id"`
 }
 
 type approveReviewInput struct {
-	ID             string `path:"id"`
+	ID             string `path:"review_id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
 	Body           agent.ApproveOverrides
 }
 
 type rejectReviewInput struct {
-	ID   string `path:"id"`
+	ID   string `path:"review_id"`
 	Body RejectRequest
 }
 
@@ -81,21 +81,21 @@ func (s *Server) registerReviews() {
 	}, s.handleListReviews)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "getReview", Method: http.MethodGet, Path: "/v1/reviews/{id}",
+		OperationID: "getReview", Method: http.MethodGet, Path: "/v1/reviews/{review_id}",
 		Summary: "Get a held message (full detail)", Tags: []string{"reviews"},
 		Description: "Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleGetReview)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "approveReview", Method: http.MethodPost, Path: "/v1/reviews/{id}/approve",
+		OperationID: "approveReview", Method: http.MethodPost, Path: "/v1/reviews/{review_id}/approve",
 		Summary: "Approve a held message", Tags: []string{"reviews"},
 		Description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleApproveReview)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "rejectReview", Method: http.MethodPost, Path: "/v1/reviews/{id}/reject",
+		OperationID: "rejectReview", Method: http.MethodPost, Path: "/v1/reviews/{review_id}/reject",
 		Summary: "Reject a held message", Tags: []string{"reviews"},
 		Description: "Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.",
 		Security:    []map[string][]string{{"bearer": {}}},

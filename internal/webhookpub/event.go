@@ -186,7 +186,7 @@ func NewEvent(eventType, userID string, data any) Event {
 // GET /v1/events/{id} object, so consumers handle both identically.
 type Envelope struct {
 	Type      string    `json:"type"`
-	ID        string    `json:"id"`
+	ID        string    `json:"event_id"`
 	CreatedAt time.Time `json:"created_at"`
 	Data      any       `json:"data"`
 }

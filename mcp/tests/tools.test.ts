@@ -683,7 +683,7 @@ describe("e2a MCP server", () => {
   it("list_webhook_deliveries forwards id + filters to client.listWebhookDeliveries", async () => {
     const res = await client.callTool({
       name: "list_webhook_deliveries",
-      arguments: { id: "wh_abc", status: "failed", limit: 10 },
+      arguments: { webhook_id: "wh_abc", status: "failed", limit: 10 },
     });
     expect(stub.listWebhookDeliveries).toHaveBeenCalledWith("wh_abc", {
       status: "failed",
@@ -1216,7 +1216,7 @@ describe("e2a MCP server", () => {
   });
 
   it("get_template forwards the id", async () => {
-    await client.callTool({ name: "get_template", arguments: { id: "tmpl_1" } });
+    await client.callTool({ name: "get_template", arguments: { template_id: "tmpl_1" } });
     expect(stub.getTemplate).toHaveBeenCalledWith("tmpl_1");
   });
 
@@ -1256,7 +1256,7 @@ describe("e2a MCP server", () => {
   it("update_template splits id from the patch", async () => {
     await client.callTool({
       name: "update_template",
-      arguments: { id: "tmpl_1", subject: "New subject {{x}}", html_body: "" },
+      arguments: { template_id: "tmpl_1", subject: "New subject {{x}}", html_body: "" },
     });
     // html_body: "" is a deliberate clear — it must survive to the wire.
     expect(stub.updateTemplate).toHaveBeenCalledWith("tmpl_1", {
@@ -1268,7 +1268,7 @@ describe("e2a MCP server", () => {
   it("delete_template requires confirm:true — schema validator catches the omission", async () => {
     const res = await client.callTool({
       name: "delete_template",
-      arguments: { id: "tmpl_1" },
+      arguments: { template_id: "tmpl_1" },
     });
     expect(res.isError).toBe(true);
     expect(stub.deleteTemplate).not.toHaveBeenCalled();
@@ -1277,7 +1277,7 @@ describe("e2a MCP server", () => {
   it("delete_template forwards on explicit confirm:true", async () => {
     const res = await client.callTool({
       name: "delete_template",
-      arguments: { id: "tmpl_1", confirm: true },
+      arguments: { template_id: "tmpl_1", confirm: true },
     });
     expect(stub.deleteTemplate).toHaveBeenCalledWith("tmpl_1");
     expect((res.content as Array<{ text: string }>)[0]?.text).toMatch(/tmpl_1/);

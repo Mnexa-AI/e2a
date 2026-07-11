@@ -69,13 +69,13 @@ func (s *Server) registerEvents() {
 	}, s.handleListEvents)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "getEvent", Method: http.MethodGet, Path: "/v1/events/{id}",
+		OperationID: "getEvent", Method: http.MethodGet, Path: "/v1/events/{event_id}",
 		Summary: "Get an event", Tags: []string{"events"},
 		Security: []map[string][]string{{"bearer": {}}},
 	}, s.handleGetEvent)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "redeliverEvent", Method: http.MethodPost, Path: "/v1/events/{id}/redeliver",
+		OperationID: "redeliverEvent", Method: http.MethodPost, Path: "/v1/events/{event_id}/redeliver",
 		Summary: "Redeliver an event", Tags: []string{"events"},
 		Description: "Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.",
 		Security:    []map[string][]string{{"bearer": {}}},
@@ -108,7 +108,7 @@ type RedeliverEventRequest struct {
 }
 
 type RedeliverEventInput struct {
-	ID   string `path:"id"`
+	ID   string `path:"event_id"`
 	Body RedeliverEventRequest
 }
 
@@ -294,7 +294,7 @@ func (s *Server) handleListEvents(ctx context.Context, in *ListEventsInput) (*li
 }
 
 func (s *Server) handleGetEvent(ctx context.Context, in *struct {
-	ID string `path:"id"`
+	ID string `path:"event_id"`
 }) (*eventOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {

@@ -21,7 +21,7 @@ func TestListAPIKeys(t *testing.T) {
 		t.Fatalf("want 1 key, got %v", body)
 	}
 	k, _ := items[0].(map[string]any)
-	if k["id"] != "apk_1" || k["scope"] != "account" {
+	if k["api_key_id"] != "apk_1" || k["scope"] != "account" {
 		t.Fatalf("unexpected key: %v", k)
 	}
 	// List never leaks the plaintext secret.

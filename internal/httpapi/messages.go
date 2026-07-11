@@ -202,7 +202,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 // MessageIDParam is the path input for single-message operations.
 type MessageIDParam struct {
 	Address   string `path:"email" doc:"The agent's full email address."`
-	MessageID string `path:"id" doc:"The message id, e.g. msg_abc123."`
+	MessageID string `path:"message_id" doc:"The message id, e.g. msg_abc123."`
 }
 
 type messageOutput struct {
@@ -363,7 +363,7 @@ func (s *Server) registerMessages() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getMessage",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{email}/messages/{id}",
+		Path:        "/v1/agents/{email}/messages/{message_id}",
 		Summary:     "Get a message",
 		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.",
 		Tags:        []string{"messages"},
@@ -386,7 +386,7 @@ func (s *Server) registerMessages() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "updateMessage",
 		Method:      http.MethodPatch,
-		Path:        "/v1/agents/{email}/messages/{id}",
+		Path:        "/v1/agents/{email}/messages/{message_id}",
 		Summary:     "Update a message (labels)",
 		Description: "Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.",
 		Tags:        []string{"messages"},
@@ -403,7 +403,7 @@ type UpdateMessageRequest struct {
 
 type updateMessageInput struct {
 	Address string `path:"email"`
-	ID      string `path:"id"`
+	ID      string `path:"message_id"`
 	Body    UpdateMessageRequest
 }
 

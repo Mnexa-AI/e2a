@@ -21,20 +21,20 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
      * Get an event
-     * @param id 
+     * @param eventId 
      */
-    public async getEvent(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async getEvent(eventId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("EventsApi", "getEvent", "id");
+        // verify required parameter 'eventId' is not null or undefined
+        if (eventId === null || eventId === undefined) {
+            throw new RequiredError("EventsApi", "getEvent", "eventId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/events/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/events/{event_id}'
+            .replace('{' + 'event_id' + '}', encodeURIComponent(String(eventId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
@@ -145,15 +145,15 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
-     * @param id 
+     * @param eventId 
      * @param redeliverEventRequest 
      */
-    public async redeliverEvent(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: Configuration): Promise<RequestContext> {
+    public async redeliverEvent(eventId: string, redeliverEventRequest: RedeliverEventRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("EventsApi", "redeliverEvent", "id");
+        // verify required parameter 'eventId' is not null or undefined
+        if (eventId === null || eventId === undefined) {
+            throw new RequiredError("EventsApi", "redeliverEvent", "eventId");
         }
 
 
@@ -164,8 +164,8 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/events/{id}/redeliver'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/events/{event_id}/redeliver'
+            .replace('{' + 'event_id' + '}', encodeURIComponent(String(eventId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);

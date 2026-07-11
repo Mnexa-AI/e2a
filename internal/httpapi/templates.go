@@ -72,7 +72,7 @@ func (d *TemplateData) UnmarshalJSON(b []byte) error {
 // TemplateView is the full template resource (create/get/update responses;
 // the list returns TemplateSummaryView).
 type TemplateView struct {
-	ID       string `json:"id"`
+	ID       string `json:"template_id"`
 	Name     string `json:"name"`
 	Alias    string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
 	Subject  string `json:"subject"`
@@ -105,7 +105,7 @@ func templateView(tp *identity.Template) TemplateView {
 // megabytes per list call; every list consumer needs metadata). Fetch one by
 // id for the sources — same split as the starter-templates list/detail.
 type TemplateSummaryView struct {
-	ID        string `json:"id"`
+	ID        string `json:"template_id"`
 	Name      string `json:"name"`
 	Alias     string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
 	Subject   string `json:"subject"`
@@ -155,13 +155,13 @@ type UpdateTemplateRequest struct {
 	HTMLBody *string `json:"html_body,omitempty" doc:"Set to \"\" to remove the HTML part."`
 }
 type updateTemplateInput struct {
-	ID   string `path:"id"`
+	ID   string `path:"template_id"`
 	Body UpdateTemplateRequest
 }
 
 // TemplateIDParam is the path input for single-template ops.
 type TemplateIDParam struct {
-	ID string `path:"id"`
+	ID string `path:"template_id"`
 }
 
 func (s *Server) registerTemplates() {
@@ -180,21 +180,21 @@ func (s *Server) registerTemplates() {
 	}, s.handleListTemplates)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "getTemplate", Method: http.MethodGet, Path: "/v1/templates/{id}",
+		OperationID: "getTemplate", Method: http.MethodGet, Path: "/v1/templates/{template_id}",
 		Summary: "Get a template (beta)", Tags: []string{"templates"},
 		Description: "Fetch one template by id. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleGetTemplate)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "updateTemplate", Method: http.MethodPatch, Path: "/v1/templates/{id}",
+		OperationID: "updateTemplate", Method: http.MethodPatch, Path: "/v1/templates/{template_id}",
 		Summary: "Update a template (beta)", Tags: []string{"templates"},
 		Description: "Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleUpdateTemplate)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "deleteTemplate", Method: http.MethodDelete, Path: "/v1/templates/{id}",
+		OperationID: "deleteTemplate", Method: http.MethodDelete, Path: "/v1/templates/{template_id}",
 		Summary: "Delete a template (beta)", Tags: []string{"templates"},
 		Description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,

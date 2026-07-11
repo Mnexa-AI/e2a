@@ -122,7 +122,7 @@ describe.skipIf(!live)("cli live parity", () => {
     const created = run(["keys", "create", "--name", "cli-live-key", "--json"]);
     expect(created.code, created.stderr).toBe(0);
     const key = JSON.parse(created.stdout);
-    const keyId = key.id ?? key.keyId;
+    const keyId = key.apiKeyId ?? key.api_key_id;
     expect(keyId).toBeTruthy();
     try {
       const list = run(["keys", "list", "--json"]);

@@ -27,8 +27,8 @@ function __setSearchParams(qs: string) {
 }
 
 // useAuth is mocked per test via __setAuth.
-let authValue: { user: { id: string; email: string; name?: string; created_at?: string } | null; loading: boolean } = {
-  user: { id: "u_1", email: "user@example.com", name: "User", created_at: "" },
+let authValue: { user: { user_id: string; email: string; name?: string; created_at?: string } | null; loading: boolean } = {
+  user: { user_id: "u_1", email: "user@example.com", name: "User", created_at: "" },
   loading: false,
 };
 jest.mock("../../components/AuthProvider", () => ({
@@ -116,7 +116,7 @@ beforeEach(() => {
     Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) }),
   );
   __setAuth({
-    user: { id: "u_1", email: "user@example.com", name: "User", created_at: "" },
+    user: { user_id: "u_1", email: "user@example.com", name: "User", created_at: "" },
     loading: false,
   });
 });
@@ -259,8 +259,8 @@ describe("ConsentPage", () => {
     __setSearchParams(VALID_QS);
     mockClientAndAgents({
       agents: [
-        { id: "a1", domain: "verified.com", email: "alice@verified.com" },
-        { id: "a2", domain: "verified.com", email: "bob@verified.com" },
+        { agent_id: "a1", domain: "verified.com", email: "alice@verified.com" },
+        { agent_id: "a2", domain: "verified.com", email: "bob@verified.com" },
       ],
     });
 

@@ -46,7 +46,7 @@ function setSearchParams(params: Record<string, string>) {
 }
 
 const baseAgent = {
-  id: "ag_test",
+  agent_id: "ag_test",
   domain: "acme.com",
   email: "support@acme.com",
   name: "support",

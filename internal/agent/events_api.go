@@ -32,7 +32,7 @@ func (a *API) SetPoolForEvents(p *pgxpool.Pool) { a.eventsPool = p }
 // eventJSON is the wire shape returned by GET /events and
 // GET /events/{id}. Mirrors design §4.6.
 type eventJSON struct {
-	ID             string                 `json:"id"`
+	ID             string                 `json:"event_id"`
 	Type           string                 `json:"type" doc:"Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added."`
 	SchemaVersion  int                    `json:"schema_version"`
 	CreatedAt      time.Time              `json:"created_at"`

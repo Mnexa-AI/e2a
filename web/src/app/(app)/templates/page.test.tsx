@@ -67,7 +67,7 @@ function jsonResp(body: unknown, status = 200): MockResponse {
 // --- Fixtures ---
 
 const template = {
-  id: "tpl_abc123",
+  template_id: "tpl_abc123",
   name: "Order receipt",
   alias: "receipt",
   subject: "Your receipt for {{order_id}}",
@@ -172,8 +172,8 @@ describe("Templates page", () => {
       "GET /v1/templates": () =>
         jsonResp({ items: [template], next_cursor: null }),
       "/v1/starter-templates": () => jsonResp(starterCatalog),
-      [`DELETE /v1/templates/${encodeURIComponent(template.id)}`]: () => {
-        deletedIDs.push(template.id);
+      [`DELETE /v1/templates/${encodeURIComponent(template.template_id)}`]: () => {
+        deletedIDs.push(template.template_id);
         return {
           ok: true,
           status: 204,
@@ -189,7 +189,7 @@ describe("Templates page", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
-    await waitFor(() => expect(deletedIDs).toEqual([template.id]));
+    await waitFor(() => expect(deletedIDs).toEqual([template.template_id]));
   });
 
   it("Use this template POSTs from_starter and navigates to the new template's edit view", async () => {
@@ -199,7 +199,7 @@ describe("Templates page", () => {
       "/v1/starter-templates": () => jsonResp(starterCatalog),
       "POST /v1/templates": (init) => {
         posted.push(JSON.parse(String(init?.body)));
-        return jsonResp({ ...template, id: "tpl_new1" }, 201);
+        return jsonResp({ ...template, template_id: "tpl_new1" }, 201);
       },
     }) as unknown as typeof fetch;
 
@@ -232,7 +232,7 @@ describe("Templates page", () => {
             409,
           );
         }
-        return jsonResp({ ...template, id: "tpl_new2" }, 201);
+        return jsonResp({ ...template, template_id: "tpl_new2" }, 201);
       },
     }) as unknown as typeof fetch;
 

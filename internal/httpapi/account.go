@@ -13,7 +13,7 @@ import (
 // GET /v1/account (MCP `whoami`) so an agent/operator can answer "who am I"
 // without a follow-up call.
 type AccountUserView struct {
-	ID    string `json:"id"`
+	ID    string `json:"user_id"`
 	Email string `json:"email"`
 }
 

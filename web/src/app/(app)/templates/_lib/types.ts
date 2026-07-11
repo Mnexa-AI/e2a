@@ -6,7 +6,7 @@
 // GET /v1/templates returns SUMMARIES (metadata only, no body sources);
 // GET /v1/templates/{id} returns the full view with the sources.
 export type TemplateSummaryView = {
-  id: string;
+  template_id: string;
   name: string;
   alias?: string;
   subject: string;

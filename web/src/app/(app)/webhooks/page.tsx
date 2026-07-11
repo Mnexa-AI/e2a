@@ -25,7 +25,7 @@ const inlineCodeStyle: React.CSSProperties = {
 // returns `signing_secret` — it's only present on create / rotate
 // responses, which we surface once in the reveal banner.
 type WebhookView = {
-  id: string;
+  webhook_id: string;
   url: string;
   description?: string;
   events?: string[] | null;
@@ -480,7 +480,7 @@ function WebhooksTable({
         <tbody>
           {webhooks.map((w, i) => (
             <WebhookRow
-              key={w.id}
+              key={w.webhook_id}
               webhook={w}
               onChange={onChange}
               onRevealRotated={onRevealRotated}
@@ -514,7 +514,7 @@ function WebhookRow({
     setError("");
     try {
       const res = await fetch(
-        `/v1/webhooks/${encodeURIComponent(webhook.id)}`,
+        `/v1/webhooks/${encodeURIComponent(webhook.webhook_id)}`,
         {
           method: "DELETE",
           credentials: "include",
@@ -539,7 +539,7 @@ function WebhookRow({
     setError("");
     try {
       const res = await fetch(
-        `/v1/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`,
+        `/v1/webhooks/${encodeURIComponent(webhook.webhook_id)}/rotate-secret`,
         {
           method: "POST",
           credentials: "include",

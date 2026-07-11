@@ -17,7 +17,7 @@ jest.mock("next/link", () => {
 
 const signOut = jest.fn();
 let mockAuth: {
-  user: { id: string; email: string; name: string; created_at: string } | null;
+  user: { user_id: string; email: string; name: string; created_at: string } | null;
   loading: boolean;
   signOut: jest.Mock;
 };
@@ -29,7 +29,7 @@ jest.mock("../../components/AuthProvider", () => ({
 beforeEach(() => {
   mockAuth = {
     user: {
-      id: "usr_abc123",
+      user_id: "usr_abc123",
       email: "alice@example.com",
       name: "Alice",
       created_at: "2026-04-01T10:00:00Z",

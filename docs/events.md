@@ -37,7 +37,7 @@ const events = await client.events
     since: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
   })
   .toArray(); // auto-pages via next_cursor
-for (const e of events) console.log(e.id, e.type, e.created_at);
+for (const e of events) console.log(e.eventId, e.type, e.created_at);
 ```
 
 In Python:
@@ -48,7 +48,7 @@ import os
 
 client = E2AClient(api_key=os.environ["E2A_API_KEY"])
 for e in client.events.list(type="email.received", limit=20):
-    print(e.id, e.type, e.created_at)
+    print(e.event_id, e.type, e.created_at)
 ```
 
 ## Event types
@@ -105,14 +105,14 @@ If your webhook receiver went down for an hour, the steps to reconcile are:
 1. Pick a `since` timestamp covering the outage (with a buffer).
 2. List events filtered to the affected window — `GET /events?since=…&until=…`.
 3. Compare event IDs against what your receiver actually processed.
-4. For any gaps, use `POST /events/{id}/redeliver` to re-fire one event.
+4. For any gaps, use `POST /events/{event_id}/redeliver` to re-fire one event.
 
 ```python
 # Pseudocode for the reconciliation flow.
 processed = set(load_processed_event_ids_from_my_db())
 for e in client.events.list(since=outage_start, until=outage_end):
-    if e.id not in processed:
-        client.events.redeliver(e.id, webhook_id="wh_my_handler")
+    if e.event_id not in processed:
+        client.events.redeliver(e.event_id, webhook_id="wh_my_handler")
 ```
 
 ## Replay
@@ -138,13 +138,13 @@ To reconcile a whole window after an outage, walk `GET /v1/events?since=…&unti
 ## Listing, fetching, and replaying events
 
 The event log is driven over the REST API (`GET /v1/events`,
-`GET /v1/events/{id}`, `POST /v1/events/{id}/redeliver`) or the MCP tools
+`GET /v1/events/{event_id}`, `POST /v1/events/{event_id}/redeliver`) or the MCP tools
 (`list_events`, `get_event`, `redeliver_event`) — there is no CLI for events.
 The TypeScript / Python SDKs wrap the same endpoints (`client.events.*`).
 
 ## Retention and expiry
 
-Events live for **30 days** then drop out of the log. Delivery rows in `webhook_subscriber_deliveries` live longer (90 days post-creation, matching the retry envelope) but become detached from the parent event once it expires — `GET /events/{id}` returns 410 Gone while the delivery history endpoint `GET /webhooks/{id}/deliveries` still shows the row.
+Events live for **30 days** then drop out of the log. Delivery rows in `webhook_subscriber_deliveries` live longer (90 days post-creation, matching the retry envelope) but become detached from the parent event once it expires — `GET /events/{event_id}` returns 410 Gone while the delivery history endpoint `GET /webhooks/{webhook_id}/deliveries` still shows the row.
 
 Replay requires the source event to still exist. If you need a longer reconciliation window, plumb your own copy into your DB at event-receipt time.
 

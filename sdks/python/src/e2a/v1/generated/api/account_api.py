@@ -585,7 +585,7 @@ class AccountApi:
     @validate_call
     async def delete_api_key(
         self,
-        id: StrictStr,
+        api_key_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -603,8 +603,8 @@ class AccountApi:
 
         Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
 
-        :param id: (required)
-        :type id: str
+        :param api_key_id: (required)
+        :type api_key_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -628,7 +628,7 @@ class AccountApi:
         """ # noqa: E501
 
         _param = self._delete_api_key_serialize(
-            id=id,
+            api_key_id=api_key_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -652,7 +652,7 @@ class AccountApi:
     @validate_call
     async def delete_api_key_with_http_info(
         self,
-        id: StrictStr,
+        api_key_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -670,8 +670,8 @@ class AccountApi:
 
         Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
 
-        :param id: (required)
-        :type id: str
+        :param api_key_id: (required)
+        :type api_key_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -695,7 +695,7 @@ class AccountApi:
         """ # noqa: E501
 
         _param = self._delete_api_key_serialize(
-            id=id,
+            api_key_id=api_key_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -719,7 +719,7 @@ class AccountApi:
     @validate_call
     async def delete_api_key_without_preload_content(
         self,
-        id: StrictStr,
+        api_key_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -737,8 +737,8 @@ class AccountApi:
 
         Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
 
-        :param id: (required)
-        :type id: str
+        :param api_key_id: (required)
+        :type api_key_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -762,7 +762,7 @@ class AccountApi:
         """ # noqa: E501
 
         _param = self._delete_api_key_serialize(
-            id=id,
+            api_key_id=api_key_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -781,7 +781,7 @@ class AccountApi:
 
     def _delete_api_key_serialize(
         self,
-        id,
+        api_key_id,
         _request_auth,
         _content_type,
         _headers,
@@ -803,8 +803,8 @@ class AccountApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if api_key_id is not None:
+            _path_params['api_key_id'] = api_key_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -827,7 +827,7 @@ class AccountApi:
 
         return self.api_client.param_serialize(
             method='DELETE',
-            resource_path='/v1/account/api-keys/{id}',
+            resource_path='/v1/account/api-keys/{api_key_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

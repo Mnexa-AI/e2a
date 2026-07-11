@@ -73,20 +73,20 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
      * Delete a webhook
-     * @param id 
+     * @param webhookId 
      */
-    public async deleteWebhook(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteWebhook(webhookId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("WebhooksApi", "deleteWebhook", "id");
+        // verify required parameter 'webhookId' is not null or undefined
+        if (webhookId === null || webhookId === undefined) {
+            throw new RequiredError("WebhooksApi", "deleteWebhook", "webhookId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/webhooks/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/webhooks/{webhook_id}'
+            .replace('{' + 'webhook_id' + '}', encodeURIComponent(String(webhookId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);
@@ -110,20 +110,20 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
      * Get a webhook
-     * @param id 
+     * @param webhookId 
      */
-    public async getWebhook(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async getWebhook(webhookId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("WebhooksApi", "getWebhook", "id");
+        // verify required parameter 'webhookId' is not null or undefined
+        if (webhookId === null || webhookId === undefined) {
+            throw new RequiredError("WebhooksApi", "getWebhook", "webhookId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/webhooks/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/webhooks/{webhook_id}'
+            .replace('{' + 'webhook_id' + '}', encodeURIComponent(String(webhookId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
@@ -148,24 +148,24 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * The per-webhook delivery log (read-only debug view).
      * List webhook deliveries
-     * @param id 
+     * @param webhookId 
      * @param status 
      * @param limit 
      */
-    public async listWebhookDeliveries(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: Configuration): Promise<RequestContext> {
+    public async listWebhookDeliveries(webhookId: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("WebhooksApi", "listWebhookDeliveries", "id");
+        // verify required parameter 'webhookId' is not null or undefined
+        if (webhookId === null || webhookId === undefined) {
+            throw new RequiredError("WebhooksApi", "listWebhookDeliveries", "webhookId");
         }
 
 
 
 
         // Path Params
-        const localVarPath = '/v1/webhooks/{id}/deliveries'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/webhooks/{webhook_id}/deliveries'
+            .replace('{' + 'webhook_id' + '}', encodeURIComponent(String(webhookId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
@@ -229,22 +229,22 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
-     * @param id 
+     * @param webhookId 
      * @param idempotencyKey 
      */
-    public async rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
+    public async rotateWebhookSecret(webhookId: string, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("WebhooksApi", "rotateWebhookSecret", "id");
+        // verify required parameter 'webhookId' is not null or undefined
+        if (webhookId === null || webhookId === undefined) {
+            throw new RequiredError("WebhooksApi", "rotateWebhookSecret", "webhookId");
         }
 
 
 
         // Path Params
-        const localVarPath = '/v1/webhooks/{id}/rotate-secret'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/webhooks/{webhook_id}/rotate-secret'
+            .replace('{' + 'webhook_id' + '}', encodeURIComponent(String(webhookId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
@@ -272,15 +272,15 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
      * Fire a synthetic event
-     * @param id 
+     * @param webhookId 
      * @param testWebhookRequest 
      */
-    public async testWebhook(id: string, testWebhookRequest: TestWebhookRequest, _options?: Configuration): Promise<RequestContext> {
+    public async testWebhook(webhookId: string, testWebhookRequest: TestWebhookRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("WebhooksApi", "testWebhook", "id");
+        // verify required parameter 'webhookId' is not null or undefined
+        if (webhookId === null || webhookId === undefined) {
+            throw new RequiredError("WebhooksApi", "testWebhook", "webhookId");
         }
 
 
@@ -291,8 +291,8 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/webhooks/{id}/test'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/webhooks/{webhook_id}/test'
+            .replace('{' + 'webhook_id' + '}', encodeURIComponent(String(webhookId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
@@ -328,15 +328,15 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
      * Update a webhook
-     * @param id 
+     * @param webhookId 
      * @param updateWebhookRequest 
      */
-    public async updateWebhook(id: string, updateWebhookRequest: UpdateWebhookRequest, _options?: Configuration): Promise<RequestContext> {
+    public async updateWebhook(webhookId: string, updateWebhookRequest: UpdateWebhookRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("WebhooksApi", "updateWebhook", "id");
+        // verify required parameter 'webhookId' is not null or undefined
+        if (webhookId === null || webhookId === undefined) {
+            throw new RequiredError("WebhooksApi", "updateWebhook", "webhookId");
         }
 
 
@@ -347,8 +347,8 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/webhooks/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/webhooks/{webhook_id}'
+            .replace('{' + 'webhook_id' + '}', encodeURIComponent(String(webhookId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.PATCH);

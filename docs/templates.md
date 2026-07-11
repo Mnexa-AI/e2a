@@ -20,7 +20,7 @@ time**. Instead of composing subject/body in your agent code, you reference a
 template by alias and pass the variable values:
 
 - `POST /v1/templates` — create (or copy a starter with `from_starter`)
-- `GET/PATCH/DELETE /v1/templates/{id}` — manage
+- `GET/PATCH/DELETE /v1/templates/{template_id}` — manage
 - `POST /v1/templates/validate` — dry-run sources + render a preview without persisting
 - `GET /v1/starter-templates` / `GET /v1/starter-templates/{alias}` — the read-only starter catalog
 

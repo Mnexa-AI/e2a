@@ -67,7 +67,7 @@ function jsonResp(body: unknown, status = 200): MockResponse {
 }
 
 const template = {
-  id: "tpl_abc123",
+  template_id: "tpl_abc123",
   name: "Order receipt",
   alias: "receipt",
   subject: "Your receipt for {{order_id}}",

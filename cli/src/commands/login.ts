@@ -444,8 +444,8 @@ async function exchangeForAgentKey(
     const candidates: string[] = [];
     for await (const k of client.account.apiKeys.list()) {
       const prefix = k.keyPrefix.replace(/[^A-Za-z0-9_]+$/g, "");
-      if (k.id !== created.id && prefix && bootstrapKey.startsWith(prefix)) {
-        candidates.push(k.id);
+      if (k.apiKeyId !== created.apiKeyId && prefix && bootstrapKey.startsWith(prefix)) {
+        candidates.push(k.apiKeyId);
       }
     }
     if (candidates.length === 1) {

@@ -18,9 +18,9 @@ export class TemplateSummaryView {
     */
     'alias'?: string;
     'createdAt': Date;
-    'id': string;
     'name': string;
     'subject': string;
+    'templateId': string;
     'updatedAt': Date;
 
     static readonly discriminator: string | undefined = undefined;
@@ -41,12 +41,6 @@ export class TemplateSummaryView {
             "format": "date-time"
         },
         {
-            "name": "id",
-            "baseName": "id",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "name",
             "baseName": "name",
             "type": "string",
@@ -55,6 +49,12 @@ export class TemplateSummaryView {
         {
             "name": "subject",
             "baseName": "subject",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "templateId",
+            "baseName": "template_id",
             "type": "string",
             "format": ""
         },

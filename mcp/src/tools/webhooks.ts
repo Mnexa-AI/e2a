@@ -63,10 +63,10 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       description:
         "Fetch a single webhook by id. signing_secret is omitted — use rotate_webhook_secret if the secret was lost.",
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Webhook id (wh_…)."),
+        webhook_id: z.string().min(1).describe("Webhook id (wh_…)."),
       }),
     },
-    async (args) => runTool(() => client.getWebhook(args.id)),
+    async (args) => runTool(() => client.getWebhook(args.webhook_id)),
   );
 
   server.registerTool(
@@ -107,7 +107,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       description:
         "Partial update. Fields you do NOT pass are left unchanged. url / events / filters are full-replace when present (no array merge). Use enabled:false to pause delivery without losing config; enabled:true re-enables (subject to a 5-min cooldown after auto-disable).",
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Webhook id (wh_…)."),
+        webhook_id: z.string().min(1).describe("Webhook id (wh_…)."),
         url: z.string().optional(),
         events: z.array(z.string().min(1)).optional(),
         filters: filtersSchema.optional(),
@@ -116,10 +116,10 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       }),
     },
     async (args) => {
-      const { id, filters, ...rest } = args;
+      const { webhook_id, filters, ...rest } = args;
       const mapped = mapFilters(filters);
       return runTool(() =>
-        client.updateWebhook(id, {
+        client.updateWebhook(webhook_id, {
           ...rest,
           ...(mapped ? { filters: mapped } : {}),
         }),
@@ -135,7 +135,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       description:
         "Permanently remove a webhook subscription. CASCADES to pending delivery rows. Requires confirm:true so an LLM cannot delete on ambiguous context.",
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Webhook id (wh_…)."),
+        webhook_id: z.string().min(1).describe("Webhook id (wh_…)."),
         confirm: z.literal(true).describe("Must be true to proceed."),
       }),
     },
@@ -144,8 +144,8 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
         if (args.confirm !== true) {
           throw new Error("delete_webhook requires confirm:true.");
         }
-        await client.deleteWebhook(args.id);
-        return { deleted: args.id };
+        await client.deleteWebhook(args.webhook_id);
+        return { deleted: args.webhook_id };
       }),
   );
 
@@ -157,10 +157,10 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       description:
         "Generate a new signing_secret and move the current one into a 24h grace window during which the worker dual-signs each delivery (two v1= entries on X-E2A-Signature). The new plaintext is returned ONCE — every subsequent list/get scrubs it. Use when the previous secret was leaked or rotated by policy.",
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Webhook id (wh_…)."),
+        webhook_id: z.string().min(1).describe("Webhook id (wh_…)."),
       }),
     },
-    async (args) => runTool(() => client.rotateWebhookSecret(args.id)),
+    async (args) => runTool(() => client.rotateWebhookSecret(args.webhook_id)),
   );
 
   server.registerTool(
@@ -171,7 +171,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       description:
         "Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id; inspect the outcome (status/attempts/last_error) via `list_webhook_deliveries`. Returns an error if the webhook is disabled. Cheap and safe — the synthetic event does not touch real inbound or review state.",
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Webhook id (wh_…)."),
+        webhook_id: z.string().min(1).describe("Webhook id (wh_…)."),
         event: z
           .string()
           .optional()
@@ -181,7 +181,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       }),
     },
     async (args) =>
-      runTool(() => client.testWebhook(args.id, { event: args.event })),
+      runTool(() => client.testWebhook(args.webhook_id, { event: args.event })),
   );
 
   server.registerTool(
@@ -192,7 +192,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       description:
         "Returns the most recent delivery rows for one webhook. Each row includes status (pending|delivered|failed), attempts, last_error, last_status_code, and timestamps. The way to debug why a subscriber is missing events, or to check the outcome of a `test_webhook` call. Read-only. Distinct from `list_events` (the account-wide event log); this is the per-webhook delivery ledger.",
       inputSchema: strictInputSchema({
-        id: z.string().min(1).describe("Webhook id (wh_…)."),
+        webhook_id: z.string().min(1).describe("Webhook id (wh_…)."),
         status: z
           .enum(["pending", "delivered", "failed"])
           .optional()
@@ -208,7 +208,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
     },
     async (args) =>
       runTool(async () => ({
-        deliveries: await client.listWebhookDeliveries(args.id, {
+        deliveries: await client.listWebhookDeliveries(args.webhook_id, {
           ...(args.status !== undefined ? { status: args.status } : {}),
           ...(args.limit !== undefined ? { limit: args.limit } : {}),
         }),

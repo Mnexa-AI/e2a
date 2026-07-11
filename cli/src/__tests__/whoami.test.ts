@@ -18,7 +18,7 @@ vi.mock("../config.js", () => ({
 
 function makeAccount(overrides: Record<string, unknown> = {}) {
   return {
-    user: { id: "usr_1", email: "owner@example.com" },
+    user: { userId: "usr_1", email: "owner@example.com" },
     scope: "account",
     planCode: "free",
     upgradeUrl: "https://e2a.dev/upgrade",

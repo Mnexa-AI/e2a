@@ -36,7 +36,7 @@ type WebhookFiltersView struct {
 // carries NO signing secret (WH-3): the secret is shown once, only in the
 // create response (CreateWebhookResponse) and on rotate (rotateSecretResponse).
 type WebhookView struct {
-	ID              string             `json:"id"`
+	ID              string             `json:"webhook_id"`
 	URL             string             `json:"url"`
 	Description     string             `json:"description"`
 	Events          []string           `json:"events" nullable:"false" doc:"The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."`
@@ -191,7 +191,7 @@ type createWebhookInput struct{ Body CreateWebhookRequest }
 
 // WebhookIDParam is the path input for single-webhook ops.
 type WebhookIDParam struct {
-	ID string `path:"id"`
+	ID string `path:"webhook_id"`
 }
 
 func (s *Server) registerWebhooks() {
@@ -208,40 +208,40 @@ func (s *Server) registerWebhooks() {
 	}, s.handleListWebhooks)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "getWebhook", Method: http.MethodGet, Path: "/v1/webhooks/{id}",
+		OperationID: "getWebhook", Method: http.MethodGet, Path: "/v1/webhooks/{webhook_id}",
 		Summary: "Get a webhook", Tags: []string{"webhooks"},
 		Security: []map[string][]string{{"bearer": {}}},
 	}, s.handleGetWebhook)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "deleteWebhook", Method: http.MethodDelete, Path: "/v1/webhooks/{id}",
+		OperationID: "deleteWebhook", Method: http.MethodDelete, Path: "/v1/webhooks/{webhook_id}",
 		Summary: "Delete a webhook", Tags: []string{"webhooks"},
 		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteWebhook)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "updateWebhook", Method: http.MethodPatch, Path: "/v1/webhooks/{id}",
+		OperationID: "updateWebhook", Method: http.MethodPatch, Path: "/v1/webhooks/{webhook_id}",
 		Summary: "Update a webhook", Tags: []string{"webhooks"},
 		Description: "Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleUpdateWebhook)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "rotateWebhookSecret", Method: http.MethodPost, Path: "/v1/webhooks/{id}/rotate-secret",
+		OperationID: "rotateWebhookSecret", Method: http.MethodPost, Path: "/v1/webhooks/{webhook_id}/rotate-secret",
 		Summary: "Rotate a webhook signing secret", Tags: []string{"webhooks"},
 		Description: "Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleRotateWebhookSecret)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "testWebhook", Method: http.MethodPost, Path: "/v1/webhooks/{id}/test",
+		OperationID: "testWebhook", Method: http.MethodPost, Path: "/v1/webhooks/{webhook_id}/test",
 		Summary: "Fire a synthetic event", Tags: []string{"webhooks"},
 		Description: "Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleTestWebhook)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "listWebhookDeliveries", Method: http.MethodGet, Path: "/v1/webhooks/{id}/deliveries",
+		OperationID: "listWebhookDeliveries", Method: http.MethodGet, Path: "/v1/webhooks/{webhook_id}/deliveries",
 		Summary: "List webhook deliveries", Tags: []string{"webhooks"},
 		Description: "The per-webhook delivery log (read-only debug view).",
 		Security:    []map[string][]string{{"bearer": {}}},
@@ -254,7 +254,7 @@ type TestWebhookRequest struct {
 	Data  map[string]any `json:"data,omitempty"`
 }
 type testWebhookInput struct {
-	ID   string `path:"id"`
+	ID   string `path:"webhook_id"`
 	Body TestWebhookRequest
 }
 // TestWebhookResponse is the test-delivery result (WH-6 naming).
@@ -316,7 +316,7 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 
 // WebhookDeliveryView mirrors the legacy per-delivery wire shape.
 type WebhookDeliveryView struct {
-	ID             string `json:"id"`
+	ID             string `json:"delivery_id"`
 	EventType      string `json:"event_type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."`
 	Status         string `json:"status" doc:"Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."`
 	Attempts       int    `json:"attempts"`
@@ -331,7 +331,7 @@ type WebhookDeliveryView struct {
 // WH-7); the limit is generous (default 100, up to 500) so a recent-deliveries
 // view isn't truncated on a busy webhook.
 type ListDeliveriesInput struct {
-	ID     string `path:"id"`
+	ID     string `path:"webhook_id"`
 	Status string `query:"status" enum:"pending,delivered,failed"`
 	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100"`
 }
@@ -386,7 +386,7 @@ type UpdateWebhookRequest struct {
 	Enabled     *bool               `json:"enabled,omitempty"`
 }
 type updateWebhookInput struct {
-	ID   string `path:"id"`
+	ID   string `path:"webhook_id"`
 	Body UpdateWebhookRequest
 }
 
@@ -463,7 +463,7 @@ type rotateSecretOutput struct {
 // the secret the caller already stored. Rotate has no request body; the
 // idempotency dedup hashes the route (which includes the webhook id) alone.
 type rotateSecretInput struct {
-	ID             string `path:"id"`
+	ID             string `path:"webhook_id"`
 	IdempotencyKey string `header:"Idempotency-Key"`
 }
 

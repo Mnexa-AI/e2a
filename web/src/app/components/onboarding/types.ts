@@ -131,7 +131,7 @@ export type CreateAgentRequest =
 
 /** Response from POST /v1/agents. */
 export type AgentCreateResponse = {
-  id: string;
+  agent_id: string;
   domain: string;
   email: string;
 };

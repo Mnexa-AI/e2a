@@ -137,7 +137,7 @@ function mockAgentCreation(email: string) {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ id: "ag_test", domain: "agents.e2a.dev", email }),
+        json: () => Promise.resolve({ agent_id: "ag_test", domain: "agents.e2a.dev", email }),
       });
     }
     return Promise.resolve({ ok: false, text: () => Promise.resolve("not found") });
@@ -498,7 +498,7 @@ function mockCustomDomainFlow() {
         ok: true,
         status: 200,
         json: () => Promise.resolve({
-          id: "ag_custom",
+          agent_id: "ag_custom",
           domain: "mail.newco.com",
           email: body.email,
         }),
@@ -569,7 +569,7 @@ describe("Custom-domain flow: existing verified domain -> create agent directly"
           ok: true,
           status: 200,
           json: () => Promise.resolve({
-            id: "ag_v",
+            agent_id: "ag_v",
             domain: "verified.example.com",
             email: "bot@verified.example.com",
           }),
@@ -706,7 +706,7 @@ describe("Plain /get-started always shows address choice", () => {
           status: 200,
           json: () => Promise.resolve({
             agents: [{
-              id: "ag_1", domain: "agents.e2a.dev", email: "bot@agents.e2a.dev",
+              agent_id: "ag_1", domain: "agents.e2a.dev", email: "bot@agents.e2a.dev",
               name: "bot", webhook_url: "", agent_mode: "local",
               domain_verified: true, public: false, created_at: "2026-01-01T00:00:00Z",
             }],

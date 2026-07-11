@@ -54,7 +54,7 @@ class MessagesApi:
     async def approve_message(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -76,8 +76,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
         :param idempotency_key:
@@ -103,11 +103,11 @@ class MessagesApi:
         :type _host_index: int, optional
         :return: Returns the result object.
         """ # noqa: E501
-        warnings.warn("POST /v1/agents/{email}/messages/{id}/approve is deprecated.", DeprecationWarning)
+        warnings.warn("POST /v1/agents/{email}/messages/{message_id}/approve is deprecated.", DeprecationWarning)
 
         _param = self._approve_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -134,7 +134,7 @@ class MessagesApi:
     async def approve_message_with_http_info(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -156,8 +156,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
         :param idempotency_key:
@@ -183,11 +183,11 @@ class MessagesApi:
         :type _host_index: int, optional
         :return: Returns the result object.
         """ # noqa: E501
-        warnings.warn("POST /v1/agents/{email}/messages/{id}/approve is deprecated.", DeprecationWarning)
+        warnings.warn("POST /v1/agents/{email}/messages/{message_id}/approve is deprecated.", DeprecationWarning)
 
         _param = self._approve_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -214,7 +214,7 @@ class MessagesApi:
     async def approve_message_without_preload_content(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         approve_request: ApproveRequest,
         idempotency_key: Optional[StrictStr] = None,
         _request_timeout: Union[
@@ -236,8 +236,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
         :param idempotency_key:
@@ -263,11 +263,11 @@ class MessagesApi:
         :type _host_index: int, optional
         :return: Returns the result object.
         """ # noqa: E501
-        warnings.warn("POST /v1/agents/{email}/messages/{id}/approve is deprecated.", DeprecationWarning)
+        warnings.warn("POST /v1/agents/{email}/messages/{message_id}/approve is deprecated.", DeprecationWarning)
 
         _param = self._approve_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             approve_request=approve_request,
             idempotency_key=idempotency_key,
             _request_auth=_request_auth,
@@ -289,7 +289,7 @@ class MessagesApi:
     def _approve_message_serialize(
         self,
         email,
-        id,
+        message_id,
         approve_request,
         idempotency_key,
         _request_auth,
@@ -315,8 +315,8 @@ class MessagesApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if message_id is not None:
+            _path_params['message_id'] = message_id
         # process the query parameters
         # process the header parameters
         if idempotency_key is not None:
@@ -357,7 +357,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{email}/messages/{id}/approve',
+            resource_path='/v1/agents/{email}/messages/{message_id}/approve',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -377,7 +377,7 @@ class MessagesApi:
     async def forward_message(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
         wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
@@ -400,8 +400,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param forward_request: (required)
         :type forward_request: ForwardRequest
         :param idempotency_key:
@@ -432,7 +432,7 @@ class MessagesApi:
 
         _param = self._forward_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
             wait=wait,
@@ -461,7 +461,7 @@ class MessagesApi:
     async def forward_message_with_http_info(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
         wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
@@ -484,8 +484,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param forward_request: (required)
         :type forward_request: ForwardRequest
         :param idempotency_key:
@@ -516,7 +516,7 @@ class MessagesApi:
 
         _param = self._forward_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
             wait=wait,
@@ -545,7 +545,7 @@ class MessagesApi:
     async def forward_message_without_preload_content(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Optional[StrictStr] = None,
         wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
@@ -568,8 +568,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param forward_request: (required)
         :type forward_request: ForwardRequest
         :param idempotency_key:
@@ -600,7 +600,7 @@ class MessagesApi:
 
         _param = self._forward_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             forward_request=forward_request,
             idempotency_key=idempotency_key,
             wait=wait,
@@ -624,7 +624,7 @@ class MessagesApi:
     def _forward_message_serialize(
         self,
         email,
-        id,
+        message_id,
         forward_request,
         idempotency_key,
         wait,
@@ -651,8 +651,8 @@ class MessagesApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if message_id is not None:
+            _path_params['message_id'] = message_id
         # process the query parameters
         if wait is not None:
             
@@ -697,7 +697,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{email}/messages/{id}/forward',
+            resource_path='/v1/agents/{email}/messages/{message_id}/forward',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -717,7 +717,7 @@ class MessagesApi:
     async def get_attachment(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         index: Annotated[int, Field(strict=True, ge=0)],
         inline: Annotated[Optional[StrictBool], Field(description="When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).")] = None,
         _request_timeout: Union[
@@ -739,8 +739,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param index: (required)
         :type index: int
         :param inline: When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).
@@ -769,7 +769,7 @@ class MessagesApi:
 
         _param = self._get_attachment_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             index=index,
             inline=inline,
             _request_auth=_request_auth,
@@ -796,7 +796,7 @@ class MessagesApi:
     async def get_attachment_with_http_info(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         index: Annotated[int, Field(strict=True, ge=0)],
         inline: Annotated[Optional[StrictBool], Field(description="When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).")] = None,
         _request_timeout: Union[
@@ -818,8 +818,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param index: (required)
         :type index: int
         :param inline: When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).
@@ -848,7 +848,7 @@ class MessagesApi:
 
         _param = self._get_attachment_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             index=index,
             inline=inline,
             _request_auth=_request_auth,
@@ -875,7 +875,7 @@ class MessagesApi:
     async def get_attachment_without_preload_content(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         index: Annotated[int, Field(strict=True, ge=0)],
         inline: Annotated[Optional[StrictBool], Field(description="When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).")] = None,
         _request_timeout: Union[
@@ -897,8 +897,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param index: (required)
         :type index: int
         :param inline: When true, also include the bytes as base64 in 'data' — ONLY for attachments <= 256 KB; larger inline requests are rejected (413). Default false (use download_url).
@@ -927,7 +927,7 @@ class MessagesApi:
 
         _param = self._get_attachment_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             index=index,
             inline=inline,
             _request_auth=_request_auth,
@@ -949,7 +949,7 @@ class MessagesApi:
     def _get_attachment_serialize(
         self,
         email,
-        id,
+        message_id,
         index,
         inline,
         _request_auth,
@@ -975,8 +975,8 @@ class MessagesApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if message_id is not None:
+            _path_params['message_id'] = message_id
         if index is not None:
             _path_params['index'] = index
         # process the query parameters
@@ -1005,7 +1005,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{email}/messages/{id}/attachments/{index}',
+            resource_path='/v1/agents/{email}/messages/{message_id}/attachments/{index}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1025,7 +1025,7 @@ class MessagesApi:
     async def get_message(
         self,
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
-        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        message_id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1045,8 +1045,8 @@ class MessagesApi:
 
         :param email: The agent's full email address. (required)
         :type email: str
-        :param id: The message id, e.g. msg_abc123. (required)
-        :type id: str
+        :param message_id: The message id, e.g. msg_abc123. (required)
+        :type message_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1071,7 +1071,7 @@ class MessagesApi:
 
         _param = self._get_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1096,7 +1096,7 @@ class MessagesApi:
     async def get_message_with_http_info(
         self,
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
-        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        message_id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1116,8 +1116,8 @@ class MessagesApi:
 
         :param email: The agent's full email address. (required)
         :type email: str
-        :param id: The message id, e.g. msg_abc123. (required)
-        :type id: str
+        :param message_id: The message id, e.g. msg_abc123. (required)
+        :type message_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1142,7 +1142,7 @@ class MessagesApi:
 
         _param = self._get_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1167,7 +1167,7 @@ class MessagesApi:
     async def get_message_without_preload_content(
         self,
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
-        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        message_id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1187,8 +1187,8 @@ class MessagesApi:
 
         :param email: The agent's full email address. (required)
         :type email: str
-        :param id: The message id, e.g. msg_abc123. (required)
-        :type id: str
+        :param message_id: The message id, e.g. msg_abc123. (required)
+        :type message_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1213,7 +1213,7 @@ class MessagesApi:
 
         _param = self._get_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1233,7 +1233,7 @@ class MessagesApi:
     def _get_message_serialize(
         self,
         email,
-        id,
+        message_id,
         _request_auth,
         _content_type,
         _headers,
@@ -1257,8 +1257,8 @@ class MessagesApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if message_id is not None:
+            _path_params['message_id'] = message_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -1281,7 +1281,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/agents/{email}/messages/{id}',
+            resource_path='/v1/agents/{email}/messages/{message_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -1750,7 +1750,7 @@ class MessagesApi:
     async def reject_message(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         reject_request: RejectRequest,
         _request_timeout: Union[
             None,
@@ -1771,8 +1771,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param reject_request: (required)
         :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1796,11 +1796,11 @@ class MessagesApi:
         :type _host_index: int, optional
         :return: Returns the result object.
         """ # noqa: E501
-        warnings.warn("POST /v1/agents/{email}/messages/{id}/reject is deprecated.", DeprecationWarning)
+        warnings.warn("POST /v1/agents/{email}/messages/{message_id}/reject is deprecated.", DeprecationWarning)
 
         _param = self._reject_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1826,7 +1826,7 @@ class MessagesApi:
     async def reject_message_with_http_info(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         reject_request: RejectRequest,
         _request_timeout: Union[
             None,
@@ -1847,8 +1847,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param reject_request: (required)
         :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1872,11 +1872,11 @@ class MessagesApi:
         :type _host_index: int, optional
         :return: Returns the result object.
         """ # noqa: E501
-        warnings.warn("POST /v1/agents/{email}/messages/{id}/reject is deprecated.", DeprecationWarning)
+        warnings.warn("POST /v1/agents/{email}/messages/{message_id}/reject is deprecated.", DeprecationWarning)
 
         _param = self._reject_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1902,7 +1902,7 @@ class MessagesApi:
     async def reject_message_without_preload_content(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         reject_request: RejectRequest,
         _request_timeout: Union[
             None,
@@ -1923,8 +1923,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param reject_request: (required)
         :type reject_request: RejectRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -1948,11 +1948,11 @@ class MessagesApi:
         :type _host_index: int, optional
         :return: Returns the result object.
         """ # noqa: E501
-        warnings.warn("POST /v1/agents/{email}/messages/{id}/reject is deprecated.", DeprecationWarning)
+        warnings.warn("POST /v1/agents/{email}/messages/{message_id}/reject is deprecated.", DeprecationWarning)
 
         _param = self._reject_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             reject_request=reject_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1973,7 +1973,7 @@ class MessagesApi:
     def _reject_message_serialize(
         self,
         email,
-        id,
+        message_id,
         reject_request,
         _request_auth,
         _content_type,
@@ -1998,8 +1998,8 @@ class MessagesApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if message_id is not None:
+            _path_params['message_id'] = message_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -2037,7 +2037,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{email}/messages/{id}/reject',
+            resource_path='/v1/agents/{email}/messages/{message_id}/reject',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -2057,7 +2057,7 @@ class MessagesApi:
     async def reply_to_message(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
         wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
@@ -2080,8 +2080,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param reply_request: (required)
         :type reply_request: ReplyRequest
         :param idempotency_key:
@@ -2112,7 +2112,7 @@ class MessagesApi:
 
         _param = self._reply_to_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
             wait=wait,
@@ -2141,7 +2141,7 @@ class MessagesApi:
     async def reply_to_message_with_http_info(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
         wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
@@ -2164,8 +2164,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param reply_request: (required)
         :type reply_request: ReplyRequest
         :param idempotency_key:
@@ -2196,7 +2196,7 @@ class MessagesApi:
 
         _param = self._reply_to_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
             wait=wait,
@@ -2225,7 +2225,7 @@ class MessagesApi:
     async def reply_to_message_without_preload_content(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Optional[StrictStr] = None,
         wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
@@ -2248,8 +2248,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param reply_request: (required)
         :type reply_request: ReplyRequest
         :param idempotency_key:
@@ -2280,7 +2280,7 @@ class MessagesApi:
 
         _param = self._reply_to_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             reply_request=reply_request,
             idempotency_key=idempotency_key,
             wait=wait,
@@ -2304,7 +2304,7 @@ class MessagesApi:
     def _reply_to_message_serialize(
         self,
         email,
-        id,
+        message_id,
         reply_request,
         idempotency_key,
         wait,
@@ -2331,8 +2331,8 @@ class MessagesApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if message_id is not None:
+            _path_params['message_id'] = message_id
         # process the query parameters
         if wait is not None:
             
@@ -2377,7 +2377,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/agents/{email}/messages/{id}/reply',
+            resource_path='/v1/agents/{email}/messages/{message_id}/reply',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -2722,7 +2722,7 @@ class MessagesApi:
     async def update_message(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         update_message_request: UpdateMessageRequest,
         _request_timeout: Union[
             None,
@@ -2743,8 +2743,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param update_message_request: (required)
         :type update_message_request: UpdateMessageRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -2771,7 +2771,7 @@ class MessagesApi:
 
         _param = self._update_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             update_message_request=update_message_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2797,7 +2797,7 @@ class MessagesApi:
     async def update_message_with_http_info(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         update_message_request: UpdateMessageRequest,
         _request_timeout: Union[
             None,
@@ -2818,8 +2818,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param update_message_request: (required)
         :type update_message_request: UpdateMessageRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -2846,7 +2846,7 @@ class MessagesApi:
 
         _param = self._update_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             update_message_request=update_message_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2872,7 +2872,7 @@ class MessagesApi:
     async def update_message_without_preload_content(
         self,
         email: StrictStr,
-        id: StrictStr,
+        message_id: StrictStr,
         update_message_request: UpdateMessageRequest,
         _request_timeout: Union[
             None,
@@ -2893,8 +2893,8 @@ class MessagesApi:
 
         :param email: (required)
         :type email: str
-        :param id: (required)
-        :type id: str
+        :param message_id: (required)
+        :type message_id: str
         :param update_message_request: (required)
         :type update_message_request: UpdateMessageRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -2921,7 +2921,7 @@ class MessagesApi:
 
         _param = self._update_message_serialize(
             email=email,
-            id=id,
+            message_id=message_id,
             update_message_request=update_message_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -2942,7 +2942,7 @@ class MessagesApi:
     def _update_message_serialize(
         self,
         email,
-        id,
+        message_id,
         update_message_request,
         _request_auth,
         _content_type,
@@ -2967,8 +2967,8 @@ class MessagesApi:
         # process the path parameters
         if email is not None:
             _path_params['email'] = email
-        if id is not None:
-            _path_params['id'] = id
+        if message_id is not None:
+            _path_params['message_id'] = message_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -3006,7 +3006,7 @@ class MessagesApi:
 
         return self.api_client.param_serialize(
             method='PATCH',
-            resource_path='/v1/agents/{email}/messages/{id}',
+            resource_path='/v1/agents/{email}/messages/{message_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

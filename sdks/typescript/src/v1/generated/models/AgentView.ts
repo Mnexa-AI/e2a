@@ -13,11 +13,11 @@
 import { HttpFile } from '../http/http.js';
 
 export class AgentView {
+    'agentId': string;
     'createdAt': Date;
     'domain': string;
     'domainVerified': boolean;
     'email': string;
-    'id': string;
     'name': string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -25,6 +25,12 @@ export class AgentView {
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
+        {
+            "name": "agentId",
+            "baseName": "agent_id",
+            "type": "string",
+            "format": ""
+        },
         {
             "name": "createdAt",
             "baseName": "created_at",
@@ -46,12 +52,6 @@ export class AgentView {
         {
             "name": "email",
             "baseName": "email",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "id",
-            "baseName": "id",
             "type": "string",
             "format": ""
         },

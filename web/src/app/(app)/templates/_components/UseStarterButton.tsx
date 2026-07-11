@@ -52,7 +52,7 @@ export function UseStarterButton({
         return;
       }
       const body: TemplateView = await res.json();
-      router.push(`/templates/edit?id=${encodeURIComponent(body.id)}`);
+      router.push(`/templates/edit?id=${encodeURIComponent(body.template_id)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

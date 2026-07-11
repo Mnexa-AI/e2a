@@ -52,7 +52,7 @@ describe("login --with-key", () => {
     mockAccountGet.mockResolvedValue({
       scope: "agent",
       agentAddress: "tether@agents.e2a.dev",
-      user: { id: "usr_1", email: "o@x.com" },
+      user: { userId: "usr_1", email: "o@x.com" },
     });
     const { loginWithKey } = await import("../commands/login.js");
     await loginWithKey(BASE_CONFIG, "e2a_agt_secret");
@@ -70,7 +70,7 @@ describe("login --with-key", () => {
   it("account-scoped keys save without overwriting agent_email", async () => {
     mockAccountGet.mockResolvedValue({
       scope: "account",
-      user: { id: "usr_1", email: "o@x.com" },
+      user: { userId: "usr_1", email: "o@x.com" },
     });
     const { loginWithKey } = await import("../commands/login.js");
     await loginWithKey(BASE_CONFIG, "e2a_acct_secret");
@@ -89,7 +89,7 @@ describe("login --with-key", () => {
       mockAccountGet.mockResolvedValue({
         scope: "agent",
         agentAddress: "t@agents.e2a.dev",
-        user: { id: "u", email: "o@x.com" },
+        user: { userId: "u", email: "o@x.com" },
       });
       const { loginWithKey } = await import("../commands/login.js");
       await loginWithKey(BASE_CONFIG);
@@ -116,7 +116,7 @@ describe("login --with-key", () => {
       mockAccountGet.mockResolvedValue({
         scope: "agent",
         agentAddress: "t@agents.e2a.dev",
-        user: { id: "u", email: "o@x.com" },
+        user: { userId: "u", email: "o@x.com" },
       });
       const { loginWithKey } = await import("../commands/login.js");
       await loginWithKey(BASE_CONFIG);

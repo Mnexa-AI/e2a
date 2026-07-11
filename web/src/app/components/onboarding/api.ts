@@ -387,7 +387,7 @@ export async function setProtection(
 // account-scoped operator surface for holds of BOTH directions (outbound
 // drafts awaiting send + inbound messages held by a screening gate).
 type ReviewWire = {
-  id: string;
+  review_id: string;
   agent: string;
   direction: "inbound" | "outbound";
   from: string;
@@ -406,7 +406,7 @@ type ReviewWire = {
 export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
   const page = await request<{ items?: ReviewWire[] | null }>("/v1/reviews");
   return (page.items ?? []).map<PendingMessageSummary>((r) => ({
-    id: r.id,
+    id: r.review_id,
     agent_email: r.agent,
     direction: r.direction,
     from: r.from,

@@ -18,7 +18,7 @@ const client = new ApiClient();
 const HOOK_URL = "https://example.com/e2e-webhook";
 
 interface WebhookView {
-  id: string;
+  webhook_id: string;
   url: string;
   description: string;
   events: string[];
@@ -36,7 +36,7 @@ interface PageWebhookView {
   next_cursor: string | null;
 }
 interface WebhookDeliveryView {
-  id: string;
+  delivery_id: string;
   event_type: string;
   status: string;
   attempts: number;
@@ -74,7 +74,7 @@ async function deleteHook(id: string): Promise<void> {
 // + listWebhookDeliveries + deleteWebhook — the full CRUD round-trip.
 test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/delete)", async () => {
   const created = await createHook();
-  const id = created.id;
+  const id = created.webhook_id;
   try {
     // createWebhook response shape (CreateWebhookResponse — signing_secret only here + on rotate)
     assert.ok(id.startsWith("wh_"), `id has wh_ prefix: ${id}`);
@@ -96,7 +96,7 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
       list.body!.next_cursor === null || typeof list.body!.next_cursor === "string",
       "next_cursor is string|null",
     );
-    const inList = list.body!.items.find((w) => w.id === id);
+    const inList = list.body!.items.find((w) => w.webhook_id === id);
     assert.ok(inList, `created webhook ${id} is present in list`);
     // list items are WebhookView — no signing_secret leaked in the list.
     assert.ok(!("signing_secret" in (inList as object)), "list item must NOT carry signing_secret");
@@ -104,7 +104,7 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
     // getWebhook — WebhookView (no signing_secret).
     const got = await client.get<WebhookView & { signing_secret?: string }>(`/v1/webhooks/${id}`);
     assert.equal(got.status, 200);
-    assert.equal(got.body?.id, id);
+    assert.equal(got.body?.webhook_id, id);
     assert.equal(got.body?.url, HOOK_URL);
     assert.equal(got.body?.enabled, true);
     assert.equal(got.body?.signing_secret, undefined, "getWebhook must NOT return signing_secret");
@@ -141,7 +141,7 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
       "deliveries.next_cursor is string|null",
     );
     for (const d of del.body!.items) {
-      assert.ok(d.id && d.event_type && d.status, "delivery view has id/event_type/status");
+      assert.ok(d.delivery_id && d.event_type && d.status, "delivery view has id/event_type/status");
       assert.equal(typeof d.attempts, "number", "delivery.attempts is a number");
     }
 
@@ -162,7 +162,7 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
 test("webhooks: testWebhook on enabled hook returns 200 with delivery_id (async, no 5xx)", async () => {
   const hook = await createHook();
   try {
-    const r = await client.post<{ delivery_id: string }>(`/v1/webhooks/${hook.id}/test`, {
+    const r = await client.post<{ delivery_id: string }>(`/v1/webhooks/${hook.webhook_id}/test`, {
       body: { event: "email.received" },
     });
     assert.ok(
@@ -176,11 +176,11 @@ test("webhooks: testWebhook on enabled hook returns 200 with delivery_id (async,
     );
 
     // TestWebhookRequest has no required fields — an empty body is accepted (200).
-    const empty = await client.post<{ delivery_id: string }>(`/v1/webhooks/${hook.id}/test`, { body: {} });
+    const empty = await client.post<{ delivery_id: string }>(`/v1/webhooks/${hook.webhook_id}/test`, { body: {} });
     assert.equal(empty.status, 200, `testWebhook with empty body expected 200, got ${empty.status}`);
     assert.ok(typeof empty.body?.delivery_id === "string", "empty-body test still returns a delivery_id");
   } finally {
-    await deleteHook(hook.id);
+    await deleteHook(hook.webhook_id);
   }
 });
 
@@ -191,11 +191,11 @@ test("webhooks: testWebhook on enabled hook returns 200 with delivery_id (async,
 test("webhooks: testWebhook on disabled hook returns 409 webhook_disabled", async () => {
   const hook = await createHook();
   try {
-    const patch = await client.patch<WebhookView>(`/v1/webhooks/${hook.id}`, { body: { enabled: false } });
+    const patch = await client.patch<WebhookView>(`/v1/webhooks/${hook.webhook_id}`, { body: { enabled: false } });
     assert.equal(patch.status, 200);
     assert.equal(patch.body?.enabled, false);
 
-    const r = await client.post<ErrEnvelope>(`/v1/webhooks/${hook.id}/test`, {
+    const r = await client.post<ErrEnvelope>(`/v1/webhooks/${hook.webhook_id}/test`, {
       body: { event: "email.received" },
     });
     assert.ok(r.status >= 400 && r.status < 500, `disabled-hook test should be 4xx, got ${r.status}`);
@@ -205,7 +205,7 @@ test("webhooks: testWebhook on disabled hook returns 409 webhook_disabled", asyn
       assert.equal(r.body?.error?.code, "webhook_disabled", "409 carries webhook_disabled code");
     }
   } finally {
-    await deleteHook(hook.id);
+    await deleteHook(hook.webhook_id);
   }
 });
 

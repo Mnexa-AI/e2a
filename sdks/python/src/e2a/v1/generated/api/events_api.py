@@ -45,7 +45,7 @@ class EventsApi:
     @validate_call
     async def get_event(
         self,
-        id: StrictStr,
+        event_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -62,8 +62,8 @@ class EventsApi:
         """Get an event
 
 
-        :param id: (required)
-        :type id: str
+        :param event_id: (required)
+        :type event_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -87,7 +87,7 @@ class EventsApi:
         """ # noqa: E501
 
         _param = self._get_event_serialize(
-            id=id,
+            event_id=event_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -111,7 +111,7 @@ class EventsApi:
     @validate_call
     async def get_event_with_http_info(
         self,
-        id: StrictStr,
+        event_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -128,8 +128,8 @@ class EventsApi:
         """Get an event
 
 
-        :param id: (required)
-        :type id: str
+        :param event_id: (required)
+        :type event_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -153,7 +153,7 @@ class EventsApi:
         """ # noqa: E501
 
         _param = self._get_event_serialize(
-            id=id,
+            event_id=event_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -177,7 +177,7 @@ class EventsApi:
     @validate_call
     async def get_event_without_preload_content(
         self,
-        id: StrictStr,
+        event_id: StrictStr,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -194,8 +194,8 @@ class EventsApi:
         """Get an event
 
 
-        :param id: (required)
-        :type id: str
+        :param event_id: (required)
+        :type event_id: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -219,7 +219,7 @@ class EventsApi:
         """ # noqa: E501
 
         _param = self._get_event_serialize(
-            id=id,
+            event_id=event_id,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -238,7 +238,7 @@ class EventsApi:
 
     def _get_event_serialize(
         self,
-        id,
+        event_id,
         _request_auth,
         _content_type,
         _headers,
@@ -260,8 +260,8 @@ class EventsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if event_id is not None:
+            _path_params['event_id'] = event_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -284,7 +284,7 @@ class EventsApi:
 
         return self.api_client.param_serialize(
             method='GET',
-            resource_path='/v1/events/{id}',
+            resource_path='/v1/events/{event_id}',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,
@@ -685,7 +685,7 @@ class EventsApi:
     @validate_call
     async def redeliver_event(
         self,
-        id: StrictStr,
+        event_id: StrictStr,
         redeliver_event_request: RedeliverEventRequest,
         _request_timeout: Union[
             None,
@@ -704,8 +704,8 @@ class EventsApi:
 
         Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
 
-        :param id: (required)
-        :type id: str
+        :param event_id: (required)
+        :type event_id: str
         :param redeliver_event_request: (required)
         :type redeliver_event_request: RedeliverEventRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -731,7 +731,7 @@ class EventsApi:
         """ # noqa: E501
 
         _param = self._redeliver_event_serialize(
-            id=id,
+            event_id=event_id,
             redeliver_event_request=redeliver_event_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -756,7 +756,7 @@ class EventsApi:
     @validate_call
     async def redeliver_event_with_http_info(
         self,
-        id: StrictStr,
+        event_id: StrictStr,
         redeliver_event_request: RedeliverEventRequest,
         _request_timeout: Union[
             None,
@@ -775,8 +775,8 @@ class EventsApi:
 
         Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
 
-        :param id: (required)
-        :type id: str
+        :param event_id: (required)
+        :type event_id: str
         :param redeliver_event_request: (required)
         :type redeliver_event_request: RedeliverEventRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -802,7 +802,7 @@ class EventsApi:
         """ # noqa: E501
 
         _param = self._redeliver_event_serialize(
-            id=id,
+            event_id=event_id,
             redeliver_event_request=redeliver_event_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -827,7 +827,7 @@ class EventsApi:
     @validate_call
     async def redeliver_event_without_preload_content(
         self,
-        id: StrictStr,
+        event_id: StrictStr,
         redeliver_event_request: RedeliverEventRequest,
         _request_timeout: Union[
             None,
@@ -846,8 +846,8 @@ class EventsApi:
 
         Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
 
-        :param id: (required)
-        :type id: str
+        :param event_id: (required)
+        :type event_id: str
         :param redeliver_event_request: (required)
         :type redeliver_event_request: RedeliverEventRequest
         :param _request_timeout: timeout setting for this request. If one
@@ -873,7 +873,7 @@ class EventsApi:
         """ # noqa: E501
 
         _param = self._redeliver_event_serialize(
-            id=id,
+            event_id=event_id,
             redeliver_event_request=redeliver_event_request,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -893,7 +893,7 @@ class EventsApi:
 
     def _redeliver_event_serialize(
         self,
-        id,
+        event_id,
         redeliver_event_request,
         _request_auth,
         _content_type,
@@ -916,8 +916,8 @@ class EventsApi:
         _body_params: Optional[bytes] = None
 
         # process the path parameters
-        if id is not None:
-            _path_params['id'] = id
+        if event_id is not None:
+            _path_params['event_id'] = event_id
         # process the query parameters
         # process the header parameters
         # process the form parameters
@@ -955,7 +955,7 @@ class EventsApi:
 
         return self.api_client.param_serialize(
             method='POST',
-            resource_path='/v1/events/{id}/redeliver',
+            resource_path='/v1/events/{event_id}/redeliver',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

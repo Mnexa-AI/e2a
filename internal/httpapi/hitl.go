@@ -13,7 +13,7 @@ import (
 // shares send/reply/forward's result shape (with edited set).
 type approveInput struct {
 	Address        string `path:"email"`
-	ID             string `path:"id"`
+	ID             string `path:"message_id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key"`
 	Body           agent.ApproveOverrides
@@ -38,7 +38,7 @@ type RejectRequest struct {
 
 type rejectInput struct {
 	Address string `path:"email"`
-	ID      string `path:"id"`
+	ID      string `path:"message_id"`
 	Body    RejectRequest
 }
 
@@ -48,7 +48,7 @@ type rejectOutput struct {
 
 func (s *Server) registerHITL() {
 	huma.Register(s.API, huma.Operation{
-		OperationID: "approveMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/approve",
+		OperationID: "approveMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{message_id}/approve",
 		Summary: "Approve a held message (deprecated)", Tags: []string{"messages"},
 		Deprecated:  true,
 		Description: "**Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message's direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent's inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).",
@@ -56,7 +56,7 @@ func (s *Server) registerHITL() {
 	}, s.handleApprove)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "rejectMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reject",
+		OperationID: "rejectMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{message_id}/reject",
 		Summary: "Reject a held message (deprecated)", Tags: []string{"messages"},
 		Deprecated:  true,
 		Description: "**Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.",

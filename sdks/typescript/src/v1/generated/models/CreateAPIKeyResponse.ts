@@ -17,9 +17,9 @@ export class CreateAPIKeyResponse {
     * Bound inbox email for agent-scoped keys; omitted for account scope.
     */
     'agent'?: string;
+    'apiKeyId': string;
     'createdAt': Date;
     'expiresAt'?: Date;
-    'id': string;
     /**
     * The secret key. Shown once; store it now — it cannot be retrieved later.
     */
@@ -47,6 +47,12 @@ export class CreateAPIKeyResponse {
             "format": ""
         },
         {
+            "name": "apiKeyId",
+            "baseName": "api_key_id",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "createdAt",
             "baseName": "created_at",
             "type": "Date",
@@ -57,12 +63,6 @@ export class CreateAPIKeyResponse {
             "baseName": "expires_at",
             "type": "Date",
             "format": "date-time"
-        },
-        {
-            "name": "id",
-            "baseName": "id",
-            "type": "string",
-            "format": ""
         },
         {
             "name": "key",

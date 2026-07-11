@@ -79,7 +79,7 @@ type listConversationsOutput struct {
 // ConversationIDParam is the path input for the single-conversation read.
 type ConversationIDParam struct {
 	Address        string `path:"email"`
-	ConversationID string `path:"id"`
+	ConversationID string `path:"conversation_id"`
 }
 
 type conversationOutput struct {
@@ -100,7 +100,7 @@ func (s *Server) registerConversations() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getConversation",
 		Method:      http.MethodGet,
-		Path:        "/v1/agents/{email}/conversations/{id}",
+		Path:        "/v1/agents/{email}/conversations/{conversation_id}",
 		Summary:     "Get a conversation",
 		Description: "Fetch a single conversation thread with its participants, labels, and member messages.",
 		Tags:        []string{"conversations"},

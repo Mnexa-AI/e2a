@@ -14,7 +14,7 @@ import (
 // plaintext secret is never in this shape — it appears once, in
 // CreateAPIKeyResponse.Key.
 type APIKeyView struct {
-	ID         string     `json:"id"`
+	ID         string     `json:"api_key_id"`
 	Name       string     `json:"name"`
 	KeyPrefix  string     `json:"key_prefix" doc:"Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…)."`
 	Scope      string     `json:"scope" enum:"account,agent" doc:"account = workspace admin; agent = bound to one inbox."`
@@ -63,7 +63,7 @@ type createAPIKeyInput struct{ Body CreateAPIKeyRequest }
 type createAPIKeyOutput struct{ Body CreateAPIKeyResponse }
 
 type deleteAPIKeyInput struct {
-	ID string `path:"id"`
+	ID string `path:"api_key_id"`
 }
 type deleteAPIKeyOutput struct{ Status int }
 
@@ -83,7 +83,7 @@ func (s *Server) registerAPIKeys() {
 	}, s.handleCreateAPIKey)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID: "deleteApiKey", Method: http.MethodDelete, Path: "/v1/account/api-keys/{id}",
+		OperationID: "deleteApiKey", Method: http.MethodDelete, Path: "/v1/account/api-keys/{api_key_id}",
 		Summary: "Revoke an API key", Tags: []string{"account"},
 		Description: "Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.",
 		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,

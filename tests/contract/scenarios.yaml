@@ -47,7 +47,7 @@ scenarios:
         expect:
           status: 201
           body_contains:
-            - id
+            - agent_id
             - email
           body_match:
             email: bot@crud.test.dev
@@ -70,7 +70,7 @@ scenarios:
         expect:
           status: 200
           body_contains:
-            - id
+            - agent_id
             - email
           body_excludes:
             - user_id

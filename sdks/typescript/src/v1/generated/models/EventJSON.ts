@@ -19,7 +19,7 @@ export class EventJSON {
     'createdAt': Date;
     'data': any;
     'deliveryStatus'?: DeliveryStatusJSON;
-    'id': string;
+    'eventId': string;
     'messageId'?: string;
     'schemaVersion': number;
     /**
@@ -67,8 +67,8 @@ export class EventJSON {
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
+            "name": "eventId",
+            "baseName": "event_id",
             "type": "string",
             "format": ""
         },

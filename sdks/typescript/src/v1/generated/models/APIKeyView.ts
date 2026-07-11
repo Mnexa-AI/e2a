@@ -17,9 +17,9 @@ export class APIKeyView {
     * Bound inbox email for agent-scoped keys; omitted for account scope.
     */
     'agent'?: string;
+    'apiKeyId': string;
     'createdAt': Date;
     'expiresAt'?: Date;
-    'id': string;
     /**
     * Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).
     */
@@ -43,6 +43,12 @@ export class APIKeyView {
             "format": ""
         },
         {
+            "name": "apiKeyId",
+            "baseName": "api_key_id",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "createdAt",
             "baseName": "created_at",
             "type": "Date",
@@ -53,12 +59,6 @@ export class APIKeyView {
             "baseName": "expires_at",
             "type": "Date",
             "format": "date-time"
-        },
-        {
-            "name": "id",
-            "baseName": "id",
-            "type": "string",
-            "format": ""
         },
         {
             "name": "keyPrefix",

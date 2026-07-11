@@ -74,7 +74,7 @@ describe("Webhooks page", () => {
   // WebhookView from GET /v1/webhooks. GET never returns signing_secret —
   // it's only present on create / rotate responses.
   const webhook = {
-    id: "wh_default0001",
+    webhook_id: "wh_default0001",
     url: "https://app.example.com/inbox",
     description: "",
     events: ["email.received"],
@@ -99,7 +99,7 @@ describe("Webhooks page", () => {
 
   it("creates a webhook, reveals the signing secret once, and hides it on dismiss", async () => {
     const created = {
-      id: "wh_new0002",
+      webhook_id: "wh_new0002",
       url: "https://app.example.com/hook2",
       description: "",
       events: ["email.received"],
@@ -149,7 +149,7 @@ describe("Webhooks page", () => {
 
   it("copies the revealed secret to the clipboard and flips the Copy label", async () => {
     const created = {
-      id: "wh_new0003",
+      webhook_id: "wh_new0003",
       url: "https://app.example.com/hook3",
       events: ["email.received"],
       enabled: true,
@@ -210,7 +210,7 @@ describe("Webhooks page", () => {
   it("rotates the secret and reveals the new one", async () => {
     global.fetch = makeFetchMock({
       "GET /v1/webhooks": () => jsonResp({ items: [webhook] }),
-      [`POST /v1/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`]: () =>
+      [`POST /v1/webhooks/${encodeURIComponent(webhook.webhook_id)}/rotate-secret`]: () =>
         jsonResp({
           signing_secret: "whsec_rotated",
           previous_secret_expires_at: "2026-05-01T00:00:00Z",
@@ -238,7 +238,7 @@ describe("Webhooks page", () => {
   it("DELETEs the right id when confirming a row delete", async () => {
     const second = {
       ...webhook,
-      id: "wh_other",
+      webhook_id: "wh_other",
       url: "https://app.example.com/other",
     };
     const deletedIDs: string[] = [];

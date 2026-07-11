@@ -1,18 +1,18 @@
 export type AgentData = {
-  id: string;
+  agent_id: string;
   domain: string;
   email: string;
 };
 
 export type UserInfo = {
-  id: string;
+  user_id: string;
   email: string;
   name: string;
   created_at: string;
 };
 
 export type DashboardAgent = {
-  id: string;
+  agent_id: string;
   domain: string;
   email: string;
   name: string;
@@ -155,7 +155,7 @@ export type InboundMessageDetail = {
 };
 
 export type APIKeyData = {
-  id: string;
+  api_key_id: string;
   key?: string;        // one-time plaintext, only present on creation response
   key_prefix?: string; // non-secret prefix, shown in list view
   name: string;

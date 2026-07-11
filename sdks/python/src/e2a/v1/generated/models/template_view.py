@@ -33,11 +33,11 @@ class TemplateView(BaseModel):
     from_starter_alias: Optional[StrictStr] = Field(default=None, description="The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.")
     from_starter_version: Optional[StrictStr] = Field(default=None, description="The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.")
     html_body: Optional[StrictStr] = Field(default=None, description="The optional HTML part's template source.")
-    id: StrictStr
     name: StrictStr
     subject: StrictStr
+    template_id: StrictStr
     updated_at: datetime
-    __properties: ClassVar[List[str]] = ["alias", "body", "created_at", "from_starter_alias", "from_starter_version", "html_body", "id", "name", "subject", "updated_at"]
+    __properties: ClassVar[List[str]] = ["alias", "body", "created_at", "from_starter_alias", "from_starter_version", "html_body", "name", "subject", "template_id", "updated_at"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -96,9 +96,9 @@ class TemplateView(BaseModel):
             "from_starter_alias": obj.get("from_starter_alias"),
             "from_starter_version": obj.get("from_starter_version"),
             "html_body": obj.get("html_body"),
-            "id": obj.get("id"),
             "name": obj.get("name"),
             "subject": obj.get("subject"),
+            "template_id": obj.get("template_id"),
             "updated_at": obj.get("updated_at")
         })
         return _obj

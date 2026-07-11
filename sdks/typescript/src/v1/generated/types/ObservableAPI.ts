@@ -184,12 +184,12 @@ export class ObservableAccountApi {
     /**
      * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
      * Revoke an API key
-     * @param id
+     * @param apiKeyId
      */
-    public deleteApiKeyWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteApiKeyWithHttpInfo(apiKeyId: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.deleteApiKey(id, _config);
+        const requestContextPromise = this.requestFactory.deleteApiKey(apiKeyId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -209,10 +209,10 @@ export class ObservableAccountApi {
     /**
      * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
      * Revoke an API key
-     * @param id
+     * @param apiKeyId
      */
-    public deleteApiKey(id: string, _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteApiKeyWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteApiKey(apiKeyId: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteApiKeyWithHttpInfo(apiKeyId, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 
     /**
@@ -697,12 +697,12 @@ export class ObservableConversationsApi {
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
      * @param email
-     * @param id
+     * @param conversationId
      */
-    public getConversationWithHttpInfo(email: string, id: string, _options?: ConfigurationOptions): Observable<HttpInfo<ConversationDetailView>> {
+    public getConversationWithHttpInfo(email: string, conversationId: string, _options?: ConfigurationOptions): Observable<HttpInfo<ConversationDetailView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getConversation(email, id, _config);
+        const requestContextPromise = this.requestFactory.getConversation(email, conversationId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -723,10 +723,10 @@ export class ObservableConversationsApi {
      * Fetch a single conversation thread with its participants, labels, and member messages.
      * Get a conversation
      * @param email
-     * @param id
+     * @param conversationId
      */
-    public getConversation(email: string, id: string, _options?: ConfigurationOptions): Observable<ConversationDetailView> {
-        return this.getConversationWithHttpInfo(email, id, _options).pipe(map((apiResponse: HttpInfo<ConversationDetailView>) => apiResponse.data));
+    public getConversation(email: string, conversationId: string, _options?: ConfigurationOptions): Observable<ConversationDetailView> {
+        return this.getConversationWithHttpInfo(email, conversationId, _options).pipe(map((apiResponse: HttpInfo<ConversationDetailView>) => apiResponse.data));
     }
 
     /**
@@ -971,12 +971,12 @@ export class ObservableEventsApi {
 
     /**
      * Get an event
-     * @param id
+     * @param eventId
      */
-    public getEventWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<EventJSON>> {
+    public getEventWithHttpInfo(eventId: string, _options?: ConfigurationOptions): Observable<HttpInfo<EventJSON>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getEvent(id, _config);
+        const requestContextPromise = this.requestFactory.getEvent(eventId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -995,10 +995,10 @@ export class ObservableEventsApi {
 
     /**
      * Get an event
-     * @param id
+     * @param eventId
      */
-    public getEvent(id: string, _options?: ConfigurationOptions): Observable<EventJSON> {
-        return this.getEventWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<EventJSON>) => apiResponse.data));
+    public getEvent(eventId: string, _options?: ConfigurationOptions): Observable<EventJSON> {
+        return this.getEventWithHttpInfo(eventId, _options).pipe(map((apiResponse: HttpInfo<EventJSON>) => apiResponse.data));
     }
 
     /**
@@ -1052,13 +1052,13 @@ export class ObservableEventsApi {
     /**
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
-     * @param id
+     * @param eventId
      * @param redeliverEventRequest
      */
-    public redeliverEventWithHttpInfo(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RedeliverView>> {
+    public redeliverEventWithHttpInfo(eventId: string, redeliverEventRequest: RedeliverEventRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RedeliverView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.redeliverEvent(id, redeliverEventRequest, _config);
+        const requestContextPromise = this.requestFactory.redeliverEvent(eventId, redeliverEventRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1078,11 +1078,11 @@ export class ObservableEventsApi {
     /**
      * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
      * Redeliver an event
-     * @param id
+     * @param eventId
      * @param redeliverEventRequest
      */
-    public redeliverEvent(id: string, redeliverEventRequest: RedeliverEventRequest, _options?: ConfigurationOptions): Observable<RedeliverView> {
-        return this.redeliverEventWithHttpInfo(id, redeliverEventRequest, _options).pipe(map((apiResponse: HttpInfo<RedeliverView>) => apiResponse.data));
+    public redeliverEvent(eventId: string, redeliverEventRequest: RedeliverEventRequest, _options?: ConfigurationOptions): Observable<RedeliverView> {
+        return this.redeliverEventWithHttpInfo(eventId, redeliverEventRequest, _options).pipe(map((apiResponse: HttpInfo<RedeliverView>) => apiResponse.data));
     }
 
 }
@@ -1107,14 +1107,14 @@ export class ObservableMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
      * Approve a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessageWithHttpInfo(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public approveMessageWithHttpInfo(email: string, messageId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.approveMessage(email, id, approveRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.approveMessage(email, messageId, approveRequest, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1135,27 +1135,27 @@ export class ObservableMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
      * Approve a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveMessage(email: string, id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.approveMessageWithHttpInfo(email, id, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public approveMessage(email: string, messageId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.approveMessageWithHttpInfo(email, messageId, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param email
-     * @param id
+     * @param messageId
      * @param forwardRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public forwardMessageWithHttpInfo(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public forwardMessageWithHttpInfo(email: string, messageId: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.forwardMessage(email, id, forwardRequest, idempotencyKey, wait, _config);
+        const requestContextPromise = this.requestFactory.forwardMessage(email, messageId, forwardRequest, idempotencyKey, wait, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1176,27 +1176,27 @@ export class ObservableMessagesApi {
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param email
-     * @param id
+     * @param messageId
      * @param forwardRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.forwardMessageWithHttpInfo(email, id, forwardRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public forwardMessage(email: string, messageId: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.forwardMessageWithHttpInfo(email, messageId, forwardRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param email
-     * @param id
+     * @param messageId
      * @param index
      * @param [inline] When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
      */
-    public getAttachmentWithHttpInfo(email: string, id: string, index: number, inline?: boolean, _options?: ConfigurationOptions): Observable<HttpInfo<AttachmentView>> {
+    public getAttachmentWithHttpInfo(email: string, messageId: string, index: number, inline?: boolean, _options?: ConfigurationOptions): Observable<HttpInfo<AttachmentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getAttachment(email, id, index, inline, _config);
+        const requestContextPromise = this.requestFactory.getAttachment(email, messageId, index, inline, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1217,24 +1217,24 @@ export class ObservableMessagesApi {
      * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param email
-     * @param id
+     * @param messageId
      * @param index
      * @param [inline] When true, also include the bytes as base64 in \&#39;data\&#39; — ONLY for attachments &lt;&#x3D; 256 KB; larger inline requests are rejected (413). Default false (use download_url).
      */
-    public getAttachment(email: string, id: string, index: number, inline?: boolean, _options?: ConfigurationOptions): Observable<AttachmentView> {
-        return this.getAttachmentWithHttpInfo(email, id, index, inline, _options).pipe(map((apiResponse: HttpInfo<AttachmentView>) => apiResponse.data));
+    public getAttachment(email: string, messageId: string, index: number, inline?: boolean, _options?: ConfigurationOptions): Observable<AttachmentView> {
+        return this.getAttachmentWithHttpInfo(email, messageId, index, inline, _options).pipe(map((apiResponse: HttpInfo<AttachmentView>) => apiResponse.data));
     }
 
     /**
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
      * @param email The agent\&#39;s full email address.
-     * @param id The message id, e.g. msg_abc123.
+     * @param messageId The message id, e.g. msg_abc123.
      */
-    public getMessageWithHttpInfo(email: string, id: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
+    public getMessageWithHttpInfo(email: string, messageId: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getMessage(email, id, _config);
+        const requestContextPromise = this.requestFactory.getMessage(email, messageId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1255,10 +1255,10 @@ export class ObservableMessagesApi {
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
      * Get a message
      * @param email The agent\&#39;s full email address.
-     * @param id The message id, e.g. msg_abc123.
+     * @param messageId The message id, e.g. msg_abc123.
      */
-    public getMessage(email: string, id: string, _options?: ConfigurationOptions): Observable<MessageView> {
-        return this.getMessageWithHttpInfo(email, id, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
+    public getMessage(email: string, messageId: string, _options?: ConfigurationOptions): Observable<MessageView> {
+        return this.getMessageWithHttpInfo(email, messageId, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
     }
 
     /**
@@ -1321,13 +1321,13 @@ export class ObservableMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
      * Reject a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param rejectRequest
      */
-    public rejectMessageWithHttpInfo(email: string, id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RejectResultView>> {
+    public rejectMessageWithHttpInfo(email: string, messageId: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RejectResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.rejectMessage(email, id, rejectRequest, _config);
+        const requestContextPromise = this.requestFactory.rejectMessage(email, messageId, rejectRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1348,26 +1348,26 @@ export class ObservableMessagesApi {
      * **Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
      * Reject a held message (deprecated)
      * @param email
-     * @param id
+     * @param messageId
      * @param rejectRequest
      */
-    public rejectMessage(email: string, id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<RejectResultView> {
-        return this.rejectMessageWithHttpInfo(email, id, rejectRequest, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
+    public rejectMessage(email: string, messageId: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<RejectResultView> {
+        return this.rejectMessageWithHttpInfo(email, messageId, rejectRequest, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
     }
 
     /**
      * Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.
      * Reply to a message
      * @param email
-     * @param id
+     * @param messageId
      * @param replyRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public replyToMessageWithHttpInfo(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public replyToMessageWithHttpInfo(email: string, messageId: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.replyToMessage(email, id, replyRequest, idempotencyKey, wait, _config);
+        const requestContextPromise = this.requestFactory.replyToMessage(email, messageId, replyRequest, idempotencyKey, wait, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1388,13 +1388,13 @@ export class ObservableMessagesApi {
      * Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.
      * Reply to a message
      * @param email
-     * @param id
+     * @param messageId
      * @param replyRequest
      * @param [idempotencyKey]
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
-    public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.replyToMessageWithHttpInfo(email, id, replyRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public replyToMessage(email: string, messageId: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.replyToMessageWithHttpInfo(email, messageId, replyRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
@@ -1441,13 +1441,13 @@ export class ObservableMessagesApi {
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
      * @param email
-     * @param id
+     * @param messageId
      * @param updateMessageRequest
      */
-    public updateMessageWithHttpInfo(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<HttpInfo<UpdateMessageResultView>> {
+    public updateMessageWithHttpInfo(email: string, messageId: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<HttpInfo<UpdateMessageResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.updateMessage(email, id, updateMessageRequest, _config);
+        const requestContextPromise = this.requestFactory.updateMessage(email, messageId, updateMessageRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1468,11 +1468,11 @@ export class ObservableMessagesApi {
      * Apply a labels delta (`add_labels` / `remove_labels`) to a message the caller owns; returns the post-update label set. Each list is capped at 50 entries; labels are lowercase `[a-z0-9:_-]+` up to 64 chars; the `e2a:` prefix is reserved for system labels. A message carries at most 100 labels. An empty delta is a read of the current labels.
      * Update a message (labels)
      * @param email
-     * @param id
+     * @param messageId
      * @param updateMessageRequest
      */
-    public updateMessage(email: string, id: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<UpdateMessageResultView> {
-        return this.updateMessageWithHttpInfo(email, id, updateMessageRequest, _options).pipe(map((apiResponse: HttpInfo<UpdateMessageResultView>) => apiResponse.data));
+    public updateMessage(email: string, messageId: string, updateMessageRequest: UpdateMessageRequest, _options?: ConfigurationOptions): Observable<UpdateMessageResultView> {
+        return this.updateMessageWithHttpInfo(email, messageId, updateMessageRequest, _options).pipe(map((apiResponse: HttpInfo<UpdateMessageResultView>) => apiResponse.data));
     }
 
 }
@@ -1546,14 +1546,14 @@ export class ObservableReviewsApi {
     /**
      * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
      * Approve a held message
-     * @param id
+     * @param reviewId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveReviewWithHttpInfo(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
+    public approveReviewWithHttpInfo(reviewId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.approveReview(id, approveRequest, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.approveReview(reviewId, approveRequest, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1573,23 +1573,23 @@ export class ObservableReviewsApi {
     /**
      * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
      * Approve a held message
-     * @param id
+     * @param reviewId
      * @param approveRequest
      * @param [idempotencyKey]
      */
-    public approveReview(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
-        return this.approveReviewWithHttpInfo(id, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    public approveReview(reviewId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
+        return this.approveReviewWithHttpInfo(reviewId, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
     }
 
     /**
      * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
      * Get a held message (full detail)
-     * @param id
+     * @param reviewId
      */
-    public getReviewWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
+    public getReviewWithHttpInfo(reviewId: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getReview(id, _config);
+        const requestContextPromise = this.requestFactory.getReview(reviewId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1609,10 +1609,10 @@ export class ObservableReviewsApi {
     /**
      * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
      * Get a held message (full detail)
-     * @param id
+     * @param reviewId
      */
-    public getReview(id: string, _options?: ConfigurationOptions): Observable<MessageView> {
-        return this.getReviewWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
+    public getReview(reviewId: string, _options?: ConfigurationOptions): Observable<MessageView> {
+        return this.getReviewWithHttpInfo(reviewId, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
     }
 
     /**
@@ -1650,13 +1650,13 @@ export class ObservableReviewsApi {
     /**
      * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
      * Reject a held message
-     * @param id
+     * @param reviewId
      * @param rejectRequest
      */
-    public rejectReviewWithHttpInfo(id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RejectResultView>> {
+    public rejectReviewWithHttpInfo(reviewId: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<HttpInfo<RejectResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.rejectReview(id, rejectRequest, _config);
+        const requestContextPromise = this.requestFactory.rejectReview(reviewId, rejectRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1676,11 +1676,11 @@ export class ObservableReviewsApi {
     /**
      * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
      * Reject a held message
-     * @param id
+     * @param reviewId
      * @param rejectRequest
      */
-    public rejectReview(id: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<RejectResultView> {
-        return this.rejectReviewWithHttpInfo(id, rejectRequest, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
+    public rejectReview(reviewId: string, rejectRequest: RejectRequest, _options?: ConfigurationOptions): Observable<RejectResultView> {
+        return this.rejectReviewWithHttpInfo(reviewId, rejectRequest, _options).pipe(map((apiResponse: HttpInfo<RejectResultView>) => apiResponse.data));
     }
 
 }
@@ -1738,12 +1738,12 @@ export class ObservableTemplatesApi {
     /**
      * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
-     * @param id
+     * @param templateId
      */
-    public deleteTemplateWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteTemplateWithHttpInfo(templateId: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.deleteTemplate(id, _config);
+        const requestContextPromise = this.requestFactory.deleteTemplate(templateId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1763,10 +1763,10 @@ export class ObservableTemplatesApi {
     /**
      * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
-     * @param id
+     * @param templateId
      */
-    public deleteTemplate(id: string, _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteTemplateWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteTemplate(templateId: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteTemplateWithHttpInfo(templateId, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 
     /**
@@ -1806,12 +1806,12 @@ export class ObservableTemplatesApi {
     /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
-     * @param id
+     * @param templateId
      */
-    public getTemplateWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<TemplateView>> {
+    public getTemplateWithHttpInfo(templateId: string, _options?: ConfigurationOptions): Observable<HttpInfo<TemplateView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getTemplate(id, _config);
+        const requestContextPromise = this.requestFactory.getTemplate(templateId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1831,10 +1831,10 @@ export class ObservableTemplatesApi {
     /**
      * Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable.
      * Get a template (beta)
-     * @param id
+     * @param templateId
      */
-    public getTemplate(id: string, _options?: ConfigurationOptions): Observable<TemplateView> {
-        return this.getTemplateWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
+    public getTemplate(templateId: string, _options?: ConfigurationOptions): Observable<TemplateView> {
+        return this.getTemplateWithHttpInfo(templateId, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
     }
 
     /**
@@ -1904,13 +1904,13 @@ export class ObservableTemplatesApi {
     /**
      * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
-     * @param id
+     * @param templateId
      * @param updateTemplateRequest
      */
-    public updateTemplateWithHttpInfo(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TemplateView>> {
+    public updateTemplateWithHttpInfo(templateId: string, updateTemplateRequest: UpdateTemplateRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TemplateView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.updateTemplate(id, updateTemplateRequest, _config);
+        const requestContextPromise = this.requestFactory.updateTemplate(templateId, updateTemplateRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1930,11 +1930,11 @@ export class ObservableTemplatesApi {
     /**
      * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
-     * @param id
+     * @param templateId
      * @param updateTemplateRequest
      */
-    public updateTemplate(id: string, updateTemplateRequest: UpdateTemplateRequest, _options?: ConfigurationOptions): Observable<TemplateView> {
-        return this.updateTemplateWithHttpInfo(id, updateTemplateRequest, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
+    public updateTemplate(templateId: string, updateTemplateRequest: UpdateTemplateRequest, _options?: ConfigurationOptions): Observable<TemplateView> {
+        return this.updateTemplateWithHttpInfo(templateId, updateTemplateRequest, _options).pipe(map((apiResponse: HttpInfo<TemplateView>) => apiResponse.data));
     }
 
     /**
@@ -2023,12 +2023,12 @@ export class ObservableWebhooksApi {
 
     /**
      * Delete a webhook
-     * @param id
+     * @param webhookId
      */
-    public deleteWebhookWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteWebhookWithHttpInfo(webhookId: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.deleteWebhook(id, _config);
+        const requestContextPromise = this.requestFactory.deleteWebhook(webhookId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2047,20 +2047,20 @@ export class ObservableWebhooksApi {
 
     /**
      * Delete a webhook
-     * @param id
+     * @param webhookId
      */
-    public deleteWebhook(id: string, _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteWebhookWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteWebhook(webhookId: string, _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteWebhookWithHttpInfo(webhookId, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 
     /**
      * Get a webhook
-     * @param id
+     * @param webhookId
      */
-    public getWebhookWithHttpInfo(id: string, _options?: ConfigurationOptions): Observable<HttpInfo<WebhookView>> {
+    public getWebhookWithHttpInfo(webhookId: string, _options?: ConfigurationOptions): Observable<HttpInfo<WebhookView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.getWebhook(id, _config);
+        const requestContextPromise = this.requestFactory.getWebhook(webhookId, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2079,23 +2079,23 @@ export class ObservableWebhooksApi {
 
     /**
      * Get a webhook
-     * @param id
+     * @param webhookId
      */
-    public getWebhook(id: string, _options?: ConfigurationOptions): Observable<WebhookView> {
-        return this.getWebhookWithHttpInfo(id, _options).pipe(map((apiResponse: HttpInfo<WebhookView>) => apiResponse.data));
+    public getWebhook(webhookId: string, _options?: ConfigurationOptions): Observable<WebhookView> {
+        return this.getWebhookWithHttpInfo(webhookId, _options).pipe(map((apiResponse: HttpInfo<WebhookView>) => apiResponse.data));
     }
 
     /**
      * The per-webhook delivery log (read-only debug view).
      * List webhook deliveries
-     * @param id
+     * @param webhookId
      * @param [status]
      * @param [limit]
      */
-    public listWebhookDeliveriesWithHttpInfo(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookDeliveryView>> {
+    public listWebhookDeliveriesWithHttpInfo(webhookId: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookDeliveryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listWebhookDeliveries(id, status, limit, _config);
+        const requestContextPromise = this.requestFactory.listWebhookDeliveries(webhookId, status, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2115,12 +2115,12 @@ export class ObservableWebhooksApi {
     /**
      * The per-webhook delivery log (read-only debug view).
      * List webhook deliveries
-     * @param id
+     * @param webhookId
      * @param [status]
      * @param [limit]
      */
-    public listWebhookDeliveries(id: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: ConfigurationOptions): Observable<PageWebhookDeliveryView> {
-        return this.listWebhookDeliveriesWithHttpInfo(id, status, limit, _options).pipe(map((apiResponse: HttpInfo<PageWebhookDeliveryView>) => apiResponse.data));
+    public listWebhookDeliveries(webhookId: string, status?: 'pending' | 'delivered' | 'failed', limit?: number, _options?: ConfigurationOptions): Observable<PageWebhookDeliveryView> {
+        return this.listWebhookDeliveriesWithHttpInfo(webhookId, status, limit, _options).pipe(map((apiResponse: HttpInfo<PageWebhookDeliveryView>) => apiResponse.data));
     }
 
     /**
@@ -2156,13 +2156,13 @@ export class ObservableWebhooksApi {
     /**
      * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
-     * @param id
+     * @param webhookId
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateSecretResponse>> {
+    public rotateWebhookSecretWithHttpInfo(webhookId: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateSecretResponse>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.rotateWebhookSecret(id, idempotencyKey, _config);
+        const requestContextPromise = this.requestFactory.rotateWebhookSecret(webhookId, idempotencyKey, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2182,23 +2182,23 @@ export class ObservableWebhooksApi {
     /**
      * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
      * Rotate a webhook signing secret
-     * @param id
+     * @param webhookId
      * @param [idempotencyKey]
      */
-    public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<RotateSecretResponse> {
-        return this.rotateWebhookSecretWithHttpInfo(id, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<RotateSecretResponse>) => apiResponse.data));
+    public rotateWebhookSecret(webhookId: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<RotateSecretResponse> {
+        return this.rotateWebhookSecretWithHttpInfo(webhookId, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<RotateSecretResponse>) => apiResponse.data));
     }
 
     /**
      * Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
      * Fire a synthetic event
-     * @param id
+     * @param webhookId
      * @param testWebhookRequest
      */
-    public testWebhookWithHttpInfo(id: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TestWebhookResponse>> {
+    public testWebhookWithHttpInfo(webhookId: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<TestWebhookResponse>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.testWebhook(id, testWebhookRequest, _config);
+        const requestContextPromise = this.requestFactory.testWebhook(webhookId, testWebhookRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2218,23 +2218,23 @@ export class ObservableWebhooksApi {
     /**
      * Schedule a one-off synthetic delivery to this webhook for development. Returns the delivery id.
      * Fire a synthetic event
-     * @param id
+     * @param webhookId
      * @param testWebhookRequest
      */
-    public testWebhook(id: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<TestWebhookResponse> {
-        return this.testWebhookWithHttpInfo(id, testWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<TestWebhookResponse>) => apiResponse.data));
+    public testWebhook(webhookId: string, testWebhookRequest: TestWebhookRequest, _options?: ConfigurationOptions): Observable<TestWebhookResponse> {
+        return this.testWebhookWithHttpInfo(webhookId, testWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<TestWebhookResponse>) => apiResponse.data));
     }
 
     /**
      * Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
      * Update a webhook
-     * @param id
+     * @param webhookId
      * @param updateWebhookRequest
      */
-    public updateWebhookWithHttpInfo(id: string, updateWebhookRequest: UpdateWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<WebhookView>> {
+    public updateWebhookWithHttpInfo(webhookId: string, updateWebhookRequest: UpdateWebhookRequest, _options?: ConfigurationOptions): Observable<HttpInfo<WebhookView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.updateWebhook(id, updateWebhookRequest, _config);
+        const requestContextPromise = this.requestFactory.updateWebhook(webhookId, updateWebhookRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -2254,11 +2254,11 @@ export class ObservableWebhooksApi {
     /**
      * Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.
      * Update a webhook
-     * @param id
+     * @param webhookId
      * @param updateWebhookRequest
      */
-    public updateWebhook(id: string, updateWebhookRequest: UpdateWebhookRequest, _options?: ConfigurationOptions): Observable<WebhookView> {
-        return this.updateWebhookWithHttpInfo(id, updateWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<WebhookView>) => apiResponse.data));
+    public updateWebhook(webhookId: string, updateWebhookRequest: UpdateWebhookRequest, _options?: ConfigurationOptions): Observable<WebhookView> {
+        return this.updateWebhookWithHttpInfo(webhookId, updateWebhookRequest, _options).pipe(map((apiResponse: HttpInfo<WebhookView>) => apiResponse.data));
     }
 
 }

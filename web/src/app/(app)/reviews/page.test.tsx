@@ -29,7 +29,7 @@ const AGENT_EMAIL = "ag_1@agents.e2a.dev";
 
 // A ReviewView row from GET /v1/reviews (the account-scoped review queue).
 const SAMPLE_ROW = {
-  id: "msg_1",
+  review_id: "msg_1",
   agent: AGENT_EMAIL,
   direction: "outbound",
   from: AGENT_EMAIL,

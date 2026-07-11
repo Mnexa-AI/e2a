@@ -24,16 +24,16 @@ export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
      * Approve a held message
-     * @param id 
+     * @param reviewId 
      * @param approveRequest 
      * @param idempotencyKey 
      */
-    public async approveReview(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
+    public async approveReview(reviewId: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("ReviewsApi", "approveReview", "id");
+        // verify required parameter 'reviewId' is not null or undefined
+        if (reviewId === null || reviewId === undefined) {
+            throw new RequiredError("ReviewsApi", "approveReview", "reviewId");
         }
 
 
@@ -45,8 +45,8 @@ export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/reviews/{id}/approve'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/reviews/{review_id}/approve'
+            .replace('{' + 'review_id' + '}', encodeURIComponent(String(reviewId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
@@ -87,20 +87,20 @@ export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
      * Get a held message (full detail)
-     * @param id 
+     * @param reviewId 
      */
-    public async getReview(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async getReview(reviewId: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("ReviewsApi", "getReview", "id");
+        // verify required parameter 'reviewId' is not null or undefined
+        if (reviewId === null || reviewId === undefined) {
+            throw new RequiredError("ReviewsApi", "getReview", "reviewId");
         }
 
 
         // Path Params
-        const localVarPath = '/v1/reviews/{id}'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/reviews/{review_id}'
+            .replace('{' + 'review_id' + '}', encodeURIComponent(String(reviewId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
@@ -155,15 +155,15 @@ export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
      * Reject a held message
-     * @param id 
+     * @param reviewId 
      * @param rejectRequest 
      */
-    public async rejectReview(id: string, rejectRequest: RejectRequest, _options?: Configuration): Promise<RequestContext> {
+    public async rejectReview(reviewId: string, rejectRequest: RejectRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
-        // verify required parameter 'id' is not null or undefined
-        if (id === null || id === undefined) {
-            throw new RequiredError("ReviewsApi", "rejectReview", "id");
+        // verify required parameter 'reviewId' is not null or undefined
+        if (reviewId === null || reviewId === undefined) {
+            throw new RequiredError("ReviewsApi", "rejectReview", "reviewId");
         }
 
 
@@ -174,8 +174,8 @@ export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
 
 
         // Path Params
-        const localVarPath = '/v1/reviews/{id}/reject'
-            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+        const localVarPath = '/v1/reviews/{review_id}/reject'
+            .replace('{' + 'review_id' + '}', encodeURIComponent(String(reviewId)));
 
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);

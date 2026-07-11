@@ -130,7 +130,7 @@ function withSendingStatus(status: string) {
 }
 
 const sampleAgent = {
-  id: "ag_123",
+  agent_id: "ag_123",
   domain: "verified.example.com",
   email: "support@verified.example.com",
   name: "support",
