@@ -90,9 +90,24 @@ func assertNoDupes(t *testing.T, ids []string, want int) {
 func paginatedReviewsServer(t *testing.T, n int) *httptest.Server {
 	t.Helper()
 	// Newest-first canonical order: r0 (newest) .. r{n-1} (oldest).
+	//
+	// Rows 1..3 (when present) deliberately SHARE one created_at so the fake's
+	// afterKey tiebreak branch (Equal && id < afterID) actually executes as the
+	// walk crosses the tie — otherwise, with strictly-distinct timestamps, that
+	// branch is dead code and the handler test would only cover cursor plumbing.
+	// Because idFor is lexically descending in step with recency (idFor(1) >
+	// idFor(2) > idFor(3)), the id-DESC tiebreak reproduces the same order the
+	// distinct-timestamp seed had, so the order assertions below are unchanged.
+	// The real SQL keyset predicate under a tie is covered separately by the
+	// DB-backed store tests (internal/identity, internal/webhook).
 	all := make([]identity.ReviewListItem, n)
 	base := time.Unix(1700000000, 0).UTC()
+	tieAt := base.Add(-2 * time.Minute)
 	for i := 0; i < n; i++ {
+		at := base.Add(-time.Duration(i) * time.Minute)
+		if i >= 1 && i <= 3 {
+			at = tieAt
+		}
 		all[i] = identity.ReviewListItem{
 			ID:        idFor(i),
 			AgentID:   "support@acme.dev",
@@ -101,7 +116,7 @@ func paginatedReviewsServer(t *testing.T, n int) *httptest.Server {
 			To:        []string{"support@acme.dev"},
 			Subject:   "held",
 			Status:    "pending_review",
-			CreatedAt: base.Add(-time.Duration(i) * time.Minute),
+			CreatedAt: at,
 		}
 	}
 	srv := httptest.NewServer(New(Deps{
@@ -273,8 +288,13 @@ func TestAgents_KeysetPaginationWalksFullSet(t *testing.T) {
 	assertNoDupes(t, ids, 6)
 }
 
-// idFor builds a lexically-descending id so the (created_at DESC, id DESC)
-// tiebreak is exercised: newer rows (i smaller) get lexically-larger ids.
+// idFor builds a lexically-descending id: newer rows (smaller i) get
+// lexically-larger ids. Combined with the equal-created_at subset that
+// paginatedReviewsServer seeds, this drives the fake's id-DESC tiebreak so the
+// order is stable across a tie. NOTE: this handler-level fake only exercises the
+// cursor plumbing and the fake's own afterKey tiebreak — the real store SQL
+// predicate under a created_at tie is covered by the DB-backed store tests in
+// internal/identity (reviews, agents) and internal/webhook (deliveries).
 func idFor(i int) string {
 	return string(rune('a'+(20-i))) + "_id"
 }
