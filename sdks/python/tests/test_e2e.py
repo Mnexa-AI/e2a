@@ -49,7 +49,7 @@ def anyio_backend() -> str:
 async def test_info_reports_deployment() -> None:
     async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
         info = await client.info()
-        assert info is not None
+        assert isinstance(info.version, str) and info.version
 
 
 async def test_send_find_get_reply_self_loopback() -> None:
@@ -70,28 +70,30 @@ async def test_send_find_get_reply_self_loopback() -> None:
             assert sent.message_id
             assert sent.status in ("sent", "accepted")
 
-            # Self-send loopback lands an inbound copy in the same inbox; poll.
+            # Self-send loopback lands an INBOUND copy; filter to inbound so the
+            # just-sent outbound copy (same subject) can't match.
             found = None
             for _ in range(12):
-                msgs = await client.messages.list(bot, limit=20).to_list(limit=20)
+                msgs = await client.messages.list(bot, direction="inbound", limit=20).to_list(limit=20)
                 found = next((m for m in msgs if m.subject == subject), None)
                 if found:
                     break
                 await asyncio.sleep(1.5)
-            assert found is not None, f"a message with subject {subject!r} must appear within ~18s"
+            assert found is not None, f"an inbound message with subject {subject!r} must appear within ~18s"
 
             full = await client.messages.get(bot, found.message_id)
             assert full.message_id == found.message_id
             assert full.subject == subject
-            # NB: not asserting body — a self-send LOOPBACK delivers an inbound
-            # message with an empty parsed body on staging (delivery mechanism,
-            # not a full MIME round-trip). The parity signal is the round-trip.
+            # The delivered body is under `parsed` (inbound-extracted MIME), not
+            # `body` (the held-outbound draft field, null for inbound by design).
+            assert full.parsed is not None and "Hello from the Python SDK live e2e" in full.parsed.text
 
             reply = await client.messages.reply(
                 bot, found.message_id, {"body": "Reply from the Python SDK live e2e"}
             )
             assert reply.message_id
-            assert reply.status in ("sent", "accepted", "pending_review")
+            # Fresh unprotected inbox → the reply sends immediately (same as send).
+            assert reply.status in ("sent", "accepted")
         finally:
             await client.agents.delete(bot)
 
