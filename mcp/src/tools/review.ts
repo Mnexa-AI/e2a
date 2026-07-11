@@ -36,16 +36,16 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
   // must survive as a strip override, so map by key-presence.
   const mapOverrides = (overrides: {
     subject?: string;
-    body_text?: string;
-    body_html?: string;
+    text?: string;
+    html?: string;
     to?: string[];
     cc?: string[];
     bcc?: string[];
     attachments?: Array<{ filename: string; content_type: string; data: string }>;
   }) => ({
     ...(overrides.subject !== undefined ? { subject: overrides.subject } : {}),
-    ...(overrides.body_text !== undefined ? { body: overrides.body_text } : {}),
-    ...(overrides.body_html !== undefined ? { htmlBody: overrides.body_html } : {}),
+    ...(overrides.text !== undefined ? { text: overrides.text } : {}),
+    ...(overrides.html !== undefined ? { html: overrides.html } : {}),
     ...(overrides.to !== undefined ? { to: overrides.to } : {}),
     ...(overrides.cc !== undefined ? { cc: overrides.cc } : {}),
     ...(overrides.bcc !== undefined ? { bcc: overrides.bcc } : {}),
@@ -67,14 +67,14 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       annotations: { destructiveHint: false },
       description:
         "Release a message held in `pending_review`. The server branches on the message's direction:\n" +
-        "- **Outbound** (from the `list_pending_messages` queue): the draft is SENT via SES. Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / body_text / body_html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
+        "- **Outbound** (from the `list_pending_messages` queue): the draft is SENT via SES. Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / text / html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
         "- **Inbound** (a screening hold, discovered via the `email.pending_review` webhook): the message is RELEASED to the agent's inbox so it becomes readable. There is no send and no draft — any override fields are ignored.\n" +
         "Returns 409 if the message is no longer pending (a human or the TTL sweep already resolved it).",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         subject: z.string().optional(),
-        body_text: z.string().optional(),
-        body_html: z.string().optional(),
+        text: z.string().optional(),
+        html: z.string().optional(),
         to: z.array(z.string()).optional(),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),

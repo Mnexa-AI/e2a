@@ -18,8 +18,8 @@ export class Domain {
     'dkimPublicKey'?: string;
     'dkimSelector'?: string;
     'domain': string;
-    'isPrimary': boolean;
     'lastCheckedAt'?: Date;
+    'primary': boolean;
     'sendingError'?: string;
     'sendingLastCheckedAt'?: Date;
     'sendingStatus': string;
@@ -64,16 +64,16 @@ export class Domain {
             "format": ""
         },
         {
-            "name": "isPrimary",
-            "baseName": "is_primary",
-            "type": "boolean",
-            "format": ""
-        },
-        {
             "name": "lastCheckedAt",
             "baseName": "last_checked_at",
             "type": "Date",
             "format": "date-time"
+        },
+        {
+            "name": "primary",
+            "baseName": "primary",
+            "type": "boolean",
+            "format": ""
         },
         {
             "name": "sendingError",

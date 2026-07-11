@@ -18,7 +18,7 @@ export class ConversationSummaryView {
     'id': string;
     'inboundCount': number;
     'lastMessageAt': Date;
-    'latestSender': string;
+    'latestFrom': string;
     'latestSubject': string;
     'messageCount': number;
     'outboundCount': number;
@@ -59,8 +59,8 @@ export class ConversationSummaryView {
             "format": "date-time"
         },
         {
-            "name": "latestSender",
-            "baseName": "latest_sender",
+            "name": "latestFrom",
+            "baseName": "latest_from",
             "type": "string",
             "format": ""
         },

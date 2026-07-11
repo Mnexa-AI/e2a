@@ -139,7 +139,7 @@ type MessageSummaryWire = {
   to?: string[] | null;
   cc?: string[] | null;
   reply_to?: string[] | null;
-  recipient: string;
+  delivered_to: string;
   subject: string;
   conversation_id?: string;
   // v1 splits message state into delivery rollup (delivery_status) and the
@@ -166,7 +166,7 @@ function projectSummary(w: MessageSummaryWire): import("../types").MessageSummar
     to: w.to ?? [],
     cc: w.cc ?? undefined,
     reply_to: w.reply_to ?? undefined,
-    recipient: w.recipient,
+    recipient: w.delivered_to,
     subject: w.subject,
     conversation_id: w.conversation_id,
     // App keeps `status` (delivery rollup) + `review_status` (review
@@ -245,7 +245,7 @@ type MessageViewWire = {
   to?: string[] | null;
   cc?: string[] | null;
   reply_to?: string[] | null;
-  recipient: string;
+  delivered_to: string;
   subject: string;
   conversation_id?: string;
   direction?: "inbound" | "outbound";
@@ -341,7 +341,7 @@ export async function getMessageDetail(
       to: w.to ?? [],
       cc: w.cc ?? [],
       reply_to: w.reply_to ?? [],
-      recipient: w.recipient,
+      recipient: w.delivered_to,
       subject: w.subject,
       conversation_id: w.conversation_id ?? "",
       status: w.delivery_status ?? "",
@@ -420,8 +420,8 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
 
 export type ApprovePayload = {
   subject?: string;
-  body?: string;
-  html_body?: string;
+  text?: string;
+  html?: string;
   to?: string[];
   cc?: string[];
   bcc?: string[];

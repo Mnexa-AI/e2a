@@ -13,7 +13,7 @@ function makeStubClient(): McpClient {
   const stub = {
     agentEmail: "bot@example.com",
     scope: "account" as const,
-    whoami: vi.fn(async () => ({ user: "owner@example.com", scope: "account", agentAddress: undefined })),
+    whoami: vi.fn(async () => ({ user: "owner@example.com", scope: "account", agentEmail: undefined })),
     getMessage: vi.fn(async (id: string) => ({ id })),
     getAgent: vi.fn(async (e: string) => ({ id: e, email: e })),
     send: vi.fn(async () => ({ messageId: "msg_sent", status: "sent" })),
@@ -282,7 +282,7 @@ describe("HTTP MCP server", () => {
     agentStub.whoami = vi.fn(async () => ({
       user: "owner@example.com",
       scope: "agent",
-      agentAddress: "bot@example.com",
+      agentEmail: "bot@example.com",
     })) as McpClient["whoami"];
     const { close: c, port } = await startHttpServer(0, {
       baseUrl: "http://e2a.local",
@@ -355,7 +355,7 @@ describe("HTTP MCP server", () => {
 
     function makeProbeClient(opts: {
       scope?: "account" | "agent";
-      agentAddress?: string;
+      agentEmail?: string;
       whoamiThrows?: boolean | "unauthorized";
     }): McpClient {
       return {
@@ -367,7 +367,7 @@ describe("HTTP MCP server", () => {
           return {
             user: "owner@example.com",
             scope: opts.scope ?? "account",
-            agentAddress: opts.agentAddress,
+            agentEmail: opts.agentEmail,
           };
         }),
         listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
@@ -389,7 +389,7 @@ describe("HTTP MCP server", () => {
     }
 
     it("agent scope pins the credential-bound agent from whoami", async () => {
-      const probe = makeProbeClient({ scope: "agent", agentAddress: "solo@bot.example.com" });
+      const probe = makeProbeClient({ scope: "agent", agentEmail: "solo@bot.example.com" });
       const factory = vi.fn(() => probe);
       await startWithFactory(factory);
 
@@ -461,7 +461,7 @@ describe("HTTP MCP server", () => {
     });
 
     it("a successful whoami IS cached — a second request skips the probe", async () => {
-      const probe = makeProbeClient({ scope: "agent", agentAddress: "solo@bot.example.com" });
+      const probe = makeProbeClient({ scope: "agent", agentEmail: "solo@bot.example.com" });
       const factory = vi.fn(() => probe);
       await startWithFactory(factory);
 

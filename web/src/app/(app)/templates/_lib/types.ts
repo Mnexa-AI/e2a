@@ -15,8 +15,8 @@ export type TemplateSummaryView = {
 };
 
 export type TemplateView = TemplateSummaryView & {
-  body: string;
-  html_body?: string;
+  text: string;
+  html?: string;
 };
 
 export type StarterTemplateVariable = {
@@ -38,19 +38,19 @@ export type StarterTemplateView = {
 
 // GET /v1/starter-templates/{alias} adds the verbatim body sources.
 export type StarterTemplateDetail = StarterTemplateView & {
-  body: string;
-  html_body: string;
+  text: string;
+  html: string;
 };
 
 export type TemplatePartError = {
-  part: string; // subject | body | html_body
+  part: string; // subject | text | html
   message: string;
 };
 
 export type RenderedTemplate = {
   subject: string;
-  body: string;
-  html_body?: string;
+  text: string;
+  html?: string;
 };
 
 // suggested_data is NESTED: a dot-path variable like {{user.name}} emits

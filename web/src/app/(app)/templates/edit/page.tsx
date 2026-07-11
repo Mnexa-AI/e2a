@@ -98,8 +98,8 @@ function TemplateEditor({ id }: { id: string }) {
         setName(t.name);
         setAlias(t.alias ?? "");
         setSubject(t.subject);
-        setBody(t.body);
-        setHtmlBody(t.html_body ?? "");
+        setBody(t.text);
+        setHtmlBody(t.html ?? "");
       } catch (err) {
         if (!cancelled)
           setLoadError(err instanceof Error ? err.message : String(err));
@@ -119,14 +119,14 @@ function TemplateEditor({ id }: { id: string }) {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        // Send every field: alias "" clears the alias, html_body ""
+        // Send every field: alias "" clears the alias, html ""
         // removes the HTML part — which matches empty inputs.
         body: JSON.stringify({
           name,
           alias,
           subject,
-          body,
-          html_body: htmlBody,
+          text: body,
+          html: htmlBody,
         }),
       });
       if (!res.ok) {
@@ -160,8 +160,8 @@ function TemplateEditor({ id }: { id: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             subject,
-            body,
-            ...(htmlBody ? { html_body: htmlBody } : {}),
+            text: body,
+            ...(htmlBody ? { html: htmlBody } : {}),
             // Dotted display keys → the nested object the renderer resolves.
             test_data: nestTestData(data),
           }),
@@ -383,8 +383,8 @@ function TemplateEditor({ id }: { id: string }) {
           {validation?.rendered && (
             <TemplatePreview
               subject={validation.rendered.subject}
-              textBody={validation.rendered.body}
-              htmlBody={validation.rendered.html_body}
+              textBody={validation.rendered.text}
+              htmlBody={validation.rendered.html}
             />
           )}
         </section>

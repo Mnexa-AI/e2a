@@ -37,7 +37,7 @@ async function freshAgent(label: string, hold = false): Promise<string> {
 // Self-send loopback → poll the inbox for the inbound copy (with its conversation id).
 async function loopbackMessage(email: string, subject: string): Promise<{ id: string; conversationId: string }> {
   await client.post(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-    body: { to: [email], subject, body: "coverage happy-path body" },
+    body: { to: [email], subject, text: "coverage happy-path body" },
     expect: 200,
   });
   for (let i = 0; i < 12; i++) {
@@ -82,7 +82,7 @@ test("replyToMessage: reply to an inbound message (self-loopback → 200)", asyn
   const { id } = await loopbackMessage(email, uniqueSubject("cov rp"));
   // The loopback message's sender is the agent itself → the reply loops back too.
   const r = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reply`, {
-    body: { body: "replying for coverage" },
+    body: { text: "replying for coverage" },
     expect: [200, 202],
   });
   assert.ok(r.body?.message_id, "reply returned a message id");
@@ -92,7 +92,7 @@ test("forwardMessage: forward an inbound message to the simulator (200)", async 
   const email = await freshAgent("covfw");
   const { id } = await loopbackMessage(email, uniqueSubject("cov fw"));
   const r = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/forward`, {
-    body: { to: [SIMULATOR], body: "fyi — forwarded for coverage" },
+    body: { to: [SIMULATOR], text: "fyi — forwarded for coverage" },
     expect: [200, 202],
   });
   assert.ok(r.body?.message_id, "forward returned a message id");
@@ -102,7 +102,7 @@ test("approveMessage: approve a HITL-held outbound (200)", async () => {
   const email = await freshAgent("covap", true); // holds all outbound for review
   const send = await client.post<{ status: string; message_id: string }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
-    { body: { to: [SIMULATOR], subject: uniqueSubject("cov ap"), body: "to approve" }, expect: 202 },
+    { body: { to: [SIMULATOR], subject: uniqueSubject("cov ap"), text: "to approve" }, expect: 202 },
   );
   assert.equal(send.body?.status, "pending_review");
   const id = send.body!.message_id;

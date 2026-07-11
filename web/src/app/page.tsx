@@ -571,7 +571,7 @@ export default function Home() {
                   &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="fn">print</Tok>(msg.subject, n.conversation_id)
                 </Line>
                 <Line>
-                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(n.recipient, n.message_id, {`{`}<Tok c="string">&quot;body&quot;</Tok>: <Tok c="string">&quot;Got it, on it.&quot;</Tok>{`}`})
+                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(n.recipient, n.message_id, {`{`}<Tok c="string">&quot;text&quot;</Tok>: <Tok c="string">&quot;Got it, on it.&quot;</Tok>{`}`})
                 </Line>
               </>
             )}

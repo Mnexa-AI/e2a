@@ -16,7 +16,7 @@ export class ReviewView {
     /**
     * The inbox (agent address) the held message belongs to.
     */
-    'agent': string;
+    'agentEmail': string;
     'conversationId'?: string;
     'createdAt': Date;
     'direction': ReviewViewDirectionEnum;
@@ -37,8 +37,8 @@ export class ReviewView {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agent",
-            "baseName": "agent",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

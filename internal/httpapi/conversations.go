@@ -22,7 +22,7 @@ type ConversationSummaryView struct {
 	OutboundCount  int       `json:"outbound_count"`
 	HasUnread      bool      `json:"has_unread"`
 	LatestSubject  string    `json:"latest_subject"`
-	LatestSender   string    `json:"latest_sender"`
+	LatestSender   string    `json:"latest_from"`
 }
 
 func conversationSummaryView(c identity.ConversationSummary) ConversationSummaryView {

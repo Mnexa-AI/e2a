@@ -27,7 +27,7 @@ class ReviewView(BaseModel):
     """
     ReviewView
     """ # noqa: E501
-    agent: StrictStr = Field(description="The inbox (agent address) the held message belongs to.")
+    agent_email: StrictStr = Field(description="The inbox (agent address) the held message belongs to.")
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
     direction: StrictStr
@@ -38,7 +38,7 @@ class ReviewView(BaseModel):
     review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")
     subject: StrictStr
     to: List[StrictStr]
-    __properties: ClassVar[List[str]] = ["agent", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "id", "review_status", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "id", "review_status", "subject", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -91,7 +91,7 @@ class ReviewView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent": obj.get("agent"),
+            "agent_email": obj.get("agent_email"),
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
             "direction": obj.get("direction"),

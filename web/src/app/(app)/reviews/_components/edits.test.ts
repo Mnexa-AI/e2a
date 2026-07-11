@@ -80,7 +80,7 @@ describe("diffApproveEdits", () => {
         ...baseDraft,
         bodyText: "edited body content",
       }),
-    ).toEqual({ body: "edited body content" });
+    ).toEqual({ text: "edited body content" });
   });
 
   it("converts CSV recipients into string arrays", () => {
@@ -91,7 +91,7 @@ describe("diffApproveEdits", () => {
     expect(payload.to).toEqual(["alice@example.com", "bob@example.com"]);
     // Other fields unchanged → absent from payload
     expect(payload.subject).toBeUndefined();
-    expect(payload.body).toBeUndefined();
+    expect(payload.text).toBeUndefined();
   });
 
   it("does NOT emit recipient fields when the CSV form just adds whitespace", () => {
@@ -121,7 +121,7 @@ describe("diffApproveEdits", () => {
     });
     expect(payload).toEqual({
       subject: "edited",
-      body: "edited body",
+      text: "edited body",
       to: ["alice@example.com", "bob@example.com"],
     });
   });

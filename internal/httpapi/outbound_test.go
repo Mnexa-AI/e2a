@@ -12,7 +12,7 @@ const sendURL = "/v1/agents/support%40acme.com/messages"
 func TestSendSent(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 	})
 	if code != 200 || body["status"] != "sent" || body["message_id"] != "msg_sent_1" || body["method"] != "smtp" {
 		t.Fatalf("want 200 sent, got %d %v", code, body)
@@ -22,7 +22,7 @@ func TestSendSent(t *testing.T) {
 func TestSendHeldForApproval(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "HOLD please", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "HOLD please", "text": "hello",
 	})
 	if code != 202 || body["status"] != "pending_review" || body["message_id"] != "msg_pending_1" {
 		t.Fatalf("want 202 pending_approval, got %d %v", code, body)
@@ -38,7 +38,7 @@ func TestSendHeldForApproval(t *testing.T) {
 func TestSendMissingSubjectBody(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "", "body": "",
+		"to": []string{"alice@x.com"}, "subject": "", "text": "",
 	})
 	if code != 400 || errCode(body) != "invalid_request" {
 		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
@@ -48,7 +48,7 @@ func TestSendMissingSubjectBody(t *testing.T) {
 func TestSendCRLFSubjectRejected(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "a\r\nInjected: x", "body": "hi",
+		"to": []string{"alice@x.com"}, "subject": "a\r\nInjected: x", "text": "hi",
 	})
 	if code != 400 {
 		t.Fatalf("want 400 for CRLF subject, got %d %v", code, body)
@@ -58,7 +58,7 @@ func TestSendCRLFSubjectRejected(t *testing.T) {
 func TestSendNoRecipients(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"subject": "Hi", "body": "hello",
+		"subject": "Hi", "text": "hello",
 	})
 	// `to` is now schema-required (MSG-3) → rejected at validation (422).
 	if code != 422 {
@@ -69,7 +69,7 @@ func TestSendNoRecipients(t *testing.T) {
 func TestSendInvalidRecipient(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"not-an-email"}, "subject": "Hi", "body": "hello",
+		"to": []string{"not-an-email"}, "subject": "Hi", "text": "hello",
 	})
 	if code != 400 || errCode(body) != "invalid_recipient" {
 		t.Fatalf("want 400 invalid_recipient, got %d %v", code, body)
@@ -81,7 +81,7 @@ func TestSendInvalidRecipient(t *testing.T) {
 func TestSendReplyToPropagates(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 		"reply_to": "Support <support@acme.com>",
 	})
 	if code != 200 || body["status"] != "sent" {
@@ -97,7 +97,7 @@ func TestSendReplyToPropagates(t *testing.T) {
 func TestSendInvalidReplyTo(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 		"reply_to": "not an address",
 	})
 	if code != 400 || errCode(body) != "invalid_request" {
@@ -110,7 +110,7 @@ func TestSendInvalidReplyTo(t *testing.T) {
 func TestSendMultiReplyToRejected(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 		"reply_to": "a@x.com, b@x.com",
 	})
 	if code != 400 || errCode(body) != "invalid_request" {
@@ -123,7 +123,7 @@ func TestSendMultiReplyToRejected(t *testing.T) {
 func TestSendSetsAgentAsSender(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 	})
 	if code != 200 || body["status"] != "sent" {
 		t.Fatalf("want 200 sent, got %d %v", code, body)
@@ -136,7 +136,7 @@ func TestSendSetsAgentAsSender(t *testing.T) {
 func TestSendNotOwnedAgent(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40nope.com/messages", "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 	})
 	if code != 404 {
 		t.Fatalf("want 404 for an unowned agent, got %d", code)
@@ -149,7 +149,7 @@ func TestSendOverCap(t *testing.T) {
 	// we assert the message path wires EnforceMessageSend by checking a
 	// successful send does NOT 402 for u_1.
 	code, _ := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 	})
 	if code == 402 {
 		t.Fatalf("u_1 is under cap; should not 402")
@@ -163,7 +163,7 @@ func TestSendLargeBodyAccepted(t *testing.T) {
 	srv := testServer(t)
 	big := strings.Repeat("a", 1500*1024) // ~1.5 MiB — over Huma's 1 MiB default
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": big,
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": big,
 	})
 	if code == 413 {
 		t.Fatalf("a 1.5 MiB body must be accepted (cap raised to 25 MB), got 413")
@@ -176,7 +176,7 @@ func TestSendLargeBodyAccepted(t *testing.T) {
 func TestSendUnauthorized(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+sendURL, "", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
 	})
 	if code != 401 {
 		t.Fatalf("want 401, got %d", code)
@@ -185,7 +185,7 @@ func TestSendUnauthorized(t *testing.T) {
 
 func TestReplySent(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": "thanks"})
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{"text": "thanks"})
 	if code != 200 || body["status"] != "sent" {
 		t.Fatalf("want 200 sent, got %d %v", code, body)
 	}
@@ -198,7 +198,7 @@ func TestReplySent(t *testing.T) {
 func TestReplyReplyToPropagates(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good",
-		map[string]any{"body": "thanks", "reply_to": "Support <support@acme.com>"})
+		map[string]any{"text": "thanks", "reply_to": "Support <support@acme.com>"})
 	if code != 200 {
 		t.Fatalf("want 200, got %d", code)
 	}
@@ -210,7 +210,7 @@ func TestReplyReplyToPropagates(t *testing.T) {
 func TestReplyInvalidReplyTo(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good",
-		map[string]any{"body": "thanks", "reply_to": "not an address"})
+		map[string]any{"text": "thanks", "reply_to": "not an address"})
 	if code != 400 || errCode(body) != "invalid_request" {
 		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
 	}
@@ -219,7 +219,7 @@ func TestReplyInvalidReplyTo(t *testing.T) {
 func TestForwardReplyToPropagates(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good",
-		map[string]any{"to": []string{"newperson@x.com"}, "body": "fyi", "reply_to": "Support <support@acme.com>"})
+		map[string]any{"to": []string{"newperson@x.com"}, "text": "fyi", "reply_to": "Support <support@acme.com>"})
 	if code != 200 {
 		t.Fatalf("want 200, got %d", code)
 	}
@@ -231,7 +231,7 @@ func TestForwardReplyToPropagates(t *testing.T) {
 func TestForwardInvalidReplyTo(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good",
-		map[string]any{"to": []string{"newperson@x.com"}, "body": "fyi", "reply_to": "a@x.com, b@x.com"})
+		map[string]any{"to": []string{"newperson@x.com"}, "text": "fyi", "reply_to": "a@x.com, b@x.com"})
 	if code != 400 || errCode(body) != "invalid_request" {
 		t.Fatalf("want 400 invalid_request for multi reply_to, got %d %v", code, body)
 	}
@@ -243,7 +243,7 @@ func TestForwardInvalidReplyTo(t *testing.T) {
 func TestReplyAllRespectsRecipientCap(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_bigthread/reply", "good",
-		map[string]any{"body": "thanks", "reply_all": true})
+		map[string]any{"text": "thanks", "reply_all": true})
 	if code != 400 || errCode(body) != "too_many_recipients" {
 		t.Fatalf("want 400 too_many_recipients for a reply_all over the cap, got %d %v", code, body)
 	}
@@ -253,7 +253,7 @@ func TestReplyAllRespectsRecipientCap(t *testing.T) {
 func TestReplyAllUnderCapSends(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good",
-		map[string]any{"body": "thanks", "reply_all": true})
+		map[string]any{"text": "thanks", "reply_all": true})
 	if code != 200 || body["status"] != "sent" {
 		t.Fatalf("want 200 sent for a small reply_all, got %d %v", code, body)
 	}
@@ -261,7 +261,7 @@ func TestReplyAllUnderCapSends(t *testing.T) {
 
 func TestReplyBodyRequired(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": ""})
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{"text": ""})
 	if code != 400 || errCode(body) != "invalid_request" {
 		t.Fatalf("want 400 invalid_request, got %d %v", code, body)
 	}
@@ -269,7 +269,7 @@ func TestReplyBodyRequired(t *testing.T) {
 
 func TestReplyMessageNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/reply", "good", map[string]any{"body": "x"})
+	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/reply", "good", map[string]any{"text": "x"})
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}
@@ -277,7 +277,7 @@ func TestReplyMessageNotFound(t *testing.T) {
 
 func TestReplyNotOwnedAgent(t *testing.T) {
 	srv := testServer(t)
-	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/messages/msg_in1/reply", "good", map[string]any{"body": "x"})
+	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/messages/msg_in1/reply", "good", map[string]any{"text": "x"})
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}
@@ -286,7 +286,7 @@ func TestReplyNotOwnedAgent(t *testing.T) {
 func TestForwardSent(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good", map[string]any{
-		"to": []string{"bob@x.com"}, "body": "fyi",
+		"to": []string{"bob@x.com"}, "text": "fyi",
 	})
 	if code != 200 || body["status"] != "sent" {
 		t.Fatalf("want 200 sent, got %d %v", code, body)
@@ -295,7 +295,7 @@ func TestForwardSent(t *testing.T) {
 
 func TestForwardNoRecipients(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good", map[string]any{"body": "fyi"})
+	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good", map[string]any{"text": "fyi"})
 	// `to` is now schema-required (MSG-3) → rejected at validation (422).
 	if code != 422 {
 		t.Fatalf("want 422 missing to, got %d %v", code, body)
@@ -304,7 +304,7 @@ func TestForwardNoRecipients(t *testing.T) {
 
 func TestForwardMessageNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/forward", "good", map[string]any{"to": []string{"bob@x.com"}, "body": "x"})
+	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/forward", "good", map[string]any{"to": []string{"bob@x.com"}, "text": "x"})
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}

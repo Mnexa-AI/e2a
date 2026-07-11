@@ -159,7 +159,7 @@ test("forward: nonexistent message → 404", async () => {
   // send a complete body to exercise the not-found path.
   const r = await client.post(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_nonexistent${Date.now()}/forward`,
-    { body: { to: ["sink@e2a.dev"], body: "fwd" } },
+    { body: { to: ["sink@e2a.dev"], text: "fwd" } },
   );
   assert.equal(r.status, 404, `expected 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -180,7 +180,7 @@ test("forward: without auth → 401", async () => {
   // missing-credential path is what's actually exercised.
   const r = await client.post(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_x/forward`,
-    { apiKey: null, body: { to: ["sink@e2a.dev"], body: "fwd" } },
+    { apiKey: null, body: { to: ["sink@e2a.dev"], text: "fwd" } },
   );
   assert.equal(r.status, 401, `expected 401, got ${r.status}`);
 });

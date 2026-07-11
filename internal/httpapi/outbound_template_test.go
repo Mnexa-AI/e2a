@@ -95,8 +95,8 @@ func TestSendTemplateExclusiveWithLiteralContent(t *testing.T) {
 	srv := testServer(t)
 	for name, extra := range map[string]map[string]any{
 		"subject":   {"subject": "literal"},
-		"body":      {"body": "literal"},
-		"html_body": {"html_body": "<p>literal</p>"},
+		"text":      {"text": "literal"},
+		"html": {"html": "<p>literal</p>"},
 	} {
 		payload := map[string]any{"to": []string{"alice@x.com"}, "template_id": "tmpl_1"}
 		for k, v := range extra {
@@ -112,7 +112,7 @@ func TestSendTemplateExclusiveWithLiteralContent(t *testing.T) {
 func TestSendTemplateDataWithoutReference(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "S", "body": "B",
+		"to": []string{"alice@x.com"}, "subject": "S", "text": "B",
 		"template_data": map[string]any{"name": "x"},
 	})
 	if code != 400 || errCode(body) != "invalid_request" {
@@ -175,7 +175,7 @@ func TestSendTemplateRenderFailureBadSource(t *testing.T) {
 		t.Fatalf("want 400 template_render_failed, got %d %v", code, body)
 	}
 	details, _ := body["error"].(map[string]any)["details"].(map[string]any)
-	if details["part"] != "body" {
+	if details["part"] != "text" {
 		t.Fatalf("details must name the failing part, got %v", body)
 	}
 }
@@ -255,7 +255,7 @@ func TestValidatePreviewMatchesSendRender(t *testing.T) {
 	}
 
 	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
-		"subject": tp.Subject, "body": tp.Body, "html_body": tp.HTMLBody,
+		"subject": tp.Subject, "text": tp.Body, "html": tp.HTMLBody,
 		"test_data": data,
 	})
 	if code != 200 || body["valid"] != true {
@@ -273,8 +273,8 @@ func TestValidatePreviewMatchesSendRender(t *testing.T) {
 
 	for part, got := range map[string]string{
 		"subject":   delivered.Subject,
-		"body":      delivered.Body,
-		"html_body": delivered.HTMLBody,
+		"text":      delivered.Body,
+		"html": delivered.HTMLBody,
 	} {
 		want, _ := preview[part].(string)
 		if got != want {

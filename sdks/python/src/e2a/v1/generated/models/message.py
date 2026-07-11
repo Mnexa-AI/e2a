@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional, Union
 from e2a.v1.generated.models.result import Result
 from typing import Optional, Set
@@ -34,11 +34,10 @@ class Message(BaseModel):
     auth: Optional[Result] = None
     auth_headers: Optional[Dict[str, StrictStr]] = None
     bcc: Optional[List[StrictStr]] = None
-    body_html: Optional[StrictStr] = None
-    body_text: Optional[StrictStr] = None
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
+    delivered_to: StrictStr
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = None
     direction: StrictStr
@@ -47,13 +46,14 @@ class Message(BaseModel):
     expires_at: datetime
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
+    var_from: StrictStr = Field(alias="from")
+    html: Optional[StrictStr] = None
     id: StrictStr
-    inbox_status: Optional[StrictStr] = None
     labels: Optional[List[StrictStr]] = None
     method: Optional[StrictStr] = None
     provider_message_id: Optional[StrictStr] = None
     raw_message: Optional[StrictStr] = None
-    recipient: StrictStr
+    read_status: Optional[StrictStr] = None
     rejection_reason: Optional[StrictStr] = None
     reply_to: Optional[List[StrictStr]] = None
     review_reason: Optional[StrictStr] = None
@@ -62,17 +62,17 @@ class Message(BaseModel):
     reviewed_by_user_id: Optional[StrictStr] = None
     scan_action: Optional[StrictStr] = None
     scan_score: Optional[Union[StrictFloat, StrictInt]] = None
-    sender: StrictStr
     sent_as: Optional[StrictStr] = None
     size_bytes: Optional[StrictInt] = None
     status: Optional[StrictStr] = None
     subject: StrictStr
-    to_recipients: Optional[List[StrictStr]] = None
+    text: Optional[StrictStr] = None
+    to: Optional[List[StrictStr]] = None
     type: Optional[StrictStr] = None
     webhook_attempts: Optional[StrictInt] = None
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["agent_id", "approval_expires_at", "attachments", "auth", "auth_headers", "bcc", "body_html", "body_text", "cc", "conversation_id", "created_at", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "id", "inbox_status", "labels", "method", "provider_message_id", "raw_message", "recipient", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sender", "sent_as", "size_bytes", "status", "subject", "to_recipients", "type", "webhook_attempts", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["agent_id", "approval_expires_at", "attachments", "auth", "auth_headers", "bcc", "cc", "conversation_id", "created_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "webhook_attempts", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -141,10 +141,10 @@ class Message(BaseModel):
         if self.reply_to is None and "reply_to" in self.model_fields_set:
             _dict['reply_to'] = None
 
-        # set to None if to_recipients (nullable) is None
+        # set to None if to (nullable) is None
         # and model_fields_set contains the field
-        if self.to_recipients is None and "to_recipients" in self.model_fields_set:
-            _dict['to_recipients'] = None
+        if self.to is None and "to" in self.model_fields_set:
+            _dict['to'] = None
 
         return _dict
 
@@ -164,11 +164,10 @@ class Message(BaseModel):
             "auth": Result.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
             "auth_headers": obj.get("auth_headers"),
             "bcc": obj.get("bcc"),
-            "body_html": obj.get("body_html"),
-            "body_text": obj.get("body_text"),
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
+            "delivered_to": obj.get("delivered_to"),
             "delivery_detail": obj.get("delivery_detail"),
             "delivery_status": obj.get("delivery_status"),
             "direction": obj.get("direction"),
@@ -177,13 +176,14 @@ class Message(BaseModel):
             "expires_at": obj.get("expires_at"),
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
+            "from": obj.get("from"),
+            "html": obj.get("html"),
             "id": obj.get("id"),
-            "inbox_status": obj.get("inbox_status"),
             "labels": obj.get("labels"),
             "method": obj.get("method"),
             "provider_message_id": obj.get("provider_message_id"),
             "raw_message": obj.get("raw_message"),
-            "recipient": obj.get("recipient"),
+            "read_status": obj.get("read_status"),
             "rejection_reason": obj.get("rejection_reason"),
             "reply_to": obj.get("reply_to"),
             "review_reason": obj.get("review_reason"),
@@ -192,12 +192,12 @@ class Message(BaseModel):
             "reviewed_by_user_id": obj.get("reviewed_by_user_id"),
             "scan_action": obj.get("scan_action"),
             "scan_score": obj.get("scan_score"),
-            "sender": obj.get("sender"),
             "sent_as": obj.get("sent_as"),
             "size_bytes": obj.get("size_bytes"),
             "status": obj.get("status"),
             "subject": obj.get("subject"),
-            "to_recipients": obj.get("to_recipients"),
+            "text": obj.get("text"),
+            "to": obj.get("to"),
             "type": obj.get("type"),
             "webhook_attempts": obj.get("webhook_attempts"),
             "webhook_error": obj.get("webhook_error"),

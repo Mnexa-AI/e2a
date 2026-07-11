@@ -17,8 +17,8 @@ export class UsageEventEntry {
     'createdAt': Date;
     'direction': string;
     'domain': string;
-    'eventType': string;
     'id': string;
+    'type': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -50,14 +50,14 @@ export class UsageEventEntry {
             "format": ""
         },
         {
-            "name": "eventType",
-            "baseName": "event_type",
+            "name": "id",
+            "baseName": "id",
             "type": "string",
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
+            "name": "type",
+            "baseName": "type",
             "type": "string",
             "format": ""
         }    ];

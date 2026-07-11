@@ -20,7 +20,7 @@ export class ConversationDetailView {
     'inboundCount': number;
     'labels': Array<string>;
     'lastMessageAt': Date;
-    'latestSender': string;
+    'latestFrom': string;
     'latestSubject': string;
     'messageCount': number;
     'messages': Array<MessageSummaryView>;
@@ -69,8 +69,8 @@ export class ConversationDetailView {
             "format": "date-time"
         },
         {
-            "name": "latestSender",
-            "baseName": "latest_sender",
+            "name": "latestFrom",
+            "baseName": "latest_from",
             "type": "string",
             "format": ""
         },

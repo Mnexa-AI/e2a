@@ -32,11 +32,11 @@ class ConversationSummaryView(BaseModel):
     id: StrictStr
     inbound_count: StrictInt
     last_message_at: datetime
-    latest_sender: StrictStr
+    latest_from: StrictStr
     latest_subject: StrictStr
     message_count: StrictInt
     outbound_count: StrictInt
-    __properties: ClassVar[List[str]] = ["first_message_at", "has_unread", "id", "inbound_count", "last_message_at", "latest_sender", "latest_subject", "message_count", "outbound_count"]
+    __properties: ClassVar[List[str]] = ["first_message_at", "has_unread", "id", "inbound_count", "last_message_at", "latest_from", "latest_subject", "message_count", "outbound_count"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -94,7 +94,7 @@ class ConversationSummaryView(BaseModel):
             "id": obj.get("id"),
             "inbound_count": obj.get("inbound_count"),
             "last_message_at": obj.get("last_message_at"),
-            "latest_sender": obj.get("latest_sender"),
+            "latest_from": obj.get("latest_from"),
             "latest_subject": obj.get("latest_subject"),
             "message_count": obj.get("message_count"),
             "outbound_count": obj.get("outbound_count")

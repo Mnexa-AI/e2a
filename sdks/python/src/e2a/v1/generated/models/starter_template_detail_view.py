@@ -28,14 +28,14 @@ class StarterTemplateDetailView(BaseModel):
     StarterTemplateDetailView
     """ # noqa: E501
     alias: StrictStr
-    body: StrictStr = Field(description="The plain-text part's template source.")
     description: StrictStr
-    html_body: StrictStr = Field(description="The HTML part's template source.")
+    html: StrictStr = Field(description="The HTML part's template source.")
     name: StrictStr
     subject: StrictStr = Field(description="Subject template source ({{variable}} interpolation).")
+    text: StrictStr = Field(description="The plain-text part's template source.")
     variables: List[StarterTemplateVariableView]
     version: StrictStr
-    __properties: ClassVar[List[str]] = ["alias", "body", "description", "html_body", "name", "subject", "variables", "version"]
+    __properties: ClassVar[List[str]] = ["alias", "description", "html", "name", "subject", "text", "variables", "version"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -96,11 +96,11 @@ class StarterTemplateDetailView(BaseModel):
 
         _obj = cls.model_validate({
             "alias": obj.get("alias"),
-            "body": obj.get("body"),
             "description": obj.get("description"),
-            "html_body": obj.get("html_body"),
+            "html": obj.get("html"),
             "name": obj.get("name"),
             "subject": obj.get("subject"),
+            "text": obj.get("text"),
             "variables": [StarterTemplateVariableView.from_dict(_item) for _item in obj["variables"]] if obj.get("variables") is not None else None,
             "version": obj.get("version")
         })

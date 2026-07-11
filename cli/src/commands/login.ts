@@ -370,12 +370,12 @@ export async function loginWithKey(config: Config, explicitKey?: string): Promis
   saveConfig({
     api_key: key,
     key_scope: account.scope,
-    ...(account.agentAddress ? { agent_email: account.agentAddress } : {}),
+    ...(account.agentEmail ? { agent_email: account.agentEmail } : {}),
   });
 
   process.stdout.write(`Logged in to ${hostLabel(config.api_url)} with a ${account.scope}-scoped key.\n`);
-  if (account.agentAddress) {
-    process.stdout.write(`Bound agent: ${account.agentAddress}\n`);
+  if (account.agentEmail) {
+    process.stdout.write(`Bound agent: ${account.agentEmail}\n`);
   }
   process.stdout.write("Config saved to ~/.e2a/config.json\n");
 }
@@ -420,7 +420,7 @@ async function exchangeForAgentKey(
     name: `cli @${hostname()}`,
     // Cast: the generated model types scope as a TS enum; "agent" is its wire value.
     scope: "agent" as CreateAPIKeyRequest["scope"],
-    agent: agentEmail,
+    agentEmail: agentEmail,
   });
 
   // Persist the new key BEFORE revoking the bootstrap: the agent key's

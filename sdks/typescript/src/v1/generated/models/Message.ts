@@ -20,11 +20,10 @@ export class Message {
     'auth'?: Result;
     'authHeaders'?: { [key: string]: string; };
     'bcc'?: Array<string> | null;
-    'bodyHtml'?: string;
-    'bodyText'?: string;
     'cc'?: Array<string> | null;
     'conversationId'?: string;
     'createdAt': Date;
+    'deliveredTo': string;
     'deliveryDetail'?: string;
     'deliveryStatus'?: string;
     'direction': string;
@@ -33,13 +32,14 @@ export class Message {
     'expiresAt': Date;
     'flagReason'?: string;
     'flagged'?: boolean;
+    '_from': string;
+    'html'?: string;
     'id': string;
-    'inboxStatus'?: string;
     'labels'?: Array<string> | null;
     'method'?: string;
     'providerMessageId'?: string;
     'rawMessage'?: string;
-    'recipient': string;
+    'readStatus'?: string;
     'rejectionReason'?: string;
     'replyTo'?: Array<string> | null;
     'reviewReason'?: string;
@@ -48,12 +48,12 @@ export class Message {
     'reviewedByUserId'?: string;
     'scanAction'?: string;
     'scanScore'?: number;
-    'sender': string;
     'sentAs'?: string;
     'sizeBytes'?: number;
     'status'?: string;
     'subject': string;
-    'toRecipients'?: Array<string> | null;
+    'text'?: string;
+    'to'?: Array<string> | null;
     'type'?: string;
     'webhookAttempts'?: number;
     'webhookError'?: string;
@@ -101,18 +101,6 @@ export class Message {
             "format": ""
         },
         {
-            "name": "bodyHtml",
-            "baseName": "body_html",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "bodyText",
-            "baseName": "body_text",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "cc",
             "baseName": "cc",
             "type": "Array<string>",
@@ -129,6 +117,12 @@ export class Message {
             "baseName": "created_at",
             "type": "Date",
             "format": "date-time"
+        },
+        {
+            "name": "deliveredTo",
+            "baseName": "delivered_to",
+            "type": "string",
+            "format": ""
         },
         {
             "name": "deliveryDetail",
@@ -179,14 +173,20 @@ export class Message {
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
+            "name": "_from",
+            "baseName": "from",
             "type": "string",
             "format": ""
         },
         {
-            "name": "inboxStatus",
-            "baseName": "inbox_status",
+            "name": "html",
+            "baseName": "html",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "id",
+            "baseName": "id",
             "type": "string",
             "format": ""
         },
@@ -215,8 +215,8 @@ export class Message {
             "format": ""
         },
         {
-            "name": "recipient",
-            "baseName": "recipient",
+            "name": "readStatus",
+            "baseName": "read_status",
             "type": "string",
             "format": ""
         },
@@ -269,12 +269,6 @@ export class Message {
             "format": "double"
         },
         {
-            "name": "sender",
-            "baseName": "sender",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "sentAs",
             "baseName": "sent_as",
             "type": "string",
@@ -299,8 +293,14 @@ export class Message {
             "format": ""
         },
         {
-            "name": "toRecipients",
-            "baseName": "to_recipients",
+            "name": "text",
+            "baseName": "text",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "to",
+            "baseName": "to",
             "type": "Array<string>",
             "format": ""
         },

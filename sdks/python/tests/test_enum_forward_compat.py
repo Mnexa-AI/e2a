@@ -23,7 +23,7 @@ def test_unknown_event_type_parses() -> None:
             "id": "evt_1",
             "type": "email.some_future_type",  # not in the known catalog
             "status": "delivered",
-            "schema_version": 1,
+            "schema_version": "1",
             "created_at": "2026-06-18T00:00:00Z",
             "agent_id": "a@x.com",
             "data": {},
@@ -39,7 +39,7 @@ def test_unknown_event_status_parses() -> None:
             "id": "evt_1",
             "type": "email.received",
             "status": "future_status",
-            "schema_version": 1,
+            "schema_version": "1",
             "created_at": "2026-06-18T00:00:00Z",
             "agent_id": "a@x.com",
             "data": {},

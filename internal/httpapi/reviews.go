@@ -21,7 +21,7 @@ import (
 // message of either direction.
 type ReviewView struct {
 	ID    string `json:"id"`
-	Agent string `json:"agent" doc:"The inbox (agent address) the held message belongs to."`
+	Agent string `json:"agent_email" doc:"The inbox (agent address) the held message belongs to."`
 	// Direction: outbound = a draft awaiting send approval; inbound = a screened
 	// incoming message awaiting release.
 	Direction string `json:"direction" enum:"inbound,outbound"`

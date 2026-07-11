@@ -18,17 +18,13 @@ export class CreateTemplateRequest {
     */
     'alias'?: string;
     /**
-    * Plain-text body template source (no HTML escaping). Required unless from_starter is set.
-    */
-    'body'?: string;
-    /**
-    * Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter\'s and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.
+    * Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, text and html — the copy is verbatim; edit the created template afterwards. name and alias default to the starter\'s and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.
     */
     'fromStarter'?: string;
     /**
     * Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).
     */
-    'htmlBody'?: string;
+    'html'?: string;
     /**
     * Human-readable template name. Required unless from_starter supplies the default.
     */
@@ -37,6 +33,10 @@ export class CreateTemplateRequest {
     * Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.
     */
     'subject'?: string;
+    /**
+    * Plain-text body template source (no HTML escaping). Required unless from_starter is set.
+    */
+    'text'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -50,20 +50,14 @@ export class CreateTemplateRequest {
             "format": ""
         },
         {
-            "name": "body",
-            "baseName": "body",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "fromStarter",
             "baseName": "from_starter",
             "type": "string",
             "format": ""
         },
         {
-            "name": "htmlBody",
-            "baseName": "html_body",
+            "name": "html",
+            "baseName": "html",
             "type": "string",
             "format": ""
         },
@@ -76,6 +70,12 @@ export class CreateTemplateRequest {
         {
             "name": "subject",
             "baseName": "subject",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "text",
+            "baseName": "text",
             "type": "string",
             "format": ""
         }    ];

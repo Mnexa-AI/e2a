@@ -284,7 +284,7 @@ describe("listen notification handling", () => {
     expect(client.messages.reply).toHaveBeenCalledWith(
       "bot@agents.e2a.dev",
       "msg_123",
-      { body: "Thanks for the email." },
+      { text: "Thanks for the email." },
     );
     expect(mockStderr).toHaveBeenCalledWith(
       "Replied to alice@example.com (msg_123)\n",

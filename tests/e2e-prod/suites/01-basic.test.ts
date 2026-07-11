@@ -140,7 +140,7 @@ test("send: review-gated agent returns 202 pending_review", async () => {
       body: {
         to: [SINK_EMAIL],
         subject: uniqueSubject("hitl pending"),
-        body: "test body — should never go out, immediately rejected",
+        text: "test body — should never go out, immediately rejected",
       },
     },
   );
@@ -166,7 +166,7 @@ test("send: review-gated agent returns 202 pending_review", async () => {
 
 test("send: missing 'to' returns 4xx", async () => {
   const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
-    body: { subject: "no to", body: "hi" },
+    body: { subject: "no to", text: "hi" },
   });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -175,7 +175,7 @@ test("send: unowned sending agent returns 4xx (auth/scope guard)", async () => {
   // The sending agent is threaded through the path; sending as an agent the
   // caller doesn't own must be rejected (no cross-tenant impersonation).
   const r = await client.post(`/v1/agents/${encodeURIComponent("someone-else@example.com")}/messages`, {
-    body: { to: [SINK_EMAIL], subject: "spoof", body: "hi" },
+    body: { to: [SINK_EMAIL], subject: "spoof", text: "hi" },
   });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx (cannot send as non-owned), got ${r.status}`);
 });

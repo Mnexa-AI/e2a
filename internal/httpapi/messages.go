@@ -25,7 +25,7 @@ type MessageView struct {
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc" nullable:"false"`
 	ReplyTo        []string `json:"reply_to" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here)."`
-	Recipient      string   `json:"recipient"`
+	Recipient      string   `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id"`
 	// Direction (inbound|outbound) — mirrors MessageSummaryView so a client
@@ -223,7 +223,7 @@ type MessageSummaryView struct {
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc,omitempty" nullable:"false"`
 	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
-	Recipient      string   `json:"recipient"`
+	Recipient      string   `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).

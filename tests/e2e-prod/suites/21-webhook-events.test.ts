@@ -31,7 +31,7 @@ import { writeReport, info } from "../harness/report.ts";
 //   RedeliverView required {event_id,status}; single-webhook replay also carries
 //                 top-level delivery_id + webhook_id (status "pending"); bulk
 //                 fan-out carries deliveries[] (status "scheduled").
-//   WebhookDeliveryView required {id,event_type,status,attempts,next_retry_at,created_at}.
+//   WebhookDeliveryView required {id,type,status,attempts,next_retry_at,created_at}.
 //
 // Event types covered (HTTP-triggerable, per internal/webhookpub/event.go):
 //   email.sent            — real send (no hold) to the SES simulator (SES 200).
@@ -89,7 +89,7 @@ const SIMULATOR = "success@simulator.amazonses.com";
 interface EventJSON {
   id: string;
   type: string;
-  schema_version: number;
+  schema_version: string;
   created_at: string;
   status: string;
   data: Record<string, unknown>;
@@ -104,7 +104,7 @@ interface PageEventJSON {
 }
 interface WebhookDeliveryView {
   id: string;
-  event_type: string;
+  type: string;
   status: string;
   attempts: number;
   next_retry_at: string;
@@ -213,7 +213,7 @@ async function pollDelivery(
     const r = await client.get<PageWebhookDeliveryView>(`/v1/webhooks/${webhookId}/deliveries`);
     if (r.status === 200 && r.body?.items) {
       const found = r.body.items.find(
-        (d) => d.event_type === eventType && d.attempts >= 1 && (!opts.deliveryId || d.id === opts.deliveryId),
+        (d) => d.type === eventType && d.attempts >= 1 && (!opts.deliveryId || d.id === opts.deliveryId),
       );
       if (found) return found;
     }
@@ -255,7 +255,7 @@ function assertEventShape(e: EventJSON, expect: { type: string; agentId: string;
   // EventJSON required fields (openapi): id,type,schema_version,created_at,status,data.
   assert.ok(typeof e.id === "string" && e.id.startsWith("evt_"), `event id has evt_ prefix: ${e.id}`);
   assert.equal(e.type, expect.type, "event.type matches the triggered type");
-  assert.ok(typeof e.schema_version === "number" && e.schema_version >= 1, "schema_version is a positive integer");
+  assert.ok(typeof e.schema_version === "string" && e.schema_version.length > 0, "schema_version is a non-empty string label");
   assert.ok(typeof e.created_at === "string" && e.created_at.length > 0, "created_at present");
   assert.ok(typeof e.status === "string" && e.status.length > 0, "status present");
   assert.ok(e.data && typeof e.data === "object", "data object present");
@@ -279,7 +279,7 @@ test("emit: email.sent — real send emits the event and attempts a delivery", {
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit sent"), body: "real send to SES simulator" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit sent"), text: "real send to SES simulator" },
     });
     assert.equal(send.status, 200, `real send expected 200 sent, got ${send.status}: ${send.raw.slice(0, 200)}`);
     assert.equal(send.body?.status, "sent", "no-hold agent sends immediately");
@@ -316,7 +316,7 @@ test("emit: email.pending_review — held send emits the event and attempts a de
   let heldId: string | null = null;
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit pending"), body: "held for review" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit pending"), text: "held for review" },
     });
     assert.equal(send.status, 202, `held send expected 202 pending_review, got ${send.status}: ${send.raw.slice(0, 200)}`);
     assert.equal(send.body?.status, "pending_review", "gated send is held");
@@ -352,7 +352,7 @@ test("emit: email.review_rejected — rejecting a hold emits the event and attem
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit reject"), body: "will be rejected" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit reject"), text: "will be rejected" },
     });
     assert.equal(send.status, 202, `held send expected 202, got ${send.status}: ${send.raw.slice(0, 200)}`);
     const heldId = send.body!.message_id!;
@@ -394,7 +394,7 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       // Addressed to the simulator so approve→send actually succeeds on staging's
       // SES sandbox (a non-simulator/blackhole recipient 500s the send leg).
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit approve"), body: "will be approved + sent" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit approve"), text: "will be approved + sent" },
     });
     assert.equal(send.status, 202, `held send expected 202, got ${send.status}: ${send.raw.slice(0, 200)}`);
     heldId = send.body!.message_id!;
@@ -434,7 +434,7 @@ test("events: listEvents returns PageEventJSON envelope and honors type/agent_id
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit list"), body: "for listEvents" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit list"), text: "for listEvents" },
     });
     assert.equal(send.status, 200, `real send expected 200, got ${send.status}: ${send.raw.slice(0, 200)}`);
     const messageId = send.body!.message_id!;
@@ -490,7 +490,7 @@ test("events: getEvent returns the EventJSON by evt_ id; nonexistent → 404", {
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit get"), body: "for getEvent" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit get"), text: "for getEvent" },
     });
     assert.equal(send.status, 200);
     const messageId = send.body!.message_id!;
@@ -519,7 +519,7 @@ test("events: redeliverEvent re-queues a delivery for the event; a new attempt a
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit redeliver"), body: "for redeliver" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit redeliver"), text: "for redeliver" },
     });
     assert.equal(send.status, 200);
     const messageId = send.body!.message_id!;

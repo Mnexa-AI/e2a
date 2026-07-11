@@ -1368,7 +1368,7 @@ class AccountApi:
     ) -> AccountView:
         """Get account: identity + plan limits + usage (whoami)
 
-        The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+        The authenticated principal's identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1431,7 +1431,7 @@ class AccountApi:
     ) -> ApiResponse[AccountView]:
         """Get account: identity + plan limits + usage (whoami)
 
-        The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+        The authenticated principal's identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1494,7 +1494,7 @@ class AccountApi:
     ) -> RESTResponseType:
         """Get account: identity + plan limits + usage (whoami)
 
-        The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+        The authenticated principal's identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

@@ -424,7 +424,7 @@ describe("AgentMessageFocusPage", () => {
     await waitFor(() => {
       expect(approveBody).not.toBeNull();
     });
-    expect(approveBody).toContain('"body":"Edited body"');
+    expect(approveBody).toContain('"text":"Edited body"');
   });
 
   // Regression for H3: previously the draft-body textarea was seeded

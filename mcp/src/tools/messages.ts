@@ -24,23 +24,23 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Send email",
       annotations: { destructiveHint: false },
       description:
-        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_review` is not failure.** If the agent's review policy holds the send, the response is `{ status: \"pending_review\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show review_status=pending_review) / `get_message`. **Templates (beta):** instead of literal subject/body, reference a stored template with `template_id` XOR `template_alias` plus `template_data` — a template reference is mutually exclusive with subject/body/html_body (pass neither literal field). The server renders before any review hold, so a reviewer sees final content. Missing variables render as empty strings (no error) — validate data against the template's variables first. Only send supports templates; reply/forward do not.",
+        "Use when starting a NEW email thread to a fresh recipient. To respond to a message you can see in `list_messages`, use `reply_to_message` instead — it preserves the In-Reply-To / References headers so the reply lands in the same thread, which this tool deliberately does not do. Attach files via `attachments`; pass base64 strings produced by other tools (e.g. `get_attachment`) verbatim — don't hand-encode raw text. **`pending_review` is not failure.** If the agent's review policy holds the send, the response is `{ status: \"pending_review\", message_id: ... }`; the message is held for human review — do not retry. Check on it with `list_messages` (held drafts show review_status=pending_review) / `get_message`. **Templates (beta):** instead of literal subject/text, reference a stored template with `template_id` XOR `template_alias` plus `template_data` — a template reference is mutually exclusive with subject/text/html (pass neither literal field). The server renders before any review hold, so a reviewer sees final content. Missing variables render as empty strings (no error) — validate data against the template's variables first. Only send supports templates; reply/forward do not.",
       inputSchema: strictInputSchema({
         to: z.array(z.string()).describe("Recipient email addresses (one or more)."),
         subject: z.string().optional().describe("Literal subject. Required unless a template reference is used (then it must be omitted)."),
-        body: z.string().optional().describe("Literal plain-text body; use `html_body` for HTML. Required unless a template reference is used (then it must be omitted)."),
-        html_body: z.string().optional(),
+        text: z.string().optional().describe("Literal plain-text body; use `html` for HTML. Required unless a template reference is used (then it must be omitted)."),
+        html: z.string().optional(),
         template_id: z
           .string()
           .optional()
           .describe(
-            "Send using a stored template by id (tmpl_…), rendered server-side. Mutually exclusive with template_alias and with literal subject/body/html_body. Beta.",
+            "Send using a stored template by id (tmpl_…), rendered server-side. Mutually exclusive with template_alias and with literal subject/text/html. Beta.",
           ),
         template_alias: z
           .string()
           .optional()
           .describe(
-            "Send using a stored template by its per-user alias (see `list_templates`). Mutually exclusive with template_id and with literal subject/body/html_body. Beta.",
+            "Send using a stored template by its per-user alias (see `list_templates`). Mutually exclusive with template_id and with literal subject/text/html. Beta.",
           ),
         template_data: z
           .record(z.string(), z.unknown())
@@ -88,8 +88,8 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
             // is used — only forward what the caller passed so the server's
             // mutual-exclusivity check sees the true shape.
             ...(args.subject !== undefined ? { subject: args.subject } : {}),
-            ...(args.body !== undefined ? { body: args.body } : {}),
-            ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+            ...(args.text !== undefined ? { text: args.text } : {}),
+            ...(args.html !== undefined ? { html: args.html } : {}),
             ...(args.template_id !== undefined ? { templateId: args.template_id } : {}),
             ...(args.template_alias !== undefined ? { templateAlias: args.template_alias } : {}),
             ...(args.template_data !== undefined ? { templateData: args.template_data } : {}),
@@ -118,8 +118,8 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         "Use whenever you're responding to a message you can see — preserves the In-Reply-To and References headers so the reply joins the original email thread instead of starting a new one. Works on both a message the agent RECEIVED (replies to its sender) and a message the agent SENT (continues the thread to its original recipients, i.e. a Gmail-style follow-up on your own message). Prefer this over `send_message` for any in-thread response; thread fragmentation (broken conversation view in the recipient's mail client) is the most visible symptom of using `send_message` by mistake. Pass `reply_all: true` to copy the original Cc list; subject is auto-derived as `Re: …` by the server. Same review caveat as `send_message`: a `pending_review` status is success, not failure.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("ID of the message to reply to — inbound or one the agent sent (e.g. msg_…)."),
-        body: z.string().describe("Plain-text reply body."),
-        html_body: z.string().optional(),
+        text: z.string().describe("Plain-text reply body."),
+        html: z.string().optional(),
         reply_all: z
           .boolean()
           .optional()
@@ -152,8 +152,8 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         return client.reply(
           args.message_id,
           {
-            body: args.body,
-            ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+            text: args.text,
+            ...(args.html !== undefined ? { html: args.html } : {}),
             ...(args.reply_all !== undefined ? { replyAll: args.reply_all } : {}),
             ...(args.cc !== undefined ? { cc: args.cc } : {}),
             ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
@@ -177,19 +177,19 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Forward a message",
       annotations: { destructiveHint: false },
       description:
-        "Forward a message the agent has received OR one it sent to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `body`/`html_body`, **and carries over the original message's attachments by default** — you do NOT need to re-fetch them via `get_attachment`. Anything you pass in `attachments[]` is added on top of the originals. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share an email with someone else; use `reply_to_message` when continuing the existing conversation. Same review behavior as send/reply: `pending_review` is success, not failure.",
+        "Forward a message the agent has received OR one it sent to one or more new recipients. The server auto-prepends a Gmail-style header block (From/Date/Subject/To/Cc) and the original body to whatever optional comment you pass in `text`/`html`, **and carries over the original message's attachments by default** — you do NOT need to re-fetch them via `get_attachment`. Anything you pass in `attachments[]` is added on top of the originals. **Unlike `reply_to_message`, a forward is a NEW thread** — no In-Reply-To / References headers are emitted, so the recipient sees a fresh conversation. Use this when the user asks to share an email with someone else; use `reply_to_message` when continuing the existing conversation. Same review behavior as send/reply: `pending_review` is success, not failure.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("ID of the message to forward — inbound or one the agent sent (e.g. msg_…)."),
         to: z.array(z.string()).describe("Forward target addresses (one or more)."),
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
-        body: z
+        text: z
           .string()
           .optional()
           .describe(
             "Optional plain-text comment to prepend above the forwarded content. The original body is appended automatically.",
           ),
-        html_body: z.string().optional(),
+        html: z.string().optional(),
         attachments: attachmentsArraySchema,
         conversation_id: z
           .string()
@@ -222,10 +222,10 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           args.message_id,
           args.to,
           {
-            // body is required on the wire (MSG-3); the original is auto-quoted,
+            // text is required on the wire (MSG-3); the original is auto-quoted,
             // so an empty comment is fine — default to "".
-            body: args.body ?? "",
-            ...(args.html_body !== undefined ? { htmlBody: args.html_body } : {}),
+            text: args.text ?? "",
+            ...(args.html !== undefined ? { html: args.html } : {}),
             ...(args.cc !== undefined ? { cc: args.cc } : {}),
             ...(args.bcc !== undefined ? { bcc: args.bcc } : {}),
             ...(mapAttachments(args.attachments) !== undefined
@@ -422,7 +422,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Get a message",
       annotations: { readOnlyHint: true },
       description:
-        "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the `message_id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
+        "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         email: z.string().optional(),
@@ -442,7 +442,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           id: email.id,
           conversation_id: email.conversationId,
           from: email._from,
-          recipient: email.recipient,
+          delivered_to: email.deliveredTo,
           to: email.to,
           cc: email.cc,
           reply_to: email.replyTo,
@@ -450,8 +450,8 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           read_status: email.readStatus,
           // Inbound messages carry the decoded text in `parsed`; only outbound
           // held drafts populate `body` (mirror the CLI's read fallback).
-          body_text: email.parsed?.text ?? email.body?.text,
-          body_html: email.body?.html,
+          text: email.parsed?.text ?? email.body?.text,
+          html: email.body?.html,
           received_at: email.createdAt,
           attachments: (email.attachments ?? []).map((a) => ({
             index: a.index,

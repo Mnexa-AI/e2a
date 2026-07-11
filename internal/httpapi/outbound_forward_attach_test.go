@@ -80,7 +80,7 @@ func TestForwardCarriesOriginalAttachments(t *testing.T) {
 	}
 
 	// Forward with NO caller-supplied attachments → original is carried.
-	post(map[string]any{"to": []string{"bob@x.com"}, "body": "fyi"})
+	post(map[string]any{"to": []string{"bob@x.com"}, "text": "fyi"})
 	if len(captured.Attachments) != 1 {
 		t.Fatalf("forward without re-attach: want 1 carried attachment, got %d", len(captured.Attachments))
 	}
@@ -94,7 +94,7 @@ func TestForwardCarriesOriginalAttachments(t *testing.T) {
 	// Forward WITH a caller-supplied attachment → originals first, caller additive.
 	post(map[string]any{
 		"to":   []string{"bob@x.com"},
-		"body": "fyi",
+		"text": "fyi",
 		"attachments": []map[string]any{
 			{"filename": "extra.txt", "content_type": "text/plain", "data": base64.StdEncoding.EncodeToString([]byte("more"))},
 		},

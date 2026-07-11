@@ -198,7 +198,7 @@ func TestRotateWebhookSecretNotFound(t *testing.T) {
 
 func TestTestWebhook(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"event": "email.received"})
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"type": "email.received"})
 	if code != 200 || body["delivery_id"] != "whd_test_1" {
 		t.Fatalf("want 200 delivery_id, got %d %v", code, body)
 	}
@@ -206,7 +206,7 @@ func TestTestWebhook(t *testing.T) {
 
 func TestTestWebhookInvalidEvent(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"event": "email.invented"})
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"type": "email.invented"})
 	// Unknown event now rejected by the schema enum (WH-2) → 422 before the handler.
 	if code != 422 || errCode(body) != "unprocessable_entity" {
 		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)

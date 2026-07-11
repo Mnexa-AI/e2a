@@ -104,7 +104,7 @@ async def test_list_bounded_page() -> None:
         assert len(msgs) <= 2
         for m in msgs:
             assert m.id
-            assert m.recipient
+            assert m.delivered_to
 
 
 async def test_get_nonexistent_raises_not_found() -> None:

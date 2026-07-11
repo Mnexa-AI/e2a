@@ -75,7 +75,7 @@ func TestReplyToOutbound_TargetsOriginalRecipients(t *testing.T) {
 	srv := replyDirTestServer(t, map[string]*identity.Message{"msg_out1": outboundFixture()}, &captured)
 
 	status, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_out1/reply", "good",
-		map[string]any{"body": "following up"})
+		map[string]any{"text": "following up"})
 	if status != 200 {
 		t.Fatalf("reply to outbound: want 200, got %d", status)
 	}
@@ -103,7 +103,7 @@ func TestReplyAllToOutbound_AddsOriginalCC(t *testing.T) {
 	srv := replyDirTestServer(t, map[string]*identity.Message{"msg_out1": outboundFixture()}, &captured)
 
 	status, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_out1/reply", "good",
-		map[string]any{"body": "all", "reply_all": true, "cc": []string{"erin@x.com"}})
+		map[string]any{"text": "all", "reply_all": true, "cc": []string{"erin@x.com"}})
 	if status != 200 {
 		t.Fatalf("reply_all to outbound: want 200, got %d", status)
 	}
@@ -127,7 +127,7 @@ func TestReplyToOutbound_NoRecipients_400(t *testing.T) {
 	srv := replyDirTestServer(t, map[string]*identity.Message{"msg_out1": fix}, &captured)
 
 	status, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_out1/reply", "good",
-		map[string]any{"body": "hi"})
+		map[string]any{"text": "hi"})
 	if status != http.StatusBadRequest {
 		t.Fatalf("reply to recipient-less outbound: want 400, got %d", status)
 	}
@@ -146,7 +146,7 @@ func TestReplyToOutbound_CrossAgent_404(t *testing.T) {
 	srv := replyDirTestServer(t, map[string]*identity.Message{"msg_out1": fix}, &captured)
 
 	status, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_out1/reply", "good",
-		map[string]any{"body": "hi"})
+		map[string]any{"text": "hi"})
 	if status != http.StatusNotFound {
 		t.Fatalf("reply to another agent's message: want 404, got %d", status)
 	}
@@ -162,7 +162,7 @@ func TestForwardOutbound_Works(t *testing.T) {
 	srv := replyDirTestServer(t, map[string]*identity.Message{"msg_out1": outboundFixture()}, &captured)
 
 	status, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_out1/forward", "good",
-		map[string]any{"to": []string{"newperson@x.com"}, "body": "fyi"})
+		map[string]any{"to": []string{"newperson@x.com"}, "text": "fyi"})
 	if status != 200 {
 		t.Fatalf("forward outbound: want 200, got %d", status)
 	}
@@ -186,7 +186,7 @@ func TestReplyToInbound_Unchanged(t *testing.T) {
 	srv := replyDirTestServer(t, map[string]*identity.Message{"msg_in1": inbound}, &captured)
 
 	status, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good",
-		map[string]any{"body": "answer"})
+		map[string]any{"text": "answer"})
 	if status != 200 {
 		t.Fatalf("reply to inbound: want 200, got %d", status)
 	}

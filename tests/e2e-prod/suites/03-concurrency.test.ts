@@ -169,7 +169,7 @@ test("concurrency: 8 parallel sends from HITL agent — all queue (no dropped/du
         body: {
           to: ["blackhole@e2a.dev"],
           subject: `parallel ${i}`,
-          body: `parallel send #${i}`,
+          text: `parallel send #${i}`,
         },
       }),
     ),

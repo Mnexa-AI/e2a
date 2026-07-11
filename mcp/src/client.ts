@@ -99,7 +99,7 @@ export class McpClient {
   // ── Account / identity ──────────────────────────────────────────
 
   // whoami → GET /account (§6a): the authenticated principal (user + scope;
-  // agent_address only for agent-scoped credentials) + plan/limits. NOT an
+  // agent_email only for agent-scoped credentials) + plan/limits. NOT an
   // agent — discover agents via list_agents.
   whoami(): Promise<AccountView> {
     return this.sdk.account.get();
@@ -156,8 +156,8 @@ export class McpClient {
       // (templateId XOR templateAlias) is used; the server enforces the
       // mutual exclusivity and returns 400 invalid_request on conflicts.
       subject?: string;
-      body?: string;
-      htmlBody?: string;
+      text?: string;
+      html?: string;
       templateId?: string;
       templateAlias?: string;
       templateData?: Record<string, unknown>;
@@ -176,8 +176,8 @@ export class McpClient {
   reply(
     messageId: string,
     body: {
-      body: string;
-      htmlBody?: string;
+      text: string;
+      html?: string;
       replyAll?: boolean;
       cc?: Array<string>;
       bcc?: Array<string>;
@@ -200,8 +200,8 @@ export class McpClient {
     messageId: string,
     to: Array<string>,
     body: {
-      body: string; // required (MSG-3): forward must carry a note; subject is derived
-      htmlBody?: string;
+      text: string; // required (MSG-3): forward must carry a note; subject is derived
+      html?: string;
       cc?: Array<string>;
       bcc?: Array<string>;
       attachments?: Array<Attachment>;
@@ -341,8 +341,8 @@ export class McpClient {
     messageId: string,
     overrides: {
       subject?: string;
-      body?: string;
-      htmlBody?: string;
+      text?: string;
+      html?: string;
       to?: Array<string>;
       cc?: Array<string>;
       bcc?: Array<string>;
@@ -424,7 +424,7 @@ export class McpClient {
     return this.sdk.webhooks.rotateSecret(id);
   }
 
-  testWebhook(id: string, body: { event?: string }): Promise<TestWebhookResponse> {
+  testWebhook(id: string, body: { type?: string }): Promise<TestWebhookResponse> {
     return this.sdk.webhooks.test(id, body as TestWebhookRequest);
   }
 

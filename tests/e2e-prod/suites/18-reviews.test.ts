@@ -61,7 +61,7 @@ async function createHeldReview(label: string): Promise<{ email: string; id: str
   const subject = uniqueSubject(`review ${label}`);
   const s = await client.post<{ message_id: string; status: string }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
-    { body: { to: [SINK], subject, body: "held for review — must never actually go out" } },
+    { body: { to: [SINK], subject, text: "held for review — must never actually go out" } },
   );
   if (s.status !== 202 || !s.body?.message_id) {
     await del(email);
@@ -116,7 +116,7 @@ test("reviews: listReviews surfaces every held item; ?limit pagination is undocu
     const mine: string[] = [];
     for (let i = 0; i < 2; i++) {
       const s = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-        body: { to: [SINK], subject: uniqueSubject(`page ${i}`), body: "x" },
+        body: { to: [SINK], subject: uniqueSubject(`page ${i}`), text: "x" },
       });
       assert.equal(s.status, 202, `held send ${i} expected 202, got ${s.status}`);
       mine.push(s.body!.message_id);

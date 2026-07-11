@@ -62,7 +62,7 @@ _REQUIRED_DEFAULTS = {
     "var_from": "a@x.com",
     "labels": [],
     "message_id": "msg_1",
-    "recipient": "bot@test.dev",
+    "delivered_to": "bot@test.dev",
     "read_status": "unread",
     "subject": "s",
     "to": [],
@@ -270,7 +270,7 @@ async def test_send_error_surfaces_machine_code(httpx_mock):
     )
     async with _client() as c:
         with pytest.raises(E2APermissionError) as ei:
-            await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "body": "Hello"})
+            await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "text": "Hello"})
     assert ei.value.code == "sending_not_verified"
     assert ei.value.status == 403
 
@@ -302,7 +302,7 @@ async def test_agents_list_autopager(httpx_mock):
 async def test_send_mints_idempotency_key(httpx_mock):
     httpx_mock.add_response(json={"message_id": "msg_1", "status": "sent"})
     async with _client() as c:
-        await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "body": "yo"})
+        await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "text": "yo"})
     req = httpx_mock.get_requests()[-1]
     assert req.method == "POST"
     assert "/v1/agents/bot%40test.dev/messages" in str(req.url)
@@ -352,7 +352,7 @@ async def test_send_uses_caller_idempotency_key(httpx_mock):
     async with _client() as c:
         await c.messages.send(
             "bot@test.dev",
-            {"to": ["a@x.com"], "subject": "Hi", "body": "yo"},
+            {"to": ["a@x.com"], "subject": "Hi", "text": "yo"},
             idempotency_key="caller-key-123",
         )
     assert httpx_mock.get_requests()[-1].headers["Idempotency-Key"] == "caller-key-123"
@@ -490,15 +490,15 @@ async def test_templates_get_maps_wire_fields(httpx_mock):
             id="tmpl_1",
             name="Welcome",
             subject="Welcome, {{name}}!",
-            body="Hi {{name}}",
-            html_body="<p>Hi {{name}}</p>",
+            text="Hi {{name}}",
+            html="<p>Hi {{name}}</p>",
             from_starter_alias="welcome",
             from_starter_version="1",
         )
     )
     async with _client() as c:
         tmpl = await c.templates.get("tmpl_1")
-    assert tmpl.html_body == "<p>Hi {{name}}</p>"
+    assert tmpl.html == "<p>Hi {{name}}</p>"
     assert tmpl.from_starter_alias == "welcome"
     assert tmpl.from_starter_version == "1"
     req = httpx_mock.get_requests()[-1]
@@ -512,7 +512,7 @@ async def test_templates_create_posts_from_starter_body(httpx_mock):
     # that would trip the server's from_starter exclusivity.
     httpx_mock.add_response(
         status_code=201,
-        json=_valid(TemplateView, id="tmpl_new", name="Approvals", subject="s", body="b"),
+        json=_valid(TemplateView, id="tmpl_new", name="Approvals", subject="s", text="b"),
     )
     async with _client() as c:
         res = await c.templates.create({"from_starter": "approval-request", "alias": "my-approvals"})
@@ -528,17 +528,17 @@ async def test_templates_create_posts_from_starter_body(httpx_mock):
 @pytest.mark.anyio
 async def test_templates_update_patches_and_keeps_explicit_html_clear(httpx_mock):
     httpx_mock.add_response(
-        json=_valid(TemplateView, id="tmpl_1", name="Welcome", subject="New {{x}}", body="b")
+        json=_valid(TemplateView, id="tmpl_1", name="Welcome", subject="New {{x}}", text="b")
     )
     async with _client() as c:
-        await c.templates.update("tmpl_1", {"subject": "New {{x}}", "html_body": ""})
+        await c.templates.update("tmpl_1", {"subject": "New {{x}}", "html": ""})
     req = httpx_mock.get_requests()[-1]
     assert req.method == "PATCH"
     assert "/v1/templates/tmpl_1" in str(req.url)
     import json as _json
 
-    # An explicit html_body:"" is a deliberate clear — it must survive to the wire.
-    assert _json.loads(req.content) == {"subject": "New {{x}}", "html_body": ""}
+    # An explicit html:"" is a deliberate clear — it must survive to the wire.
+    assert _json.loads(req.content) == {"subject": "New {{x}}", "html": ""}
 
 
 @pytest.mark.anyio
@@ -557,16 +557,16 @@ async def test_templates_validate_posts_and_maps_response(httpx_mock):
         json={
             "valid": True,
             "errors": [],
-            "rendered": {"subject": "Welcome, Ada!", "body": "Hi Ada", "html_body": "<p>Hi Ada</p>"},
+            "rendered": {"subject": "Welcome, Ada!", "text": "Hi Ada", "html": "<p>Hi Ada</p>"},
             "suggested_data": {"user": {"name": "example"}},
         }
     )
     async with _client() as c:
         res = await c.templates.validate(
-            {"subject": "Welcome, {{user.name}}!", "body": "Hi {{user.name}}", "test_data": {"user": {"name": "Ada"}}}
+            {"subject": "Welcome, {{user.name}}!", "text": "Hi {{user.name}}", "test_data": {"user": {"name": "Ada"}}}
         )
     assert res.valid is True
-    assert res.rendered is not None and res.rendered.html_body == "<p>Hi Ada</p>"
+    assert res.rendered is not None and res.rendered.html == "<p>Hi Ada</p>"
     assert res.suggested_data == {"user": {"name": "example"}}
     req = httpx_mock.get_requests()[-1]
     assert req.method == "POST"
@@ -575,7 +575,7 @@ async def test_templates_validate_posts_and_maps_response(httpx_mock):
 
     assert _json.loads(req.content) == {
         "subject": "Welcome, {{user.name}}!",
-        "body": "Hi {{user.name}}",
+        "text": "Hi {{user.name}}",
         "test_data": {"user": {"name": "Ada"}},
     }
 
@@ -589,8 +589,8 @@ async def test_templates_get_starter_reads_starter_catalog(httpx_mock):
             "description": "Ask a human to approve an action.",
             "version": "1",
             "subject": "Approval needed: {{action}}",
-            "body": "Approve: {{approve_url}}",
-            "html_body": '<a href="{{approve_url}}">Approve</a>',
+            "text": "Approve: {{approve_url}}",
+            "html": '<a href="{{approve_url}}">Approve</a>',
             "variables": [
                 {"name": "approve_url", "required": True, "raw": False, "description": "d", "example": "https://x/approve"}
             ],
@@ -598,7 +598,7 @@ async def test_templates_get_starter_reads_starter_catalog(httpx_mock):
     )
     async with _client() as c:
         starter = await c.templates.get_starter("approval-request")
-    assert "{{approve_url}}" in starter.html_body
+    assert "{{approve_url}}" in starter.html
     assert starter.variables[0].name == "approve_url"
     req = httpx_mock.get_requests()[-1]
     assert req.method == "GET"
@@ -615,7 +615,7 @@ async def test_templates_create_maps_parse_failure_to_validation_error(httpx_moc
     )
     async with _client() as c:
         with pytest.raises(E2AValidationError) as ei:
-            await c.templates.create({"name": "x", "subject": "s", "body": "{{#bad}}"})
+            await c.templates.create({"name": "x", "subject": "s", "text": "{{#bad}}"})
     assert ei.value.code == "invalid_template"
     assert ei.value.retryable is False
 
@@ -624,11 +624,11 @@ async def test_templates_create_maps_parse_failure_to_validation_error(httpx_moc
 async def test_templates_round_trip_create_update_delete(httpx_mock):
     # A create→update→delete round-trip against the mocked generated layer,
     # asserting each hits the right method+path.
-    httpx_mock.add_response(status_code=201, json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s", body="b"))
-    httpx_mock.add_response(json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s2", body="b"))
+    httpx_mock.add_response(status_code=201, json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s", text="b"))
+    httpx_mock.add_response(json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s2", text="b"))
     httpx_mock.add_response(status_code=204)
     async with _client() as c:
-        created = await c.templates.create({"name": "RT", "subject": "s", "body": "b"})
+        created = await c.templates.create({"name": "RT", "subject": "s", "text": "b"})
         assert created.id == "tmpl_rt"
         updated = await c.templates.update("tmpl_rt", {"subject": "s2"})
         assert updated.subject == "s2"

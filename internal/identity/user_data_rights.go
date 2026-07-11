@@ -55,9 +55,9 @@ type ProtectionEventExportEntry struct {
 	Source      string    `json:"source"`
 	Reason      string    `json:"reason"`
 	Action      string    `json:"action"`
-	SubjectAddr string    `json:"subject_addr,omitempty"`
+	SubjectAddr string    `json:"peer_address,omitempty"`
 	Detector    string    `json:"detector,omitempty"`
-	Score       *float64  `json:"score,omitempty"`
+	Score       *float64  `json:"scan_score,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 } // @name ProtectionEventExportEntry
 
@@ -103,7 +103,7 @@ type UsageEventEntry struct {
 	AgentID   string    `json:"agent_id"`
 	Domain    string    `json:"domain"`
 	Direction string    `json:"direction"`
-	EventType string    `json:"event_type"`
+	EventType string    `json:"type"`
 	CreatedAt time.Time `json:"created_at"`
 } // @name UsageEventEntry
 

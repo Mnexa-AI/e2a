@@ -57,7 +57,7 @@ describe("whoami command", () => {
 
   it("shows the bound agent for an agent-scoped key", async () => {
     mockAccountGet.mockResolvedValue(
-      makeAccount({ scope: "agent", agentAddress: "tether@agents.e2a.dev" }),
+      makeAccount({ scope: "agent", agentEmail: "tether@agents.e2a.dev" }),
     );
     const { whoami } = await import("../commands/whoami.js");
     await whoami({});

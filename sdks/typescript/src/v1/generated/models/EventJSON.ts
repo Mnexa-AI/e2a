@@ -21,7 +21,10 @@ export class EventJSON {
     'deliveryStatus'?: DeliveryStatusJSON;
     'id': string;
     'messageId'?: string;
-    'schemaVersion': number;
+    /**
+    * Envelope schema version — a semver-ish string label (currently \"1\").
+    */
+    'schemaVersion': string;
     /**
     * Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.
     */
@@ -81,8 +84,8 @@ export class EventJSON {
         {
             "name": "schemaVersion",
             "baseName": "schema_version",
-            "type": "number",
-            "format": "int64"
+            "type": "string",
+            "format": ""
         },
         {
             "name": "status",

@@ -17,10 +17,6 @@ export class TemplateView {
     * Optional per-user unique handle usable as template_alias on send.
     */
     'alias'?: string;
-    /**
-    * The plain-text part\'s template source.
-    */
-    'body': string;
     'createdAt': Date;
     /**
     * The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.
@@ -33,10 +29,14 @@ export class TemplateView {
     /**
     * The optional HTML part\'s template source.
     */
-    'htmlBody'?: string;
+    'html'?: string;
     'id': string;
     'name': string;
     'subject': string;
+    /**
+    * The plain-text part\'s template source.
+    */
+    'text': string;
     'updatedAt': Date;
 
     static readonly discriminator: string | undefined = undefined;
@@ -47,12 +47,6 @@ export class TemplateView {
         {
             "name": "alias",
             "baseName": "alias",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "body",
-            "baseName": "body",
             "type": "string",
             "format": ""
         },
@@ -75,8 +69,8 @@ export class TemplateView {
             "format": ""
         },
         {
-            "name": "htmlBody",
-            "baseName": "html_body",
+            "name": "html",
+            "baseName": "html",
             "type": "string",
             "format": ""
         },
@@ -95,6 +89,12 @@ export class TemplateView {
         {
             "name": "subject",
             "baseName": "subject",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "text",
+            "baseName": "text",
             "type": "string",
             "format": ""
         },

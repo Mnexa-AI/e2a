@@ -15,10 +15,6 @@ import { HttpFile } from '../http/http.js';
 export class WebhookDeliveryView {
     'attempts': number;
     'createdAt': Date;
-    /**
-    * The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*).
-    */
-    'eventType': string;
     'id': string;
     'lastAttemptAt'?: Date;
     'lastError'?: string;
@@ -28,6 +24,10 @@ export class WebhookDeliveryView {
     * Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed.
     */
     'status': string;
+    /**
+    * The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*).
+    */
+    'type': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -45,12 +45,6 @@ export class WebhookDeliveryView {
             "baseName": "created_at",
             "type": "Date",
             "format": "date-time"
-        },
-        {
-            "name": "eventType",
-            "baseName": "event_type",
-            "type": "string",
-            "format": ""
         },
         {
             "name": "id",
@@ -85,6 +79,12 @@ export class WebhookDeliveryView {
         {
             "name": "status",
             "baseName": "status",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "type",
+            "baseName": "type",
             "type": "string",
             "format": ""
         }    ];

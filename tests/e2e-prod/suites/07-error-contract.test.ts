@@ -113,7 +113,7 @@ test("error-contract: POST /domains/<bogus>/verify returns 4xx", async () => {
 test("error-contract: invalid sending-agent email in path", async () => {
   // The sender is named in the path; a malformed sender address must 4xx.
   const r = await client.post(`/v1/agents/${encodeURIComponent("not-an-email")}/messages`, {
-    body: { to: ["someone@example.com"], subject: "x", body: "x" },
+    body: { to: ["someone@example.com"], subject: "x", text: "x" },
   });
   noteShape("send-bad-from", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
@@ -121,7 +121,7 @@ test("error-contract: invalid sending-agent email in path", async () => {
 
 test("error-contract: send with empty 'to' array returns 4xx", async () => {
   const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
-    body: { to: [], subject: "x", body: "x" },
+    body: { to: [], subject: "x", text: "x" },
   });
   noteShape("send-empty-to", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
@@ -129,7 +129,7 @@ test("error-contract: send with empty 'to' array returns 4xx", async () => {
 
 test("error-contract: send with invalid recipient address returns 4xx (no smtp call)", async () => {
   const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
-    body: { to: ["definitely not an email"], subject: "x", body: "x" },
+    body: { to: ["definitely not an email"], subject: "x", text: "x" },
   });
   noteShape("send-bad-recipient", r);
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);

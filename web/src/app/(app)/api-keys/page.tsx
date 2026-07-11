@@ -127,7 +127,7 @@ export default function APIKeysPage() {
         name: string;
         expires_at?: string;
         scope?: string;
-        agent?: string;
+        agent_email?: string;
       } = { name: newKeyName || "Default" };
       if (expiresIn !== "never") {
         const days = Number(expiresIn);
@@ -136,7 +136,7 @@ export default function APIKeysPage() {
       }
       if (scope === "agent" && agentEmail) {
         body.scope = "agent";
-        body.agent = agentEmail;
+        body.agent_email = agentEmail;
       }
       const res = await fetch("/v1/account/api-keys", {
         method: "POST",
@@ -457,7 +457,7 @@ export default function APIKeysPage() {
                   <td className="px-4 py-3">
                     {k.scope === "agent" ? (
                       <Chip tone="accent" mono>
-                        {k.agent || "Inbox"}
+                        {k.agent_email || "Inbox"}
                       </Chip>
                     ) : (
                       <span style={{ color: "var(--fg-muted)" }}>Account</span>

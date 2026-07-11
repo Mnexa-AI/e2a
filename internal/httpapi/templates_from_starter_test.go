@@ -30,10 +30,10 @@ func TestCreateTemplateFromStarter(t *testing.T) {
 	if body["subject"] != master.Subject {
 		t.Errorf("subject = %v, want master subject %q", body["subject"], master.Subject)
 	}
-	if body["body"] != master.TextBody {
+	if body["text"] != master.TextBody {
 		t.Errorf("body does not equal the master text source verbatim")
 	}
-	if body["html_body"] != master.HTMLBody {
+	if body["html"] != master.HTMLBody {
 		t.Errorf("html_body does not equal the master HTML source verbatim")
 	}
 	// Provenance: the response records which master (and version) was copied.
@@ -48,7 +48,7 @@ func TestCreateTemplateFromStarter(t *testing.T) {
 func TestCreateTemplateLiteralHasNoProvenance(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
-		"name": "Literal", "subject": "S", "body": "B",
+		"name": "Literal", "subject": "S", "text": "B",
 	})
 	if code != 201 {
 		t.Fatalf("want 201, got %d %v", code, body)
@@ -81,8 +81,8 @@ func TestCreateTemplateFromStarterExclusiveWithLiteralSource(t *testing.T) {
 	srv := testServer(t)
 	for part, extra := range map[string]map[string]any{
 		"subject":   {"subject": "literal"},
-		"body":      {"body": "literal"},
-		"html_body": {"html_body": "<p>literal</p>"},
+		"text":      {"text": "literal"},
+		"html": {"html": "<p>literal</p>"},
 	} {
 		payload := map[string]any{"from_starter": "receipt"}
 		for k, v := range extra {
@@ -186,7 +186,7 @@ func TestSendWithStarterDerivedTemplate(t *testing.T) {
 		!strings.Contains(req.HTMLBody, "Set up your workspace") {
 		t.Errorf("delivered html body missing rendered CTA")
 	}
-	for part, out := range map[string]string{"subject": req.Subject, "body": req.Body, "html_body": req.HTMLBody} {
+	for part, out := range map[string]string{"subject": req.Subject, "text": req.Body, "html": req.HTMLBody} {
 		if strings.Contains(out, "{{") || strings.Contains(out, "}}") {
 			t.Errorf("delivered %s still contains template syntax", part)
 		}

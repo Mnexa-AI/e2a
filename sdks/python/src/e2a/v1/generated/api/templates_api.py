@@ -64,7 +64,7 @@ class TemplatesApi:
     ) -> TemplateView:
         """Create a template (beta)
 
-        Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+        Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param create_template_request: (required)
         :type create_template_request: CreateTemplateRequest
@@ -131,7 +131,7 @@ class TemplatesApi:
     ) -> ApiResponse[TemplateView]:
         """Create a template (beta)
 
-        Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+        Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param create_template_request: (required)
         :type create_template_request: CreateTemplateRequest
@@ -198,7 +198,7 @@ class TemplatesApi:
     ) -> RESTResponseType:
         """Create a template (beta)
 
-        Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+        Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param create_template_request: (required)
         :type create_template_request: CreateTemplateRequest
@@ -1366,7 +1366,7 @@ class TemplatesApi:
     ) -> PageTemplateSummaryView:
         """List templates (beta)
 
-        List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+        List the account's templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1429,7 +1429,7 @@ class TemplatesApi:
     ) -> ApiResponse[PageTemplateSummaryView]:
         """List templates (beta)
 
-        List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+        List the account's templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1492,7 +1492,7 @@ class TemplatesApi:
     ) -> RESTResponseType:
         """List templates (beta)
 
-        List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+        List the account's templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1614,7 +1614,7 @@ class TemplatesApi:
     ) -> TemplateView:
         """Update a template (beta)
 
-        Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+        Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
@@ -1685,7 +1685,7 @@ class TemplatesApi:
     ) -> ApiResponse[TemplateView]:
         """Update a template (beta)
 
-        Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+        Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
@@ -1756,7 +1756,7 @@ class TemplatesApi:
     ) -> RESTResponseType:
         """Update a template (beta)
 
-        Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+        Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str

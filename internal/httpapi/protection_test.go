@@ -181,7 +181,7 @@ func TestAgentViewOmitsScanThresholds(t *testing.T) {
 		"inbound_scan", "outbound_scan", "inbound_policy", "outbound_policy",
 		"inbound_policy_action", "outbound_policy_action",
 		"inbound_scan_sensitivity", "outbound_scan_sensitivity",
-		"review_ttl_seconds", "review_expiration_action",
+		"ttl_seconds", "on_expiry",
 	}
 	for _, k := range leaky {
 		if _, present := body[k]; present {

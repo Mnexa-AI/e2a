@@ -172,7 +172,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
         "Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id; inspect the outcome (status/attempts/last_error) via `list_webhook_deliveries`. Returns an error if the webhook is disabled. Cheap and safe — the synthetic event does not touch real inbound or review state.",
       inputSchema: strictInputSchema({
         id: z.string().min(1).describe("Webhook id (wh_…)."),
-        event: z
+        type: z
           .string()
           .optional()
           .describe(
@@ -181,7 +181,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       }),
     },
     async (args) =>
-      runTool(() => client.testWebhook(args.id, { event: args.event })),
+      runTool(() => client.testWebhook(args.id, { type: args.type })),
   );
 
   server.registerTool(

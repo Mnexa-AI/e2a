@@ -9,7 +9,7 @@ func TestCreateTemplate(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
 		"name": "Welcome", "alias": "welcome-2",
-		"subject": "Hello {{name}}", "body": "Hi {{name}}!", "html_body": "<p>{{name}} {{{markup}}}</p>",
+		"subject": "Hello {{name}}", "text": "Hi {{name}}!", "html": "<p>{{name}} {{{markup}}}</p>",
 	})
 	if code != 201 {
 		t.Fatalf("want 201, got %d %v", code, body)
@@ -25,7 +25,7 @@ func TestCreateTemplate(t *testing.T) {
 func TestCreateTemplateNoAlias(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
-		"name": "Bare", "subject": "S", "body": "B",
+		"name": "Bare", "subject": "S", "text": "B",
 	})
 	if code != 201 {
 		t.Fatalf("want 201 without alias, got %d %v", code, body)
@@ -38,7 +38,7 @@ func TestCreateTemplateNoAlias(t *testing.T) {
 func TestCreateTemplateNameRequired(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
-		"name": "", "subject": "S", "body": "B",
+		"name": "", "subject": "S", "text": "B",
 	})
 	if code != 400 || errCode(body) != "invalid_request" {
 		t.Fatalf("want 400 invalid_request for empty name, got %d %v", code, body)
@@ -48,7 +48,7 @@ func TestCreateTemplateNameRequired(t *testing.T) {
 func TestCreateTemplateSubjectBodyRequired(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
-		"name": "T", "subject": "S", "body": "",
+		"name": "T", "subject": "S", "text": "",
 	})
 	if code != 400 || errCode(body) != "invalid_request" {
 		t.Fatalf("want 400 invalid_request for empty body, got %d %v", code, body)
@@ -59,7 +59,7 @@ func TestCreateTemplateBadAlias(t *testing.T) {
 	srv := testServer(t)
 	for _, alias := range []string{"1leading-digit", "has space", "-leading-dash", "with/slash"} {
 		code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
-			"name": "T", "alias": alias, "subject": "S", "body": "B",
+			"name": "T", "alias": alias, "subject": "S", "text": "B",
 		})
 		if code != 400 || errCode(body) != "invalid_request" {
 			t.Fatalf("alias %q: want 400 invalid_request, got %d %v", alias, code, body)
@@ -70,7 +70,7 @@ func TestCreateTemplateBadAlias(t *testing.T) {
 func TestCreateTemplateAliasTaken(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
-		"name": "T", "alias": "taken", "subject": "S", "body": "B",
+		"name": "T", "alias": "taken", "subject": "S", "text": "B",
 	})
 	if code != 409 || errCode(body) != "alias_taken" {
 		t.Fatalf("want 409 alias_taken, got %d %v", code, body)
@@ -80,7 +80,7 @@ func TestCreateTemplateAliasTaken(t *testing.T) {
 func TestCreateTemplateInvalidSyntax(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "good", map[string]any{
-		"name": "T", "subject": "Hi {{name", "body": "B",
+		"name": "T", "subject": "Hi {{name", "text": "B",
 	})
 	if code != 400 || errCode(body) != "invalid_template" {
 		t.Fatalf("want 400 invalid_template for unclosed tag, got %d %v", code, body)
@@ -95,9 +95,9 @@ func TestCreateTemplateReservedSyntax(t *testing.T) {
 	srv := testServer(t)
 	// Reserved Mustache structural syntax in each part is rejected at create.
 	for part, payload := range map[string]map[string]any{
-		"subject":   {"name": "T", "subject": "{{#x}}", "body": "B"},
-		"body":      {"name": "T", "subject": "S", "body": "{{>partial}}"},
-		"html_body": {"name": "T", "subject": "S", "body": "B", "html_body": "{{!comment}}"},
+		"subject":   {"name": "T", "subject": "{{#x}}", "text": "B"},
+		"text":      {"name": "T", "subject": "S", "text": "{{>partial}}"},
+		"html": {"name": "T", "subject": "S", "text": "B", "html": "{{!comment}}"},
 	} {
 		code, body := postJSON(t, srv.URL+"/v1/templates", "good", payload)
 		if code != 400 || errCode(body) != "invalid_template" {
@@ -109,7 +109,7 @@ func TestCreateTemplateReservedSyntax(t *testing.T) {
 func TestCreateTemplateCapReached(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates", "overcap", map[string]any{
-		"name": "T", "subject": "S", "body": "B",
+		"name": "T", "subject": "S", "text": "B",
 	})
 	if code != 400 || errCode(body) != "template_limit_reached" {
 		t.Fatalf("want 400 template_limit_reached, got %d %v", code, body)
@@ -135,7 +135,7 @@ func TestListTemplates(t *testing.T) {
 	}
 	// The list is the SUMMARY shape: template sources are get-by-id only
 	// (worst case a list of maximal templates is megabytes of body text).
-	for _, k := range []string{"body", "html_body"} {
+	for _, k := range []string{"text", "html"} {
 		if _, present := item[k]; present {
 			t.Errorf("list item must not carry %q, got %v", k, item)
 		}
@@ -188,9 +188,9 @@ func TestUpdateTemplate(t *testing.T) {
 func TestUpdateTemplateAliasAndHTMLBody(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{
-		"alias": "renamed-alias", "html_body": "<p>New {{name}}</p>",
+		"alias": "renamed-alias", "html": "<p>New {{name}}</p>",
 	})
-	if code != 200 || body["alias"] != "renamed-alias" || body["html_body"] != "<p>New {{name}}</p>" {
+	if code != 200 || body["alias"] != "renamed-alias" || body["html"] != "<p>New {{name}}</p>" {
 		t.Fatalf("want 200 with updated alias+html_body, got %d %v", code, body)
 	}
 }
@@ -199,12 +199,12 @@ func TestUpdateTemplateClearHTMLBody(t *testing.T) {
 	srv := testServer(t)
 	// html_body: "" removes the HTML part; the view omits the empty field.
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{
-		"html_body": "",
+		"html": "",
 	})
 	if code != 200 {
 		t.Fatalf("want 200 clearing html_body, got %d %v", code, body)
 	}
-	if _, present := body["html_body"]; present {
+	if _, present := body["html"]; present {
 		t.Fatalf("cleared html_body must be omitted from the view, got %v", body)
 	}
 }
@@ -212,7 +212,7 @@ func TestUpdateTemplateClearHTMLBody(t *testing.T) {
 func TestUpdateTemplateInvalidSyntax(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{
-		"body": "{{/close}}",
+		"text": "{{/close}}",
 	})
 	if code != 400 || errCode(body) != "invalid_template" {
 		t.Fatalf("want 400 invalid_template on changed part, got %d %v", code, body)
@@ -221,7 +221,7 @@ func TestUpdateTemplateInvalidSyntax(t *testing.T) {
 
 func TestUpdateTemplateEmptyBodyRejected(t *testing.T) {
 	srv := testServer(t)
-	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{"body": ""})
+	code, body := sendJSON(t, "PATCH", srv.URL+"/v1/templates/tmpl_1", "good", map[string]any{"text": ""})
 	if code != 400 || errCode(body) != "invalid_request" {
 		t.Fatalf("want 400 invalid_request for clearing body, got %d %v", code, body)
 	}
@@ -277,8 +277,8 @@ func TestValidateTemplateValid(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
 		"subject":   "Hi {{name}}",
-		"body":      "Plan: {{plan.tier}} & co",
-		"html_body": "<p>{{html}} / {{{html}}}</p>",
+		"text":      "Plan: {{plan.tier}} & co",
+		"html": "<p>{{html}} / {{{html}}}</p>",
 		"test_data": map[string]any{
 			"name": "Alice", "plan": map[string]any{"tier": "pro"}, "html": "<b>x</b>",
 		},
@@ -290,10 +290,10 @@ func TestValidateTemplateValid(t *testing.T) {
 	if rendered["subject"] != "Hi Alice" {
 		t.Fatalf("rendered subject = %v", rendered)
 	}
-	if rendered["body"] != "Plan: pro & co" {
+	if rendered["text"] != "Plan: pro & co" {
 		t.Fatalf("text body must not be HTML-escaped: %v", rendered)
 	}
-	if rendered["html_body"] != "<p>&lt;b&gt;x&lt;/b&gt; / <b>x</b></p>" {
+	if rendered["html"] != "<p>&lt;b&gt;x&lt;/b&gt; / <b>x</b></p>" {
 		t.Fatalf("html body must escape {{x}} and keep {{{x}}} raw: %v", rendered)
 	}
 	suggested, _ := body["suggested_data"].(map[string]any)
@@ -316,7 +316,7 @@ func TestValidateTemplateValid(t *testing.T) {
 func TestValidateTemplateInvalid(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
-		"subject": "{{#loop}}", "body": "ok {{x}}", "html_body": "{{broken",
+		"subject": "{{#loop}}", "text": "ok {{x}}", "html": "{{broken",
 	})
 	if code != 200 || body["valid"] != false {
 		t.Fatalf("want 200 with valid=false, got %d %v", code, body)
@@ -329,7 +329,7 @@ func TestValidateTemplateInvalid(t *testing.T) {
 	for _, e := range errs {
 		parts[e.(map[string]any)["part"].(string)] = true
 	}
-	if !parts["subject"] || !parts["html_body"] {
+	if !parts["subject"] || !parts["html"] {
 		t.Fatalf("errors must name subject + html_body, got %v", body["errors"])
 	}
 	if _, present := body["rendered"]; present {
@@ -349,7 +349,7 @@ func TestValidateTemplateInvalid(t *testing.T) {
 func TestValidateTemplateSuggestedDataNestedRoundTrip(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
-		"subject": "Hi {{user.name}}", "body": "Contact: {{user.contact.email}}",
+		"subject": "Hi {{user.name}}", "text": "Contact: {{user.contact.email}}",
 	})
 	if code != 200 || body["valid"] != true {
 		t.Fatalf("want 200 valid, got %d %v", code, body)
@@ -366,14 +366,14 @@ func TestValidateTemplateSuggestedDataNestedRoundTrip(t *testing.T) {
 
 	// Round-trip: the suggestion IS valid template_data for the same source.
 	code, body = postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
-		"subject": "Hi {{user.name}}", "body": "Contact: {{user.contact.email}}",
+		"subject": "Hi {{user.name}}", "text": "Contact: {{user.contact.email}}",
 		"test_data": suggested,
 	})
 	if code != 200 || body["valid"] != true {
 		t.Fatalf("round-trip: want 200 valid, got %d %v", code, body)
 	}
 	rendered, _ := body["rendered"].(map[string]any)
-	if rendered["subject"] != "Hi user.name_value" || rendered["body"] != "Contact: user.contact.email_value" {
+	if rendered["subject"] != "Hi user.name_value" || rendered["text"] != "Contact: user.contact.email_value" {
 		t.Fatalf("suggested_data must render its placeholders when passed back, got %v", rendered)
 	}
 }
@@ -385,7 +385,7 @@ func TestValidateTemplateBigIntPrecision(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
 		"subject":   "Order {{n}}",
-		"body":      "B",
+		"text":      "B",
 		"test_data": map[string]any{"n": int64(123456789012345678)},
 	})
 	if code != 200 || body["valid"] != true {
@@ -400,7 +400,7 @@ func TestValidateTemplateBigIntPrecision(t *testing.T) {
 func TestValidateTemplateNoTestData(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/templates/validate", "good", map[string]any{
-		"subject": "Hi {{name}}", "body": "B",
+		"subject": "Hi {{name}}", "text": "B",
 	})
 	if code != 200 || body["valid"] != true {
 		t.Fatalf("want 200 valid, got %d %v", code, body)

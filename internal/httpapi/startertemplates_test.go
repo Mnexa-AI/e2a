@@ -32,7 +32,7 @@ func TestListStarterTemplates(t *testing.T) {
 				t.Errorf("list item %q missing key %q", m["alias"], k)
 			}
 		}
-		for _, k := range []string{"body", "html_body"} {
+		for _, k := range []string{"text", "html"} {
 			if _, ok := m[k]; ok {
 				t.Errorf("list item %q must not include %q (sources are detail-only)", m["alias"], k)
 			}
@@ -57,10 +57,10 @@ func TestGetStarterTemplate(t *testing.T) {
 	if body["subject"] != master.Subject {
 		t.Errorf("subject = %v, want master subject %q", body["subject"], master.Subject)
 	}
-	if body["body"] != master.TextBody {
+	if body["text"] != master.TextBody {
 		t.Errorf("body does not match master text source")
 	}
-	if body["html_body"] != master.HTMLBody {
+	if body["html"] != master.HTMLBody {
 		t.Errorf("html_body does not match master HTML source")
 	}
 	vars, _ := body["variables"].([]any)

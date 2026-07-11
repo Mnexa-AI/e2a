@@ -18,7 +18,7 @@ type APIKeyView struct {
 	Name       string     `json:"name"`
 	KeyPrefix  string     `json:"key_prefix" doc:"Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…)."`
 	Scope      string     `json:"scope" enum:"account,agent" doc:"account = workspace admin; agent = bound to one inbox."`
-	Agent      string     `json:"agent,omitempty" doc:"Bound inbox email for agent-scoped keys; omitted for account scope."`
+	Agent      string     `json:"agent_email,omitempty" doc:"Bound inbox email for agent-scoped keys; omitted for account scope."`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
@@ -51,12 +51,12 @@ func apiKeyView(k identity.APIKey) APIKeyView {
 type listAPIKeysOutput struct{ Body Page[APIKeyView] }
 
 // CreateAPIKeyRequest mirrors the legacy /api/keys body. scope defaults to
-// account; scope=agent requires `agent` (an owned inbox email).
+// account; scope=agent requires `agent_email` (an owned inbox email).
 type CreateAPIKeyRequest struct {
 	Name      string `json:"name,omitempty" doc:"Human label for the key."`
 	ExpiresAt string `json:"expires_at,omitempty" format:"date-time" doc:"Optional hard expiry (RFC 3339, must be in the future). Omit for a never-expiring key."`
 	Scope     string `json:"scope,omitempty" enum:"account,agent" doc:"account = workspace admin (default); agent = bound to a single inbox."`
-	Agent     string `json:"agent,omitempty" doc:"Inbox email to bind the key to; required when scope=agent."`
+	Agent     string `json:"agent_email,omitempty" doc:"Inbox email to bind the key to; required when scope=agent."`
 }
 
 type createAPIKeyInput struct{ Body CreateAPIKeyRequest }
@@ -145,7 +145,7 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, in *createAPIKeyInput) 
 	var agentID string
 	if scope == identity.ScopeAgent {
 		if in.Body.Agent == "" {
-			return nil, NewError(http.StatusBadRequest, "agent_required", "agent (inbox email) is required when scope=agent")
+			return nil, NewError(http.StatusBadRequest, "agent_required", "agent_email (inbox email) is required when scope=agent")
 		}
 		ag, aerr := s.resolveOwnedAgent(ctx, in.Body.Agent)
 		if aerr != nil {

@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.delivery_status_json import DeliveryStatusJSON
 from typing import Optional, Set
@@ -35,7 +35,7 @@ class EventJSON(BaseModel):
     delivery_status: Optional[DeliveryStatusJSON] = None
     id: StrictStr
     message_id: Optional[StrictStr] = None
-    schema_version: StrictInt
+    schema_version: StrictStr = Field(description="Envelope schema version — a semver-ish string label (currently \"1\").")
     status: StrictStr = Field(description="Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.")
     type: StrictStr = Field(description="Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.")
     additional_properties: Dict[str, Any] = {}

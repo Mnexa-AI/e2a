@@ -42,7 +42,7 @@ type Domain struct {
 	VerifiedAt        *time.Time `json:"verified_at,omitempty"`
 	// IsPrimary marks the user's default domain. At most one TRUE per
 	// user (enforced by a partial unique index in migration 013).
-	IsPrimary bool `json:"is_primary"`
+	IsPrimary bool `json:"primary"`
 	// LastCheckedAt is updated whenever the verification probe runs,
 	// successful or not. NULL until the first probe — distinct from
 	// "probed and failed" which is captured by `verified=false` + a
@@ -102,8 +102,8 @@ type AgentIdentity struct {
 	// were retired (Slice 5b/5c, columns dropped in migration 043) — outbound_policy
 	// + outbound_scan own holds now. These two knobs govern how the review queue
 	// behaves (TTL + expiry action) for both directions.
-	HITLTTLSeconds       int    `json:"review_ttl_seconds"`
-	HITLExpirationAction string `json:"review_expiration_action"`
+	HITLTTLSeconds       int    `json:"ttl_seconds"`
+	HITLExpirationAction string `json:"on_expiry"`
 	// Dashboard enrichment fields. Computed at read
 	// time by ListAgentsByUser via correlated subqueries — other load
 	// paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
@@ -213,8 +213,8 @@ type Message struct {
 	ID                string            `json:"id"`
 	AgentID           string            `json:"agent_id"`
 	Direction         string            `json:"direction"`
-	Sender            string            `json:"sender"`
-	Recipient         string            `json:"recipient"`
+	Sender            string            `json:"from"`
+	Recipient         string            `json:"delivered_to"`
 	Subject           string            `json:"subject"`
 	EmailMessageID    string            `json:"email_message_id,omitempty"`
 	ProviderMessageID string            `json:"provider_message_id,omitempty"`
@@ -257,14 +257,14 @@ type Message struct {
 	// carries the same value under a confusing JSON key — see line 161)
 	// so the dashboard's inbox can read it under a non-overloaded key.
 	// Empty on outbound rows. Populated by GetMessagesByAgent.
-	InboxStatus string `json:"inbox_status,omitempty"`
+	InboxStatus string `json:"read_status,omitempty"`
 
 	// Multi-recipient fields. For outbound, these are the addressed
 	// To/Cc/Bcc recipients of the send. For inbound, ToRecipients and CC
 	// are the parsed To: and Cc: headers of the original message (the
 	// per-delivery target for this row is in Recipient). BCC is
 	// outbound-only.
-	ToRecipients []string `json:"to_recipients,omitempty"`
+	ToRecipients []string `json:"to,omitempty"`
 	CC           []string `json:"cc,omitempty"`
 	BCC          []string `json:"bcc,omitempty"`
 
@@ -301,8 +301,8 @@ type Message struct {
 	ReviewedByName  *string         `json:"reviewed_by_name,omitempty"`
 	RejectionReason string          `json:"rejection_reason,omitempty"`
 	Edited          bool            `json:"edited,omitempty"`
-	BodyText        string          `json:"body_text,omitempty"`
-	BodyHTML        string          `json:"body_html,omitempty"`
+	BodyText        string          `json:"text,omitempty"`
+	BodyHTML        string          `json:"html,omitempty"`
 	AttachmentsJSON json.RawMessage `json:"attachments,omitempty"`
 
 	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /

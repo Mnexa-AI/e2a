@@ -52,7 +52,7 @@ function stageList(initial: unknown[] = [], agentsList: unknown[] = []) {
             key_prefix: "e2a_abcd",
             key: "e2a_abcd_PLAINTEXT",
             scope: body.scope ?? "account",
-            agent: body.agent,
+            agent_email: body.agent_email,
             created_at: new Date().toISOString(),
             expires_at: body.expires_at ?? null,
           }),
@@ -263,7 +263,7 @@ describe("API keys — agent scope", () => {
       const body = lastCreateBody(calls);
       expect(body).not.toBeNull();
       expect(body.scope).toBe("agent");
-      expect(body.agent).toBe("support@acme.io");
+      expect(body.agent_email).toBe("support@acme.io");
     });
   });
 
@@ -291,7 +291,7 @@ describe("API keys — agent scope", () => {
         name: "bot",
         key_prefix: "e2a_agt_x",
         scope: "agent",
-        agent: "bot@acme.io",
+        agent_email: "bot@acme.io",
         created_at: "2026-04-01T10:00:00Z",
       },
     ]);

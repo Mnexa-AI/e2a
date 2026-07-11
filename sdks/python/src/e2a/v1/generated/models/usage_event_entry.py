@@ -31,9 +31,9 @@ class UsageEventEntry(BaseModel):
     created_at: datetime
     direction: StrictStr
     domain: StrictStr
-    event_type: StrictStr
     id: StrictStr
-    __properties: ClassVar[List[str]] = ["agent_id", "created_at", "direction", "domain", "event_type", "id"]
+    type: StrictStr
+    __properties: ClassVar[List[str]] = ["agent_id", "created_at", "direction", "domain", "id", "type"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -90,8 +90,8 @@ class UsageEventEntry(BaseModel):
             "created_at": obj.get("created_at"),
             "direction": obj.get("direction"),
             "domain": obj.get("domain"),
-            "event_type": obj.get("event_type"),
-            "id": obj.get("id")
+            "id": obj.get("id"),
+            "type": obj.get("type")
         })
         return _obj
 

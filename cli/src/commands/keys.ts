@@ -24,7 +24,7 @@ export async function keysCreate(opts: KeysCreateOptions): Promise<void> {
   const created = await client.account.apiKeys.create({
     name: opts.name || (opts.agent ? `agent key @${hostname()}` : `account key @${hostname()}`),
     ...(opts.agent
-      ? { scope: "agent" as CreateAPIKeyRequest["scope"], agent: opts.agent }
+      ? { scope: "agent" as CreateAPIKeyRequest["scope"], agentEmail: opts.agent }
       : {}),
   });
 
@@ -47,7 +47,7 @@ export async function keysList(opts: KeysListOptions): Promise<void> {
       process.stdout.write(JSON.stringify(k) + "\n");
     } else {
       process.stdout.write(
-        `${k.id}\t${k.keyPrefix}\t${k.scope}${k.agent ? `\t${k.agent}` : "\t"}\t${k.name || ""}\n`,
+        `${k.id}\t${k.keyPrefix}\t${k.scope}${k.agentEmail ? `\t${k.agentEmail}` : "\t"}\t${k.name || ""}\n`,
       );
     }
   }

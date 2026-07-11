@@ -27,7 +27,7 @@ class CreateAPIKeyResponse(BaseModel):
     """
     CreateAPIKeyResponse
     """ # noqa: E501
-    agent: Optional[StrictStr] = Field(default=None, description="Bound inbox email for agent-scoped keys; omitted for account scope.")
+    agent_email: Optional[StrictStr] = Field(default=None, description="Bound inbox email for agent-scoped keys; omitted for account scope.")
     created_at: datetime
     expires_at: Optional[datetime] = None
     id: StrictStr
@@ -36,7 +36,7 @@ class CreateAPIKeyResponse(BaseModel):
     last_used_at: Optional[datetime] = None
     name: StrictStr
     scope: StrictStr = Field(description="account = workspace admin; agent = bound to one inbox.")
-    __properties: ClassVar[List[str]] = ["agent", "created_at", "expires_at", "id", "key", "key_prefix", "last_used_at", "name", "scope"]
+    __properties: ClassVar[List[str]] = ["agent_email", "created_at", "expires_at", "id", "key", "key_prefix", "last_used_at", "name", "scope"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -89,7 +89,7 @@ class CreateAPIKeyResponse(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent": obj.get("agent"),
+            "agent_email": obj.get("agent_email"),
             "created_at": obj.get("created_at"),
             "expires_at": obj.get("expires_at"),
             "id": obj.get("id"),

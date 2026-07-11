@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -34,7 +35,7 @@ func (a *API) SetPoolForEvents(p *pgxpool.Pool) { a.eventsPool = p }
 type eventJSON struct {
 	ID             string                 `json:"id"`
 	Type           string                 `json:"type" doc:"Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added."`
-	SchemaVersion  int                    `json:"schema_version"`
+	SchemaVersion  string                 `json:"schema_version" doc:"Envelope schema version — a semver-ish string label (currently \"1\")."`
 	CreatedAt      time.Time              `json:"created_at"`
 	AgentID        *string                `json:"agent_id,omitempty"`
 	ConversationID *string                `json:"conversation_id,omitempty"`
@@ -118,7 +119,7 @@ func listEvents(ctx context.Context, pool *pgxpool.Pool, userID, eventType, agen
 		); err != nil {
 			return nil, err
 		}
-		ej.SchemaVersion = int(schemaVer)
+		ej.SchemaVersion = strconv.Itoa(int(schemaVer))
 
 		// Extract envelope.data so the response surfaces just the
 		// customer-meaningful payload (not the full envelope wrapper).
@@ -183,7 +184,7 @@ func getEvent(ctx context.Context, pool *pgxpool.Pool, userID, eventID string) (
 	if time.Now().After(expiresAt) {
 		return nil, errEventExpired
 	}
-	ej.SchemaVersion = int(schemaVer)
+	ej.SchemaVersion = strconv.Itoa(int(schemaVer))
 	var env struct {
 		Data map[string]interface{} `json:"data"`
 	}

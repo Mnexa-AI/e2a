@@ -469,7 +469,7 @@ class TemplatesResource:
 
     def list(self) -> AutoPager[TemplateSummaryView]:
         """List the account's stored templates, newest first. Summary rows only
-        (no body/html_body sources) — ``get(id)`` returns the full sources."""
+        (no text/html sources) — ``get(id)`` returns the full sources."""
 
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_templates(_headers=h))
@@ -493,7 +493,7 @@ class TemplatesResource:
 
     async def update(self, template_id: str, patch: Body) -> TemplateView:
         """Partial update; omitted fields are left unchanged. Changed parts are
-        re-parsed. Set alias or html_body to "" to clear them. PATCH is
+        re-parsed. Set alias or html to "" to clear them. PATCH is
         idempotent → safe to retry."""
         req = _coerce(UpdateTemplateRequest, patch)
         return await self._c._write_idempotent(

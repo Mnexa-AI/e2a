@@ -15,7 +15,7 @@ import { HttpFile } from '../http/http.js';
 export class TemplatePartError {
     'message': string;
     /**
-    * Which part failed. Known values: subject, body, html_body.
+    * Which part failed. Known values: subject, text, html.
     */
     'part': string;
 

@@ -27,11 +27,11 @@ class UpdateTemplateRequest(BaseModel):
     UpdateTemplateRequest
     """ # noqa: E501
     alias: Optional[StrictStr] = Field(default=None, description="Set to \"\" to clear the alias.")
-    body: Optional[StrictStr] = None
-    html_body: Optional[StrictStr] = Field(default=None, description="Set to \"\" to remove the HTML part.")
+    html: Optional[StrictStr] = Field(default=None, description="Set to \"\" to remove the HTML part.")
     name: Optional[StrictStr] = None
     subject: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["alias", "body", "html_body", "name", "subject"]
+    text: Optional[StrictStr] = None
+    __properties: ClassVar[List[str]] = ["alias", "html", "name", "subject", "text"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -85,10 +85,10 @@ class UpdateTemplateRequest(BaseModel):
 
         _obj = cls.model_validate({
             "alias": obj.get("alias"),
-            "body": obj.get("body"),
-            "html_body": obj.get("html_body"),
+            "html": obj.get("html"),
             "name": obj.get("name"),
-            "subject": obj.get("subject")
+            "subject": obj.get("subject"),
+            "text": obj.get("text")
         })
         return _obj
 

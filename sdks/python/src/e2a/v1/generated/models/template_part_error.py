@@ -27,7 +27,7 @@ class TemplatePartError(BaseModel):
     TemplatePartError
     """ # noqa: E501
     message: StrictStr
-    part: StrictStr = Field(description="Which part failed. Known values: subject, body, html_body.")
+    part: StrictStr = Field(description="Which part failed. Known values: subject, text, html.")
     __properties: ClassVar[List[str]] = ["message", "part"]
 
     model_config = ConfigDict(

@@ -19,13 +19,13 @@ type AccountUserView struct {
 
 // AccountView is the authenticated account: identity + plan + limits + usage
 // (A-2, formerly LimitsView). `whoami` maps here. It is scope-aware: `scope`
-// is always set, and `agent_address` is populated ONLY for agent-scoped
+// is always set, and `agent_email` is populated ONLY for agent-scoped
 // credentials (where the credential *is* a single agent) — omitted for
 // account scope, which spans many agents.
 type AccountView struct {
 	User         AccountUserView `json:"user"`
 	Scope        string          `json:"scope" enum:"account,agent"`
-	AgentAddress string          `json:"agent_address,omitempty"`
+	AgentAddress string          `json:"agent_email,omitempty"`
 	PlanCode     string          `json:"plan_code"`
 	Limits       LimitsCapsView  `json:"limits"`
 	Usage        LimitsUsageView `json:"usage"`
@@ -53,7 +53,7 @@ func (s *Server) registerAccount() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getAccount", Method: http.MethodGet, Path: "/v1/account",
 		Summary: "Get account: identity + plan limits + usage (whoami)", Tags: []string{"account"},
-		Description: "The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)",
+		Description: "The authenticated principal's identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleGetMyLimits)
 
@@ -248,7 +248,7 @@ func (s *Server) handleGetMyLimits(ctx context.Context, _ *struct{}) (*accountOu
 	if s.deps.GetUsage != nil {
 		usage = s.deps.GetUsage(ctx, user.ID)
 	}
-	// agent_address only for agent-scoped credentials (the credential IS one
+	// agent_email only for agent-scoped credentials (the credential IS one
 	// agent; its id == its email by construction). Omitted for account scope.
 	agentAddress := ""
 	if p.Scope == identity.ScopeAgent {

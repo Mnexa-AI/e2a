@@ -282,7 +282,7 @@ export class ObservableAccountApi {
     }
 
     /**
-     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * The authenticated principal\'s identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
      * Get account: identity + plan limits + usage (whoami)
      */
     public getAccountWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<AccountView>> {
@@ -306,7 +306,7 @@ export class ObservableAccountApi {
     }
 
     /**
-     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * The authenticated principal\'s identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
      * Get account: identity + plan limits + usage (whoami)
      */
     public getAccount(_options?: ConfigurationOptions): Observable<AccountView> {
@@ -1702,7 +1702,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1727,7 +1727,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1870,7 +1870,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      */
     public listTemplatesWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<PageTemplateSummaryView>> {
@@ -1894,7 +1894,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      */
     public listTemplates(_options?: ConfigurationOptions): Observable<PageTemplateSummaryView> {
@@ -1902,7 +1902,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
      * @param id
      * @param updateTemplateRequest
@@ -1928,7 +1928,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
      * @param id
      * @param updateTemplateRequest

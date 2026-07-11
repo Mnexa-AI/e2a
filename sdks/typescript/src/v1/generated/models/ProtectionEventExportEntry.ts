@@ -20,10 +20,10 @@ export class ProtectionEventExportEntry {
     'direction': string;
     'id': string;
     'messageId': string;
+    'peerAddress'?: string;
     'reason': string;
-    'score'?: number;
+    'scanScore'?: number;
     'source': string;
-    'subjectAddr'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -73,26 +73,26 @@ export class ProtectionEventExportEntry {
             "format": ""
         },
         {
+            "name": "peerAddress",
+            "baseName": "peer_address",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "reason",
             "baseName": "reason",
             "type": "string",
             "format": ""
         },
         {
-            "name": "score",
-            "baseName": "score",
+            "name": "scanScore",
+            "baseName": "scan_score",
             "type": "number",
             "format": "double"
         },
         {
             "name": "source",
             "baseName": "source",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "subjectAddr",
-            "baseName": "subject_addr",
             "type": "string",
             "format": ""
         }    ];
