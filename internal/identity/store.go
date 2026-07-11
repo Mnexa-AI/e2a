@@ -984,24 +984,25 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		HITLTTLSeconds:       HITLDefaultTTLSeconds,
 		HITLExpirationAction: HITLDefaultExpirationAct,
 	}
-	_, err := exec.Exec(ctx,
-		`INSERT INTO agent_identities (id, domain, user_id, name, public, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
 	// Report the same domain_verified the read paths (GetAgentByID /
 	// ListAgentsByUser) derive from domains.verified. createAgent builds the
 	// identity in-memory from only the INSERT columns, so DomainVerified would
 	// otherwise be the Go zero value (false) regardless of the domain's real
 	// state — wrong for an agent on a verified domain, and it would flip to the
-	// correct value on the next GET. Read it back in the same executor so it
-	// works for both the pool and an open tx: the just-inserted agent's FK
-	// guarantees the domain row exists and is visible within this transaction.
+	// correct value on the next GET.
+	//
+	// The scalar subquery in RETURNING folds the read back into the INSERT: one
+	// round-trip, and no post-commit window (a separate SELECT after the INSERT
+	// auto-commits on the pool path would, if it errored transiently, surface a
+	// 500 even though the agent row is already committed — a retry then 409s).
+	// The FK on agent_identities.domain guarantees the domains row exists and is
+	// visible here, so the subquery always resolves to a non-NULL bool. Works
+	// identically on the pool and inside a caller-owned tx.
 	if err := exec.QueryRow(ctx,
-		`SELECT verified FROM domains WHERE domain = $1`, a.Domain,
+		`INSERT INTO agent_identities (id, domain, user_id, name, public, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING (SELECT verified FROM domains WHERE domain = $2)`,
+		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
 	).Scan(&a.DomainVerified); err != nil {
 		return nil, err
 	}
