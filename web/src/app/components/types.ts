@@ -4,8 +4,16 @@ export type AgentData = {
   email: string;
 };
 
+// UserInfo is the dashboard session user, populated from GET /api/auth/me,
+// which serializes the shared identity.User struct (internal/identity/store.go,
+// `ID string json:"id"`). That struct lives in internal/auth / internal/identity
+// and is deliberately OUTSIDE the /v1 `<noun>_id` PK rename, so the field stays
+// `id` here. Do NOT "align" this to `user_id` — the /api/auth/me endpoint emits
+// `id`, and renaming it here (as an earlier pass did) blanks the Settings →
+// Profile account-ID field at runtime. (/v1/account's AccountUserView is the
+// separate view that legitimately uses `user_id`.)
 export type UserInfo = {
-  user_id: string;
+  id: string;
   email: string;
   name: string;
   created_at: string;

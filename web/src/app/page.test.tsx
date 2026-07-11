@@ -22,7 +22,7 @@ jest.mock("next/link", () => {
 const mockSignOut = jest.fn();
 let mockAuthValue = {
   user: null as
-    | { user_id: string; email: string; name: string; created_at: string }
+    | { id: string; email: string; name: string; created_at: string }
     | null,
   loading: false,
   signOut: mockSignOut,
@@ -127,7 +127,7 @@ describe("Navigation auth state", () => {
   it("shows 'Go to Dashboard' link when authenticated", () => {
     mockAuthValue = {
       user: {
-        user_id: "u1",
+        id: "u1",
         email: "dev@example.com",
         name: "Dev",
         created_at: "2026-01-01T00:00:00Z",

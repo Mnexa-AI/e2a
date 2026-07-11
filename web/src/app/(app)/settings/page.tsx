@@ -64,7 +64,7 @@ function SectionHeading({
 function ProfileSection({
   user,
 }: {
-  user: { user_id: string; email: string; name: string; created_at: string };
+  user: { id: string; email: string; name: string; created_at: string };
 }) {
   const { setUser } = useAuth();
   const [editing, setEditing] = useState(false);
@@ -191,7 +191,7 @@ function ProfileSection({
           <dd style={{ color: "var(--fg)" }}>{user.email}</dd>
           <dt style={{ color: "var(--fg-muted)" }}>User ID</dt>
           <dd className="font-mono text-[12px]" style={{ color: "var(--fg)" }}>
-            {user.user_id}
+            {user.id}
           </dd>
           <dt style={{ color: "var(--fg-muted)" }}>Member since</dt>
           <dd style={{ color: "var(--fg)" }}>{formatDate(user.created_at)}</dd>
