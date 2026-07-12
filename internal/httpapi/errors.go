@@ -59,6 +59,40 @@ type ErrorBody struct {
 	RequestID string `json:"request_id,omitempty"`
 }
 
+// LimitExceededDetails is the typed `error.details` payload carried by a 402
+// limit_exceeded response. `resource` is one of the AccountView usage/limits
+// field stems, so a client can key the error straight to the usage/cap field:
+// usage.<resource> for the current value and limits.max_<resource> for the cap
+// (e.g. resource "messages_month" → usage.messages_month / limits.max_messages_month).
+// `limit` and `current` echo the cap that was hit and the account's usage at the
+// time. `plan_code`/`upgrade_url` are the account's plan label and any upgrade
+// affordance the operator configured.
+type LimitExceededDetails struct {
+	Resource   string `json:"resource" enum:"agents,domains,messages_month,storage_bytes" doc:"The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>."`
+	Limit      int64  `json:"limit" doc:"The cap that was hit (matches limits.max_<resource>)."`
+	Current    int64  `json:"current" doc:"The account's usage at the time the cap was hit (matches usage.<resource>)."`
+	PlanCode   string `json:"plan_code,omitempty" doc:"The account's plan label."`
+	UpgradeURL string `json:"upgrade_url,omitempty" doc:"An upgrade affordance URL, when the operator has configured one."`
+}
+
+// LimitExceededErrorBody mirrors ErrorBody but with typed limit_exceeded details,
+// so codegen surfaces a concrete detail shape for the 402 case instead of `any`.
+type LimitExceededErrorBody struct {
+	Code      string               `json:"code" enum:"limit_exceeded" doc:"Always limit_exceeded for this response."`
+	Message   string               `json:"message"`
+	Details   LimitExceededDetails `json:"details"`
+	RequestID string               `json:"request_id,omitempty"`
+}
+
+// LimitExceededEnvelope is the 402 error envelope with typed details. It is the
+// declared schema for the 402 response on the cap-enforcing operations (create
+// agent, register domain, send/reply/forward/test); the runtime envelope is the
+// generic ErrorEnvelope whose `details` is populated with a LimitExceededDetails
+// value, so the wire shape matches this schema byte-for-byte.
+type LimitExceededEnvelope struct {
+	Err LimitExceededErrorBody `json:"error"`
+}
+
 // Error implements the error interface (huma.StatusError embeds error).
 func (e *ErrorEnvelope) Error() string { return e.Err.Message }
 

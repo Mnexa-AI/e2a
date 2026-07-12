@@ -909,6 +909,7 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "DomainView",
+            '402': "LimitExceededEnvelope",
             '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -976,6 +977,7 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "DomainView",
+            '402': "LimitExceededEnvelope",
             '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -1043,6 +1045,7 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "DomainView",
+            '402': "LimitExceededEnvelope",
             '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(

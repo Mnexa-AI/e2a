@@ -10,6 +10,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { DomainView } from '../models/DomainView.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
+import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
@@ -352,6 +353,13 @@ export class DomainsApiResponseProcessor {
                 "DomainView", ""
             ) as DomainView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("402", response.httpStatusCode)) {
+            const body: LimitExceededEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "LimitExceededEnvelope", ""
+            ) as LimitExceededEnvelope;
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
         }
         if (isCodeInRange("409", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
