@@ -43,9 +43,9 @@ func TestEdge_RedeliverEmptyMatched_NoCrash(t *testing.T) {
 	// length 0 without crashing.
 	resp := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(`{}`))
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != 202 {
 		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("empty-matched replay → %d (%s); want 200", resp.StatusCode, b)
+		t.Fatalf("empty-matched replay → %d (%s); want 202", resp.StatusCode, b)
 	}
 	var r struct {
 		Deliveries []map[string]any `json:"deliveries"`
@@ -142,7 +142,7 @@ func TestEdge_RedeliverIdempotency_FiveMinWindow(t *testing.T) {
 	// First replay.
 	body := fmt.Sprintf(`{"webhook_id":"%s"}`, webhookID)
 	resp1 := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
-	if resp1.StatusCode != 200 {
+	if resp1.StatusCode != 202 {
 		raw, _ := io.ReadAll(resp1.Body)
 		t.Fatalf("first replay → %d (%s)", resp1.StatusCode, raw)
 	}
@@ -158,7 +158,7 @@ func TestEdge_RedeliverIdempotency_FiveMinWindow(t *testing.T) {
 
 	// Second replay within the window.
 	resp2 := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(body))
-	if resp2.StatusCode != 200 {
+	if resp2.StatusCode != 202 {
 		raw, _ := io.ReadAll(resp2.Body)
 		t.Fatalf("second replay → %d (%s)", resp2.StatusCode, raw)
 	}

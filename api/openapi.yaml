@@ -110,8 +110,6 @@ components:
           type: boolean
         email:
           type: string
-        id:
-          type: string
         inbound_7d:
           format: int64
           type: integer
@@ -178,7 +176,6 @@ components:
         webhook_healthy:
           type: boolean
       required:
-        - id
         - domain
         - email
         - name
@@ -3094,7 +3091,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
         "402":
           content:
             application/json:
@@ -3332,7 +3329,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
         "402":
           content:
             application/json:
@@ -3439,7 +3436,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
         "402":
           content:
             application/json:
@@ -3546,7 +3543,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
         "402":
           content:
             application/json:
@@ -3701,7 +3698,7 @@ paths:
         - domains
   /v1/domains/{domain}/verify:
     post:
-      description: Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+      description: Probe the domain's published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
       operationId: verifyDomain
       parameters:
         - in: path
@@ -3716,12 +3713,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/VerifyDomainView"
           description: OK
-        "412":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VerifyDomainView"
-          description: Precondition Failed — the verification TXT record is not yet published.
         default:
           content:
             application/json:
@@ -3833,7 +3824,7 @@ paths:
         - events
   /v1/events/{id}/redeliver:
     post:
-      description: Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+      description: "Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id. Returns 202 Accepted: the redelivery is durably enqueued for async submission, not delivered synchronously — the per-subscriber outcome surfaces via the delivery log, and each delivery's status is 'pending' (or 'scheduled' for the fan-out)."
       operationId: redeliverEvent
       parameters:
         - in: path
@@ -3848,12 +3839,12 @@ paths:
               $ref: "#/components/schemas/RedeliverEventRequest"
         required: true
       responses:
-        "200":
+        "202":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RedeliverView"
-          description: OK
+          description: Accepted
         default:
           content:
             application/json:

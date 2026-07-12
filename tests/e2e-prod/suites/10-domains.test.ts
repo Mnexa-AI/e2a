@@ -69,7 +69,7 @@ test("domains: list includes newly-registered domain", async () => {
   assert.ok(found, `freshly-registered ${domain} not in list response`);
 });
 
-test("domains: verify unowned-DNS domain returns 412 (TXT missing) with per-record diagnostic", async () => {
+test("domains: verify unowned-DNS domain returns 200 with verified:false and per-record diagnostic", async () => {
   const domain = fakeDomain("verify");
   const c = await client.post("/v1/domains", { body: { domain } });
   if (c.status !== 201) {
@@ -77,22 +77,22 @@ test("domains: verify unowned-DNS domain returns 412 (TXT missing) with per-reco
     return;
   }
   track("domain", domain);
-  const v = await client.post<{ domain: string; mx?: unknown; spf?: unknown; dkim?: unknown }>(
+  const v = await client.post<{ domain: string; verified?: boolean; mx?: unknown; spf?: unknown; dkim?: unknown }>(
     `/v1/domains/${encodeURIComponent(domain)}/verify`,
     { body: {} },
   );
-  // Spec: 200 if verified, 412 if TXT missing. Real DNS for our fake domain has no
-  // matching TXT, so 412 is the expected path. Anything else (esp. 5xx) is a bug.
+  // Spec: always 200; branch on the body's `verified` boolean, not the status.
+  // Real DNS for our fake domain has no matching TXT, so verified:false is the
+  // expected path. Any non-2xx (esp. 5xx) is a bug.
   if (v.status >= 500) {
     fail(SUITE, "verify-500", `verify on unowned-DNS domain returned ${v.status}: ${v.raw.slice(0, 200)}`);
     return;
   }
-  assert.ok(v.status === 412 || v.status === 200, `verify expected 412 (or 200), got ${v.status}: ${v.raw.slice(0, 200)}`);
-  if (v.status === 200) {
-    info(SUITE, "verify-unexpected-200", `verify succeeded against ${domain} — unexpected (we don't control DNS)`);
-  } else {
-    // 412 should still carry the diagnostic body per spec.
-    assert.equal(v.body?.domain, domain, "412 body still includes domain field");
+  assert.equal(v.status, 200, `verify expected 200 (branch on .verified), got ${v.status}: ${v.raw.slice(0, 200)}`);
+  // The diagnostic body must always identify the domain.
+  assert.equal(v.body?.domain, domain, "200 body still includes domain field");
+  if (v.body?.verified === true) {
+    info(SUITE, "verify-unexpected-verified", `verify reported verified against ${domain} — unexpected (we don't control DNS)`);
   }
 });
 
