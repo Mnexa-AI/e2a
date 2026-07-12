@@ -69,6 +69,9 @@ __all__ = [
     "EventJSON",
     "FieldError",
     "ForwardRequest",
+    "LimitExceededDetails",
+    "LimitExceededEnvelope",
+    "LimitExceededErrorBody",
     "LimitsCapsView",
     "LimitsUsageView",
     "Message",
@@ -191,6 +194,9 @@ from e2a.v1.generated.models.error_envelope import ErrorEnvelope as ErrorEnvelop
 from e2a.v1.generated.models.event_json import EventJSON as EventJSON
 from e2a.v1.generated.models.field_error import FieldError as FieldError
 from e2a.v1.generated.models.forward_request import ForwardRequest as ForwardRequest
+from e2a.v1.generated.models.limit_exceeded_details import LimitExceededDetails as LimitExceededDetails
+from e2a.v1.generated.models.limit_exceeded_envelope import LimitExceededEnvelope as LimitExceededEnvelope
+from e2a.v1.generated.models.limit_exceeded_error_body import LimitExceededErrorBody as LimitExceededErrorBody
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView as LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView as LimitsUsageView
 from e2a.v1.generated.models.message import Message as Message

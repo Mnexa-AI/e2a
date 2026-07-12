@@ -30,6 +30,9 @@ export * from '../models/ErrorEnvelope.js';
 export * from '../models/EventJSON.js';
 export * from '../models/FieldError.js';
 export * from '../models/ForwardRequest.js';
+export * from '../models/LimitExceededDetails.js';
+export * from '../models/LimitExceededEnvelope.js';
+export * from '../models/LimitExceededErrorBody.js';
 export * from '../models/LimitsCapsView.js';
 export * from '../models/LimitsUsageView.js';
 export * from '../models/Message.js';
@@ -127,6 +130,9 @@ import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
 import { FieldError } from '../models/FieldError.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { LimitExceededDetails   , LimitExceededDetailsResourceEnum    } from '../models/LimitExceededDetails.js';
+import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
+import { LimitExceededErrorBody, LimitExceededErrorBodyCodeEnum      } from '../models/LimitExceededErrorBody.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
@@ -210,6 +216,8 @@ let enumsMap: Set<string> = new Set<string>([
     "CreateAPIKeyRequestScopeEnum",
     "CreateAPIKeyResponseScopeEnum",
     "CreateWebhookRequestEventsEnum",
+    "LimitExceededDetailsResourceEnum",
+    "LimitExceededErrorBodyCodeEnum",
     "MessageSummaryViewDirectionEnum",
     "MessageViewDirectionEnum",
     "ProtectionGateViewActionEnum",
@@ -254,6 +262,9 @@ let typeMap: {[index: string]: any} = {
     "EventJSON": EventJSON,
     "FieldError": FieldError,
     "ForwardRequest": ForwardRequest,
+    "LimitExceededDetails": LimitExceededDetails,
+    "LimitExceededEnvelope": LimitExceededEnvelope,
+    "LimitExceededErrorBody": LimitExceededErrorBody,
     "LimitsCapsView": LimitsCapsView,
     "LimitsUsageView": LimitsUsageView,
     "Message": Message,
