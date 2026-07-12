@@ -16,6 +16,10 @@ export type DashboardAgent = {
   name: string;
   domain_verified: boolean;
   created_at: string;
+  // Set when the inbox is in the trash (soft-deleted). Only present on rows
+  // from the trash listing (GET /v1/agents?deleted=true); the janitor purges
+  // trashed inboxes ~30 days after this instant.
+  deleted_at?: string;
 };
 
 // Aggregated client-side from `GET /v1/agents/{address}/messages?
@@ -113,6 +117,9 @@ export type MessageSummary = {
   // outbound rows pre-dating the size projection).
   size_bytes?: number;
   created_at: string;
+  // Set when the message is in the trash (soft-deleted). Only present on
+  // rows from the trash view (?deleted=true); purged ~30 days after this.
+  deleted_at?: string;
 };
 
 // PageMessageSummaryView — the cursor-paginated envelope returned by

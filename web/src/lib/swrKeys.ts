@@ -18,6 +18,14 @@ export const agentsKey = "agents";
 export const domainsKey = "domains";
 export const pendingMessagesKey = "pending-messages";
 
+// Trash views (soft-deleted resources, restorable ~30 days).
+// deletedAgentsKey backs the account-wide /trash page
+// (GET /v1/agents?deleted=true); agentTrashKey backs the per-inbox
+// message trash (GET …/messages?deleted=true), keyed by inbox email.
+export const deletedAgentsKey = "deleted-agents";
+export const agentTrashKey = (email: string) =>
+  ["agent-trash", email] as const;
+
 // Per-agent protection config (GET /v1/agents/{address}/protection),
 // keyed by the owning agent's email. The inbox-settings Review-queue
 // editor reads + writes the `holds` section through this key.
@@ -113,6 +121,18 @@ export function invalidateAgentUnread(email: string) {
 
 export function invalidateDomains() {
   return mutate(domainsKey);
+}
+
+// After an inbox is trashed / restored / purged, the account-wide trash
+// page is stale (the live agents list is handled by invalidateAgents).
+export function invalidateDeletedAgents() {
+  return mutate(deletedAgentsKey);
+}
+
+// After a message is trashed / restored / purged, the inbox's trash view
+// is stale (the live views are handled by invalidateAgentMessages).
+export function invalidateAgentTrash(email: string) {
+  return mutate(agentTrashKey(email));
 }
 
 // After the Review-queue editor saves a new TTL / on-expiry, the per-

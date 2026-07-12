@@ -12,9 +12,10 @@ import useSWR from "swr";
 import { Chip, Dot } from "@e2a/ui";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { EmailHtmlBody } from "./EmailHtmlBody";
-import { getMessageDetail } from "../onboarding/api";
+import { getMessageDetail, deleteMessage } from "../onboarding/api";
 import {
   invalidateAgentMessages,
+  invalidateAgentTrash,
   invalidateAgentUnread,
 } from "../../../lib/swrKeys";
 import type { MessageSummary } from "../types";
@@ -71,6 +72,26 @@ export function ThreadBubble({
   const isInbound = message.direction === "inbound";
   const pending = message.review_status === "pending_review";
   const [showDetails, setShowDetails] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  // Move to trash (soft delete — restorable from the inbox's Trash tab for
+  // ~30 days). Held drafts can't be trashed (the backend 409s); the button
+  // is hidden for them since the review queue owns their lifecycle.
+  const onDelete = async () => {
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteMessage(agentEmail, message.id);
+      // The row leaves every live view and appears in the trash.
+      await invalidateAgentMessages(agentEmail);
+      void invalidateAgentTrash(agentEmail);
+      void invalidateAgentUnread(agentEmail);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete");
+      setDeleting(false);
+    }
+  };
 
   // Opening a message body fetches its detail, which flips inbox_status
   // unread → read on the backend (GetMessageWithContent). Capture whether
@@ -190,7 +211,35 @@ export function ThreadBubble({
           >
             {fmtTime(message.created_at)}
           </span>
+          {!pending && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting}
+              aria-label="Move to trash"
+              title="Move to trash"
+              data-testid="bubble-delete"
+              className="hover:opacity-100 transition"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: deleting ? "default" : "pointer",
+                color: "var(--fg-subtle)",
+                opacity: 0.7,
+                fontSize: 12,
+                flexShrink: 0,
+              }}
+            >
+              {deleting ? "…" : "🗑"}
+            </button>
+          )}
         </div>
+        {deleteError && (
+          <div className="text-[12px] mb-1" style={{ color: "var(--danger-strong)" }}>
+            {deleteError}
+          </div>
+        )}
 
         {/* Recipients line + Details toggle */}
         <div

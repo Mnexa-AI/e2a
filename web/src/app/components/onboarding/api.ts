@@ -109,10 +109,41 @@ export async function createAgent(params: {
 // DELETE /v1/agents/{email}. The v1 surface guards destructive deletes
 // behind an explicit `?confirm=DELETE` query param and returns 200 with a
 // deletion receipt ({deleted:true, email, messages_deleted}); the dashboard
-// doesn't consume it, so this stays Promise<void>.
+// doesn't consume it, so this stays Promise<void>. The default delete moves
+// the inbox to the trash, where it remains restorable for about 30 days.
 export async function deleteAgent(email: string): Promise<void> {
   return request(
     "/v1/agents/" + encodeURIComponent(email) + "?confirm=DELETE",
+    { method: "DELETE" },
+  );
+}
+
+// GET /v1/agents?deleted=true — the inbox trash: soft-deleted agents,
+// restorable until the janitor purges them (~30 days after deletion).
+// Rows carry `deleted_at`.
+export async function listDeletedAgents(): Promise<DashboardAgent[]> {
+  const data = await request<{ items?: DashboardAgent[] | null }>(
+    "/v1/agents?deleted=true",
+  );
+  return data.items ?? [];
+}
+
+// POST /v1/agents/{email}/restore — bring a trashed inbox back, messages
+// and configuration intact.
+export async function restoreAgent(email: string): Promise<DashboardAgent> {
+  return request<DashboardAgent>(
+    "/v1/agents/" + encodeURIComponent(email) + "/restore",
+    { method: "POST" },
+  );
+}
+
+// DELETE /v1/agents/{email}?permanent=true — irreversible ("delete
+// forever" from the trash view).
+export async function permanentDeleteAgent(email: string): Promise<void> {
+  return request(
+    "/v1/agents/" +
+      encodeURIComponent(email) +
+      "?confirm=DELETE&permanent=true",
     { method: "DELETE" },
   );
 }
@@ -154,6 +185,7 @@ type MessageSummaryWire = {
   webhook_error?: string;
   size_bytes?: number;
   created_at: string;
+  deleted_at?: string;
 };
 
 type PageMessageSummaryWire = {
@@ -184,6 +216,7 @@ function projectSummary(w: MessageSummaryWire): import("../types").MessageSummar
     webhook_error: w.webhook_error,
     size_bytes: w.size_bytes,
     created_at: w.created_at,
+    deleted_at: w.deleted_at,
   };
 }
 
@@ -198,6 +231,9 @@ export async function listAgentMessages(
     status?: "all" | "unread" | "read";
     pageSize?: number;
     cursor?: string;
+    // Trash view: soft-deleted messages only (server defaults the trash
+    // view to direction=all / status=all).
+    deleted?: boolean;
   } = {},
 ): Promise<ListMessagesResponse> {
   const params = new URLSearchParams();
@@ -207,6 +243,7 @@ export async function listAgentMessages(
   if (opts.status && opts.direction !== "outbound") params.set("status", opts.status);
   if (opts.pageSize) params.set("limit", String(opts.pageSize));
   if (opts.cursor) params.set("cursor", opts.cursor);
+  if (opts.deleted) params.set("deleted", "true");
   const qs = params.toString();
   const page = await request<PageMessageSummaryWire>(
     "/v1/agents/" + encodeURIComponent(email) + "/messages" + (qs ? "?" + qs : ""),
@@ -215,6 +252,45 @@ export async function listAgentMessages(
     items: (page.items ?? []).map(projectSummary),
     next_cursor: page.next_cursor ?? null,
   };
+}
+
+// DELETE /v1/agents/{email}/messages/{id} — move a message to the trash
+// (reversible for ~30 days, so no confirm is required). A held
+// (pending_review) message 409s — resolve it in the review queue first.
+export async function deleteMessage(email: string, id: string): Promise<void> {
+  return request(
+    "/v1/agents/" +
+      encodeURIComponent(email) +
+      "/messages/" +
+      encodeURIComponent(id),
+    { method: "DELETE" },
+  );
+}
+
+// POST /v1/agents/{email}/messages/{id}/restore — bring a trashed message
+// back to the inbox.
+export async function restoreMessage(email: string, id: string): Promise<void> {
+  await request(
+    "/v1/agents/" +
+      encodeURIComponent(email) +
+      "/messages/" +
+      encodeURIComponent(id) +
+      "/restore",
+    { method: "POST" },
+  );
+}
+
+// DELETE …?permanent=true&confirm=DELETE — permanently delete a message
+// that is already in the trash ("delete forever").
+export async function purgeMessage(email: string, id: string): Promise<void> {
+  return request(
+    "/v1/agents/" +
+      encodeURIComponent(email) +
+      "/messages/" +
+      encodeURIComponent(id) +
+      "?permanent=true&confirm=DELETE",
+    { method: "DELETE" },
+  );
 }
 
 // Max unread we count before showing "N+" — keeps the per-card probe a

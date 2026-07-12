@@ -7,7 +7,7 @@ import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
 import { ThemeToggle } from "./ThemeToggle";
 
-type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card" | "doc";
+type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card" | "doc" | "trash";
 
 const ICONS: Record<IconKey, ReactNode> = {
   plus: (
@@ -74,6 +74,15 @@ const ICONS: Record<IconKey, ReactNode> = {
       <path d="M9 12l2 2 4-4" />
     </>
   ),
+  // Trash can — the account-wide trash (deleted inboxes, restorable 30d).
+  trash: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2" />
+      <path d="M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13" />
+      <path d="M10 11v6M14 11v6" />
+    </>
+  ),
 };
 
 type NavItem = {
@@ -117,6 +126,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/domains", label: "Domains", icon: "globe" },
   { href: "/api-keys", label: "API keys", icon: "key" },
   { href: "/webhooks", label: "Webhooks", icon: "shield" },
+  { href: "/trash", label: "Trash", icon: "trash" },
   { href: "/billing", label: "Billing", icon: "card" },
 ];
 
