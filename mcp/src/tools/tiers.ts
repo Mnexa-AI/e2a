@@ -33,14 +33,14 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "send_message",
   "reply_to_message",
   "forward_message",
-  // NOTE: approve_message / reject_message are deliberately NOT here — they are
+  // NOTE: approve_review / reject_review are deliberately NOT here — they are
   // admin/account-scope (below). Letting the gated agent approve its own held
   // outbound would be self-approval and defeat the review gate; approval is an
   // account-owner / human action (or the magic-link browser flow). An
-  // agent-scoped credential can send (which gets held) and SEE its pending
-  // queue (list_pending_messages / get_pending_message), but not release it.
-  "list_pending_messages",
-  "get_pending_message",
+  // agent-scoped credential can send (which gets held) and SEE its review
+  // queue (list_reviews / get_review), but not release it.
+  "list_reviews",
+  "get_review",
 ]);
 
 /** Admin/setup tools — visible ONLY to account-scoped credentials. */
@@ -56,9 +56,9 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   // Review approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,
   // defeating the review gate). The backend enforces this too: the approve/reject
-  // handlers (internal/httpapi/hitl.go) require account scope (403 for agent-scoped).
-  "approve_message",
-  "reject_message",
+  // handlers (internal/httpapi/reviews.go) require account scope (403 for agent-scoped).
+  "approve_review",
+  "reject_review",
   "list_domains",
   "get_domain",
   "register_domain",

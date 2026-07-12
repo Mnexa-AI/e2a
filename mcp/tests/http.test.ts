@@ -21,10 +21,10 @@ function makeStubClient(): McpClient {
     listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
     listAgents: vi.fn(async () => []),
     createAgent: vi.fn(async () => ({ email: "x@y", id: "x", domain: "y" })),
-    listPendingMessages: vi.fn(async () => []),
-    getPendingMessage: vi.fn(async () => ({ messageId: "p", status: "pending_review" })),
-    approveMessage: vi.fn(async () => ({ messageId: "x", status: "sent" })),
-    rejectMessage: vi.fn(async () => ({ messageId: "x", status: "rejected" })),
+    listReviews: vi.fn(async () => []),
+    getReview: vi.fn(async () => ({ messageId: "p", status: "pending_review" })),
+    approveReview: vi.fn(async () => ({ messageId: "x", status: "sent" })),
+    rejectReview: vi.fn(async () => ({ messageId: "x", status: "rejected" })),
     // Templates (beta) — SDK-backed via the shared E2AClient, so a
     // factory-built session supports them like any other tool.
     listTemplates: vi.fn(async () => ({
@@ -245,10 +245,10 @@ describe("HTTP MCP server", () => {
         "verify_domain",
         "get_domain",
         "delete_domain",
-        "list_pending_messages",
-        "get_pending_message",
-        "approve_message",
-        "reject_message",
+        "list_reviews",
+        "get_review",
+        "approve_review",
+        "reject_review",
         "list_webhooks",
         "get_webhook",
         "create_webhook",
@@ -302,8 +302,8 @@ describe("HTTP MCP server", () => {
     expect(names.has("delete_domain")).toBe(false);
     expect(names.has("list_webhooks")).toBe(false);
     // approve/reject are account-scope (self-approval would defeat HITL).
-    expect(names.has("approve_message")).toBe(false);
-    expect(names.has("reject_message")).toBe(false);
+    expect(names.has("approve_review")).toBe(false);
+    expect(names.has("reject_review")).toBe(false);
     await transport.close();
   });
 

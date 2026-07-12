@@ -160,10 +160,10 @@ shows the set your scope allows, with per-tool descriptions.
 
 | Tool | Description |
 | --- | --- |
-| `list_pending_messages` | List outbound mail awaiting human approval, soonest-expiring first. |
-| `get_pending_message` | Get the full draft (subject, recipients, body) of a pending message. |
-| `approve_message` | Send a held message, optionally with reviewer edits (subject / body / recipients). Account-scoped — never agent self-approval. |
-| `reject_message` | Discard a held message; the optional `reason` is stored for audit. Account-scoped. |
+| `list_reviews` | List outbound mail awaiting human approval (the review queue), soonest-expiring first. |
+| `get_review` | Get the full draft (subject, recipients, body) of a held message under review. |
+| `approve_review` | Send a held message, optionally with reviewer edits (subject / body / recipients). Account-scoped — never agent self-approval. |
+| `reject_review` | Discard a held message; the optional `reason` is stored for audit. Account-scoped. |
 
 ### Domains
 

@@ -6,29 +6,29 @@ import { attachmentsArraySchema } from "./attachments.js";
 
 export function registerReviewTools(server: McpServer, client: McpClient): void {
   server.registerTool(
-    "list_pending_messages",
+    "list_reviews",
     {
-      title: "List outbound messages awaiting approval",
+      title: "List messages awaiting review",
       annotations: { readOnlyHint: true },
       description:
-        "Use when the user asks what's awaiting approval, or after a `send_message`/`reply_to_message` returned `pending_review` and they want to see the queue. Lists held **outbound** messages (held by the agent's outbound policy or content scan) sorted by soonest-expiring first. Body content is summary-only — call `get_pending_message` for the full draft of one. Read-only; cheap, but don't poll it on a loop. Note: this lists OUTBOUND holds only — a held **inbound** message (screening review) is surfaced by the `email.pending_review` webhook (with its `message_id`), not here, and is resolved with the same `approve_message`/`reject_message` tools.",
+        "Use when the user asks what's awaiting approval, or after a `send_message`/`reply_to_message` returned `pending_review` and they want to see the review queue. Lists held **outbound** messages (held by the agent's outbound policy or content scan) sorted by soonest-expiring first. Body content is summary-only — call `get_review` for the full draft of one. Read-only; cheap, but don't poll it on a loop. Note: this lists OUTBOUND holds only — a held **inbound** message (screening review) is surfaced by the `email.pending_review` webhook (with its `message_id`), not here, and is resolved with the same `approve_review`/`reject_review` tools.",
       inputSchema: strictInputSchema({}),
     },
-    async () => runTool(async () => ({ messages: await client.listPendingMessages() })),
+    async () => runTool(async () => ({ reviews: await client.listReviews() })),
   );
 
   server.registerTool(
-    "get_pending_message",
+    "get_review",
     {
-      title: "Get a pending-approval message",
+      title: "Get a review (full detail)",
       annotations: { readOnlyHint: true },
       description:
-        "Fetch the full draft (subject, recipients, body, attachments) of one outbound message awaiting human approval. Body content is only present while the message is `pending_review` — after a terminal transition the server scrubs it.",
+        "Fetch the full draft (subject, recipients, body, attachments) of one held message under review. A review's `id` is the held message's id (msg_…) — a review IS the held message pending approval. Body content is only present while the message is `pending_review` — after a terminal transition the server scrubs it.",
       inputSchema: strictInputSchema({
-        message_id: z.string().describe("The pending message ID (msg_…)."),
+        message_id: z.string().describe("The held message / review ID (msg_…)."),
       }),
     },
-    async (args) => runTool(() => client.getPendingMessage(args.message_id)),
+    async (args) => runTool(() => client.getReview(args.message_id)),
   );
 
   // Map the snake_case approve override args to the SDK's ApproveRequest
@@ -61,13 +61,13 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
   });
 
   server.registerTool(
-    "approve_message",
+    "approve_review",
     {
-      title: "Approve a held message",
+      title: "Approve a held message (review)",
       annotations: { destructiveHint: false },
       description:
-        "Release a message held in `pending_review`. The server branches on the message's direction:\n" +
-        "- **Outbound** (from the `list_pending_messages` queue): the draft is SENT via SES. Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / text / html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
+        "Release a message held in `pending_review` (a review). The server branches on the message's direction:\n" +
+        "- **Outbound** (from the `list_reviews` queue): the draft is SENT via SES. Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / text / html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
         "- **Inbound** (a screening hold, discovered via the `email.pending_review` webhook): the message is RELEASED to the agent's inbox so it becomes readable. There is no send and no draft — any override fields are ignored.\n" +
         "Returns 409 if the message is no longer pending (a human or the TTL sweep already resolved it).",
       inputSchema: strictInputSchema({
@@ -97,25 +97,25 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       const mapped = mapOverrides(overrides);
       return runTool(() =>
         idempotency_key !== undefined
-          ? client.approveMessage(message_id, mapped, { idempotencyKey: idempotency_key })
-          : client.approveMessage(message_id, mapped),
+          ? client.approveReview(message_id, mapped, { idempotencyKey: idempotency_key })
+          : client.approveReview(message_id, mapped),
       );
     },
   );
 
   server.registerTool(
-    "reject_message",
+    "reject_review",
     {
-      title: "Reject a held message",
+      title: "Reject a held message (review)",
       annotations: { destructiveHint: false },
       description:
-        "Reject a message held in `pending_review`. The server branches on direction: an **outbound** hold is discarded (never sent; body columns scrubbed), and an **inbound** screening hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). The optional `reason` is stored for audit. Returns 409 if the message is no longer pending.",
+        "Reject a message held in `pending_review` (a review). The server branches on direction: an **outbound** hold is discarded (never sent; body columns scrubbed), and an **inbound** screening hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). The optional `reason` is stored for audit. Returns 409 if the message is no longer pending.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         reason: z.string().optional(),
       }),
     },
     async (args) =>
-      runTool(() => client.rejectMessage(args.message_id, args.reason)),
+      runTool(() => client.rejectReview(args.message_id, args.reason)),
   );
 }

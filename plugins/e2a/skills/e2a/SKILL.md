@@ -101,8 +101,8 @@ Templates are beta: shapes may change before they're declared stable. Only `send
 
 Holds — outbound drafts and screened inbound — are an **account-owner / human** action, never agent self-approval. With an account-scoped credential you can:
 
-- `list_pending_messages` / `get_pending_message` — see what's held (runtime scope can view its own queue).
-- `approve_message` / `reject_message` — release or discard a hold. These are **account/admin scope**; an agent-scoped credential is 403'd (releasing your own held outbound would defeat the review gate).
+- `list_reviews` / `get_review` — see what's held (runtime scope can view its own review queue).
+- `approve_review` / `reject_review` — release or discard a hold. These are **account/admin scope**; an agent-scoped credential is 403'd (releasing your own held outbound would defeat the review gate).
 
 For outbound, approving *is* sending. For inbound, approving releases the message into the inbox.
 
@@ -171,8 +171,8 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 - **Forwarding attachments is a verbatim copy.** Pass the `{filename, content_type, data}` tuple from `get_attachment` straight into the next send's `attachments[]`. No re-encoding, no re-naming necessary.
 - **`get_message` deliberately omits raw MIME and attachment bytes.** Don't ask for the "full message" — you have what you need (decoded text/html bodies, headers, attachment metadata). Use `get_attachment` for actual bytes when you need them.
 - **Destructive ops require `confirm: true`.** `delete_agent` and `delete_domain` refuse without explicit confirmation. This is a guard against hallucinated deletes; pass it only when the user has clearly asked for the destructive action.
-- **`approve_message` with `attachments: []` strips attachments.** An omitted `attachments` field keeps the original draft's attachments; an explicit empty array removes them. Same shape applies to other override fields — omit to keep, specify (including empty) to override.
-- **Held bodies are scrubbed after the terminal transition.** `get_pending_message` returns the full body only while status is `pending_review`. Once it reaches a terminal state (`sent`, `review_rejected`, `review_expired_approved`, `review_expired_rejected`), body columns are wiped server-side for compliance.
+- **`approve_review` with `attachments: []` strips attachments.** An omitted `attachments` field keeps the original draft's attachments; an explicit empty array removes them. Same shape applies to other override fields — omit to keep, specify (including empty) to override.
+- **Held bodies are scrubbed after the terminal transition.** `get_review` returns the full body only while status is `pending_review`. Once it reaches a terminal state (`sent`, `review_rejected`, `review_expired_approved`, `review_expired_rejected`), body columns are wiped server-side for compliance.
 - **Token expiry on OAuth flows.** The hosted MCP runs over OAuth; if a tool starts erroring with auth failures across multiple calls, the refresh token has likely expired — re-auth via `/plugin` in Claude Code.
 
 ## When NOT to use a tool

@@ -23,7 +23,7 @@ Bring your own [e2a API key](https://e2a.dev) and an LLM key for whichever frame
 - `what's in my inbox?` — exercises `list_messages` + `get_message`
 - `reply to the most recent message politely` — exercises `reply_to_message` (preserves threading headers)
 - `who am I?` — exercises `whoami`
-- `what's waiting for my approval?` — exercises `list_pending_messages` (works once you've enabled HITL on your agent)
+- `what's waiting for my approval?` — exercises `list_reviews` (works once you've enabled HITL on your agent)
 
 ## Pointing at a self-hosted e2a
 

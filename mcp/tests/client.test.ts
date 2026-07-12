@@ -1,7 +1,7 @@
 // McpClient review-queue routing: the tools split across credential tiers, so
 // they MUST hit tier-correct endpoints —
-//   approve_message / reject_message  → ADMIN (account-only)  → sdk.reviews.*
-//   list_pending / get_pending         → RUNTIME (agent-visible) → sdk.messages.*
+//   approve_review / reject_review  → ADMIN (account-only)  → sdk.reviews.*
+//   list_reviews / get_review          → RUNTIME (agent-visible) → sdk.messages.*
 // The account-only /v1/reviews path 403s an agent-scoped credential, so routing
 // a runtime-tier tool through it is a regression. These tests pin the routing.
 
@@ -27,27 +27,27 @@ function mockSdk() {
 }
 
 describe("McpClient review routing (tier-correct endpoints)", () => {
-  it("approveMessage → account-only reviews.approve (not messages.approve)", async () => {
+  it("approveReview → account-only reviews.approve (not messages.approve)", async () => {
     const sdk = mockSdk();
     const c = new McpClient(sdk as never, "bot@test.dev", "account");
-    await c.approveMessage("msg_p", {});
+    await c.approveReview("msg_p", {});
     expect(sdk.reviews.approve).toHaveBeenCalledWith("msg_p", {});
   });
 
-  it("rejectMessage → account-only reviews.reject", async () => {
+  it("rejectReview → account-only reviews.reject", async () => {
     const sdk = mockSdk();
     const c = new McpClient(sdk as never, "bot@test.dev", "account");
-    await c.rejectMessage("msg_p", "spam");
+    await c.rejectReview("msg_p", "spam");
     expect(sdk.reviews.reject).toHaveBeenCalledWith("msg_p", { reason: "spam" });
   });
 
-  it("getPendingMessage → agent-reachable messages.get, NOT account-only reviews.get", async () => {
-    // Regression guard (PR #284 adversarial finding): get_pending_message is a
+  it("getReview → agent-reachable messages.get, NOT account-only reviews.get", async () => {
+    // Regression guard (PR #284 adversarial finding): get_review is a
     // runtime-tier tool, so it must NOT route through sdk.reviews.get — that path
     // 403s an agent-scoped credential.
     const sdk = mockSdk();
     const c = new McpClient(sdk as never, "bot@test.dev", "agent");
-    await c.getPendingMessage("msg_p");
+    await c.getReview("msg_p");
     expect(sdk.messages.get).toHaveBeenCalledWith("bot@test.dev", "msg_p");
     expect(sdk.reviews.get).not.toHaveBeenCalled();
   });

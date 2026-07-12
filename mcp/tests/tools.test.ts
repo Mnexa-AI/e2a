@@ -162,13 +162,13 @@ function makeStubClient(
       expiresAt: "2026-05-20T10:15:00Z",
       ...(opts?.inline ? { data: Buffer.from("%PDF-1.4 fake pdf bytes").toString("base64") } : {}),
     })),
-    listPendingMessages: vi.fn(async () => []),
-    getPendingMessage: vi.fn(async (id: string) => ({
+    listReviews: vi.fn(async () => []),
+    getReview: vi.fn(async (id: string) => ({
       messageId: id,
       reviewStatus: "pending_review",
     })),
-    approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
-    rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
+    approveReview: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
+    rejectReview: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
     // Templates (beta) — SDK-backed: list methods return a Page { items,
     // next_cursor } (cursor-paginated) and rows are camelCase SDK views, like
     // every other tool.
@@ -291,10 +291,10 @@ describe("e2a MCP server", () => {
         "verify_domain",
         "get_domain",
         "delete_domain",
-        "list_pending_messages",
-        "get_pending_message",
-        "approve_message",
-        "reject_message",
+        "list_reviews",
+        "get_review",
+        "approve_review",
+        "reject_review",
         "list_webhooks",
         "get_webhook",
         "create_webhook",
@@ -369,7 +369,7 @@ describe("e2a MCP server", () => {
       "whoami", "list_agents", "get_agent", "list_messages", "get_message",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
-      "list_pending_messages", "get_pending_message",
+      "list_reviews", "get_review",
     ]) {
       expect(names.has(n), `runtime tool ${n} should be visible to agent scope`).toBe(true);
     }
@@ -377,7 +377,7 @@ describe("e2a MCP server", () => {
     for (const n of [
       "create_agent", "update_agent", "delete_agent",
       "get_protection", "update_protection",
-      "approve_message", "reject_message",
+      "approve_review", "reject_review",
       "list_domains", "get_domain", "register_domain", "verify_domain", "delete_domain",
       "list_webhooks", "get_webhook", "create_webhook", "update_webhook",
       "delete_webhook", "rotate_webhook_secret", "test_webhook", "list_webhook_deliveries",
@@ -434,7 +434,7 @@ describe("e2a MCP server", () => {
     }
     // Non-destructive writes (create/send) are explicitly non-destructive,
     // and NOT read-only.
-    for (const n of ["create_agent", "send_message", "approve_message", "create_webhook", "create_template"]) {
+    for (const n of ["create_agent", "send_message", "approve_review", "create_webhook", "create_template"]) {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
       expect(byName.get(n)?.readOnlyHint ?? false, `${n} not read-only`).toBe(false);
     }
@@ -835,22 +835,22 @@ describe("e2a MCP server", () => {
     expect(content[0]?.text).toMatch(/mail\.acme\.com/);
   });
 
-  it("list_pending_messages calls the SDK", async () => {
-    await client.callTool({ name: "list_pending_messages", arguments: {} });
-    expect(stub.listPendingMessages).toHaveBeenCalledOnce();
+  it("list_reviews calls the SDK", async () => {
+    await client.callTool({ name: "list_reviews", arguments: {} });
+    expect(stub.listReviews).toHaveBeenCalledOnce();
   });
 
-  it("get_pending_message forwards the id", async () => {
+  it("get_review forwards the id", async () => {
     await client.callTool({
-      name: "get_pending_message",
+      name: "get_review",
       arguments: { message_id: "msg_p" },
     });
-    expect(stub.getPendingMessage).toHaveBeenCalledWith("msg_p");
+    expect(stub.getReview).toHaveBeenCalledWith("msg_p");
   });
 
-  it("approve_message strips message_id and maps overrides to camelCase", async () => {
+  it("approve_review strips message_id and maps overrides to camelCase", async () => {
     await client.callTool({
-      name: "approve_message",
+      name: "approve_review",
       arguments: {
         message_id: "msg_p",
         subject: "edited subject",
@@ -860,22 +860,22 @@ describe("e2a MCP server", () => {
     // The wrapper resolves the owning agent internally, so the tool no
     // longer passes an address; the tool's text input maps to the
     // ApproveRequest `body` field (aligned with send/reply).
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
+    expect(stub.approveReview).toHaveBeenCalledWith("msg_p", {
       subject: "edited subject",
       text: "edited body",
     });
   });
 
-  it("approve_message approve-as-is sends empty overrides", async () => {
+  it("approve_review approve-as-is sends empty overrides", async () => {
     await client.callTool({
-      name: "approve_message",
+      name: "approve_review",
       arguments: { message_id: "msg_p" },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {});
+    expect(stub.approveReview).toHaveBeenCalledWith("msg_p", {});
   });
 
   // Regression: when idempotency_key is omitted, the MCP layer must
-  // call approveMessage with exactly TWO args (id, overrides) — not
+  // call approveReview with exactly TWO args (id, overrides) — not
   // three with `{ idempotencyKey: undefined }`.
   // Passing the undefined object sneaks past TypeScript but a callsite
   // that defaults the key (e.g. an auto-mint helper inside the SDK)
@@ -885,15 +885,15 @@ describe("e2a MCP server", () => {
   // on args and is strict on argument count, so this test fails if a
   // 4th arg leaks in. Mirrors the same guard on send / reply tests
   // above (lines 145 / 163).
-  it("approve_message omits 3rd-arg opts when idempotency_key is unset", async () => {
+  it("approve_review omits 3rd-arg opts when idempotency_key is unset", async () => {
     await client.callTool({
-      name: "approve_message",
+      name: "approve_review",
       arguments: { message_id: "msg_p", subject: "edited" },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { subject: "edited" });
+    expect(stub.approveReview).toHaveBeenCalledWith("msg_p", { subject: "edited" });
     // Two args only — no { idempotencyKey: undefined } leaking in as a
     // 3rd arg (different semantics for an auto-mint helper downstream).
-    const lastCall = (stub.approveMessage as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1);
+    const lastCall = (stub.approveReview as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1);
     expect(lastCall?.length).toBe(2);
   });
 
@@ -901,16 +901,16 @@ describe("e2a MCP server", () => {
   // SDK or retries can double-send. Strip the key out of overrides
   // (the API doesn't take it in the JSON body) and forward it as the
   // third-arg options object.
-  it("approve_message forwards idempotency_key to the SDK", async () => {
+  it("approve_review forwards idempotency_key to the SDK", async () => {
     await client.callTool({
-      name: "approve_message",
+      name: "approve_review",
       arguments: {
         message_id: "msg_p",
         subject: "edited",
         idempotency_key: "approve-key-123",
       },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith(
+    expect(stub.approveReview).toHaveBeenCalledWith(
       "msg_p",
       { subject: "edited" },
       { idempotencyKey: "approve-key-123" },
@@ -1008,29 +1008,29 @@ describe("e2a MCP server", () => {
     );
   });
 
-  it("approve_message accepts an attachments override (HITL reviewer adds a file)", async () => {
+  it("approve_review accepts an attachments override (HITL reviewer adds a file)", async () => {
     await client.callTool({
-      name: "approve_message",
+      name: "approve_review",
       arguments: {
         message_id: "msg_p",
         attachments: [sampleAttachment],
       },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
+    expect(stub.approveReview).toHaveBeenCalledWith("msg_p", {
       attachments: [sdkAttachment],
     });
   });
 
-  it("approve_message empty attachments:[] is forwarded as a strip override", async () => {
+  it("approve_review empty attachments:[] is forwarded as a strip override", async () => {
     // Reviewer wants to remove all attachments the agent proposed.
     // Empty array must reach the SDK; if we accidentally filtered it
     // out, the backend would treat the override as absent (keep
     // existing attachments) — wrong behavior.
     await client.callTool({
-      name: "approve_message",
+      name: "approve_review",
       arguments: { message_id: "msg_p", attachments: [] },
     });
-    expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", { attachments: [] });
+    expect(stub.approveReview).toHaveBeenCalledWith("msg_p", { attachments: [] });
   });
 
   it("send_message rejects base64 with whitespace (URL-safe or LLM-truncated patterns)", async () => {
@@ -1094,12 +1094,12 @@ describe("e2a MCP server", () => {
     expect(stub.send).not.toHaveBeenCalled();
   });
 
-  it("reject_message forwards the reason", async () => {
+  it("reject_review forwards the reason", async () => {
     await client.callTool({
-      name: "reject_message",
+      name: "reject_review",
       arguments: { message_id: "msg_p", reason: "wrong recipient" },
     });
-    expect(stub.rejectMessage).toHaveBeenCalledWith("msg_p", "wrong recipient");
+    expect(stub.rejectReview).toHaveBeenCalledWith("msg_p", "wrong recipient");
   });
 
   it("surfaces SDK errors as isError results", async () => {

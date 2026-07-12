@@ -115,7 +115,7 @@ export class McpClient {
   }
 
   // listAllAgents collapses the pager to a flat array for internal aggregations
-  // (list_pending_messages fan-out) that need every agent, not one page.
+  // (list_reviews fan-out) that need every agent, not one page.
   listAllAgents(): Promise<AgentView[]> {
     return this.sdk.agents.list().toArray({ limit: DEFAULT_LIST_LIMIT });
   }
@@ -301,7 +301,7 @@ export class McpClient {
   // There is no dedicated "pending" status filter, so we list outbound and
   // filter on the status field. Searches across every owned agent when no
   // default address is pinned so the queue is visible without a default.
-  async listPendingMessages(): Promise<MessageSummaryView[]> {
+  async listReviews(): Promise<MessageSummaryView[]> {
     const addresses = this.agentEmail
       ? [this.agentEmail]
       : (await this.listAllAgents()).map((a) => a.email);
@@ -320,7 +320,7 @@ export class McpClient {
   }
 
   // Resolve the owning agent of a pending OUTBOUND draft by scanning the queue.
-  // get_pending_message is a RUNTIME-tier tool (agent-visible), so it must hit
+  // get_review is a RUNTIME-tier tool (agent-visible), so it must hit
   // the agent-reachable GET /v1/agents/{email}/messages/{id} — NOT the account-
   // only /v1/reviews/{id}, which 403s an agent-scoped credential. For a pinned
   // session this is one list call.
@@ -339,14 +339,14 @@ export class McpClient {
     );
   }
 
-  async getPendingMessage(messageId: string): Promise<MessageView> {
+  async getReview(messageId: string): Promise<MessageView> {
     // Runtime-tier (agent-visible): use the agent-reachable messages path, not
     // the account-only /v1/reviews/{id}. Resolve the owning inbox first.
     const address = await this.ownerOfPending(messageId);
     return this.sdk.messages.get(address, messageId);
   }
 
-  async approveMessage(
+  async approveReview(
     messageId: string,
     overrides: {
       subject?: string;
@@ -364,7 +364,7 @@ export class McpClient {
       : this.sdk.reviews.approve(messageId, overrides);
   }
 
-  async rejectMessage(messageId: string, reason?: string): Promise<RejectResultView> {
+  async rejectReview(messageId: string, reason?: string): Promise<RejectResultView> {
     return this.sdk.reviews.reject(
       messageId,
       reason !== undefined ? { reason } : {},

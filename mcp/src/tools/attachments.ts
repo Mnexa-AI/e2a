@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Shared attachment schema for outbound mail tools (send_message,
- * reply_to_message, approve_message).
+ * reply_to_message, approve_review).
  *
  * Wire shape matches what every other layer (HTTP API, TS + Python
  * SDKs, CLI) already speaks: { filename, content_type, data:base64 }.
@@ -90,7 +90,7 @@ export const attachmentInputSchema = z
   );
 
 // Attachments-array schema — reused by send_message, reply_to_message,
-// approve_message. Optional in all three: the absence of any
+// approve_review. Optional in all three: the absence of any
 // attachments means a plain message (current behavior preserved).
 export const attachmentsArraySchema = z
   .array(attachmentInputSchema)
