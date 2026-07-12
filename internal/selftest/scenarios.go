@@ -152,7 +152,7 @@ func scenarioOutboundSend(ctx context.Context, p *Probe) Result {
 	payload := map[string]any{
 		"to":      []string{"success@simulator.amazonses.com"},
 		"subject": "e2a-selftest outbound " + nonce,
-		"body":    "e2a selftest outbound " + nonce,
+		"text":    "e2a selftest outbound " + nonce,
 	}
 	b, _ := json.Marshal(payload)
 	st, respBody, err := p.do(ctx, http.MethodPost, u, b)
@@ -191,7 +191,7 @@ func scenarioSelfSendLoopback(ctx context.Context, p *Probe) Result {
 	payload := map[string]any{
 		"to":      []string{p.AgentEmail},
 		"subject": "e2a-selftest loopback",
-		"body":    "e2a selftest loopback",
+		"text":    "e2a selftest loopback",
 	}
 	b, _ := json.Marshal(payload)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(b))

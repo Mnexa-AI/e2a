@@ -29,7 +29,7 @@ func TestReplyForwardOutboundE2E(t *testing.T) {
 
 	// (1) Agent sends first — an outbound message to alice, cc carol.
 	status, body := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey,
-		`{"to":["alice@gmail.com"],"cc":["carol@gmail.com"],"subject":"Kickoff","body":"Let's start."}`)
+		`{"to":["alice@gmail.com"],"cc":["carol@gmail.com"],"subject":"Kickoff","text":"Let's start."}`)
 	if status != 200 {
 		t.Fatalf("send status=%d body=%s", status, body)
 	}
@@ -47,7 +47,7 @@ func TestReplyForwardOutboundE2E(t *testing.T) {
 	// (3) Reply to the agent's OWN outbound message. Was 404; now 200, addressed
 	// to the original recipient and threaded onto the same conversation.
 	status, body = authedJSON(t, "POST", subResource(ts.HTTPServer.URL, agent.EmailAddress(), sent.MessageID, "reply"),
-		key.PlaintextKey, `{"body":"following up"}`)
+		key.PlaintextKey, `{"text":"following up"}`)
 	if status != 200 {
 		t.Fatalf("reply-to-outbound status=%d body=%s", status, body)
 	}
@@ -80,7 +80,7 @@ func TestReplyForwardOutboundE2E(t *testing.T) {
 
 	// (4) reply_all re-includes the original cc (carol) and merges a new cc.
 	status, body = authedJSON(t, "POST", subResource(ts.HTTPServer.URL, agent.EmailAddress(), sent.MessageID, "reply"),
-		key.PlaintextKey, `{"body":"all","reply_all":true,"cc":["erin@gmail.com"]}`)
+		key.PlaintextKey, `{"text":"all","reply_all":true,"cc":["erin@gmail.com"]}`)
 	if status != 200 {
 		t.Fatalf("reply_all-to-outbound status=%d body=%s", status, body)
 	}
@@ -98,7 +98,7 @@ func TestReplyForwardOutboundE2E(t *testing.T) {
 
 	// (5) Forward the agent's own outbound to a new recipient — new thread.
 	status, body = authedJSON(t, "POST", subResource(ts.HTTPServer.URL, agent.EmailAddress(), sent.MessageID, "forward"),
-		key.PlaintextKey, `{"to":["dave@gmail.com"],"body":"fyi"}`)
+		key.PlaintextKey, `{"to":["dave@gmail.com"],"text":"fyi"}`)
 	if status != 200 {
 		t.Fatalf("forward-outbound status=%d body=%s", status, body)
 	}
@@ -109,7 +109,7 @@ func TestReplyForwardOutboundE2E(t *testing.T) {
 
 	// (6) Reply to a non-existent id still 404s.
 	status, body = authedJSON(t, "POST", subResource(ts.HTTPServer.URL, agent.EmailAddress(), "msg_does_not_exist", "reply"),
-		key.PlaintextKey, `{"body":"x"}`)
+		key.PlaintextKey, `{"text":"x"}`)
 	if status != 404 {
 		t.Fatalf("reply to missing id status=%d body=%s, want 404", status, body)
 	}

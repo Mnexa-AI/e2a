@@ -160,7 +160,7 @@ func TestOutboundAgentToAgent(t *testing.T) {
 	_, apiKey, senderAgent := setupDomainAndAgent(t, ts, "agent@out-a.example.com", "out-a.example.com", "https://example.com/webhook", "cloud")
 	_, _, _ = setupDomainAndAgent(t, ts, "agent@out-b.example.com", "out-b.example.com", receiver.Server.URL, "cloud")
 
-	sendPayload := `{"to":["agent@out-b.example.com"],"subject":"A2A","body":"Hello from A"}`
+	sendPayload := `{"to":["agent@out-b.example.com"],"subject":"A2A","text":"Hello from A"}`
 	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape(senderAgent.EmailAddress())+"/messages", bytes.NewBufferString(sendPayload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
@@ -188,7 +188,7 @@ func TestOutboundRequiresAuth(t *testing.T) {
 	// Send relocated (Slice 2): POST /v1/agents/{email}/messages. With no
 	// bearer the typed handler authenticates first and 401s before it ever
 	// resolves the path agent.
-	sendPayload := `{"to":["someone@test.com"],"subject":"Hi","body":"Hello"}`
+	sendPayload := `{"to":["someone@test.com"],"subject":"Hi","text":"Hello"}`
 	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@noauth.example.com")+"/messages", bytes.NewBufferString(sendPayload))
 	req.Header.Set("Content-Type", "application/json")
 	resp, _ := http.DefaultClient.Do(req)
@@ -241,7 +241,7 @@ func TestOutboundResponseFormat(t *testing.T) {
 	_, apiKey, senderAgent := setupDomainAndAgent(t, ts, "agent@resp-a.example.com", "resp-a.example.com", "https://example.com/w", "cloud")
 	_, _, _ = setupDomainAndAgent(t, ts, "agent@resp-b.example.com", "resp-b.example.com", receiver.Server.URL, "cloud")
 
-	sendPayload := `{"to":["agent@resp-b.example.com"],"subject":"Test","body":"Hello"}`
+	sendPayload := `{"to":["agent@resp-b.example.com"],"subject":"Test","text":"Hello"}`
 	req, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape(senderAgent.EmailAddress())+"/messages", bytes.NewBufferString(sendPayload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
@@ -365,7 +365,7 @@ func TestPollMode_E2E(t *testing.T) {
 	}
 
 	// Reply via API should work (reply path is unchanged, only de-prefixed).
-	replyPayload := `{"body":"Got your message!"}`
+	replyPayload := `{"text":"Got your message!"}`
 	req4, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages/"+msgID+"/reply", bytes.NewBufferString(replyPayload))
 	req4.Header.Set("Content-Type", "application/json")
 	req4.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
