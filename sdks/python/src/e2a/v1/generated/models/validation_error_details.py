@@ -17,21 +17,18 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.error_body_details import ErrorBodyDetails
+from e2a.v1.generated.models.field_error import FieldError
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ErrorBody(BaseModel):
+class ValidationErrorDetails(BaseModel):
     """
-    ErrorBody
+    ValidationErrorDetails
     """ # noqa: E501
-    code: StrictStr = Field(description="Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Known values: invalid_request, unauthorized, forbidden, not_found, conflict, gone, method_not_allowed, payload_too_large, unsupported_media_type, rate_limited, limit_exceeded, internal_error — plus resource-specific codes (e.g. domain_not_verified, invalid_cursor, idempotency_in_flight, idempotency_key_reuse) and the *_not_found / *_exists suffix families. A single canonical code, invalid_request, covers all input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid).")
-    details: Optional[ErrorBodyDetails] = None
-    message: StrictStr = Field(description="Human-readable explanation. Not for branching — use code.")
-    request_id: Optional[StrictStr] = Field(default=None, description="Echoes the X-Request-Id response header so a failing call is greppable in logs.")
-    __properties: ClassVar[List[str]] = ["code", "details", "message", "request_id"]
+    fields: Optional[List[FieldError]] = Field(description="The fields that failed validation. May be empty when the failure is request-wide rather than field-specific.")
+    __properties: ClassVar[List[str]] = ["fields"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -51,7 +48,7 @@ class ErrorBody(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ErrorBody from a JSON string"""
+        """Create an instance of ValidationErrorDetails from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -72,14 +69,23 @@ class ErrorBody(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of details
-        if self.details:
-            _dict['details'] = self.details.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of each item in fields (list)
+        _items = []
+        if self.fields:
+            for _item_fields in self.fields:
+                if _item_fields:
+                    _items.append(_item_fields.to_dict())
+            _dict['fields'] = _items
+        # set to None if fields (nullable) is None
+        # and model_fields_set contains the field
+        if self.fields is None and "fields" in self.model_fields_set:
+            _dict['fields'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ErrorBody from a dict"""
+        """Create an instance of ValidationErrorDetails from a dict"""
         if obj is None:
             return None
 
@@ -87,10 +93,7 @@ class ErrorBody(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "code": obj.get("code"),
-            "details": ErrorBodyDetails.from_dict(obj["details"]) if obj.get("details") is not None else None,
-            "message": obj.get("message"),
-            "request_id": obj.get("request_id")
+            "fields": [FieldError.from_dict(_item) for _item in obj["fields"]] if obj.get("fields") is not None else None
         })
         return _obj
 

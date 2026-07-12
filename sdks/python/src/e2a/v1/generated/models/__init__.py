@@ -40,8 +40,10 @@ from e2a.v1.generated.models.deployment_info_view import DeploymentInfoView
 from e2a.v1.generated.models.domain import Domain
 from e2a.v1.generated.models.domain_view import DomainView
 from e2a.v1.generated.models.error_body import ErrorBody
+from e2a.v1.generated.models.error_body_details import ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope
 from e2a.v1.generated.models.event_json import EventJSON
+from e2a.v1.generated.models.field_error import FieldError
 from e2a.v1.generated.models.forward_request import ForwardRequest
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView
@@ -102,6 +104,7 @@ from e2a.v1.generated.models.user_export import UserExport
 from e2a.v1.generated.models.user_export_user import UserExportUser
 from e2a.v1.generated.models.validate_template_request import ValidateTemplateRequest
 from e2a.v1.generated.models.validate_template_response import ValidateTemplateResponse
+from e2a.v1.generated.models.validation_error_details import ValidationErrorDetails
 from e2a.v1.generated.models.verify_domain_view import VerifyDomainView
 from e2a.v1.generated.models.webhook_delivery_view import WebhookDeliveryView
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView

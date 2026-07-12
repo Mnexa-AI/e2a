@@ -17,6 +17,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -53,10 +54,43 @@ type ErrorEnvelope struct {
 
 // ErrorBody is the inner object of the envelope.
 type ErrorBody struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	Details   any    `json:"details,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
+	Code      string `json:"code" doc:"Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Known values: invalid_request, unauthorized, forbidden, not_found, conflict, gone, method_not_allowed, payload_too_large, unsupported_media_type, rate_limited, limit_exceeded, internal_error — plus resource-specific codes (e.g. domain_not_verified, invalid_cursor, idempotency_in_flight, idempotency_key_reuse) and the *_not_found / *_exists suffix families. A single canonical code, invalid_request, covers all input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid)."`
+	Message   string `json:"message" doc:"Human-readable explanation. Not for branching — use code."`
+	Details   any    `json:"details,omitempty" doc:"Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({\"fields\":[{\"location\",\"message\"}]}); rate_limited and limit_exceeded carry {\"retry_after_seconds\"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes."`
+	RequestID string `json:"request_id,omitempty" doc:"Echoes the X-Request-Id response header so a failing call is greppable in logs."`
+}
+
+// FieldError is one per-field validation failure inside ValidationErrorDetails.
+// It deliberately omits the raw offending value (Huma's ErrorDetail.Value) from
+// the public contract so the API never echoes bad input back to the client.
+type FieldError struct {
+	Location string `json:"location,omitempty" doc:"Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field."`
+	Message  string `json:"message" doc:"Human-readable reason this field is invalid."`
+}
+
+// ValidationErrorDetails is the typed error.details payload for the
+// invalid_request code: the list of per-field validation failures that made the
+// request invalid. It is the validation arm of the polymorphic-by-code details
+// contract (other codes carry their own typed detail object — e.g. a
+// limit_exceeded detail for the 402 quota path), so codegen emits a concrete
+// model clients can read after branching on code == "invalid_request".
+type ValidationErrorDetails struct {
+	Fields []FieldError `json:"fields" doc:"The fields that failed validation. May be empty when the failure is request-wide rather than field-specific."`
+}
+
+// TransformSchema types the polymorphic error.details in the generated OpenAPI:
+// it registers ValidationErrorDetails (and its nested FieldError) as named
+// component schemas and references the validation shape from details via anyOf,
+// while keeping a permissive object branch so OTHER per-code detail shapes
+// (rate_limited/limit_exceeded, and future additions) stay valid. This is how
+// codegen produces a concrete ValidationErrorDetails model instead of an
+// untyped `{}` for details, without pinning details to a single shape.
+func (ErrorBody) TransformSchema(r huma.Registry, s *huma.Schema) *huma.Schema {
+	valRef := r.Schema(reflect.TypeOf(ValidationErrorDetails{}), true, "ValidationErrorDetails")
+	if d := s.Properties["details"]; d != nil {
+		d.AnyOf = []*huma.Schema{valRef, {Type: huma.TypeObject}}
+	}
+	return s
 }
 
 // Error implements the error interface (huma.StatusError embeds error).
@@ -100,7 +134,11 @@ func (e *ErrorEnvelope) WithRetryAfter(seconds int) *ErrorEnvelope {
 func defaultCodeForStatus(status int) string {
 	switch status {
 	case http.StatusBadRequest:
-		return "bad_request"
+		// invalid_request is the single canonical code for input-validation
+		// failures; a malformed 400 and a semantic 422 (below) share it so
+		// clients branch on one code while the HTTP status still distinguishes
+		// the two conditions.
+		return "invalid_request"
 	case http.StatusUnauthorized:
 		return "unauthorized"
 	case http.StatusForbidden:
@@ -114,7 +152,9 @@ func defaultCodeForStatus(status int) string {
 	case http.StatusRequestEntityTooLarge:
 		return "payload_too_large"
 	case http.StatusUnprocessableEntity:
-		return "unprocessable_entity"
+		// Semantically-invalid input shares the canonical validation code with
+		// 400; the 422 status still marks it as "well-formed but unprocessable".
+		return "invalid_request"
 	case http.StatusTooManyRequests:
 		return "rate_limited"
 	case http.StatusUnsupportedMediaType:
@@ -141,21 +181,26 @@ func humaErrorConstructor(status int, message string, errs ...error) huma.Status
 		},
 	}
 	if len(errs) > 0 {
-		// huma.ErrorDetailer values carry structured field/location info;
-		// preserve them as-is so validation output stays machine-readable.
-		details := make([]any, 0, len(errs))
+		// huma.ErrorDetailer values carry structured field/location info. Fold
+		// them into the typed ValidationErrorDetails shape ({fields:[{location,
+		// message}]}) so the validation details are machine-readable AND match
+		// the schema codegen emits. The raw offending value (ErrorDetail.Value)
+		// is deliberately dropped from the public contract so we never echo bad
+		// input back to the client.
+		fields := make([]FieldError, 0, len(errs))
 		for _, err := range errs {
 			if err == nil {
 				continue
 			}
 			if d, ok := err.(huma.ErrorDetailer); ok {
-				details = append(details, d.ErrorDetail())
+				det := d.ErrorDetail()
+				fields = append(fields, FieldError{Location: det.Location, Message: det.Message})
 			} else {
-				details = append(details, map[string]string{"message": err.Error()})
+				fields = append(fields, FieldError{Message: err.Error()})
 			}
 		}
-		if len(details) > 0 {
-			env.Err.Details = details
+		if len(fields) > 0 {
+			env.Err.Details = ValidationErrorDetails{Fields: fields}
 		}
 	}
 	return env
@@ -210,7 +255,7 @@ func writeRawEnvelope(w http.ResponseWriter, r *http.Request, env *ErrorEnvelope
 // those rejections through here makes the WS handshake body byte-for-byte
 // consistent with every /v1 REST endpoint: {error:{code,message,request_id}} +
 // X-Request-Id. The caller supplies the status and a code from the REST
-// vocabulary (unauthorized / forbidden / not_found / bad_request); status codes
+// vocabulary (unauthorized / forbidden / not_found / invalid_request); status codes
 // are the caller's to choose so this never rewrites them.
 func WriteError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	writeRawEnvelope(w, r, NewError(status, code, message))

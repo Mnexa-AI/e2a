@@ -25,8 +25,10 @@ export * from '../models/DeploymentInfoView.js';
 export * from '../models/Domain.js';
 export * from '../models/DomainView.js';
 export * from '../models/ErrorBody.js';
+export * from '../models/ErrorBodyDetails.js';
 export * from '../models/ErrorEnvelope.js';
 export * from '../models/EventJSON.js';
+export * from '../models/FieldError.js';
 export * from '../models/ForwardRequest.js';
 export * from '../models/LimitsCapsView.js';
 export * from '../models/LimitsUsageView.js';
@@ -87,6 +89,7 @@ export * from '../models/UserExport.js';
 export * from '../models/UserExportUser.js';
 export * from '../models/ValidateTemplateRequest.js';
 export * from '../models/ValidateTemplateResponse.js';
+export * from '../models/ValidationErrorDetails.js';
 export * from '../models/VerifyDomainView.js';
 export * from '../models/WebhookDeliveryView.js';
 export * from '../models/WebhookFiltersView.js';
@@ -119,8 +122,10 @@ import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
 import { DomainView } from '../models/DomainView.js';
 import { ErrorBody } from '../models/ErrorBody.js';
+import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
+import { FieldError } from '../models/FieldError.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
@@ -181,6 +186,7 @@ import { UserExport } from '../models/UserExport.js';
 import { UserExportUser } from '../models/UserExportUser.js';
 import { ValidateTemplateRequest } from '../models/ValidateTemplateRequest.js';
 import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js';
+import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
@@ -243,8 +249,10 @@ let typeMap: {[index: string]: any} = {
     "Domain": Domain,
     "DomainView": DomainView,
     "ErrorBody": ErrorBody,
+    "ErrorBodyDetails": ErrorBodyDetails,
     "ErrorEnvelope": ErrorEnvelope,
     "EventJSON": EventJSON,
+    "FieldError": FieldError,
     "ForwardRequest": ForwardRequest,
     "LimitsCapsView": LimitsCapsView,
     "LimitsUsageView": LimitsUsageView,
@@ -305,6 +313,7 @@ let typeMap: {[index: string]: any} = {
     "UserExportUser": UserExportUser,
     "ValidateTemplateRequest": ValidateTemplateRequest,
     "ValidateTemplateResponse": ValidateTemplateResponse,
+    "ValidationErrorDetails": ValidationErrorDetails,
     "VerifyDomainView": VerifyDomainView,
     "WebhookDeliveryView": WebhookDeliveryView,
     "WebhookFiltersView": WebhookFiltersView,

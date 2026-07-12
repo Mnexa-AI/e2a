@@ -76,7 +76,7 @@ test("events: list accepts all documented filter params without 400", async () =
 
 test("events: list with limit > max clamps or 4xx, never crashes", async () => {
   // openapi caps limit at 200 (maximum: 200); the request-validation
-  // layer rejects over-max with 422 unprocessable_entity. A server that
+  // layer rejects over-max with 422 invalid_request. A server that
   // clamps instead (200) is also acceptable. What we're guarding against
   // is a crash / 5xx.
   const r = await client.get("/v1/events", { query: { limit: 9999 } });

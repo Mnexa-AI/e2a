@@ -44,8 +44,8 @@ func TestCreateWebhookInvalidEventType(t *testing.T) {
 		"url": "https://example.com/hook", "events": []string{"email.invented"},
 	})
 	// Unknown event now rejected by the schema enum (WH-2) → 422 before the handler.
-	if code != 422 || errCode(body) != "unprocessable_entity" {
-		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)
+	if code != 422 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 422 invalid_request, got %d %v", code, body)
 	}
 }
 
@@ -208,8 +208,8 @@ func TestTestWebhookInvalidEvent(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"type": "email.invented"})
 	// Unknown event now rejected by the schema enum (WH-2) → 422 before the handler.
-	if code != 422 || errCode(body) != "unprocessable_entity" {
-		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)
+	if code != 422 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 422 invalid_request, got %d %v", code, body)
 	}
 }
 

@@ -232,11 +232,11 @@ test("webhooks: delete nonexistent returns 404 not_found", async () => {
 test("webhooks: create missing required fields returns 422", async () => {
   const noUrl = await client.post<ErrEnvelope>("/v1/webhooks", { body: { events: ["email.sent"] } });
   assert.equal(noUrl.status, 422, `create missing url expected 422, got ${noUrl.status}: ${noUrl.raw.slice(0, 160)}`);
-  assert.equal(noUrl.body?.error?.code, "unprocessable_entity");
+  assert.equal(noUrl.body?.error?.code, "invalid_request");
 
   const noEvents = await client.post<ErrEnvelope>("/v1/webhooks", { body: { url: HOOK_URL } });
   assert.equal(noEvents.status, 422, `create missing events expected 422, got ${noEvents.status}`);
-  assert.equal(noEvents.body?.error?.code, "unprocessable_entity");
+  assert.equal(noEvents.body?.error?.code, "invalid_request");
 });
 
 test("webhooks: create with unknown event enum returns 422", async () => {
@@ -244,7 +244,7 @@ test("webhooks: create with unknown event enum returns 422", async () => {
     body: { url: HOOK_URL, events: ["not.a.real.event"] },
   });
   assert.equal(r.status, 422, `bad enum expected 422, got ${r.status}: ${r.raw.slice(0, 160)}`);
-  assert.equal(r.body?.error?.code, "unprocessable_entity");
+  assert.equal(r.body?.error?.code, "invalid_request");
 });
 
 // URL must be HTTPS — enforced with a distinct 400 invalid_webhook_url (SSRF/plaintext
