@@ -190,6 +190,42 @@ shapes may change before templates are declared stable.
 | `validate_template` | Dry-run source: parse errors, a rendered preview against `test_data`, and `suggestedData` placeholders. |
 | `list_starter_templates` / `get_starter_template` | Browse the starter catalog; the detail view includes full body sources and per-variable metadata. |
 
+## Errors
+
+Every failed tool call returns an MCP result with `isError: true` and **two
+representations of the error**:
+
+- **`structuredContent`** — the machine-branchable form. Branch on this, not
+  the text:
+
+  ```json
+  {
+    "code": "domain_not_verified",
+    "retryable": false,
+    "status": 403,
+    "request_id": "req_abc123",
+    "retry_after_seconds": 30,
+    "details": { "field": "…" }
+  }
+  ```
+
+  | Field | Presence | Meaning |
+  | --- | --- | --- |
+  | `code` | always | Stable snake_case token from the API error envelope (e.g. `domain_not_verified`, `rate_limited`, `message_not_pending`). Errors raised by the MCP layer itself (bad/missing arguments, `confirm:true` guards) carry `invalid_request`. |
+  | `retryable` | always | `true` when a retry could plausibly succeed (rate limit, 5xx, connection failure). |
+  | `status` | API errors only | HTTP status of the API response (`0` = connection-level failure). Absent when no request was made (MCP-layer validation). |
+  | `request_id` | when available | Server request id — quote it in support requests. |
+  | `retry_after_seconds` | when available | Back-off hint for retryable errors. |
+  | `details` | when available | Structured field-level detail from the envelope (omitted if oversized). |
+
+- **`content` (text)** — the human-readable form, unchanged and stable:
+  `e2a error [<code>] (retryable)?: <message>` for API errors, `e2a error:
+  <message>` for MCP-layer errors. Existing agents that parse this text keep
+  working, but new integrations should read `structuredContent` instead.
+
+Successful results are unaffected (JSON in a text block; list tools return a
+domain-named array plus `next_cursor` while more pages remain).
+
 ## Links
 
 - [e2a docs](https://e2a.dev)

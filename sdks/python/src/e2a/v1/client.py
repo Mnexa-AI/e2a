@@ -446,14 +446,16 @@ class TemplatesResource:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[TemplateSummaryView]:
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[TemplateSummaryView]:
         """List the account's stored templates, newest first. Summary rows only
         (no text/html sources) — ``get(id)`` returns the full sources."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -492,15 +494,17 @@ class TemplatesResource:
         req = _coerce(ValidateTemplateRequest, body)
         return await self._c._read(lambda h: self._api.validate_template(req, _headers=h))
 
-    def list_starters(self) -> AutoPager[StarterTemplateView]:
+    def list_starters(self, *, limit: Optional[int] = None) -> AutoPager[StarterTemplateView]:
         """List the pre-built starter templates shipped with the deployment
         (catalog metadata + variables; ``get_starter(alias)`` adds the full body
         sources)."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_starter_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_starter_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
