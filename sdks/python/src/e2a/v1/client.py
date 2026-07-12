@@ -67,6 +67,7 @@ from .generated.models import (
     TestWebhookResponse,
     TestWebhookRequest,
     ProtectionConfigView,
+    ProtectionConfigRequest,
     CreateTemplateRequest,
     UpdateAgentRequest,
     UpdateMessageRequest,
@@ -102,6 +103,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         return model_cls()  # type: ignore[call-arg]
     if isinstance(body, model_cls):
         return body
+    # A DIFFERENT generated model — e.g. the View returned by a GET fed back
+    # into a write whose body type is the Request twin (protection's
+    # read-modify-write flow after the request/response schema split). Convert
+    # via its dict form so the natural get -> modify -> replace loop keeps
+    # working; pydantic then validates against the Request schema as usual.
+    if hasattr(body, "to_dict"):
+        body = body.to_dict()  # type: ignore[union-attr]
     try:
         return model_cls.model_validate(body)  # type: ignore[attr-defined]
     except ValidationError as e:
@@ -279,7 +287,7 @@ class AgentsResource:
     async def replace_protection(self, email: str, config: Body) -> ProtectionConfigView:
         """Replace an agent's protection config wholesale (all three top-level
         keys required). Beta; account scope only. PUT is idempotent."""
-        req = _coerce(ProtectionConfigView, config)
+        req = _coerce(ProtectionConfigRequest, config)
         return await self._c._write_idempotent(
             lambda h: self._api.put_agent_protection(email, req, _headers=h)
         )
@@ -446,14 +454,16 @@ class TemplatesResource:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[TemplateSummaryView]:
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[TemplateSummaryView]:
         """List the account's stored templates, newest first. Summary rows only
         (no text/html sources) — ``get(id)`` returns the full sources."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -492,15 +502,17 @@ class TemplatesResource:
         req = _coerce(ValidateTemplateRequest, body)
         return await self._c._read(lambda h: self._api.validate_template(req, _headers=h))
 
-    def list_starters(self) -> AutoPager[StarterTemplateView]:
+    def list_starters(self, *, limit: Optional[int] = None) -> AutoPager[StarterTemplateView]:
         """List the pre-built starter templates shipped with the deployment
         (catalog metadata + variables; ``get_starter(alias)`` adds the full body
         sources)."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_starter_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_starter_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 

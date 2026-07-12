@@ -22,6 +22,7 @@ import type {
   Attachment,
   UpdateAgentRequest,
   ProtectionConfigView,
+  ProtectionConfigRequest,
   CreateWebhookRequest,
   UpdateWebhookRequest,
   TestWebhookRequest,
@@ -144,7 +145,7 @@ export class McpClient {
   }
 
   updateProtection(
-    config: ProtectionConfigView,
+    config: ProtectionConfigRequest,
     explicitAddress?: string,
   ): Promise<ProtectionConfigView> {
     return this.sdk.agents.replaceProtection(this.resolveAddress(explicitAddress), config);

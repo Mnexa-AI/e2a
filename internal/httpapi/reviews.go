@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
@@ -70,7 +71,7 @@ type getReviewInput struct {
 type approveReviewInput struct {
 	ID             string `path:"id"`
 	RawBody        []byte
-	IdempotencyKey string `header:"Idempotency-Key"`
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
 	Body           agent.ApproveOverrides
 }
 
@@ -100,6 +101,11 @@ func (s *Server) registerReviews() {
 		Description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).",
 		Security:    []map[string][]string{{"bearer": {}}},
 		Responses: map[string]*huma.Response{
+			// approve's 409 is shared by two codes, so it gets a merged description
+			// instead of the stock idempotencyInFlightResponse.
+			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+				"Conflict — branch on error.code. message_not_pending: the hold was already resolved (approved/rejected/expired) and cannot be re-approved. idempotency_in_flight: a request with this Idempotency-Key is still executing — wait for it to finish, then retry with the SAME key and byte-identical body to replay its response."),
+			"422":     s.idempotencyReuseResponse(),
 			"429":     s.rateLimitedResponse(),
 			"default": s.errorEnvelopeResponse(),
 		},

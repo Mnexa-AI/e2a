@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.3.0
+
+### Breaking (pre-GA)
+- **`AgentIdentity.webhook_healthy` (bool) replaced by `AgentIdentity.webhook_status`
+  (optional string enum).** The bool could not distinguish "no webhook
+  configured" from "healthy". The new field is an open set — tolerate unknown
+  values. Known values: `none` (no webhook matches the agent), `healthy` (an
+  enabled matching webhook, no terminally-failed delivery in the last 24h),
+  `failing` (an enabled matching webhook had a terminally-failed delivery in
+  the last 24h), `disabled` (matching webhooks exist but all are manually
+  disabled), `auto_disabled` (all matching webhooks disabled, at least one by
+  the chronic-failure sweep). `AgentIdentity` only appears in the account
+  export (`account.export()`), so most integrations are unaffected.
+
+## 4.2.0
+
+Additive, no breaking changes.
+
+### Fixed
+- **`templates.list()` / `templates.list_starters()` silently truncated to the
+  first page.** Both ignored the server's `next_cursor` and stopped after one
+  request, dropping every template/starter past page one. They now thread the
+  cursor and auto-page to completion like every other `.list()` (TS SDK
+  parity), and accept a `limit=` per-page size.
+
+### Added
+- **`AutoPager.page(cursor=None)`** — the manual, caller-driven pagination
+  primitive (parity with the TS SDK's `pager.page()`): fetch a SINGLE page and
+  get back a `Page` of `items` + `next_cursor`. Pass the previous page's
+  `next_cursor` to resume (e.g. checkpoint/restart from a queue); a `None`
+  `next_cursor` in the result means there are no more pages. The page size is
+  the `limit` baked into the list call that produced the pager.
+
 ## 4.1.0
 
 Additive, no breaking changes.

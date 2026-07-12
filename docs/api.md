@@ -40,8 +40,27 @@ MCP tool surface), see:
   hand-rolled clients must do it themselves.
 - **Pagination.** List endpoints return `{ items, next_cursor }`; pass
   `next_cursor` back as `?cursor=…` to page forward. The SDKs auto-page.
-- **Idempotency.** Mutating send/approve/rotate operations honor an
-  `Idempotency-Key` header. See the spec for which operations accept it.
+- **Idempotency.** Five mutating operations honor an opt-in `Idempotency-Key`
+  header: `sendMessage`, `replyToMessage`, `forwardMessage`, `approveReview`,
+  and `rotateWebhookSecret`. Semantics:
+  - **Replay.** A retry with the same key and a **byte-identical** body replays
+    the first request's response instead of re-executing the side effect (the
+    dedup hash covers the route + the raw body bytes, so the same key on a
+    different route or with re-serialized JSON does not match).
+  - **Dedup window: at least 24 hours.** Completed keys are remembered for a
+    minimum of 24 hours after completion. Treat 24h as the published floor —
+    a deployment may remember keys longer, never shorter.
+  - **`409 idempotency_in_flight`** — a request with the same key is still
+    executing. Retry-able: wait for the first request to finish, then retry
+    unchanged (same key, byte-identical body) to have its response replayed.
+  - **`422 idempotency_key_reuse`** — the key was already used with a
+    *different* request body. Do **not** blind-retry this one: a legitimate
+    retry must resend the byte-identical body, and a genuinely new request
+    needs a fresh key.
+  - **Best-effort.** Dedup is best-effort, not transactional: under
+    idempotency-store degradation or a mid-request crash the protection
+    degrades to at-least-once — a keyed retry may re-execute the operation
+    rather than replay the cached response.
 - **Errors.** Non-2xx responses use a single `ErrorEnvelope` shape; branch on
   `error.code`.
 - **Capacity limits — the permanent `402` / `429` split.** Two different limits
@@ -74,7 +93,23 @@ Our commitment, and what you can rely on:
   two would run side by side during a published migration window.
 - **Additive changes can happen anytime** and are *not* breaking: new endpoints,
   new optional request fields, and **new response fields**. Clients must ignore
-  fields they don't recognize.
+  fields they don't recognize. This is machine-readable in the spec: every
+  **response** schema declares `additionalProperties: true` (a client generated
+  from the spec tolerates additive fields), while every **request** schema stays
+  strict (`additionalProperties: false`) — an unknown request field is rejected
+  with a 422, which is intentional input validation (it catches typos like
+  `body` vs `text`), not a stability concern.
+- **Experimental surfaces are marked `x-stability: experimental`** in the spec
+  (operations, schemas, and individual fields — e.g. the `template_*` fields on
+  send) and `(beta)` in prose — today: templates, starter templates, and the
+  agent protection config. They are **exempt from the
+  freeze**: they may change or be removed without a major version. Where only
+  specific *values* of a stable field are experimental (the screening +
+  review-hold event types `email.flagged`, `email.blocked`,
+  `email.pending_review`, `email.review_approved`, `email.review_rejected`),
+  the field carries `x-experimental-values` listing exactly those values —
+  their payloads may still change; all other event types are stable. Anything
+  not marked experimental is stable surface.
 - **Enums in responses are open.** Treat any `type` / `*_status` / `event_type`
   value as an open string set: we may introduce new values (e.g. a new event
   type or delivery state) without a major bump, so a client **must not crash on
