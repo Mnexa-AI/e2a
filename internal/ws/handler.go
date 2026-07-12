@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/Mnexa-AI/e2a/internal/httpapi"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 	"nhooyr.io/websocket"
 )
 
@@ -179,29 +181,56 @@ func (h *Handler) drainUnread(agent *identity.AgentIdentity) {
 	}
 }
 
-// Notification is the lightweight JSON payload sent over WebSocket when a new
-// message arrives. It contains only metadata — the full message (including
-// the To/Cc lists) is fetched via REST.
-type Notification struct {
-	MessageID      string    `json:"message_id"`
-	ConversationID string    `json:"conversation_id,omitempty"`
-	From           string    `json:"from"`
-	Recipient      string    `json:"delivered_to"`
-	Subject        string    `json:"subject"`
-	ReceivedAt     time.Time `json:"received_at"`
-}
-
-// BuildNotification creates a lightweight JSON notification from a message.
+// BuildNotification renders the WS frame for one inbound message: the SAME
+// versioned event envelope the webhook channel delivers —
+// {type:"email.received", id, schema_version, created_at, data} with the
+// canonical typed eventpayload.EmailReceivedData — so a consumer can share one
+// parser across both channels. The event id is the same deterministic
+// derivation the outbox uses (sha256(message_id|type)), so a subscriber that
+// receives the message on both channels can dedup on it, and the drain path
+// re-emits a byte-stable id across reconnects.
+//
+// This drain-path rebuild populates what the message ROW provides. Three
+// fields the live relay path fills are unavailable here and are emitted
+// present-but-empty (required) or omitted (optional) rather than fabricated:
+//   - authenticated_from: the authenticated From identity isn't stored on the
+//     row (Sender is the display sender) → "".
+//   - auth_headers: not selected by the drain's list query → {}.
+//   - attachments: raw_message is not selected by the drain's list query → omitted.
+//
+// The live relay path (internal/relay) marshals the actual outbox event, so
+// its WS frame is field-complete and byte-identical to the webhook delivery.
 func BuildNotification(msg *identity.Message) []byte {
-	n := Notification{
-		MessageID:      msg.ID,
-		ConversationID: msg.ConversationID,
-		From:           msg.Sender,
-		Recipient:      msg.Recipient,
-		Subject:        msg.Subject,
-		ReceivedAt:     msg.CreatedAt,
+	authHeaders := msg.AuthHeaders
+	if authHeaders == nil {
+		authHeaders = map[string]string{}
 	}
-	data, _ := json.Marshal(n)
+	to := msg.ToRecipients
+	if to == nil {
+		to = []string{}
+	}
+	ev := webhookpub.Event{
+		ID:        webhookpub.DeterministicEventID(msg.ID, webhookpub.EventEmailReceived),
+		Type:      webhookpub.EventEmailReceived,
+		CreatedAt: msg.CreatedAt.UTC(),
+		Data: eventpayload.EmailReceivedData{
+			MessageID:         msg.ID,
+			AgentEmail:        msg.Recipient,
+			Direction:         "inbound",
+			ConversationID:    msg.ConversationID,
+			From:              msg.Sender,
+			AuthenticatedFrom: "", // not stored on the row — see doc comment
+			To:                to,
+			CC:                msg.CC,
+			ReplyTo:           msg.ReplyTo,
+			DeliveredTo:       msg.Recipient,
+			Subject:           msg.Subject,
+			AuthHeaders:       authHeaders,
+			ReceivedAt:        msg.CreatedAt.UTC(),
+			Attachments:       eventpayload.AttachmentMetadata(msg.RawMessage),
+		},
+	}
+	data, _ := json.Marshal(ev.AsEnvelope())
 	return data
 }
 

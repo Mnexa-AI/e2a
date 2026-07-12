@@ -3,6 +3,7 @@ package agent
 import (
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -32,6 +33,10 @@ import (
 // /forward. outMsg may be nil if CreateOutboundMessage failed — in
 // that case we still publish (the SES send already happened) but with
 // an empty message_id; receivers see the event without a row to fetch.
+//
+// Data is the canonical typed eventpayload.EmailSentData — the SAME struct the
+// async send worker's buildEmailSentEventFromRow emits, so subscribers see an
+// identical payload on both paths (golden-fixture-locked).
 func (a *API) buildSentEvent(
 	agent *identity.AgentIdentity,
 	outMsg *identity.Message,
@@ -43,19 +48,19 @@ func (a *API) buildSentEvent(
 	if outMsg != nil {
 		messageID = outMsg.ID
 	}
-	data := map[string]interface{}{
-		"message_id":          messageID,
-		"direction":           "outbound",
-		"agent_email":         agent.EmailAddress(),
-		"provider_message_id": result.MessageID,
-		"method":              result.Method,
-		"from":                agent.EmailAddress(),
-		"to":                  result.To,
-		"cc":                  result.CC,
-		"bcc":                 result.BCC,
-		"subject":             req.Subject,
-		"message_type":        msgType,
-		"conversation_id":     req.ConversationID,
+	data := eventpayload.EmailSentData{
+		MessageID:         messageID,
+		AgentEmail:        agent.EmailAddress(),
+		Direction:         "outbound",
+		ConversationID:    req.ConversationID,
+		ProviderMessageID: result.MessageID,
+		Method:            result.Method,
+		From:              agent.EmailAddress(),
+		To:                orEmpty(result.To),
+		CC:                result.CC,
+		BCC:               result.BCC,
+		Subject:           req.Subject,
+		MessageType:       msgType,
 	}
 	return webhookpub.Event{
 		ID:             generateEventIDForAgent(),
@@ -222,3 +227,11 @@ func generateEventIDForAgent() string {
 }
 
 // --- helpers ---
+
+// orEmpty keeps a REQUIRED wire array present-but-empty rather than null.
+func orEmpty(ss []string) []string {
+	if ss == nil {
+		return []string{}
+	}
+	return ss
+}
