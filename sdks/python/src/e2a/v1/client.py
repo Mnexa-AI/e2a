@@ -103,6 +103,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         return model_cls()  # type: ignore[call-arg]
     if isinstance(body, model_cls):
         return body
+    # A DIFFERENT generated model — e.g. the View returned by a GET fed back
+    # into a write whose body type is the Request twin (protection's
+    # read-modify-write flow after the request/response schema split). Convert
+    # via its dict form so the natural get -> modify -> replace loop keeps
+    # working; pydantic then validates against the Request schema as usual.
+    if hasattr(body, "to_dict"):
+        body = body.to_dict()  # type: ignore[union-attr]
     try:
         return model_cls.model_validate(body)  # type: ignore[attr-defined]
     except ValidationError as e:
