@@ -65,7 +65,7 @@ class ReviewsApi:
     ) -> SendResultView:
         """Approve a held message
 
-        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
 
         :param id: (required)
         :type id: str
@@ -107,6 +107,7 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -140,7 +141,7 @@ class ReviewsApi:
     ) -> ApiResponse[SendResultView]:
         """Approve a held message
 
-        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
 
         :param id: (required)
         :type id: str
@@ -182,6 +183,7 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -215,7 +217,7 @@ class ReviewsApi:
     ) -> RESTResponseType:
         """Approve a held message
 
-        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
 
         :param id: (required)
         :type id: str
@@ -257,6 +259,7 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,

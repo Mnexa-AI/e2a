@@ -52,7 +52,18 @@ func (s *Server) errorEnvelopeResponse() *huma.Response {
 // the AccountView usage/limits field stems) instead of a bare `any`.
 func (s *Server) limitExceededResponse() *huma.Response {
 	return s.jsonResponse(reflect.TypeOf(LimitExceededEnvelope{}), "LimitExceededEnvelope",
-		"Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.")
+		"Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.")
+}
+
+// rateLimitedResponse is the typed 429 response for the throughput-limited write
+// operations (send/reply/forward/test, create agent, approve review). Its schema
+// is the RateLimitedEnvelope, whose error.details is a typed RateLimitedDetails
+// (retry_after_seconds) so codegen surfaces a concrete backoff hint instead of a
+// bare `any`. It is the request-RATE counterpart to limitExceededResponse (402
+// QUOTA) — together they are the permanent GA split clients branch on by status.
+func (s *Server) rateLimitedResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(RateLimitedEnvelope{}), "RateLimitedEnvelope",
+		"Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path.")
 }
 
 // SendResultView is the single outbound result for send/reply/forward/approve/
@@ -195,10 +206,10 @@ func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
-		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
+		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -207,7 +218,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
@@ -216,7 +227,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
@@ -224,7 +235,7 @@ func (s *Server) registerOutbound() {
 		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
 		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
-		Responses:   map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "default": s.errorEnvelopeResponse()},
+		Responses:   map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleTestSend)
 }
 

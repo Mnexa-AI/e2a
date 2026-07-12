@@ -59,6 +59,9 @@ export * from '../models/ProtectionEventExportEntry.js';
 export * from '../models/ProtectionGateView.js';
 export * from '../models/ProtectionHoldsView.js';
 export * from '../models/ProtectionScanView.js';
+export * from '../models/RateLimitedDetails.js';
+export * from '../models/RateLimitedEnvelope.js';
+export * from '../models/RateLimitedErrorBody.js';
 export * from '../models/RedeliverDelivery.js';
 export * from '../models/RedeliverEventRequest.js';
 export * from '../models/RedeliverView.js';
@@ -159,6 +162,9 @@ import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry
 import { ProtectionGateView, ProtectionGateViewActionEnum   , ProtectionGateViewPolicyEnum   } from '../models/ProtectionGateView.js';
 import { ProtectionHoldsView, ProtectionHoldsViewOnExpiryEnum    } from '../models/ProtectionHoldsView.js';
 import { ProtectionScanView, ProtectionScanViewSensitivityEnum   } from '../models/ProtectionScanView.js';
+import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
+import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
+import { RateLimitedErrorBody, RateLimitedErrorBodyCodeEnum      } from '../models/RateLimitedErrorBody.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
@@ -224,6 +230,7 @@ let enumsMap: Set<string> = new Set<string>([
     "ProtectionGateViewPolicyEnum",
     "ProtectionHoldsViewOnExpiryEnum",
     "ProtectionScanViewSensitivityEnum",
+    "RateLimitedErrorBodyCodeEnum",
     "ReviewViewDirectionEnum",
     "TestWebhookRequestTypeEnum",
     "UpdateWebhookRequestEventsEnum",
@@ -291,6 +298,9 @@ let typeMap: {[index: string]: any} = {
     "ProtectionGateView": ProtectionGateView,
     "ProtectionHoldsView": ProtectionHoldsView,
     "ProtectionScanView": ProtectionScanView,
+    "RateLimitedDetails": RateLimitedDetails,
+    "RateLimitedEnvelope": RateLimitedEnvelope,
+    "RateLimitedErrorBody": RateLimitedErrorBody,
     "RedeliverDelivery": RedeliverDelivery,
     "RedeliverEventRequest": RedeliverEventRequest,
     "RedeliverView": RedeliverView,

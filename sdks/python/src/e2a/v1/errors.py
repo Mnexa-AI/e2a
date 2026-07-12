@@ -32,6 +32,7 @@ __all__ = [
     "E2AConflictError",
     "E2AValidationError",
     "E2AIdempotencyError",
+    "E2ALimitExceededError",
     "E2ARateLimitError",
     "E2AServerError",
     "E2AConnectionError",
@@ -96,8 +97,21 @@ class E2AIdempotencyError(E2AError):
     """idempotency_in_flight / idempotency_key_reuse."""
 
 
+class E2ALimitExceededError(E2AError):
+    """402 — a per-account resource QUOTA (stock/flow cap) was hit
+    (``code == "limit_exceeded"``). Distinct from :class:`E2ARateLimitError`
+    (429, a request-RATE/throughput limit): a 402 is NOT retryable — a retry
+    alone will not clear it; surface a quota/upgrade path. ``details.resource``
+    keys the cap to ``usage.<resource>`` / ``limits.max_<resource>``. This is the
+    permanent GA split — branch on the exception type (equivalently, the HTTP
+    status): 402 → quota, 429 → back off and retry."""
+
+
 class E2ARateLimitError(E2AError):
-    """429 — rate limited."""
+    """429 — a request-RATE / throughput limit was hit
+    (``code == "rate_limited"``). Transient and retryable — wait
+    ``retry_after_seconds`` and retry. Distinct from
+    :class:`E2ALimitExceededError` (402, a QUOTA cap)."""
 
 
 class E2AServerError(E2AError):
@@ -130,6 +144,7 @@ _IDEMPOTENCY_CODES = {_IDEMPOTENCY_RETRYABLE, "idempotency_key_reuse"}
 _DEFAULT_CODE = {
     400: "invalid_request",
     401: "unauthorized",
+    402: "limit_exceeded",
     403: "forbidden",
     404: "not_found",
     409: "conflict",
@@ -163,7 +178,10 @@ _CODE_MAP: "dict[str, tuple[type[E2AError], bool]]" = {
     "bad_request": (E2AValidationError, False),
     "unprocessable_entity": (E2AValidationError, False),
     "invalid_cursor": (E2AValidationError, False),
-    # 429
+    # 402 — QUOTA cap (stock/flow). NOT retryable: distinct from the 429
+    # request-RATE limit below. This is the permanent GA 402/429 split.
+    "limit_exceeded": (E2ALimitExceededError, False),
+    # 429 — request-RATE / throughput limit. Retryable (back off Retry-After).
     "rate_limited": (E2ARateLimitError, True),
 }
 
@@ -188,6 +206,7 @@ def _resolve(status: int, code: str) -> "tuple[type[E2AError], bool]":
         # validation family instead of degrading to the bare base error.
         400: (E2AValidationError, False),
         401: (E2AAuthError, False),
+        402: (E2ALimitExceededError, False),
         403: (E2APermissionError, False),
         404: (E2ANotFoundError, False),
         409: (E2AConflictError, False),

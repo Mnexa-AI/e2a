@@ -127,6 +127,42 @@ type LimitExceededEnvelope struct {
 	Err LimitExceededErrorBody `json:"error"`
 }
 
+// RateLimitedDetails is the typed `error.details` payload carried by a 429
+// rate_limited response. `retry_after_seconds` is the seconds a client should
+// wait before retrying — it mirrors the Retry-After response header, so a
+// client that can only read the body still gets the backoff hint.
+//
+// This is the THROUGHPUT/request-RATE arm of the contract, distinct from the
+// 402 limit_exceeded (stock/flow QUOTA) arm: a 429 is a short-lived, retry-able
+// signal (wait retry_after_seconds and the same request succeeds), whereas a
+// 402 is a persistent cap that a retry alone will not clear (see
+// LimitExceededDetails). Clients MUST branch on the HTTP status: 429 → back off
+// and retry; 402 → surface a quota/upgrade path, do not hammer-retry.
+type RateLimitedDetails struct {
+	RetryAfterSeconds int `json:"retry_after_seconds" doc:"Seconds to wait before retrying; mirrors the Retry-After response header. Always ≥ 1."`
+}
+
+// RateLimitedErrorBody mirrors ErrorBody but with typed rate_limited details, so
+// codegen surfaces a concrete detail shape for the 429 case instead of `any`.
+type RateLimitedErrorBody struct {
+	Code      string             `json:"code" enum:"rate_limited" doc:"Always rate_limited for this response."`
+	Message   string             `json:"message"`
+	Details   RateLimitedDetails `json:"details"`
+	RequestID string             `json:"request_id,omitempty"`
+}
+
+// RateLimitedEnvelope is the 429 error envelope with typed details. It is the
+// declared schema for the 429 response on the throughput-limited write
+// operations (send/reply/forward/test, create agent, approve review); the
+// runtime envelope is the generic ErrorEnvelope whose `details` is populated
+// with a RateLimitedDetails value (or the equivalent map), so the wire shape
+// matches this schema byte-for-byte. It is the request-RATE counterpart to the
+// 402 LimitExceededEnvelope (stock/flow QUOTA) — the two are the permanent GA
+// split clients branch on by HTTP status.
+type RateLimitedEnvelope struct {
+	Err RateLimitedErrorBody `json:"error"`
+}
+
 // Error implements the error interface (huma.StatusError embeds error).
 func (e *ErrorEnvelope) Error() string { return e.Err.Message }
 

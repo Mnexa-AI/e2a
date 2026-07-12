@@ -27,6 +27,7 @@ export {
   E2AConflictError,
   E2AValidationError,
   E2AIdempotencyError,
+  E2ALimitExceededError,
   E2ARateLimitError,
   E2AServerError,
   E2AConnectionError,

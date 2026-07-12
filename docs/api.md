@@ -44,6 +44,24 @@ MCP tool surface), see:
   `Idempotency-Key` header. See the spec for which operations accept it.
 - **Errors.** Non-2xx responses use a single `ErrorEnvelope` shape; branch on
   `error.code`.
+- **Capacity limits — the permanent `402` / `429` split.** Two different limits
+  can block a write, and they are **permanently distinct** — branch on the HTTP
+  status:
+  - **`402 limit_exceeded`** is a **quota** (a stock/flow cap): monthly-message
+    allowance, storage bytes, agent/domain counts. A retry alone will not clear
+    it — surface an upgrade/quota path. `error.details` is a `LimitExceededDetails`
+    whose `resource` (`agents | domains | messages_month | storage_bytes`) keys the
+    cap to `usage.<resource>` / `limits.max_<resource>` on `GET /v1/account`.
+  - **`429 rate_limited`** is a **throughput / request-rate** limit (e.g. the
+    per-agent send rate). It is transient and retry-able: wait
+    `error.details.retry_after_seconds` (mirrored on the `Retry-After` header),
+    then the same request succeeds.
+
+  This is frozen GA semantics: `402` = QUOTA, `429` = RATE. Clients (and the
+  official SDKs — `E2ALimitExceededError` vs `E2ARateLimitError`) must branch on
+  the status, never conflate the two. The write operations that declare both are
+  `sendMessage` / `replyToMessage` / `forwardMessage` / `testAgent` / `createAgent`
+  (`registerDomain` declares only `402`; `approveReview` declares only `429`).
 
 ## Versioning & stability
 

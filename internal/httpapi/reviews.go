@@ -97,8 +97,12 @@ func (s *Server) registerReviews() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "approveReview", Method: http.MethodPost, Path: "/v1/reviews/{id}/approve",
 		Summary: "Approve a held message", Tags: []string{"reviews"},
-		Description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.",
+		Description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).",
 		Security:    []map[string][]string{{"bearer": {}}},
+		Responses: map[string]*huma.Response{
+			"429":     s.rateLimitedResponse(),
+			"default": s.errorEnvelopeResponse(),
+		},
 	}, s.handleApproveReview)
 
 	huma.Register(s.API, huma.Operation{

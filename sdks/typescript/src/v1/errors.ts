@@ -64,7 +64,8 @@ export class E2ANotFoundError extends E2AError {}    // 404
 export class E2AConflictError extends E2AError {}    // 409
 export class E2AValidationError extends E2AError {}  // 422 — input validation
 export class E2AIdempotencyError extends E2AError {} // idempotency_in_flight / _key_reuse
-export class E2ARateLimitError extends E2AError {}   // 429
+export class E2ALimitExceededError extends E2AError {} // 402 — QUOTA (stock/flow) cap; NOT retryable
+export class E2ARateLimitError extends E2AError {}   // 429 — request-RATE / throughput limit; retryable
 export class E2AServerError extends E2AError {}      // 5xx / 408
 export class E2AConnectionError extends E2AError {}  // no response (network)
 export class E2AWebhookSignatureError extends E2AError {} // local webhook verify failure
@@ -83,6 +84,7 @@ const mkNotFound: Make = (f) => new E2ANotFoundError(f);
 const mkConflict: Make = (f) => new E2AConflictError(f);
 const mkValidation: Make = (f) => new E2AValidationError(f);
 const mkIdempotency: Make = (f) => new E2AIdempotencyError(f);
+const mkLimitExceeded: Make = (f) => new E2ALimitExceededError(f);
 const mkRateLimit: Make = (f) => new E2ARateLimitError(f);
 const mkServer: Make = (f) => new E2AServerError(f);
 
@@ -109,7 +111,10 @@ const CODE_TABLE: Record<string, { make: Make; retryable: boolean }> = {
   unprocessable_entity: { make: mkValidation, retryable: false },
   invalid_cursor: { make: mkValidation, retryable: false },
   domain_not_verified: { make: mkValidation, retryable: false },
-  // 429
+  // 402 — QUOTA cap (stock/flow). NOT retryable: distinct from the 429
+  // request-RATE limit below. This is the permanent GA 402/429 split.
+  limit_exceeded: { make: mkLimitExceeded, retryable: false },
+  // 429 — request-RATE / throughput limit. Retryable (back off Retry-After).
   rate_limited: { make: mkRateLimit, retryable: true },
   // idempotency (internal/httpapi/idempotency.go)
   idempotency_in_flight: { make: mkIdempotency, retryable: true },
@@ -133,6 +138,8 @@ function resolve(status: number, code: string): { make: Make; retryable: boolean
       return { make: mkValidation, retryable: false };
     case 401:
       return { make: mkAuth, retryable: false };
+    case 402:
+      return { make: mkLimitExceeded, retryable: false };
     case 403:
       return { make: mkPermission, retryable: false };
     case 404:
@@ -186,6 +193,7 @@ function retryAfterFromDetails(details: unknown): number | undefined {
 const DEFAULT_CODE: Record<number, string> = {
   400: "invalid_request",
   401: "unauthorized",
+  402: "limit_exceeded",
   403: "forbidden",
   404: "not_found",
   409: "conflict",
