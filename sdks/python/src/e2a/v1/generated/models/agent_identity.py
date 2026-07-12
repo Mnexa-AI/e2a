@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional, Union
 from typing import Optional, Set
 from typing_extensions import Self
@@ -54,9 +54,9 @@ class AgentIdentity(BaseModel):
     public: StrictBool
     ttl_seconds: StrictInt
     user_id: StrictStr
-    webhook_healthy: StrictBool
+    webhook_status: Optional[StrictStr] = Field(default=None, description="Webhook posture for this agent, derived from the account's webhook subscribers that match it (a webhook with no agent filter matches every agent). Open set; tolerate unknown values. Known values: none (no webhook matches this agent), healthy (an enabled webhook matches and none serving this agent has a terminally-failed delivery in the last 24h), failing (an enabled webhook matches but at least one delivery on a matching enabled webhook terminally failed in the last 24h), disabled (webhooks match but every one is disabled, turned off manually), auto_disabled (webhooks match, every one is disabled, and at least one was auto-disabled by the chronic-failure sweep). Present on enriched surfaces (account export, dashboard agent list); absent where not computed.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "on_expiry", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "ttl_seconds", "user_id", "webhook_healthy"]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "on_expiry", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "ttl_seconds", "user_id", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -153,7 +153,7 @@ class AgentIdentity(BaseModel):
             "public": obj.get("public"),
             "ttl_seconds": obj.get("ttl_seconds"),
             "user_id": obj.get("user_id"),
-            "webhook_healthy": obj.get("webhook_healthy")
+            "webhook_status": obj.get("webhook_status")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

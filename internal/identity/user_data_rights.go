@@ -363,11 +363,16 @@ func scanDomainsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Domain
 }
 
 func scanAgentsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]AgentIdentity, error) {
+	// webhook_status is computed here (same derivation as ListAgentsByUser)
+	// so the export never emits the un-computed zero value: an export that
+	// said "unhealthy" for agents whose status was simply never calculated
+	// is exactly the bug the enum replaced webhook_healthy to fix.
 	rows, err := tx.Query(ctx,
-		`SELECT id, domain, name,
-		        hitl_ttl_seconds, hitl_expiration_action,
-		        public, created_at, user_id
-		   FROM agent_identities WHERE user_id = $1 ORDER BY created_at`, userID)
+		`SELECT a.id, a.domain, a.name,
+		        a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        a.public, a.created_at, a.user_id,
+		        `+webhookStatusSQL+` AS webhook_status
+		   FROM agent_identities a WHERE a.user_id = $1 ORDER BY a.created_at`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +382,7 @@ func scanAgentsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]AgentId
 		var a AgentIdentity
 		if err := rows.Scan(&a.ID, &a.Domain, &a.Name,
 			&a.HITLTTLSeconds, &a.HITLExpirationAction,
-			&a.Public, &a.CreatedAt, &a.UserID); err != nil {
+			&a.Public, &a.CreatedAt, &a.UserID, &a.WebhookStatus); err != nil {
 			return nil, err
 		}
 		// Domain verification flag is on the joined domain row; for
