@@ -305,7 +305,7 @@ export default function APIKeysPage() {
             >
               <option value="">Select an inbox…</option>
               {agents.map((a) => (
-                <option key={a.id} value={a.email}>
+                <option key={a.email} value={a.email}>
                   {a.email}
                 </option>
               ))}
