@@ -1,0 +1,71 @@
+# Auto-trigger the e2a-ops STAGING release pipeline when a product release is
+# published here. Keeps release *publishing* a deliberate act (cutting a v* tag /
+# GitHub Release); everything downstream — deploy the candidate to staging and run
+# the prober + conformance gates — happens automatically from this event.
+#
+# Mechanism: this fires e2a-ops' existing `workflow_dispatch` entry point via the
+# Actions REST API (`gh workflow run`), so the token needs only `Actions: write`
+# on Mnexa-AI/e2a-ops (it cannot push code or read secrets) — narrower than a
+# repository_dispatch, which would need `Contents: write`.
+#
+# Token: STAGING_DISPATCH_TOKEN — a fine-grained PAT (or GitHub App token) scoped
+# to Mnexa-AI/e2a-ops with Repository permission "Actions: Read and write".
+name: Trigger staging pipeline on release
+
+on:
+  release:
+    types: [published]
+
+# This job talks to e2a-ops via the PAT, not GITHUB_TOKEN — it needs no
+# permissions on THIS repository.
+permissions: {}
+
+jobs:
+  kick-staging:
+    name: Deploy + gate this release on staging
+    # Product releases are v-prefixed semver (v1.2.3). SDK releases are separate
+    # ts-sdk-v* / python-v* tags that start with "ts"/"python", so this guard
+    # skips them; only a server/product release deploys to staging.
+    if: ${{ startsWith(github.event.release.tag_name, 'v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for candidate images, then dispatch e2a-ops
+        env:
+          GH_TOKEN: ${{ secrets.STAGING_DISPATCH_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          # Public CI strips the leading "v" on semver, so image tag = bare version.
+          # e2a-ops' resolve step re-adds the "v" for the git checkout (gref).
+          IMAGE_TAG="${RELEASE_TAG#v}"
+          echo "Release ${RELEASE_TAG} -> candidate E2A_TAG=${IMAGE_TAG}"
+
+          # The staging deploy pins e2a / mcp / prober to E2A_TAG. Those images are
+          # built by build-image.yml / publish-mcp-http.yml on the SAME tag push
+          # that produced this release, so they may not be pushed yet. Wait for all
+          # three manifests (public GHCR — no read:packages needed; imagetools
+          # inspect works anonymously) before dispatching, or the staging deploy
+          # would race a not-yet-published image.
+          imgs="ghcr.io/mnexa-ai/e2a ghcr.io/mnexa-ai/e2a-mcp-http ghcr.io/mnexa-ai/e2a-prober"
+          missing="init"
+          for attempt in $(seq 1 60); do   # up to ~15 min (60 x 15s)
+            missing=""
+            for img in $imgs; do
+              docker buildx imagetools inspect "${img}:${IMAGE_TAG}" >/dev/null 2>&1 \
+                || missing="${missing} ${img}:${IMAGE_TAG}"
+            done
+            [ -z "${missing}" ] && { echo "All candidate images present."; break; }
+            echo "waiting for:${missing} (attempt ${attempt}/60)"
+            sleep 15
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::candidate images not published within timeout:${missing}"
+            exit 1
+          fi
+
+          gh workflow run release-pipeline.yml \
+            --repo Mnexa-AI/e2a-ops \
+            --ref main \
+            -f e2a_tag="${IMAGE_TAG}"
+          echo "Dispatched e2a-ops release-pipeline (staging) for E2A_TAG=${IMAGE_TAG}"
