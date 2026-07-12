@@ -428,11 +428,11 @@ export type ApprovePayload = {
   attachments?: PendingAttachment[];
 };
 
-// approvePendingMessage / rejectPendingMessage hit the agent-scoped
-// HITL endpoints. The backend validates that {agentEmail} matches the
-// message's owning agent — pass the message's agent_id directly (no
-// pre-flight lookup needed; the focus page and pending detail panel
-// already have the loaded message in scope).
+// approvePendingMessage / rejectPendingMessage hit the account-scoped review
+// queue (POST /v1/reviews/{id}/approve|reject). A review's id IS the held
+// message's id, so no inbox email is needed; agentEmail is kept in the
+// signature only for call-site compatibility. (The deprecated agent-path
+// approve/reject endpoints were removed in the pre-GA vocabulary freeze.)
 export async function approvePendingMessage(
   agentEmail: string,
   id: string,

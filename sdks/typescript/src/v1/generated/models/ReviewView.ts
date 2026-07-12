@@ -23,6 +23,9 @@ export class ReviewView {
     'flagReason'?: string;
     'flagged'?: boolean;
     '_from': string;
+    /**
+    * The review\'s id. This is the SAME value as the held message\'s id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.
+    */
     'id': string;
     /**
     * Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).

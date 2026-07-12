@@ -117,15 +117,13 @@ test("authz: GET /messages/<bogus-id> returns 4xx, not 200", async () => {
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("authz: POST /messages/<bogus>/approve returns 4xx", async () => {
-  const agent = encodeURIComponent(client.env.primaryAgentEmail);
-  const r = await client.post(`/v1/agents/${agent}/messages/msg_bogus_${Date.now()}/approve`, { body: {} });
+test("authz: POST /v1/reviews/<bogus>/approve returns 4xx", async () => {
+  const r = await client.post(`/v1/reviews/msg_bogus_${Date.now()}/approve`, { body: {} });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 
-test("authz: POST /messages/<bogus>/reject returns 4xx", async () => {
-  const agent = encodeURIComponent(client.env.primaryAgentEmail);
-  const r = await client.post(`/v1/agents/${agent}/messages/msg_bogus_${Date.now()}/reject`, { body: { reason: "n/a" } });
+test("authz: POST /v1/reviews/<bogus>/reject returns 4xx", async () => {
+  const r = await client.post(`/v1/reviews/msg_bogus_${Date.now()}/reject`, { body: { reason: "n/a" } });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
 });
 

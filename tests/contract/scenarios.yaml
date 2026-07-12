@@ -512,13 +512,15 @@ scenarios:
           held_id: message_id
 
       - id: reject
-        # The flat /api/v1/messages/{id}/reject route was dropped; reject is
-        # now the per-agent /v1 operation. RejectResultView surfaces
+        # Reject is the account-scoped review-queue operation
+        # (POST /v1/reviews/{id}/reject) — a review's id IS the held message's
+        # id, so no inbox email is needed. RejectResultView surfaces
         # {status, message_id, rejection_reason}. Status is the unified
-        # review_rejected (was the outbound-only 'rejected').
+        # review_rejected (was the outbound-only 'rejected'). The deprecated
+        # agent-path reject route was removed in the pre-GA vocabulary freeze.
         action: request
         method: POST
-        path: /v1/agents/{agent_email}/messages/{held_id}/reject
+        path: /v1/reviews/{held_id}/reject
         body:
           reason: off-topic for this audience
         expect:

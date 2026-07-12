@@ -66,11 +66,11 @@ Our commitment, and what you can rely on:
 - **Version discovery.** `GET /v1/info` reports the running API version (and
   deployment flags such as whether shared-domain slug registration is enabled),
   so clients can adapt instead of hard-coding assumptions.
-- **Deprecation & sunset.** If we ever need to wind something down, it stays
-  functional and is marked `deprecated` in the OpenAPI spec; we will not remove
-  it within `/v1`. Endpoints currently marked deprecated (the agent-path
-  `…/messages/{id}/approve|reject`, superseded by `/v1/reviews/{id}/approve|reject`)
-  keep working for the life of `/v1`.
+- **Deprecation & sunset.** Once `/v1` is GA, if we ever need to wind something
+  down it stays functional and is marked `deprecated` in the OpenAPI spec; we
+  will not remove it within GA `/v1`. (Pre-GA, the API is still being frozen:
+  the legacy agent-path `…/messages/{id}/approve|reject` endpoints were removed
+  in favor of the account-scoped `/v1/reviews/{id}/approve|reject` queue.)
 
 The canonical machine-readable contract is always
 [`api/openapi.yaml`](../api/openapi.yaml); CI fails if it drifts from the server.
@@ -160,10 +160,11 @@ single message.
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
 
-> **Note:** the older per-message
-> `POST …/messages/{id}/approve` and `…/reject` endpoints still exist for
-> back-compat but are **deprecated** — use the account-scoped **Reviews** queue
-> below, which addresses holds by id with no inbox email needed.
+> **Note:** approve/reject a held message via the account-scoped **Reviews**
+> queue below (`POST /v1/reviews/{id}/approve|reject`), which addresses holds by
+> id with no inbox email needed. (The older per-message
+> `POST …/messages/{id}/approve|reject` endpoints were removed in the pre-GA
+> vocabulary freeze.)
 
 ### Conversations (`/v1/agents/{email}/conversations`)
 

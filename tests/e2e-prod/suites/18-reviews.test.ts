@@ -218,10 +218,8 @@ test("reviews: approveReview resolves the outbound hold (200 SendResultView; sta
     } else if (r.status === 500 && r.body && (r.body as { error?: { message?: string } }).error?.message === "send failed") {
       // KNOWN STAGING LIMITATION, not a reviews-endpoint bug: approve attempts a
       // real SES send and staging can't deliver to the blackhole sink, so the
-      // send leg 500s ("send failed"). Verified during authoring that the SAME
-      // 500 reproduces on the deprecated agent-path approve
-      // (POST /v1/agents/{email}/messages/{id}/approve) — so the fault is the
-      // send transport on staging, not the /v1/reviews routing/authz. The hold
+      // send leg 500s ("send failed"). Verified during authoring that the fault
+      // is the send transport on staging, not the /v1/reviews routing/authz. The hold
       // stays pending_review after the failed send, so we reject it below to
       // clean up. If prod ever runs this against a deliverable sink, the 200
       // branch above is the real assertion.

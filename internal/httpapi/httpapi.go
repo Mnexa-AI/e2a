@@ -427,7 +427,6 @@ func (s *Server) registerOperations() {
 	s.registerAccount()
 	s.registerAPIKeys()
 	s.registerOutbound()
-	s.registerHITL()
 	s.registerReviews()
 }
 

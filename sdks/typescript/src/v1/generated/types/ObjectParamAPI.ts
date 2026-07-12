@@ -1018,36 +1018,6 @@ export class ObjectEventsApi {
 import { ObservableMessagesApi } from "./ObservableAPI.js";
 import { MessagesApiRequestFactory, MessagesApiResponseProcessor} from "../apis/MessagesApi.js";
 
-export interface MessagesApiApproveMessageRequest {
-    /**
-     * 
-     * Defaults to: undefined
-     * @type string
-     * @memberof MessagesApiapproveMessage
-     */
-    email: string
-    /**
-     * 
-     * Defaults to: undefined
-     * @type string
-     * @memberof MessagesApiapproveMessage
-     */
-    id: string
-    /**
-     * 
-     * @type ApproveRequest
-     * @memberof MessagesApiapproveMessage
-     */
-    approveRequest: ApproveRequest
-    /**
-     * 
-     * Defaults to: undefined
-     * @type string
-     * @memberof MessagesApiapproveMessage
-     */
-    idempotencyKey?: string
-}
-
 export interface MessagesApiForwardMessageRequest {
     /**
      * 
@@ -1223,29 +1193,6 @@ export interface MessagesApiListMessagesRequest {
     limit?: number
 }
 
-export interface MessagesApiRejectMessageRequest {
-    /**
-     * 
-     * Defaults to: undefined
-     * @type string
-     * @memberof MessagesApirejectMessage
-     */
-    email: string
-    /**
-     * 
-     * Defaults to: undefined
-     * @type string
-     * @memberof MessagesApirejectMessage
-     */
-    id: string
-    /**
-     * 
-     * @type RejectRequest
-     * @memberof MessagesApirejectMessage
-     */
-    rejectRequest: RejectRequest
-}
-
 export interface MessagesApiReplyToMessageRequest {
     /**
      * 
@@ -1344,24 +1291,6 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * **Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
-     * Approve a held message (deprecated)
-     * @param param the request object
-     */
-    public approveMessageWithHttpInfo(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
-        return this.api.approveMessageWithHttpInfo(param.email, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
-    }
-
-    /**
-     * **Deprecated — use `POST /v1/reviews/{id}/approve`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Approve a message held in pending_review. The action branches on the message\'s direction: an **outbound** hold is sent via SES (honoring Idempotency-Key and optional reviewer overrides; the response carries the send result), and an **inbound** hold is released to the agent\'s inbox (it becomes readable; the response status is review_approved). Account-scoped credentials only — an agent-scoped credential cannot release its own hold (self-approval would defeat the review gate).
-     * Approve a held message (deprecated)
-     * @param param the request object
-     */
-    public approveMessage(param: MessagesApiApproveMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
-        return this.api.approveMessage(param.email, param.id, param.approveRequest, param.idempotencyKey,  options).toPromise();
-    }
-
-    /**
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.
      * Forward a message
      * @param param the request object
@@ -1431,24 +1360,6 @@ export class ObjectMessagesApi {
      */
     public listMessages(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<PageMessageSummaryView> {
         return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param._from, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
-    }
-
-    /**
-     * **Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
-     * Reject a held message (deprecated)
-     * @param param the request object
-     */
-    public rejectMessageWithHttpInfo(param: MessagesApiRejectMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
-        return this.api.rejectMessageWithHttpInfo(param.email, param.id, param.rejectRequest,  options).toPromise();
-    }
-
-    /**
-     * **Deprecated — use `POST /v1/reviews/{id}/reject`** (the account-scoped, id-addressed review queue; no inbox email needed). This agent-path endpoint remains for back-compat and behaves identically. Reject a message held in pending_review. An **outbound** hold is discarded so it is never sent; an **inbound** hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). Account-scoped credentials only.
-     * Reject a held message (deprecated)
-     * @param param the request object
-     */
-    public rejectMessage(param: MessagesApiRejectMessageRequest, options?: ConfigurationOptions): Promise<RejectResultView> {
-        return this.api.rejectMessage(param.email, param.id, param.rejectRequest,  options).toPromise();
     }
 
     /**

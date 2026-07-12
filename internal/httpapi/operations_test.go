@@ -529,6 +529,21 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 			}
 			return nil
 		},
+		// GetReviewWithContent backs the account-scoped /v1/reviews/{id}
+		// approve/reject ownership guard (requireOwnedReview). It resolves a held
+		// message by id and yields its owning agent; the deeper approve/reject
+		// dispatch (ApprovePending/RejectPending/GetReviewMessage above) then
+		// branches on direction. Unknown ids 404.
+		GetReviewWithContent: func(ctx context.Context, userID, id string) (*identity.Message, error) {
+			switch id {
+			case "msg_pending", "msg_notpending":
+				return &identity.Message{ID: id, AgentID: "support@acme.com", Direction: "outbound", Status: "pending_review"}, nil
+			case "msg_in_held", "msg_in_notpending":
+				return &identity.Message{ID: id, AgentID: "support@acme.com", Direction: "inbound", Status: "pending_review"}, nil
+			default:
+				return nil, errors.New("not found")
+			}
+		},
 		GetRepliableMessage: func(ctx context.Context, messageID string) (*identity.Message, error) {
 			if messageID == "msg_in1" {
 				return &identity.Message{

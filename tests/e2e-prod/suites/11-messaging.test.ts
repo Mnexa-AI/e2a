@@ -47,7 +47,7 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
   if (!page1.body?.next_cursor) {
     info(SUITE, "pagination-single-page", "fewer than 3+1 messages in inbox — pagination not exercised");
     // Cleanup queued.
-    for (const id of queued) await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
+    for (const id of queued) await client.post(`/v1/reviews/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
     return;
   }
   const page2 = await client.get<{ items: Array<{ id: string }>; next_cursor?: string | null }>(
@@ -64,11 +64,11 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
   if (overlap.length > 0) {
     fail(SUITE, "pagination-duplicate-ids", `${overlap.length} ids appear on both pages: ${overlap.slice(0, 5).join(",")}`);
     // Cleanup before throwing so we don't leak HITL-held messages.
-    for (const id of queued) await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
+    for (const id of queued) await client.post(`/v1/reviews/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
     assert.fail(`pagination roundtrip returned ${overlap.length} duplicate id(s) — pagination is broken`);
   }
   // Cleanup.
-  for (const id of queued) await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
+  for (const id of queued) await client.post(`/v1/reviews/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
 });
 
 test("messaging: Idempotency-Key replay — same key+body returns same message_id", async () => {
@@ -97,9 +97,9 @@ test("messaging: Idempotency-Key replay — same key+body returns same message_i
     );
     // Hard assert — Idempotency-Key semantics are a financial-stakes
     // contract (double-send protection on approve). Don't paper over.
-    await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${firstId}/reject`, { body: { reason: "e2e idem cleanup pre-fail" } });
+    await client.post(`/v1/reviews/${firstId}/reject`, { body: { reason: "e2e idem cleanup pre-fail" } });
     if (r2.body?.message_id) {
-      await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${r2.body.message_id}/reject`, { body: { reason: "e2e idem cleanup pre-fail" } });
+      await client.post(`/v1/reviews/${r2.body.message_id}/reject`, { body: { reason: "e2e idem cleanup pre-fail" } });
     }
     assert.fail(`Idempotency-Key replay broken: ${firstId} !== ${r2.body?.message_id}`);
   }
@@ -114,7 +114,7 @@ test("messaging: Idempotency-Key replay — same key+body returns same message_i
     info(SUITE, "idem-diff-body-non-422", `same key + DIFFERENT body returned ${r3.status} instead of 422: ${r3.raw.slice(0, 200)}`);
   }
 
-  await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${firstId}/reject`, { body: { reason: "e2e idem cleanup" } });
+  await client.post(`/v1/reviews/${firstId}/reject`, { body: { reason: "e2e idem cleanup" } });
 });
 
 test("messaging: /agents/{email}/test on HITL agent returns 202 with message_id (and is rejectable)", async () => {
@@ -137,7 +137,7 @@ test("messaging: /agents/{email}/test on HITL agent returns 202 with message_id 
   }
   const msgId = (r.body as { message_id?: string })?.message_id;
   if (msgId) {
-    const rej = await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${msgId}/reject`, { body: { reason: "e2e /test cleanup" } });
+    const rej = await client.post(`/v1/reviews/${msgId}/reject`, { body: { reason: "e2e /test cleanup" } });
     assert.ok(rej.status === 200, `failed to reject /test message: ${rej.status} ${rej.raw.slice(0, 200)}`);
   } else {
     info(SUITE, "test-no-msgid", "response body did not include message_id");
@@ -157,7 +157,7 @@ test("messaging: HITL approve flow — send queues, approve sends, status→sent
   const id = s.body!.message_id;
 
   // Approve — empty body approves as-is. Goes out via SMTP to blackhole sink.
-  const ap = await client.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/approve`, { body: {} });
+  const ap = await client.post<{ message_id: string; status: string }>(`/v1/reviews/${id}/approve`, { body: {} });
   if (ap.status !== 200) {
     fail(SUITE, "approve-non-200", `approve returned ${ap.status}: ${ap.raw.slice(0, 200)}`);
     return;
@@ -168,7 +168,7 @@ test("messaging: HITL approve flow — send queues, approve sends, status→sent
   info(SUITE, "approve-final-status", `approve returned status="${finalStatus}"`);
 
   // Re-approve must fail with 409 (already sent).
-  const ap2 = await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/approve`, { body: {} });
+  const ap2 = await client.post(`/v1/reviews/${id}/approve`, { body: {} });
   if (ap2.status !== 409) {
     info(SUITE, "double-approve-non-409", `re-approve of sent message returned ${ap2.status} instead of 409: ${ap2.raw.slice(0, 200)}`);
   }
@@ -185,13 +185,13 @@ test("messaging: reject of a sent message returns 409 (state guard)", async () =
   }
   const id = s.body.message_id;
   // First approve so it transitions to sent.
-  const ap = await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/approve`, { body: {} });
+  const ap = await client.post(`/v1/reviews/${id}/approve`, { body: {} });
   if (ap.status !== 200) {
     info(SUITE, "rej-after-send-approve-failed", `approve returned ${ap.status}, can't test reject-after-send`);
     return;
   }
   // Now reject the same message — must 409.
-  const rej = await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "should fail" } });
+  const rej = await client.post(`/v1/reviews/${id}/reject`, { body: { reason: "should fail" } });
   if (rej.status !== 409) {
     info(SUITE, "reject-after-send-non-409", `expected 409 for reject after send, got ${rej.status}: ${rej.raw.slice(0, 200)}`);
   }
@@ -211,7 +211,7 @@ test("messaging: approve with field overrides applies them before send", async (
   // subset is subject/text/html/to/cc/bcc/attachments (plain-text field is `text`,
   // not `body`/`body_text` — the latter are rejected 422 as an unexpected property).
   const ap = await client.post<{ message_id: string; status: string }>(
-    `/v1/agents/${encodeURIComponent(email)}/messages/${id}/approve`,
+    `/v1/reviews/${id}/approve`,
     { body: { subject: "overridden subject (approve-time)", text: "overridden body" } },
   );
   if (ap.status !== 200) {
@@ -326,6 +326,6 @@ test("messaging: send with reply_to (header round-trip) is accepted", async () =
   }
   assert.ok(r.status === 200 || r.status === 202, `expected 200/202, got ${r.status}`);
   if (r.body?.message_id) {
-    await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${r.body.message_id}/reject`, { body: { reason: "e2e reply_to cleanup" } });
+    await client.post(`/v1/reviews/${r.body.message_id}/reject`, { body: { reason: "e2e reply_to cleanup" } });
   }
 });

@@ -284,16 +284,10 @@ class MessagesResource {
   forward(email: string, messageId: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
     return call(() => this.api.forwardMessage(email, messageId, body, opts.idempotencyKey));
   }
-  /** @deprecated Use `client.reviews.approve(messageId, body)` — the review queue is
-   *  account-scoped and id-addressed, so you no longer pass the inbox email.
-   *  This agent-path endpoint is deprecated and will be removed. */
-  approve(email: string, messageId: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.approveMessage(email, messageId, body, opts.idempotencyKey));
-  }
-  /** @deprecated Use `client.reviews.reject(id, body)`. See `approve` above. */
-  reject(email: string, id: string, body: RejectRequest = {}): Promise<RejectResultView> {
-    return call(() => this.api.rejectMessage(email, id, body));
-  }
+  // Approve/reject a held message live on the account-scoped review queue —
+  // `client.reviews.approve(id, body)` / `client.reviews.reject(id, body)`. The
+  // deprecated per-inbox messages.approve/reject was removed in the pre-GA
+  // vocabulary freeze (a review is addressed by message id alone).
   updateLabels(email: string, id: string, body: UpdateMessageRequest): Promise<UpdateMessageResultView> {
     return call(() => this.api.updateMessage(email, id, body));
   }

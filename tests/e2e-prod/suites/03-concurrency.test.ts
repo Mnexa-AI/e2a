@@ -185,6 +185,6 @@ test("concurrency: 8 parallel sends from HITL agent — all queue (no dropped/du
 
   // Best-effort reject all so no actual mail leaves the system.
   for (const id of ids) {
-    await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e cleanup" } });
+    await client.post(`/v1/reviews/${id}/reject`, { body: { reason: "e2e cleanup" } });
   }
 });

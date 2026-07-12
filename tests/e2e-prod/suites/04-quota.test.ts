@@ -59,7 +59,7 @@ test("quota: send /v1/agents/{email}/messages rapidly until first 429 (spec says
 
   // Reject everything we queued so no actual mail leaves the system.
   for (const id of ids) {
-    await burst.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e cleanup" } });
+    await burst.post(`/v1/reviews/${id}/reject`, { body: { reason: "e2e cleanup" } });
   }
 });
 

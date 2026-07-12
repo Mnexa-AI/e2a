@@ -376,31 +376,11 @@ class MessagesResource:
             idempotency_key,
         )
 
-    async def approve(
-        self,
-        email: str,
-        message_id: str,
-        body: Optional[Body] = None,
-        *,
-        idempotency_key: Optional[str] = None,
-    ) -> SendResultView:
-        """Deprecated: use ``client.reviews.approve(message_id, body)`` — the
-        review queue is account-scoped and id-addressed, so the inbox email is
-        no longer needed. This agent-path endpoint is deprecated."""
-        req = _coerce(ApproveRequest, body)
-        return await self._c._write_keyed(
-            lambda h: self._api.approve_message(email, message_id, req, _headers=h),
-            idempotency_key,
-        )
-
-    async def reject(
-        self, email: str, message_id: str, body: Optional[Body] = None
-    ) -> RejectResultView:
-        """Deprecated: use ``client.reviews.reject(message_id, body)``."""
-        req = _coerce(RejectRequest, body)
-        return await self._c._write_unsafe(
-            lambda h: self._api.reject_message(email, message_id, req, _headers=h)
-        )
+    # Approve/reject a held message live on the account-scoped review queue —
+    # ``client.reviews.approve(message_id, body)`` /
+    # ``client.reviews.reject(message_id, body)``. The deprecated per-inbox
+    # messages.approve/reject was removed in the pre-GA vocabulary freeze (a
+    # review is addressed by message id alone).
 
     async def update_labels(
         self, email: str, message_id: str, body: Body

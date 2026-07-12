@@ -67,7 +67,7 @@ test("security: extremely long subject is bounded (no 500)", async () => {
   assert.ok(r.status < 500, `expected 4xx or 2xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
   if ((r.status === 200 || r.status === 202) && r.body?.message_id) {
     // Clean up any queued mail.
-    await client.post(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages/${r.body.message_id}/reject`, { body: { reason: "e2e long-subject cleanup" } });
+    await client.post(`/v1/reviews/${r.body.message_id}/reject`, { body: { reason: "e2e long-subject cleanup" } });
   }
 });
 
@@ -93,7 +93,7 @@ test("security: CRLF injection in subject rejected or sanitized (no header smugg
   if (r.status === 200 || r.status === 202) {
     info(SUITE, "crlf-accepted", `CRLF in subject accepted (${r.status}). Server should sanitize before SMTP — verify in outbound path.`);
     if (r.body?.message_id) {
-      await client.post(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages/${r.body.message_id}/reject`, { body: { reason: "e2e crlf cleanup" } });
+      await client.post(`/v1/reviews/${r.body.message_id}/reject`, { body: { reason: "e2e crlf cleanup" } });
     }
   } else {
     info(SUITE, "crlf-rejected", `CRLF in subject rejected with ${r.status} — good`);
@@ -143,6 +143,6 @@ test("security: send body with HTML — html distinct from text", async () => {
   });
   assert.ok(r.status === 200 || r.status === 202, `expected 200/202, got ${r.status}: ${r.raw.slice(0, 200)}`);
   if (r.body?.message_id) {
-    await client.post(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages/${r.body.message_id}/reject`, { body: { reason: "e2e html cleanup" } });
+    await client.post(`/v1/reviews/${r.body.message_id}/reject`, { body: { reason: "e2e html cleanup" } });
   }
 });

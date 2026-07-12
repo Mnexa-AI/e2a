@@ -156,7 +156,7 @@ test("send: review-gated agent returns 202 pending_review", async () => {
   assert.ok(send.body?.message_id?.startsWith("msg_"), "message_id has msg_ prefix");
 
   const reject = await client.post(
-    `/v1/agents/${encodeURIComponent(email)}/messages/${send.body!.message_id}/reject`,
+    `/v1/reviews/${send.body!.message_id}/reject`,
     {
       body: { reason: "e2e test rejection" },
     },

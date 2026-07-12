@@ -258,7 +258,7 @@ test("getAttachment: a HELD (pending_review) draft carrying an attachment expose
 
   // Resolve the hold so we don't leave a dangling pending_review item.
   const reject = await client.post(
-    `/v1/agents/${encodeURIComponent(email)}/messages/${messageId}/reject`,
+    `/v1/reviews/${messageId}/reject`,
     { body: { reason: "e2e attachments suite cleanup" } },
   );
   assert.ok(reject.status === 200, `reject expected 200, got ${reject.status}: ${reject.raw.slice(0, 200)}`);

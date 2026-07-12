@@ -196,8 +196,8 @@ When an agent's protection config holds an outbound message for review, `send` a
 
 Reviewers can approve or reject via:
 
-- **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the primary path. The agent-path `POST /v1/agents/{email}/messages/{id}/approve|reject` is **deprecated** but still works identically for back-compat.
-- **MCP tools** — `approve_message` / `reject_message` (with `list_pending_messages` / `get_pending_message` to find them).
+- **Dashboard / API** — the account-scoped review queue `POST /v1/reviews/{id}/approve` or `/reject` (id-addressed, no inbox email needed; lists held items across all the account's inboxes via `GET /v1/reviews`). This is the only approve/reject path — a review's `id` is the held message's `id`.
+- **MCP tools** — `approve_review` / `reject_review` (with `list_reviews` / `get_review` to find them).
 - **Magic-link email** — sent automatically when a hold fires; one-click `GET /v1/approve?t=…` and `/v1/reject?t=…` URLs (requires `E2A_PUBLIC_URL` and outbound SMTP configured).
 
 Enable review holds on an agent via `PUT /v1/agents/{email}/protection`: set the outbound gate action to `review` (or turn on the content scan), plus the hold TTL (`holds.ttl_seconds`) and its expiry behavior (`holds.on_expiry` = `approve` or `reject`). Posture lives entirely on the protection sub-resource.
@@ -220,7 +220,7 @@ https://api.e2a.dev/mcp
 
 Authenticate either with **OAuth 2.1** (add e2a as a connector and authorize in the browser) or a **Bearer API key** (`Authorization: Bearer <e2a API key>`). An agent-scoped credential resolves its agent server-side; account-scoped callers pass the agent `email` per tool call.
 
-The toolset covers the full agent loop — inbox (`list_messages`, `get_message`, `get_attachment`, `list_conversations`, `get_conversation`, `update_message_labels`), outbound (`send_message`, `reply_to_message`, `forward_message`), HITL review (`list_pending_messages`, `approve_message`, `reject_message`), plus agent/domain/webhook management. Inbound is consumed by polling (`list_messages`) or a `create_webhook` subscription.
+The toolset covers the full agent loop — inbox (`list_messages`, `get_message`, `get_attachment`, `list_conversations`, `get_conversation`, `update_message_labels`), outbound (`send_message`, `reply_to_message`, `forward_message`), HITL review (`list_reviews`, `get_review`, `approve_review`, `reject_review`), plus agent/domain/webhook management. Inbound is consumed by polling (`list_messages`) or a `create_webhook` subscription.
 
 The server publishes to npm as [`@e2a/mcp-server`](https://www.npmjs.com/package/@e2a/mcp-server) for self-hosting. See [mcp/README.md](mcp/README.md) for per-framework setup and the full tool reference.
 

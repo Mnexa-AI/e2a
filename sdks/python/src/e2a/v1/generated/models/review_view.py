@@ -34,7 +34,7 @@ class ReviewView(BaseModel):
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
     var_from: StrictStr = Field(alias="from")
-    id: StrictStr
+    id: StrictStr = Field(description="The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.")
     review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")
     subject: StrictStr
     to: List[StrictStr]

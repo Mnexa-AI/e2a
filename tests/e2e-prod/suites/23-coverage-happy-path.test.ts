@@ -7,7 +7,7 @@ import { writeReport } from "../harness/report.ts";
 
 // Happy-path coverage for operations the rest of the suite only PROBES negatively
 // (updateAgent, updateMessage, forwardMessage, getConversation, replyToMessage,
-// approveMessage). The operationId coverage gate records an op as covered only on
+// approveReview). The operationId coverage gate records an op as covered only on
 // a 2xx, so an op that elsewhere gets nothing but a 404/400 probe reads as
 // UNCOVERED. These tests close that gap by INVOKING each op successfully on fresh,
 // isolated agents — no dependency on shared-account state (which made the messaging
@@ -98,7 +98,7 @@ test("forwardMessage: forward an inbound message to the simulator (200)", async 
   assert.ok(r.body?.message_id, "forward returned a message id");
 });
 
-test("approveMessage: approve a HITL-held outbound (200)", async () => {
+test("approveReview: approve a HITL-held outbound (200)", async () => {
   const email = await freshAgent("covap", true); // holds all outbound for review
   const send = await client.post<{ status: string; message_id: string }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
@@ -107,7 +107,7 @@ test("approveMessage: approve a HITL-held outbound (200)", async () => {
   assert.equal(send.body?.status, "pending_review");
   const id = send.body!.message_id;
   const ap = await client.post<{ message_id: string; status: string }>(
-    `/v1/agents/${encodeURIComponent(email)}/messages/${id}/approve`,
+    `/v1/reviews/${id}/approve`,
     { body: {}, expect: 200 },
   );
   assert.equal(ap.body?.message_id, id);

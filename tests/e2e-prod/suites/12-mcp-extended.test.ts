@@ -95,13 +95,13 @@ test("mcp-ext: send_email tool happy path with HITL agent queues message", async
     info(SUITE, "mcp-send-not-pending", `expected pending_review for review-gated agent, got "${parsed.status}"`);
   }
   // Clean up via API.
-  await apiClient.post(`/v1/agents/${encodeURIComponent(email)}/messages/${parsed.message_id}/reject`, { body: { reason: "e2e mcp send cleanup" } });
+  await apiClient.post(`/v1/reviews/${parsed.message_id}/reject`, { body: { reason: "e2e mcp send cleanup" } });
 });
 
-test("mcp-ext: list_pending_messages and get_pending_message round-trip", async () => {
+test("mcp-ext: list_reviews and get_review round-trip", async () => {
   const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  const hasList = list.tools.find((t) => t.name === "list_pending_messages");
-  const hasGet = list.tools.find((t) => t.name === "get_pending_message");
+  const hasList = list.tools.find((t) => t.name === "list_reviews");
+  const hasGet = list.tools.find((t) => t.name === "get_review");
   if (!hasList || !hasGet) {
     info(SUITE, "pending-tools-absent", `missing tools: list=${!!hasList} get=${!!hasGet}`);
     return;
@@ -117,34 +117,34 @@ test("mcp-ext: list_pending_messages and get_pending_message round-trip", async 
   }
   const id = s.body.message_id;
 
-  // list_pending_messages — should include our queued msg. The MCP
+  // list_reviews — should include our queued msg. The MCP
   // tool's schema is strictInputSchema({}) — it takes ZERO arguments
   // (no page_size, no token). The HTTP API does paginate; the MCP
   // wrapper deliberately doesn't expose that surface. Pass nothing.
-  const lp = await callTool(mcp, "list_pending_messages");
+  const lp = await callTool(mcp, "list_reviews");
   if (lp.isError) {
-    fail(SUITE, "list-pending-error", `list_pending_messages isError: ${extractText(lp).slice(0, 200)}`);
+    fail(SUITE, "list-pending-error", `list_reviews isError: ${extractText(lp).slice(0, 200)}`);
   } else {
     const text = extractText(lp);
     if (!text.includes(id)) {
-      info(SUITE, "list-pending-missing-msg", `queued ${id} not in list_pending_messages response (may be paginated or filtered)`);
+      info(SUITE, "list-pending-missing-msg", `queued ${id} not in list_reviews response (may be paginated or filtered)`);
     }
   }
 
-  // get_pending_message.
-  const gp = await callTool(mcp, "get_pending_message", { message_id: id });
+  // get_review.
+  const gp = await callTool(mcp, "get_review", { message_id: id });
   if (gp.isError) {
-    fail(SUITE, "get-pending-error", `get_pending_message isError for ${id}: ${extractText(gp).slice(0, 200)}`);
+    fail(SUITE, "get-pending-error", `get_review isError for ${id}: ${extractText(gp).slice(0, 200)}`);
   } else {
     const parsed = JSON.parse(extractText(gp)) as { id?: string; message_id?: string; status?: string };
     const returnedId = parsed.id ?? parsed.message_id;
     if (returnedId !== id) {
-      info(SUITE, "get-pending-id-mismatch", `get_pending_message returned id=${returnedId}, expected ${id}`);
+      info(SUITE, "get-pending-id-mismatch", `get_review returned id=${returnedId}, expected ${id}`);
     }
   }
 
   // Cleanup
-  await apiClient.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e mcp pending cleanup" } });
+  await apiClient.post(`/v1/reviews/${id}/reject`, { body: { reason: "e2e mcp pending cleanup" } });
 });
 
 test("mcp-ext: reject_pending_message via MCP transitions the message", async () => {

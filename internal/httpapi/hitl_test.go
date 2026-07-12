@@ -2,9 +2,14 @@ package httpapi
 
 import "testing"
 
+// These exercise the account-scoped review queue approve/reject dispatch
+// (/v1/reviews/{id}/approve|reject) — the only approve/reject path since the
+// deprecated agent-path (/v1/agents/{email}/messages/{id}/approve|reject) was
+// removed in the pre-GA vocabulary freeze.
+
 func TestApproveSent(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_pending/approve", "good", map[string]any{})
+	code, body := postJSON(t, srv.URL+"/v1/reviews/msg_pending/approve", "good", map[string]any{})
 	if code != 200 || body["status"] != "sent" || body["message_id"] != "msg_pending" {
 		t.Fatalf("want 200 sent, got %d %v", code, body)
 	}
@@ -16,7 +21,7 @@ func TestApproveSent(t *testing.T) {
 func TestApproveWithOverrides(t *testing.T) {
 	srv := testServer(t)
 	// reviewer overrides ride in the body
-	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_pending/approve", "good",
+	code, _ := postJSON(t, srv.URL+"/v1/reviews/msg_pending/approve", "good",
 		map[string]any{"subject": "edited", "to": []string{"a@x.com"}})
 	if code != 200 {
 		t.Fatalf("want 200, got %d", code)
@@ -25,7 +30,7 @@ func TestApproveWithOverrides(t *testing.T) {
 
 func TestApproveNotPending(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_notpending/approve", "good", map[string]any{})
+	code, body := postJSON(t, srv.URL+"/v1/reviews/msg_notpending/approve", "good", map[string]any{})
 	if code != 409 || errCode(body) != "message_not_pending" {
 		t.Fatalf("want 409 message_not_pending, got %d %v", code, body)
 	}
@@ -33,15 +38,7 @@ func TestApproveNotPending(t *testing.T) {
 
 func TestApproveNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/approve", "good", map[string]any{})
-	if code != 404 {
-		t.Fatalf("want 404, got %d", code)
-	}
-}
-
-func TestApproveNotOwnedAgent(t *testing.T) {
-	srv := testServer(t)
-	code, _ := postJSON(t, srv.URL+"/v1/agents/other%40acme.com/messages/msg_pending/approve", "good", map[string]any{})
+	code, _ := postJSON(t, srv.URL+"/v1/reviews/msg_missing/approve", "good", map[string]any{})
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}
@@ -49,7 +46,7 @@ func TestApproveNotOwnedAgent(t *testing.T) {
 
 func TestReject(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_pending/reject", "good", map[string]any{"reason": "not now"})
+	code, body := postJSON(t, srv.URL+"/v1/reviews/msg_pending/reject", "good", map[string]any{"reason": "not now"})
 	if code != 200 || body["status"] != "review_rejected" || body["rejection_reason"] != "not now" {
 		t.Fatalf("want 200 rejected, got %d %v", code, body)
 	}
@@ -57,7 +54,7 @@ func TestReject(t *testing.T) {
 
 func TestRejectNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_missing/reject", "good", map[string]any{})
+	code, _ := postJSON(t, srv.URL+"/v1/reviews/msg_missing/reject", "good", map[string]any{})
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}
@@ -70,7 +67,7 @@ func TestRejectNotFound(t *testing.T) {
 // send path.
 func TestApproveInboundReleases(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in_held/approve", "good", map[string]any{})
+	code, body := postJSON(t, srv.URL+"/v1/reviews/msg_in_held/approve", "good", map[string]any{})
 	if code != 200 || body["status"] != "review_approved" || body["message_id"] != "msg_in_held" {
 		t.Fatalf("want 200 review_approved, got %d %v", code, body)
 	}
@@ -87,7 +84,7 @@ func TestApproveInboundReleases(t *testing.T) {
 // (status review_rejected) with the reviewer reason echoed.
 func TestRejectInboundDrops(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in_held/reject", "good", map[string]any{"reason": "prompt injection"})
+	code, body := postJSON(t, srv.URL+"/v1/reviews/msg_in_held/reject", "good", map[string]any{"reason": "prompt injection"})
 	if code != 200 || body["status"] != "review_rejected" || body["rejection_reason"] != "prompt injection" {
 		t.Fatalf("want 200 review_rejected, got %d %v", code, body)
 	}
@@ -98,7 +95,7 @@ func TestRejectInboundDrops(t *testing.T) {
 // release.
 func TestApproveInboundNotPending(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in_notpending/approve", "good", map[string]any{})
+	code, body := postJSON(t, srv.URL+"/v1/reviews/msg_in_notpending/approve", "good", map[string]any{})
 	if code != 409 || errCode(body) != "message_not_pending" {
 		t.Fatalf("want 409 message_not_pending, got %d %v", code, body)
 	}
@@ -107,7 +104,7 @@ func TestApproveInboundNotPending(t *testing.T) {
 // TestRejectInboundNotPending mirrors the approve conflict on the reject path.
 func TestRejectInboundNotPending(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in_notpending/reject", "good", map[string]any{"reason": "x"})
+	code, body := postJSON(t, srv.URL+"/v1/reviews/msg_in_notpending/reject", "good", map[string]any{"reason": "x"})
 	if code != 409 || errCode(body) != "message_not_pending" {
 		t.Fatalf("want 409 message_not_pending, got %d %v", code, body)
 	}
