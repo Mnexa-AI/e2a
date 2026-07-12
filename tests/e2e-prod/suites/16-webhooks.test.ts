@@ -9,9 +9,9 @@ import { info, writeReport } from "../harness/report.ts";
 // AND curl-probed on the live server before these assertions were written.
 //
 // The shared cleanup harness only tracks agents/domains, so every webhook this
-// suite creates is deleted inline in a `finally`. deleteWebhook takes NO
-// `?confirm=DELETE` (unlike agents/domains) — a plain DELETE returns 204
-// (probed 2026-07-10; openapi documents no confirm param for this op).
+// suite creates is deleted inline in a `finally`. deleteWebhook now requires
+// `?confirm=DELETE` (uniform destructive-delete guard, #53) — a plain DELETE
+// is rejected with 422 before the handler runs.
 const SUITE = "16-webhooks";
 const client = new ApiClient();
 
@@ -65,9 +65,9 @@ async function createHook(events: string[] = ["email.received", "email.sent"]): 
 }
 
 async function deleteHook(id: string): Promise<void> {
-  // No ?confirm=DELETE for webhooks (unlike agents/domains). Idempotent-ish:
-  // a second delete 404s, which is fine for best-effort cleanup.
-  await client.delete(`/v1/webhooks/${encodeURIComponent(id)}`);
+  // Requires ?confirm=DELETE (uniform destructive-delete guard, #53).
+  // Idempotent-ish: a second delete 404s, which is fine for best-effort cleanup.
+  await client.delete(`/v1/webhooks/${encodeURIComponent(id)}?confirm=DELETE`);
 }
 
 // createWebhook + getWebhook + listWebhooks + updateWebhook + rotateWebhookSecret
@@ -146,7 +146,7 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
     }
 
     // deleteWebhook — 204, then the hook 404s.
-    const rm = await client.delete(`/v1/webhooks/${id}`);
+    const rm = await client.delete(`/v1/webhooks/${id}?confirm=DELETE`);
     assert.equal(rm.status, 204, `delete expected 204, got ${rm.status}: ${rm.raw.slice(0, 200)}`);
     const gone = await client.get<ErrEnvelope>(`/v1/webhooks/${id}`);
     assert.equal(gone.status, 404, `deleted webhook should 404, got ${gone.status}`);
@@ -224,7 +224,7 @@ test("webhooks: get nonexistent returns 404 not_found", async () => {
 });
 
 test("webhooks: delete nonexistent returns 404 not_found", async () => {
-  const r = await client.delete<ErrEnvelope>(`/v1/webhooks/wh_${uniqueSlug("missing").replace(/-/g, "")}`);
+  const r = await client.delete<ErrEnvelope>(`/v1/webhooks/wh_${uniqueSlug("missing").replace(/-/g, "")}?confirm=DELETE`);
   assert.equal(r.status, 404, `delete nonexistent expected 404, got ${r.status}`);
   assert.equal(r.body?.error?.code, "not_found");
 });

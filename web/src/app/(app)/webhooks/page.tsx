@@ -514,7 +514,7 @@ function WebhookRow({
     setError("");
     try {
       const res = await fetch(
-        `/v1/webhooks/${encodeURIComponent(webhook.id)}`,
+        `/v1/webhooks/${encodeURIComponent(webhook.id)}?confirm=DELETE`,
         {
           method: "DELETE",
           credentials: "include",

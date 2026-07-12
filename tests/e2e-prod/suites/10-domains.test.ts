@@ -105,7 +105,8 @@ test("domains: DELETE returns 204 and removes from list", async () => {
   }
   // Don't track — this test consumes it.
   // DELETE is irreversible (deprovisions the sending identity) and requires
-  // the ?confirm=DELETE guard — without it the server returns 400 confirmation_required.
+  // the ?confirm=DELETE guard (required enum:[DELETE] query param) — without it
+  // the server returns 422 before the handler runs.
   const del = await client.delete(`/v1/domains/${encodeURIComponent(domain)}?confirm=DELETE`);
   assert.equal(del.status, 204, `DELETE expected 204, got ${del.status}: ${del.raw.slice(0, 200)}`);
   const after = await client.get(`/v1/domains/${encodeURIComponent(domain)}`);
@@ -165,7 +166,7 @@ test("domains: GET unowned domain returns 4xx (no info leak)", async () => {
 });
 
 test("domains: DELETE unowned domain returns 4xx (no cross-tenant delete)", async () => {
-  const r = await client.delete(`/v1/domains/${encodeURIComponent("not-mine-domain-987654321.example.com")}`);
+  const r = await client.delete(`/v1/domains/${encodeURIComponent("not-mine-domain-987654321.example.com")}?confirm=DELETE`);
   if (r.status === 200 || r.status === 204) {
     fail(SUITE, "cross-tenant-domain-delete", "CRITICAL: deleted a domain we don't own");
   }

@@ -100,7 +100,7 @@ func (s *Server) registerAgentWrites() {
 		Method:        http.MethodDelete,
 		Path:          "/v1/agents/{email}",
 		Summary:       "Delete an agent",
-		Description:   "Delete an agent the caller owns.",
+		Description:   "Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).",
 		Tags:          []string{"agents"},
 		Security:      []map[string][]string{{"bearer": {}}},
 		DefaultStatus: http.StatusNoContent,
@@ -154,10 +154,10 @@ type deleteAgentOutput struct{}
 
 // deleteAgentInput adds the confirmation guard (AG-6). Deleting an agent
 // discards held drafts and revokes its credentials, so it requires
-// ?confirm=DELETE — uniform with deleteAccount/deleteDomain.
+// ?confirm=DELETE — uniform with every other delete op (see DeleteConfirm).
 type deleteAgentInput struct {
 	Address string `path:"email"`
-	Confirm string `query:"confirm" doc:"Must be DELETE — this is irreversible."`
+	DeleteConfirm
 }
 
 func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*deleteAgentOutput, error) {
@@ -170,11 +170,8 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 	if err != nil {
 		return nil, err
 	}
-	// Confirm after ownership: don't prompt to confirm deleting an agent the
-	// caller can't even touch (a not-owned agent is 404 first).
-	if in.Confirm != "DELETE" {
-		return nil, NewError(http.StatusBadRequest, "confirmation_required", "add ?confirm=DELETE to the request to proceed — this is irreversible")
-	}
+	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
+	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
 	if s.deps.DeleteAgent == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
 	}

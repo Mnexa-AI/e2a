@@ -110,7 +110,7 @@ func TestCreateAPIKeyRejectsPastExpiry(t *testing.T) {
 
 func TestDeleteAPIKey(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_1", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_1?confirm=DELETE", "good", nil)
 	if code != 204 {
 		t.Fatalf("want 204, got %d", code)
 	}
@@ -118,7 +118,7 @@ func TestDeleteAPIKey(t *testing.T) {
 
 func TestDeleteAPIKeyNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_missing", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_missing?confirm=DELETE", "good", nil)
 	if code != 404 {
 		t.Fatalf("want 404 for unknown key, got %d", code)
 	}
@@ -148,7 +148,7 @@ func TestDeleteAPIKeyInternalErrorNotMaskedAs404(t *testing.T) {
 		},
 	}))
 	defer srv.Close()
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_x", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_x?confirm=DELETE", "good", nil)
 	if code != 500 {
 		t.Fatalf("want 500 for a non-sentinel delete error, got %d", code)
 	}

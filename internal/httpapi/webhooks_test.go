@@ -122,7 +122,7 @@ func TestGetWebhookNotFound(t *testing.T) {
 
 func TestDeleteWebhook(t *testing.T) {
 	srv := testServer(t)
-	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/webhooks/wh_1", nil)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/webhooks/wh_1?confirm=DELETE", nil)
 	req.Header.Set("Authorization", "Bearer good")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -136,7 +136,7 @@ func TestDeleteWebhook(t *testing.T) {
 
 func TestDeleteWebhookNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/webhooks/wh_missing", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/webhooks/wh_missing?confirm=DELETE", "good", nil)
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}

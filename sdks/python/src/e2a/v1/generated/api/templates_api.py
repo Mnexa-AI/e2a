@@ -16,7 +16,7 @@ from pydantic import validate_call, Field, StrictFloat, StrictStr, StrictInt
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
-from pydantic import Field, StrictStr
+from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest
@@ -324,6 +324,7 @@ class TemplatesApi:
     async def delete_template(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -339,10 +340,12 @@ class TemplatesApi:
     ) -> None:
         """Delete a template (beta)
 
-        Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -367,6 +370,7 @@ class TemplatesApi:
 
         _param = self._delete_template_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -391,6 +395,7 @@ class TemplatesApi:
     async def delete_template_with_http_info(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -406,10 +411,12 @@ class TemplatesApi:
     ) -> ApiResponse[None]:
         """Delete a template (beta)
 
-        Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -434,6 +441,7 @@ class TemplatesApi:
 
         _param = self._delete_template_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -458,6 +466,7 @@ class TemplatesApi:
     async def delete_template_without_preload_content(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -473,10 +482,12 @@ class TemplatesApi:
     ) -> RESTResponseType:
         """Delete a template (beta)
 
-        Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -501,6 +512,7 @@ class TemplatesApi:
 
         _param = self._delete_template_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -520,6 +532,7 @@ class TemplatesApi:
     def _delete_template_serialize(
         self,
         id,
+        confirm,
         _request_auth,
         _content_type,
         _headers,
@@ -544,6 +557,10 @@ class TemplatesApi:
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
+        if confirm is not None:
+            
+            _query_params.append(('confirm', confirm))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter

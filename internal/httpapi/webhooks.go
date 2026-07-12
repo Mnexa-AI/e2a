@@ -192,9 +192,16 @@ type CreateWebhookRequest struct {
 }
 type createWebhookInput struct{ Body CreateWebhookRequest }
 
-// WebhookIDParam is the path input for single-webhook ops.
+// WebhookIDParam is the path input for single-webhook read/update ops.
 type WebhookIDParam struct {
 	ID string `path:"id"`
+}
+
+// deleteWebhookInput is WebhookIDParam plus the uniform destructive-delete
+// guard (DeleteConfirm) — a dedicated input so only DELETE requires ?confirm.
+type deleteWebhookInput struct {
+	ID string `path:"id"`
+	DeleteConfirm
 }
 
 func (s *Server) registerWebhooks() {
@@ -220,7 +227,8 @@ func (s *Server) registerWebhooks() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteWebhook", Method: http.MethodDelete, Path: "/v1/webhooks/{id}",
 		Summary: "Delete a webhook", Tags: []string{"webhooks"},
-		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Delete a webhook subscriber by id. Requires ?confirm=DELETE.",
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteWebhook)
 
 	huma.Register(s.API, huma.Operation{
@@ -614,7 +622,7 @@ func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*web
 
 type deleteWebhookOutput struct{}
 
-func (s *Server) handleDeleteWebhook(ctx context.Context, in *WebhookIDParam) (*deleteWebhookOutput, error) {
+func (s *Server) handleDeleteWebhook(ctx context.Context, in *deleteWebhookInput) (*deleteWebhookOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err

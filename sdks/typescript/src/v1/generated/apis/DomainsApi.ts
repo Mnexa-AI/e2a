@@ -21,11 +21,12 @@ import { VerifyDomainView } from '../models/VerifyDomainView.js';
 export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
      * Delete a domain
      * @param domain 
-     * @param confirm Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public async deleteDomain(domain: string, confirm?: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteDomain(domain: string, confirm: 'DELETE', _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'domain' is not null or undefined
@@ -33,6 +34,11 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
             throw new RequiredError("DomainsApi", "deleteDomain", "domain");
         }
 
+
+        // verify required parameter 'confirm' is not null or undefined
+        if (confirm === null || confirm === undefined) {
+            throw new RequiredError("DomainsApi", "deleteDomain", "confirm");
+        }
 
 
         // Path Params
@@ -45,7 +51,7 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
 
         // Query Params
         if (confirm !== undefined) {
-            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "string", ""));
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
         }
 
 

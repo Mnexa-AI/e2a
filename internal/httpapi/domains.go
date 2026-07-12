@@ -233,7 +233,8 @@ func (s *Server) registerDomains() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteDomain", Method: http.MethodDelete, Path: "/v1/domains/{domain}",
 		Summary: "Delete a domain", Tags: []string{"domains"},
-		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).",
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteDomain)
 
 	huma.Register(s.API, huma.Operation{
@@ -413,8 +414,8 @@ type deleteDomainOutput struct{}
 // deprovisions its SES sending identity and breaks sending for every agent on
 // it, so it requires ?confirm=DELETE — uniform with deleteAccount/deleteAgent.
 type deleteDomainInput struct {
-	Domain  string `path:"domain"`
-	Confirm string `query:"confirm" doc:"Must be DELETE — this is irreversible (deprovisions the domain's sending identity)."`
+	Domain string `path:"domain"`
+	DeleteConfirm
 }
 
 func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) (*deleteDomainOutput, error) {
@@ -425,10 +426,8 @@ func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) 
 	if _, err := s.deps.LookupDomain(ctx, in.Domain, user.ID); err != nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "domain not found")
 	}
-	// Confirm after ownership: a not-owned/missing domain is 404 first.
-	if in.Confirm != "DELETE" {
-		return nil, NewError(http.StatusBadRequest, "confirmation_required", "add ?confirm=DELETE to the request to proceed — this is irreversible")
-	}
+	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
+	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
 	hasAgents, err := s.deps.HasAgentsOnDomain(ctx, in.Domain, user.ID)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to check domain agents")
