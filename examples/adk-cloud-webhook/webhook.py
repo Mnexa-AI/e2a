@@ -8,10 +8,10 @@ Pipeline per request:
     construct_event(body, X-E2A-Signature, secret)  <-- parse + verify HMAC;
         |                                                rejects unsigned/replayed
         v
-    event.type == "email.received" -> event.data (message_id, recipient, from, …)
+    event.type == "email.received" -> event.data (message_id, delivered_to, from, …)
         |
         v
-    client.messages.get(recipient, message_id)  <-- fetch parsed subject/body
+    client.messages.get(delivered_to, message_id)  <-- fetch parsed subject/body
         |
         v
     map (from, conversation_id) -> ADK (user_id, session_id)
@@ -21,7 +21,7 @@ Pipeline per request:
     Runner.run_async(...)        <-- multi-turn memory via ADK sessions
         |
         v
-    client.messages.reply(recipient, message_id, {body, conversation_id})
+    client.messages.reply(delivered_to, message_id, {text, conversation_id})
                                  <-- echoes our id back so the next inbound matches
 
 The conversation_id <-> session_id binding is what lets ADK accumulate
@@ -106,13 +106,13 @@ async def webhook(request: Request) -> dict[str, str]:
         return {"status": "ignored", "type": event.type}
 
     client: E2AClient = request.app.state.e2a
-    data = event.data  # WebhookPayload: message_id, recipient, from, conversation_id, …
-    recipient = data["recipient"]
+    data = event.data  # WebhookPayload: message_id, delivered_to, from, conversation_id, …
+    delivered_to = data["delivered_to"]
     message_id = data["message_id"]
 
     # The inbound webhook payload is metadata; fetch the parsed message for the
     # subject + body to feed the agent.
-    inbound = await client.messages.get(recipient, message_id)
+    inbound = await client.messages.get(delivered_to, message_id)
 
     # First contact has no conversation_id — mint one so this thread has an
     # ID we can echo back on every reply. The same id becomes the ADK
@@ -160,7 +160,7 @@ async def webhook(request: Request) -> dict[str, str]:
         user_id, conversation_id, message_id, len(reply_text),
     )
     await client.messages.reply(
-        recipient, message_id, {"body": reply_text, "conversation_id": conversation_id}
+        delivered_to, message_id, {"text": reply_text, "conversation_id": conversation_id}
     )
     return {"status": "replied", "conversation_id": conversation_id}
 

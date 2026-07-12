@@ -17,7 +17,7 @@ this app
     +-- construct_event (verify HMAC + decode to a typed event)
     +-- look up / create ADK session keyed by conversation_id
     +-- runner.run_async(...)
-    +-- client.messages.reply(address, message_id, {body, conversation_id})
+    +-- client.messages.reply(address, message_id, {text, conversation_id})
     |
     v
 e2a relay -> SMTP -> human
@@ -85,7 +85,7 @@ curl -X POST https://api.e2a.dev/v1/webhooks \
   -d '{
     "url": "https://abc123.ngrok.io/webhook",
     "events": ["email.received"],
-    "filters": {"agent_ids": ["<YOUR_AGENT_EMAIL>"]}
+    "filters": {"agent_emails": ["<YOUR_AGENT_EMAIL>"]}
   }'
 ```
 
@@ -106,7 +106,7 @@ propagating an opaque `conversation_id` through each round-trip:
    started a thread). The webhook mints `conv_<random>` and uses it as
    the ADK `session_id` when creating the session.
 2. The webhook calls `client.messages.reply(address, message_id,
-   {"body": text, "conversation_id": "conv_<random>"})`. e2a stamps
+   {"text": text, "conversation_id": "conv_<random>"})`. e2a stamps
    `X-E2A-Conversation-Id: conv_<random>` on the outbound message and
    remembers the binding to the message ID.
 3. **Subsequent inbound** (the human replies in their mail client) lands

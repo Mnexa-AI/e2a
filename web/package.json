@@ -4,10 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
-    "sync-openapi": "cp ../api/openapi.yaml public/openapi.yaml 2>/dev/null || echo 'sync-openapi: ../api/openapi.yaml not in build context (e.g. the web Docker image) — using the committed public/openapi.yaml'",
-    "predev": "npm run sync-openapi",
     "dev": "next dev",
-    "prebuild": "npm run sync-openapi",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

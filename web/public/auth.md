@@ -82,12 +82,12 @@ Idempotency-Key: <UUIDv4>
 {
   "to": ["alice@example.com"],
   "subject": "Hello from your agent",
-  "body": "Plain-text body. Required.",
-  "html_body": "<p>Optional HTML alternative.</p>"
+  "text": "Plain-text body. Required.",
+  "html": "<p>Optional HTML alternative.</p>"
 }
 ```
 
-The plain-text body field is `body` (required). The HTML alternative is `html_body` (optional). There is no `text` field.
+The plain-text body field is `text` (required). The HTML alternative is `html` (optional).
 
 Read the credential from the environment at the moment of the call. Do not copy it into variables you log, do not echo it back to the user, do not include it in commit messages, PR descriptions, error reports, or screenshots. If you are running a shell command, never interpolate the credential inline — reference the environment variable so it does not appear in command history.
 
@@ -111,7 +111,7 @@ The message is held until a human approves it via the dashboard, CLI, or magic l
 
 | Status | Where | Meaning | What to do |
 | --- | --- | --- | --- |
-| `400` | send, reply | Missing `subject` or `body`; malformed recipient; CRLF in subject. | Fix the payload before retrying. |
+| `400` | send, reply | Missing `subject` or `text`; malformed recipient; CRLF in subject. | Fix the payload before retrying. |
 | `401` first use | any | Credential missing, malformed, revoked, or for a different environment. | Ask the user to confirm the value in their `E2A_API_KEY` / config is current and active in the dashboard. MCP clients should restart at discovery. |
 | `401` on previously-working credential | any | Revoked or rotated. | Drop the cached value. API-key consumers re-read from the same source you loaded it from. MCP clients refresh, then re-run the authorization-code flow if refresh fails. |
 | `403` | send, reply | Agent's sending domain is not verified. | Ask the user to register and verify the domain in the dashboard (`POST /v1/domains` then `POST /v1/domains/{domain}/verify`). |

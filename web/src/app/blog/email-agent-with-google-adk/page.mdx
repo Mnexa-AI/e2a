@@ -139,7 +139,7 @@ session = sessions.create_session(..., session_id=conv_<random>)
 runner.run_async(...)                       # ADK records turn 1
         │
         v
-client.messages.reply(addr, msg_id, {"body": text, "conversation_id": conv_<random>})
+client.messages.reply(addr, msg_id, {"text": text, "conversation_id": conv_<random>})
         │       e2a stamps X-E2A-Conversation-Id on the outbound
         v
 ... human replies in their mail client ...

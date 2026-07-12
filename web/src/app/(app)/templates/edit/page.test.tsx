@@ -222,7 +222,7 @@ describe("Template edit page", () => {
       "POST /v1/templates/validate": () =>
         jsonResp({
           valid: false,
-          errors: [{ part: "body", message: "unclosed variable" }],
+          errors: [{ part: "text", message: "unclosed variable" }],
         }),
     }) as unknown as typeof fetch;
 
