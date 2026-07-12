@@ -103,7 +103,7 @@ Shape is clean: `ConversationDetailView` embeds `ConversationSummaryView` + `{pa
 | **WH-2** | MED | `events` items + `testWebhook.event` lack enum (Slice-8 list item) | **FIX** — enum-constrain against `webhookpub.AllEventTypes` (forward-compat-safe) |
 | **WH-6** | LOW | inconsistent type names: `RotateSecretBody`, `TestWebhookOutputBody`, `TestWebhookRequest`, `RejectInputBody` | **FIX** — naming sweep → `*Request` (inputs) / `*Response`/`*Result`/`*View` (outputs) |
 | **WH-7** | LOW-MED | `listWebhookDeliveries` single-page (no cursor), high-cardinality debug log | **ACCEPT single-page** + set a large default limit; documented (debug view) |
-| **WH-4** | — | `deleteWebhook` confirm guard? | **NO confirm** — low blast radius (re-creatable, no data loss). Deletes-with-confirm stay: account/domain/agent only |
+| **WH-4** | — | `deleteWebhook` confirm guard? | ~~**NO confirm** — low blast radius~~ **SUPERSEDED by #53:** the `?confirm=DELETE` guard is now uniform across *every* delete endpoint (modeled as a required `enum: [DELETE]` query param), so webhooks/templates/api-keys/suppressions gained it too. |
 
 Good: `rotate-secret` (Idempotency-Key, #8 fix), `updateWebhook` full-replace + 409-on-re-enable-in-cooldown.
 

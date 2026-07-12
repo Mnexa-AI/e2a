@@ -17,7 +17,6 @@ export class AgentIdentity {
     'domain': string;
     'domainVerified': boolean;
     'email': string;
-    'id': string;
     'inbound7d': number;
     'inboundAllowlist'?: Array<string> | null;
     'inboundPolicy': string;
@@ -69,12 +68,6 @@ export class AgentIdentity {
         {
             "name": "email",
             "baseName": "email",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "id",
-            "baseName": "id",
             "type": "string",
             "format": ""
         },

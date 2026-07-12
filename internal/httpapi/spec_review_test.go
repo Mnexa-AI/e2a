@@ -125,12 +125,18 @@ func TestSpecOutbound202Declared(t *testing.T) {
 	}
 }
 
-// MED-2 — verifyDomain must declare a 412 response (TXT not yet published).
-func TestSpecVerifyDomain412Declared(t *testing.T) {
+// verifyDomain must NOT declare a 412: a not-yet-published record is the normal
+// verified:false outcome, returned as 200. 412 (Precondition Failed) is reserved
+// for conditional-request failures; clients branch on the body's `verified`, not
+// the HTTP status.
+func TestSpecVerifyDomainNo412(t *testing.T) {
 	doc := renderSpec(t)
 	resp := operationResponses(t, doc, "verifyDomain")
-	if _, ok := resp["412"]; !ok {
-		t.Errorf("verifyDomain is missing a 412 response (missing TXT returns 412 at runtime); declared codes: %v", keysOf(resp))
+	if _, ok := resp["412"]; ok {
+		t.Errorf("verifyDomain must not declare a 412 response (not-yet-verified is a normal 200 with verified:false); declared codes: %v", keysOf(resp))
+	}
+	if _, ok := resp["200"]; !ok {
+		t.Errorf("verifyDomain must declare a 200 response (both verified and not-yet-verified return 200); declared codes: %v", keysOf(resp))
 	}
 }
 

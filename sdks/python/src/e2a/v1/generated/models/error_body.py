@@ -17,8 +17,9 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.error_body_details import ErrorBodyDetails
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -26,10 +27,10 @@ class ErrorBody(BaseModel):
     """
     ErrorBody
     """ # noqa: E501
-    code: StrictStr
-    details: Optional[Any] = None
-    message: StrictStr
-    request_id: Optional[StrictStr] = None
+    code: StrictStr = Field(description="Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Known values: invalid_request, unauthorized, forbidden, not_found, conflict, gone, method_not_allowed, payload_too_large, unsupported_media_type, rate_limited, limit_exceeded, internal_error — plus resource-specific codes (e.g. domain_not_verified, invalid_cursor, idempotency_in_flight, idempotency_key_reuse) and the *_not_found / *_exists suffix families. A single canonical code, invalid_request, covers all input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid).")
+    details: Optional[ErrorBodyDetails] = None
+    message: StrictStr = Field(description="Human-readable explanation. Not for branching — use code.")
+    request_id: Optional[StrictStr] = Field(default=None, description="Echoes the X-Request-Id response header so a failing call is greppable in logs.")
     __properties: ClassVar[List[str]] = ["code", "details", "message", "request_id"]
 
     model_config = ConfigDict(
@@ -71,11 +72,9 @@ class ErrorBody(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # set to None if details (nullable) is None
-        # and model_fields_set contains the field
-        if self.details is None and "details" in self.model_fields_set:
-            _dict['details'] = None
-
+        # override the default output from pydantic by calling `to_dict()` of details
+        if self.details:
+            _dict['details'] = self.details.to_dict()
         return _dict
 
     @classmethod
@@ -89,7 +88,7 @@ class ErrorBody(BaseModel):
 
         _obj = cls.model_validate({
             "code": obj.get("code"),
-            "details": obj.get("details"),
+            "details": ErrorBodyDetails.from_dict(obj["details"]) if obj.get("details") is not None else None,
             "message": obj.get("message"),
             "request_id": obj.get("request_id")
         })

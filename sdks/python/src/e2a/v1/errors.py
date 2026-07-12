@@ -124,13 +124,16 @@ def is_retryable_status(status: int) -> bool:
 _IDEMPOTENCY_RETRYABLE = "idempotency_in_flight"
 _IDEMPOTENCY_CODES = {_IDEMPOTENCY_RETRYABLE, "idempotency_key_reuse"}
 
+# Fallback code synthesized when the envelope omits one. invalid_request is the
+# single canonical validation code the server emits for BOTH 400 (malformed) and
+# 422 (semantically invalid), so both statuses map to it here.
 _DEFAULT_CODE = {
     400: "invalid_request",
     401: "unauthorized",
     403: "forbidden",
     404: "not_found",
     409: "conflict",
-    422: "unprocessable_entity",
+    422: "invalid_request",
     429: "rate_limited",
 }
 
@@ -152,7 +155,9 @@ _CODE_MAP: "dict[str, tuple[type[E2AError], bool]]" = {
     "conflict": (E2AConflictError, False),
     "webhook_cooldown": (E2AConflictError, False),
     "webhook_disabled": (E2AConflictError, False),
-    # 4xx validation / bad-request family
+    # 4xx validation / bad-request family. invalid_request is the single
+    # canonical code the server now emits for both 400 and 422; bad_request /
+    # unprocessable_entity are retained only to tolerate legacy/mixed responses.
     "domain_not_verified": (E2AValidationError, False),
     "invalid_request": (E2AValidationError, False),
     "bad_request": (E2AValidationError, False),

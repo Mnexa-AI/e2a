@@ -245,7 +245,7 @@ func TestUpdateTemplateNotFound(t *testing.T) {
 
 func TestDeleteTemplate(t *testing.T) {
 	srv := testServer(t)
-	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/templates/tmpl_1", nil)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/templates/tmpl_1?confirm=DELETE", nil)
 	req.Header.Set("Authorization", "Bearer good")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -259,7 +259,7 @@ func TestDeleteTemplate(t *testing.T) {
 
 func TestDeleteTemplateNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/templates/tmpl_missing", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/templates/tmpl_missing?confirm=DELETE", "good", nil)
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}

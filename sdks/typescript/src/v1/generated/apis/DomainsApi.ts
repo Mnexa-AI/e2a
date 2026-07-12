@@ -10,6 +10,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { DomainView } from '../models/DomainView.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
+import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { RegisterDomainRequest } from '../models/RegisterDomainRequest.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
@@ -20,11 +21,12 @@ import { VerifyDomainView } from '../models/VerifyDomainView.js';
 export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
      * Delete a domain
      * @param domain 
-     * @param confirm Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public async deleteDomain(domain: string, confirm?: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteDomain(domain: string, confirm: 'DELETE', _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'domain' is not null or undefined
@@ -32,6 +34,11 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
             throw new RequiredError("DomainsApi", "deleteDomain", "domain");
         }
 
+
+        // verify required parameter 'confirm' is not null or undefined
+        if (confirm === null || confirm === undefined) {
+            throw new RequiredError("DomainsApi", "deleteDomain", "confirm");
+        }
 
 
         // Path Params
@@ -44,7 +51,7 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
 
         // Query Params
         if (confirm !== undefined) {
-            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "string", ""));
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
         }
 
 
@@ -192,7 +199,7 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Probe the domain\'s published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+     * Probe the domain\'s published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
      * Verify a domain
      * @param domain 
      */
@@ -353,6 +360,13 @@ export class DomainsApiResponseProcessor {
             ) as DomainView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("402", response.httpStatusCode)) {
+            const body: LimitExceededEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "LimitExceededEnvelope", ""
+            ) as LimitExceededEnvelope;
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
+        }
         if (isCodeInRange("409", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
@@ -395,13 +409,6 @@ export class DomainsApiResponseProcessor {
                 "VerifyDomainView", ""
             ) as VerifyDomainView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
-        }
-        if (isCodeInRange("412", response.httpStatusCode)) {
-            const body: VerifyDomainView = ObjectSerializer.deserialize(
-                ObjectSerializer.parse(await response.body.text(), contentType),
-                "VerifyDomainView", ""
-            ) as VerifyDomainView;
-            throw new ApiException<VerifyDomainView>(response.httpStatusCode, "Precondition Failed — the verification TXT record is not yet published.", body, response.headers);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(

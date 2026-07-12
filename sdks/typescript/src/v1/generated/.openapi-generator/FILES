@@ -43,9 +43,14 @@ models/DeploymentInfoView.ts
 models/Domain.ts
 models/DomainView.ts
 models/ErrorBody.ts
+models/ErrorBodyDetails.ts
 models/ErrorEnvelope.ts
 models/EventJSON.ts
+models/FieldError.ts
 models/ForwardRequest.ts
+models/LimitExceededDetails.ts
+models/LimitExceededEnvelope.ts
+models/LimitExceededErrorBody.ts
 models/LimitsCapsView.ts
 models/LimitsUsageView.ts
 models/Message.ts
@@ -106,6 +111,7 @@ models/UserExport.ts
 models/UserExportUser.ts
 models/ValidateTemplateRequest.ts
 models/ValidateTemplateResponse.ts
+models/ValidationErrorDetails.ts
 models/VerifyDomainView.ts
 models/WebhookDeliveryView.ts
 models/WebhookFiltersView.ts

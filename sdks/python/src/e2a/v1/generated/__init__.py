@@ -64,9 +64,14 @@ __all__ = [
     "Domain",
     "DomainView",
     "ErrorBody",
+    "ErrorBodyDetails",
     "ErrorEnvelope",
     "EventJSON",
+    "FieldError",
     "ForwardRequest",
+    "LimitExceededDetails",
+    "LimitExceededEnvelope",
+    "LimitExceededErrorBody",
     "LimitsCapsView",
     "LimitsUsageView",
     "Message",
@@ -126,6 +131,7 @@ __all__ = [
     "UserExportUser",
     "ValidateTemplateRequest",
     "ValidateTemplateResponse",
+    "ValidationErrorDetails",
     "VerifyDomainView",
     "WebhookDeliveryView",
     "WebhookFiltersView",
@@ -183,9 +189,14 @@ from e2a.v1.generated.models.deployment_info_view import DeploymentInfoView as D
 from e2a.v1.generated.models.domain import Domain as Domain
 from e2a.v1.generated.models.domain_view import DomainView as DomainView
 from e2a.v1.generated.models.error_body import ErrorBody as ErrorBody
+from e2a.v1.generated.models.error_body_details import ErrorBodyDetails as ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope as ErrorEnvelope
 from e2a.v1.generated.models.event_json import EventJSON as EventJSON
+from e2a.v1.generated.models.field_error import FieldError as FieldError
 from e2a.v1.generated.models.forward_request import ForwardRequest as ForwardRequest
+from e2a.v1.generated.models.limit_exceeded_details import LimitExceededDetails as LimitExceededDetails
+from e2a.v1.generated.models.limit_exceeded_envelope import LimitExceededEnvelope as LimitExceededEnvelope
+from e2a.v1.generated.models.limit_exceeded_error_body import LimitExceededErrorBody as LimitExceededErrorBody
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView as LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView as LimitsUsageView
 from e2a.v1.generated.models.message import Message as Message
@@ -245,6 +256,7 @@ from e2a.v1.generated.models.user_export import UserExport as UserExport
 from e2a.v1.generated.models.user_export_user import UserExportUser as UserExportUser
 from e2a.v1.generated.models.validate_template_request import ValidateTemplateRequest as ValidateTemplateRequest
 from e2a.v1.generated.models.validate_template_response import ValidateTemplateResponse as ValidateTemplateResponse
+from e2a.v1.generated.models.validation_error_details import ValidationErrorDetails as ValidationErrorDetails
 from e2a.v1.generated.models.verify_domain_view import VerifyDomainView as VerifyDomainView
 from e2a.v1.generated.models.webhook_delivery_view import WebhookDeliveryView as WebhookDeliveryView
 from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView as WebhookFiltersView

@@ -509,7 +509,7 @@ func TestEventsE2E_RedeliverFanOut(t *testing.T) {
 	}
 
 	resp := fix.httpPost("/v1/events/"+eventID+"/redeliver", apiKey, []byte(`{}`))
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != 202 {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("redeliver status %d: %s", resp.StatusCode, body)
 	}
