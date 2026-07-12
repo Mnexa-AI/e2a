@@ -881,6 +881,63 @@ components:
         - to
         - text
       type: object
+    LimitExceededDetails:
+      additionalProperties: false
+      properties:
+        current:
+          description: The account's usage at the time the cap was hit (matches usage.<resource>).
+          format: int64
+          type: integer
+        limit:
+          description: The cap that was hit (matches limits.max_<resource>).
+          format: int64
+          type: integer
+        plan_code:
+          description: The account's plan label.
+          type: string
+        resource:
+          description: The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>.
+          enum:
+            - agents
+            - domains
+            - messages_month
+            - storage_bytes
+          type: string
+        upgrade_url:
+          description: An upgrade affordance URL, when the operator has configured one.
+          type: string
+      required:
+        - resource
+        - limit
+        - current
+      type: object
+    LimitExceededEnvelope:
+      additionalProperties: false
+      properties:
+        error:
+          $ref: "#/components/schemas/LimitExceededErrorBody"
+      required:
+        - error
+      type: object
+    LimitExceededErrorBody:
+      additionalProperties: false
+      properties:
+        code:
+          description: Always limit_exceeded for this response.
+          enum:
+            - limit_exceeded
+          type: string
+        details:
+          $ref: "#/components/schemas/LimitExceededDetails"
+        message:
+          type: string
+        request_id:
+          type: string
+      required:
+        - code
+        - message
+        - details
+      type: object
     LimitsCapsView:
       additionalProperties: false
       properties:
@@ -2672,12 +2729,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentView"
           description: Created
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Create an agent
@@ -3029,6 +3092,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3261,6 +3330,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3362,6 +3437,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3463,6 +3544,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3530,6 +3617,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/DomainView"
           description: Created
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         "409":
           content:
             application/json:

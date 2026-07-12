@@ -43,6 +43,9 @@ from e2a.v1.generated.models.error_body import ErrorBody
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope
 from e2a.v1.generated.models.event_json import EventJSON
 from e2a.v1.generated.models.forward_request import ForwardRequest
+from e2a.v1.generated.models.limit_exceeded_details import LimitExceededDetails
+from e2a.v1.generated.models.limit_exceeded_envelope import LimitExceededEnvelope
+from e2a.v1.generated.models.limit_exceeded_error_body import LimitExceededErrorBody
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView
 from e2a.v1.generated.models.message import Message

@@ -79,6 +79,10 @@ func (s *Server) registerAgentWrites() {
 		Tags:          []string{"agents"},
 		Security:      []map[string][]string{{"bearer": {}}},
 		DefaultStatus: http.StatusCreated,
+		Responses: map[string]*huma.Response{
+			"402":     s.limitExceededResponse(),
+			"default": s.errorEnvelopeResponse(),
+		},
 	}, s.handleCreateAgent)
 
 	huma.Register(s.API, huma.Operation{
@@ -253,18 +257,20 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 }
 
 // limitEnvelope translates a limits.LimitExceededError into a 402 envelope
-// (code "limit_exceeded") carrying the structured cap details, replacing the
-// legacy bespoke LimitErrorBody with the standardized envelope.
+// (code "limit_exceeded") carrying a typed LimitExceededDetails payload. The
+// details.resource is an AccountView usage/limits field stem so a client can key
+// the error straight to usage.<resource> / limits.max_<resource>; the declared
+// 402 schema on the cap-enforcing operations is LimitExceededEnvelope.
 func limitEnvelope(err error) (*ErrorEnvelope, bool) {
 	le, ok := limits.IsLimitExceeded(err)
 	if !ok {
 		return nil, false
 	}
-	return NewError(http.StatusPaymentRequired, "limit_exceeded", le.Error()).WithDetails(map[string]any{
-		"resource":    le.Resource,
-		"limit":       le.Limit,
-		"current":     le.Current,
-		"plan_code":   le.Limits.PlanCode,
-		"upgrade_url": le.Limits.UpgradeURL,
+	return NewError(http.StatusPaymentRequired, "limit_exceeded", le.Error()).WithDetails(LimitExceededDetails{
+		Resource:   le.Resource,
+		Limit:      int64(le.Limit),
+		Current:    int64(le.Current),
+		PlanCode:   le.Limits.PlanCode,
+		UpgradeURL: le.Limits.UpgradeURL,
 	}), true
 }

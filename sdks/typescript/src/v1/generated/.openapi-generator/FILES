@@ -46,6 +46,9 @@ models/ErrorBody.ts
 models/ErrorEnvelope.ts
 models/EventJSON.ts
 models/ForwardRequest.ts
+models/LimitExceededDetails.ts
+models/LimitExceededEnvelope.ts
+models/LimitExceededErrorBody.ts
 models/LimitsCapsView.ts
 models/LimitsUsageView.ts
 models/Message.ts

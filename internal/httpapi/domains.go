@@ -223,6 +223,7 @@ func (s *Server) registerDomains() {
 		Summary: "Register a domain", Tags: []string{"domains"},
 		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
 		Responses: map[string]*huma.Response{
+			"402": s.limitExceededResponse(),
 			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
 				"Conflict — the domain is already claimed by another account (code domain_taken)."),
 			"default": s.errorEnvelopeResponse(),

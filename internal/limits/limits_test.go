@@ -203,8 +203,8 @@ func TestCheckMessageSend_BlocksOnMonthFlow(t *testing.T) {
 	if !ok {
 		t.Fatalf("CheckMessageSend at month cap = %v, want LimitExceededError", err)
 	}
-	if le.Resource != "messages" {
-		t.Errorf("Resource = %q, want messages", le.Resource)
+	if le.Resource != "messages_month" {
+		t.Errorf("Resource = %q, want messages_month", le.Resource)
 	}
 }
 
@@ -218,8 +218,8 @@ func TestCheckMessageSend_BlocksOnStorage(t *testing.T) {
 	if !ok {
 		t.Fatalf("CheckMessageSend at storage cap = %v, want LimitExceededError", err)
 	}
-	if le.Resource != "storage" {
-		t.Errorf("Resource = %q, want storage", le.Resource)
+	if le.Resource != "storage_bytes" {
+		t.Errorf("Resource = %q, want storage_bytes", le.Resource)
 	}
 	// Storage values come through as RAW BYTES (not KB) per the
 	// resource-natural-unit contract documented on LimitErrorBody.
@@ -242,8 +242,8 @@ func TestCheckMessageSend_MonthCapTakesPrecedenceOverStorage(t *testing.T) {
 	if !ok {
 		t.Fatalf("want LimitExceededError")
 	}
-	if le.Resource != "messages" {
-		t.Errorf("Resource = %q, want messages", le.Resource)
+	if le.Resource != "messages_month" {
+		t.Errorf("Resource = %q, want messages_month", le.Resource)
 	}
 }
 
