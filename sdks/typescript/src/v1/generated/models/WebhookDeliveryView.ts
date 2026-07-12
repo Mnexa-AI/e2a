@@ -25,7 +25,7 @@ export class WebhookDeliveryView {
     */
     'status': string;
     /**
-    * The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*).
+    * The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.delivered, …, domain.*).
     */
     'type': string;
 

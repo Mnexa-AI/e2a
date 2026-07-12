@@ -40,7 +40,10 @@ export class AgentIdentity {
     '_public': boolean;
     'ttlSeconds': number;
     'userId': string;
-    'webhookHealthy': boolean;
+    /**
+    * Webhook posture for this agent, derived from the account\'s webhook subscribers that match it (a webhook with no agent filter matches every agent). Open set; tolerate unknown values. Known values: none (no webhook matches this agent), healthy (an enabled webhook matches and none serving this agent has a terminally-failed delivery in the last 24h), failing (an enabled webhook matches but at least one delivery on a matching enabled webhook terminally failed in the last 24h), disabled (webhooks match but every one is disabled, turned off manually), auto_disabled (webhooks match, every one is disabled, and at least one was auto-disabled by the chronic-failure sweep). Present on enriched surfaces (account export, dashboard agent list); absent where not computed.
+    */
+    'webhookStatus'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -210,9 +213,9 @@ export class AgentIdentity {
             "format": ""
         },
         {
-            "name": "webhookHealthy",
-            "baseName": "webhook_healthy",
-            "type": "boolean",
+            "name": "webhookStatus",
+            "baseName": "webhook_status",
+            "type": "string",
             "format": ""
         }    ];
 

@@ -131,6 +131,8 @@ func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessage
 	m := info.Message
 	data := map[string]interface{}{
 		"message_id":          m.ID,
+		"direction":           "outbound",
+		"agent_email":         m.Sender,
 		"provider_message_id": providerMessageID,
 		"method":              m.Method,
 		"from":                m.Sender,
@@ -138,7 +140,7 @@ func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessage
 		"cc":                  m.CC,
 		"bcc":                 m.BCC,
 		"subject":             m.Subject,
-		"type":                m.Type,
+		"message_type":        m.Type,
 		"conversation_id":     m.ConversationID,
 	}
 	return webhookpub.Event{
@@ -158,16 +160,17 @@ func buildEmailFailedEventFromRow(info *identity.OutboundSentInfo, detail string
 	m := info.Message
 	data := map[string]interface{}{
 		"message_id":      m.ID,
+		"direction":       "outbound",
+		"agent_email":     m.Sender,
 		"method":          m.Method,
 		"from":            m.Sender,
 		"to":              m.ToRecipients,
 		"cc":              m.CC,
 		"bcc":             m.BCC,
 		"subject":         m.Subject,
-		"type":            m.Type,
+		"message_type":    m.Type,
 		"conversation_id": m.ConversationID,
 		"reason":          detail,
-		"detail":          detail,
 	}
 	return webhookpub.Event{
 		Type:           webhookpub.EventEmailFailed,

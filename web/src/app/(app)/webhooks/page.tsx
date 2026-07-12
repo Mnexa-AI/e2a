@@ -45,7 +45,7 @@ const EVENT_TYPES = [
   "email.received",
   "email.sent",
   "email.delivered",
-  "email.pending_review",
+  "email.review_requested",
   "email.flagged",
   "email.blocked",
 ] as const;
@@ -57,7 +57,7 @@ const EVENT_DESCRIPTIONS: Record<(typeof EVENT_TYPES)[number], string> = {
   "email.received": "An inbound email was delivered to the inbox.",
   "email.sent": "An outbound message was accepted for delivery.",
   "email.delivered": "The provider confirmed an outbound message reached the recipient.",
-  "email.pending_review": "A message is held for human review (inbound screening or an outbound HITL hold).",
+  "email.review_requested": "A message is held for human review (inbound screening or an outbound HITL hold).",
   "email.flagged": "An inbound message was delivered but didn't match the inbox's ingestion policy.",
   "email.blocked": "A message was refused by screening (policy action: block).",
 };

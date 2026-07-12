@@ -30,7 +30,7 @@ type Outbox interface {
 	// its business state if the outbox write fails.
 	//
 	// Used for PRE-side-effect triggers (email.received, future
-	// email.bounced from SNS, email.pending_review, email.review_rejected).
+	// email.bounced from SNS, email.review_requested, email.review_rejected).
 	// If the outbox write fails the caller's tx rolls back; on
 	// retry, the deterministic event id makes the second outbox
 	// INSERT a no-op via ON CONFLICT (id) DO NOTHING.
@@ -287,10 +287,10 @@ func writeOutboxRow(ctx context.Context, exec outboxExecutor, e Event) (inserted
 		`INSERT INTO webhook_events
 		    (id, user_id, type, aud, envelope, schema_version,
 		     agent_id, conversation_id, message_id, status)
-		 VALUES ($1, $2, $3, 'webhook', $4, 1, $5, $6, $7, 'pending')
+		 VALUES ($1, $2, $3, 'webhook', $4, $8, $5, $6, $7, 'pending')
 		 ON CONFLICT (id) DO NOTHING`,
 		e.ID, e.UserID, e.Type, envelopeJSON,
-		agentID, conversationID, messageID,
+		agentID, conversationID, messageID, SchemaVersion,
 	)
 	if err != nil {
 		return false, fmt.Errorf("webhookpub: insert webhook_events: %w", err)

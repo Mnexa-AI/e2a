@@ -33,7 +33,7 @@ type inboundScreenResult struct {
 func (r inboundScreenResult) Blocked() bool { return r.AppliedAction == piguard.ActionBlock }
 
 // Review reports whether the applied action is review — the message is held as
-// pending_review awaiting a human / TTL. Drives the email.pending_review event.
+// pending_review awaiting a human / TTL. Drives the email.review_requested event.
 func (r inboundScreenResult) Review() bool { return r.AppliedAction == piguard.ActionReview }
 
 // screenInbound runs the agent's content scan (when inbound_scan='on'), combines it

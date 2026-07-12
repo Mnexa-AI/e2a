@@ -16,7 +16,7 @@ import (
 // contract level:
 //
 //   * email.sent           → PublishBestEffortTx (post-SES, no rollback)
-//   * email.pending_review → PublishTx (pre-side-effect, strong)
+//   * email.review_requested → PublishTx (pre-side-effect, strong)
 //   * email.approved       → PublishBestEffortTx (post-SES, no rollback)
 //   * email.rejected       → PublishTx (pre-side-effect, strong)
 //
@@ -82,7 +82,7 @@ func TestTriggers_EmailSent_BestEffortAllowsCallerToProceed(t *testing.T) {
 
 // TestTriggers_PendingApproval_StrongGuaranteeReturnsError proves that
 // when the outbox INSERT fails on a pre-side-effect trigger like
-// email.pending_review, PublishTx surfaces the error so the caller
+// email.review_requested, PublishTx surfaces the error so the caller
 // can roll back its business state. publishPendingApproval in api.go
 // relies on this — if the outbox write fails, the pending_messages row
 // must not commit either (so retries are idempotent).
@@ -95,8 +95,8 @@ func TestTriggers_PendingApproval_StrongGuaranteeReturnsError(t *testing.T) {
 
 	missingMessageID := "msg_NOT_IN_DB_pending"
 	event := webhookpub.Event{
-		ID:        webhookpub.DeterministicEventID(missingMessageID, webhookpub.EventEmailPendingReview),
-		Type:      webhookpub.EventEmailPendingReview,
+		ID:        webhookpub.DeterministicEventID(missingMessageID, webhookpub.EventEmailReviewRequested),
+		Type:      webhookpub.EventEmailReviewRequested,
 		UserID:    user,
 		AgentID:   agent,
 		MessageID: missingMessageID,
@@ -191,7 +191,7 @@ func TestTriggers_DeterministicID_DistinctPerEventType(t *testing.T) {
 	for _, eventType := range []string{
 		webhookpub.EventEmailReceived,
 		webhookpub.EventEmailSent,
-		webhookpub.EventEmailPendingReview,
+		webhookpub.EventEmailReviewRequested,
 		webhookpub.EventEmailReviewApproved,
 		webhookpub.EventEmailReviewRejected,
 	} {

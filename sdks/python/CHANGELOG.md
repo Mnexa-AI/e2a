@@ -36,6 +36,19 @@ synchronous client.
     ("use AsyncE2AClient") instead of blocking the loop. 4.x code that still
     imports `E2AClient` now gets the sync client — update those imports to
     `AsyncE2AClient`.
+## 4.3.0
+
+### Breaking (pre-GA)
+- **`AgentIdentity.webhook_healthy` (bool) replaced by `AgentIdentity.webhook_status`
+  (optional string enum).** The bool could not distinguish "no webhook
+  configured" from "healthy". The new field is an open set — tolerate unknown
+  values. Known values: `none` (no webhook matches the agent), `healthy` (an
+  enabled matching webhook, no terminally-failed delivery in the last 24h),
+  `failing` (an enabled matching webhook had a terminally-failed delivery in
+  the last 24h), `disabled` (matching webhooks exist but all are manually
+  disabled), `auto_disabled` (all matching webhooks disabled, at least one by
+  the chronic-failure sweep). `AgentIdentity` only appears in the account
+  export (`account.export()`), so most integrations are unaffected.
 
 ## 4.2.0
 

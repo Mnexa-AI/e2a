@@ -14,7 +14,7 @@ func TestBuildInboundReleasedEvent_Envelope(t *testing.T) {
 	a := &API{}
 	msg := &identity.ReviewMessageMeta{
 		ID: "msg_in1", AgentID: "bot@x.example.com", Direction: "inbound",
-		Sender: "evil@x.com", Subject: "Held", Type: "received",
+		Sender: "evil@x.com", Recipient: "bot@x.example.com", Subject: "Held", Type: "received",
 	}
 	// owner is the routing key; reviewer is the human who acted (distinct args so
 	// a future non-owner reviewer can't misroute the event).
@@ -37,15 +37,18 @@ func TestBuildInboundReleasedEvent_Envelope(t *testing.T) {
 	if data["from"] != "evil@x.com" || data["subject"] != "Held" {
 		t.Errorf("payload missing sender/subject: %v", data)
 	}
-	if data["reviewed_by_user_id"] != "u_reviewer" {
-		t.Errorf("reviewed_by_user_id = %v, want the reviewer u_reviewer", data["reviewed_by_user_id"])
+	if data["agent_email"] != "bot@x.example.com" {
+		t.Errorf("agent_email = %v, want bot@x.example.com", data["agent_email"])
+	}
+	if _, ok := data["reviewed_by_user_id"]; ok {
+		t.Errorf("reviewed_by_user_id must not be exposed, got %v", data["reviewed_by_user_id"])
 	}
 }
 
 // TestBuildInboundRejectedEvent_Envelope pins the drop signal shape.
 func TestBuildInboundRejectedEvent_Envelope(t *testing.T) {
 	a := &API{}
-	msg := &identity.ReviewMessageMeta{ID: "msg_in2", AgentID: "bot@x.example.com", Direction: "inbound", Type: "received"}
+	msg := &identity.ReviewMessageMeta{ID: "msg_in2", AgentID: "bot@x.example.com", Direction: "inbound", Recipient: "bot@x.example.com", Type: "received"}
 	ev := a.buildInboundRejectedEvent(msg, "u_owner", "u_reviewer", "prompt injection")
 	if ev.Type != webhookpub.EventEmailReviewRejected {
 		t.Errorf("Type = %q, want email.review_rejected", ev.Type)
@@ -54,10 +57,13 @@ func TestBuildInboundRejectedEvent_Envelope(t *testing.T) {
 		t.Errorf("UserID (routing) = %q, want the owner u_owner", ev.UserID)
 	}
 	data := ev.Data.(map[string]interface{})
-	if data["direction"] != "inbound" || data["rejection_reason"] != "prompt injection" {
+	if data["direction"] != "inbound" || data["reason"] != "prompt injection" {
 		t.Errorf("payload wrong: %v", data)
 	}
-	if data["reviewed_by_user_id"] != "u_reviewer" {
-		t.Errorf("reviewed_by_user_id = %v, want the reviewer u_reviewer", data["reviewed_by_user_id"])
+	if data["agent_email"] != "bot@x.example.com" {
+		t.Errorf("agent_email = %v, want bot@x.example.com", data["agent_email"])
+	}
+	if _, ok := data["reviewed_by_user_id"]; ok {
+		t.Errorf("reviewed_by_user_id must not be exposed, got %v", data["reviewed_by_user_id"])
 	}
 }

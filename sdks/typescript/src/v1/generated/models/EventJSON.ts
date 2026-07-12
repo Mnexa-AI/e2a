@@ -30,7 +30,7 @@ export class EventJSON {
     */
     'status': string;
     /**
-    * Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.
+    * Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.
     */
     'type': string;
 

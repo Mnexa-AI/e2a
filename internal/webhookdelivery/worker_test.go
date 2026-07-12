@@ -18,7 +18,7 @@ import (
 
 type fakeDeliverer struct{ out webhook.DeliveryOutcome }
 
-func (f fakeDeliverer) Deliver(_ context.Context, _ string, _ []byte, _, _ string) webhook.DeliveryOutcome {
+func (f fakeDeliverer) Deliver(_ context.Context, _ string, _ []byte, _, _, _, _ string) webhook.DeliveryOutcome {
 	return f.out
 }
 
