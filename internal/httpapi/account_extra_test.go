@@ -28,12 +28,12 @@ func TestDeleteAccountRequiresConfirm(t *testing.T) {
 	// The confirm guard is now modeled as a required enum:[DELETE] query param,
 	// so Huma rejects a missing/wrong value with 422 before the handler runs.
 	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/account", "good", nil)
-	if code != 422 || errCode(body) != "unprocessable_entity" {
-		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)
+	if code != 422 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 422 invalid_request, got %d %v", code, body)
 	}
 	code, body = sendJSON(t, "DELETE", srv.URL+"/v1/account?confirm=nope", "good", nil)
-	if code != 422 || errCode(body) != "unprocessable_entity" {
-		t.Fatalf("want 422 unprocessable_entity for wrong value, got %d %v", code, body)
+	if code != 422 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 422 invalid_request for wrong value, got %d %v", code, body)
 	}
 }
 
