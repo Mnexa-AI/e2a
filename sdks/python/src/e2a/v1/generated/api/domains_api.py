@@ -912,6 +912,7 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "DomainView",
+            '402': "LimitExceededEnvelope",
             '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -979,6 +980,7 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "DomainView",
+            '402': "LimitExceededEnvelope",
             '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -1046,6 +1048,7 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "DomainView",
+            '402': "LimitExceededEnvelope",
             '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -1151,7 +1154,7 @@ class DomainsApi:
     ) -> VerifyDomainView:
         """Verify a domain
 
-        Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+        Probe the domain's published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
 
         :param domain: (required)
         :type domain: str
@@ -1187,7 +1190,6 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "VerifyDomainView",
-            '412': "VerifyDomainView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1219,7 +1221,7 @@ class DomainsApi:
     ) -> ApiResponse[VerifyDomainView]:
         """Verify a domain
 
-        Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+        Probe the domain's published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
 
         :param domain: (required)
         :type domain: str
@@ -1255,7 +1257,6 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "VerifyDomainView",
-            '412': "VerifyDomainView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1287,7 +1288,7 @@ class DomainsApi:
     ) -> RESTResponseType:
         """Verify a domain
 
-        Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+        Probe the domain's published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
 
         :param domain: (required)
         :type domain: str
@@ -1323,7 +1324,6 @@ class DomainsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "VerifyDomainView",
-            '412': "VerifyDomainView",
         }
         response_data = await self.api_client.call_api(
             *_param,

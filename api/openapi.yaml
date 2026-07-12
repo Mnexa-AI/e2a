@@ -110,8 +110,6 @@ components:
           type: boolean
         email:
           type: string
-        id:
-          type: string
         inbound_7d:
           format: int64
           type: integer
@@ -178,7 +176,6 @@ components:
         webhook_healthy:
           type: boolean
       required:
-        - id
         - domain
         - email
         - name
@@ -797,11 +794,18 @@ components:
       additionalProperties: false
       properties:
         code:
+          description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Known values: invalid_request, unauthorized, forbidden, not_found, conflict, gone, method_not_allowed, payload_too_large, unsupported_media_type, rate_limited, limit_exceeded, internal_error — plus resource-specific codes (e.g. domain_not_verified, invalid_cursor, idempotency_in_flight, idempotency_key_reuse) and the *_not_found / *_exists suffix families. A single canonical code, invalid_request, covers all input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid)."
           type: string
-        details: {}
+        details:
+          anyOf:
+            - $ref: "#/components/schemas/ValidationErrorDetails"
+            - type: object
+          description: Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({"fields":[{"location","message"}]}); rate_limited and limit_exceeded carry {"retry_after_seconds"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes.
         message:
+          description: Human-readable explanation. Not for branching — use code.
           type: string
         request_id:
+          description: Echoes the X-Request-Id response header so a failing call is greppable in logs.
           type: string
       required:
         - code
@@ -851,6 +855,18 @@ components:
         - status
         - data
       type: object
+    FieldError:
+      additionalProperties: false
+      properties:
+        location:
+          description: Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field.
+          type: string
+        message:
+          description: Human-readable reason this field is invalid.
+          type: string
+      required:
+        - message
+      type: object
     ForwardRequest:
       additionalProperties: false
       properties:
@@ -883,6 +899,63 @@ components:
       required:
         - to
         - text
+      type: object
+    LimitExceededDetails:
+      additionalProperties: false
+      properties:
+        current:
+          description: The account's usage at the time the cap was hit (matches usage.<resource>).
+          format: int64
+          type: integer
+        limit:
+          description: The cap that was hit (matches limits.max_<resource>).
+          format: int64
+          type: integer
+        plan_code:
+          description: The account's plan label.
+          type: string
+        resource:
+          description: The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>.
+          enum:
+            - agents
+            - domains
+            - messages_month
+            - storage_bytes
+          type: string
+        upgrade_url:
+          description: An upgrade affordance URL, when the operator has configured one.
+          type: string
+      required:
+        - resource
+        - limit
+        - current
+      type: object
+    LimitExceededEnvelope:
+      additionalProperties: false
+      properties:
+        error:
+          $ref: "#/components/schemas/LimitExceededErrorBody"
+      required:
+        - error
+      type: object
+    LimitExceededErrorBody:
+      additionalProperties: false
+      properties:
+        code:
+          description: Always limit_exceeded for this response.
+          enum:
+            - limit_exceeded
+          type: string
+        details:
+          $ref: "#/components/schemas/LimitExceededDetails"
+        message:
+          type: string
+        request_id:
+          type: string
+      required:
+        - code
+        - message
+        - details
       type: object
     LimitsCapsView:
       additionalProperties: false
@@ -2264,6 +2337,19 @@ components:
         - valid
         - errors
       type: object
+    ValidationErrorDetails:
+      additionalProperties: false
+      properties:
+        fields:
+          description: The fields that failed validation. May be empty when the failure is request-wide rather than field-specific.
+          items:
+            $ref: "#/components/schemas/FieldError"
+          type:
+            - array
+            - "null"
+      required:
+        - fields
+      type: object
     VerifyDomainView:
       additionalProperties: false
       properties:
@@ -2698,12 +2784,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentView"
           description: Created
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Create an agent
@@ -3057,7 +3149,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3289,7 +3387,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3390,7 +3494,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3491,7 +3601,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
-          description: Accepted — held for human approval (status=pending_review).
+          description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         default:
           content:
             application/json:
@@ -3559,6 +3675,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/DomainView"
           description: Created
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.
         "409":
           content:
             application/json:
@@ -3638,7 +3760,7 @@ paths:
         - domains
   /v1/domains/{domain}/verify:
     post:
-      description: Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+      description: Probe the domain's published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
       operationId: verifyDomain
       parameters:
         - in: path
@@ -3653,12 +3775,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/VerifyDomainView"
           description: OK
-        "412":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VerifyDomainView"
-          description: Precondition Failed — the verification TXT record is not yet published.
         default:
           content:
             application/json:
@@ -3770,7 +3886,7 @@ paths:
         - events
   /v1/events/{id}/redeliver:
     post:
-      description: Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+      description: "Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id. Returns 202 Accepted: the redelivery is durably enqueued for async submission, not delivered synchronously — the per-subscriber outcome surfaces via the delivery log, and each delivery's status is 'pending' (or 'scheduled' for the fan-out)."
       operationId: redeliverEvent
       parameters:
         - in: path
@@ -3785,12 +3901,12 @@ paths:
               $ref: "#/components/schemas/RedeliverEventRequest"
         required: true
       responses:
-        "200":
+        "202":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RedeliverView"
-          description: OK
+          description: Accepted
         default:
           content:
             application/json:

@@ -144,25 +144,28 @@ func TestVerifyDomainAlreadyVerified(t *testing.T) {
 func TestVerifyDomainTXTMissing(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/domains/pending.com/verify", "good", nil)
-	if code != 412 || body["verified"] != false {
-		t.Fatalf("want 412 not-verified, got %d %v", code, body)
+	// Not-yet-published is a normal 200 with verified:false — NOT a 412. Clients
+	// branch on the body's `verified` boolean, not the HTTP status.
+	if code != 200 || body["verified"] != false {
+		t.Fatalf("want 200 not-verified, got %d %v", code, body)
 	}
 	if body["mx"] != "missing" {
-		t.Fatalf("expected diagnostic in 412 body, got %v", body)
+		t.Fatalf("expected diagnostic in 200 body, got %v", body)
 	}
 }
 
 // TestVerifyDomainMXMissing — verification now requires the inbound MX too, not
 // just the ownership TXT, so that inbound_mx.status="verified" (derived from the
-// domain's verified flag) is honest. TXT present but MX missing ⇒ 412, not verified.
+// domain's verified flag) is honest. TXT present but MX missing ⇒ verified:false
+// (returned as a normal 200, not a 412).
 func TestVerifyDomainMXMissing(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/domains/nomx.com/verify", "good", nil)
-	if code != 412 || body["verified"] != false {
-		t.Fatalf("want 412 not-verified (MX missing), got %d %v", code, body)
+	if code != 200 || body["verified"] != false {
+		t.Fatalf("want 200 not-verified (MX missing), got %d %v", code, body)
 	}
 	if body["mx"] != "missing" {
-		t.Fatalf("expected mx=missing diagnostic in 412 body, got %v", body)
+		t.Fatalf("expected mx=missing diagnostic in 200 body, got %v", body)
 	}
 }
 

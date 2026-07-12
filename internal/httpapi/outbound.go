@@ -45,6 +45,16 @@ func (s *Server) errorEnvelopeResponse() *huma.Response {
 		"Error — the standard envelope; branch on error.code.")
 }
 
+// limitExceededResponse is the typed 402 response for the cap-enforcing
+// operations (create agent, register domain, send/reply/forward/test). Its
+// schema is the LimitExceededEnvelope, whose error.details is a typed
+// LimitExceededDetails so codegen surfaces a concrete shape (resource keyed to
+// the AccountView usage/limits field stems) instead of a bare `any`.
+func (s *Server) limitExceededResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(LimitExceededEnvelope{}), "LimitExceededEnvelope",
+		"Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.")
+}
+
 // SendResultView is the single outbound result for send/reply/forward/approve/
 // test (MSG-9). Per scenario:
 //   - sent:  status="sent" + message_id (the e2a msg_ id) + provider_message_id
@@ -133,12 +143,15 @@ type sendOutput struct {
 }
 
 func (s *Server) registerOutbound() {
-	// 202 Accepted is the HITL-hold outcome of every outbound op: the message
-	// is queued as a pending_review draft rather than sent. Declared
-	// explicitly because Huma infers only the single DefaultStatus (200).
-	held202 := func() *huma.Response {
+	// 202 Accepted covers every non-terminal outbound outcome: the message was
+	// durably accepted but not yet delivered — either queued for async
+	// submission (status=accepted; the terminal sent/failed arrives via GET /
+	// webhook events) or held for human approval (status=pending_review).
+	// Declared explicitly because Huma infers only the single DefaultStatus
+	// (200, kept for the terminal-synchronous status=sent result).
+	accepted202 := func() *huma.Response {
 		return s.jsonResponse(reflect.TypeOf(SendResultView{}), "SendResultView",
-			"Accepted — held for human approval (status=pending_review).")
+			"Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval).")
 	}
 
 	huma.Register(s.API, huma.Operation{
@@ -147,7 +160,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -156,7 +169,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
@@ -165,7 +178,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
@@ -173,7 +186,7 @@ func (s *Server) registerOutbound() {
 		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
 		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
-		Responses:   map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:   map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleTestSend)
 }
 
@@ -521,7 +534,7 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 				raw = []byte("{}")
 			}
 			return s.deps.Idempotency.CompleteTx(ctx, tx, uid, nsKey, idempotency.CachedResponse{
-				StatusCode: http.StatusOK, ContentType: "application/json", Body: raw,
+				StatusCode: http.StatusAccepted, ContentType: "application/json", Body: raw,
 			})
 		}
 	}
@@ -554,11 +567,15 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		if res.Held {
 			return http.StatusAccepted, SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil
 		}
-		// Async accept (slice C): 200 with status=accepted. The body MUST match
-		// acceptedView (the idempotency cache is keyed to it) — no provider id /
-		// sent_as yet (the send hasn't happened; they surface via GET / webhooks).
+		// Async accept (slice C): 202 Accepted with status=accepted — the message
+		// is durably persisted and queued for async submission; the terminal
+		// outcome (sent/failed) arrives later via GET / webhooks, not this
+		// response. The body MUST match acceptedView (the idempotency cache is
+		// keyed to it) — no provider id / sent_as yet (the send hasn't happened).
+		// The cached StatusCode (idemCompleteTx, above) is likewise 202 so a
+		// replayed idempotent request returns the same 202, never a stale 200.
 		if res.Status == "accepted" {
-			return http.StatusOK, acceptedView(res.MessageID), nil
+			return http.StatusAccepted, acceptedView(res.MessageID), nil
 		}
 		return http.StatusOK, SendResultView{Status: "sent", MessageID: res.MessageID, ProviderMessageID: res.ProviderMessageID, SentAs: res.SentAs, Method: res.Method}, nil
 	})

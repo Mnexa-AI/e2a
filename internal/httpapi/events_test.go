@@ -90,7 +90,7 @@ func TestGetEventExpiredGone(t *testing.T) {
 func TestRedeliverEventTargeted(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{"webhook_id": "wh_1"})
-	if code != 200 || body["delivery_id"] != "whd_wh_1" || body["status"] != "pending" {
+	if code != 202 || body["delivery_id"] != "whd_wh_1" || body["status"] != "pending" {
 		t.Fatalf("targeted redeliver: %d %v", code, body)
 	}
 }
@@ -98,7 +98,7 @@ func TestRedeliverEventTargeted(t *testing.T) {
 func TestRedeliverEventFanout(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{})
-	if code != 200 || body["status"] != "scheduled" {
+	if code != 202 || body["status"] != "scheduled" {
 		t.Fatalf("fanout redeliver: %d %v", code, body)
 	}
 	dels, _ := body["deliveries"].([]any)
@@ -121,16 +121,16 @@ func TestEnqueueError_ReportsPendingNotFailure(t *testing.T) {
 		t.Fatalf("/test on enqueue error: want 200 + delivery_id, got %d %v", code, body)
 	}
 
-	// Targeted redeliver → 200 pending (not 500).
+	// Targeted redeliver → 202 pending (not 500).
 	code, body = postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{"webhook_id": "wh_1"})
-	if code != 200 || body["status"] != "pending" {
-		t.Fatalf("targeted redeliver on enqueue error: want 200 pending, got %d %v", code, body)
+	if code != 202 || body["status"] != "pending" {
+		t.Fatalf("targeted redeliver on enqueue error: want 202 pending, got %d %v", code, body)
 	}
 
-	// Fanout redeliver → 200, every delivery 'pending' (not 'skipped').
+	// Fanout redeliver → 202, every delivery 'pending' (not 'skipped').
 	code, body = postJSON(t, srv.URL+"/v1/events/evt_a/redeliver", "good", map[string]any{})
-	if code != 200 {
-		t.Fatalf("fanout redeliver on enqueue error: want 200, got %d %v", code, body)
+	if code != 202 {
+		t.Fatalf("fanout redeliver on enqueue error: want 202, got %d %v", code, body)
 	}
 	dels, _ := body["deliveries"].([]any)
 	if len(dels) == 0 {

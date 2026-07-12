@@ -29,9 +29,14 @@ import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
 import { DomainView } from '../models/DomainView.js';
 import { ErrorBody } from '../models/ErrorBody.js';
+import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
+import { FieldError } from '../models/FieldError.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { LimitExceededDetails } from '../models/LimitExceededDetails.js';
+import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
+import { LimitExceededErrorBody } from '../models/LimitExceededErrorBody.js';
 import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
@@ -91,6 +96,7 @@ import { UserExport } from '../models/UserExport.js';
 import { UserExportUser } from '../models/UserExportUser.js';
 import { ValidateTemplateRequest } from '../models/ValidateTemplateRequest.js';
 import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js';
+import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
@@ -861,7 +867,7 @@ export class ObjectDomainsApi {
     }
 
     /**
-     * Probe the domain\'s published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+     * Probe the domain\'s published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
      * Verify a domain
      * @param param the request object
      */
@@ -870,7 +876,7 @@ export class ObjectDomainsApi {
     }
 
     /**
-     * Probe the domain\'s published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.
+     * Probe the domain\'s published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.
      * Verify a domain
      * @param param the request object
      */
@@ -1012,7 +1018,7 @@ export class ObjectEventsApi {
     }
 
     /**
-     * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+     * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id. Returns 202 Accepted: the redelivery is durably enqueued for async submission, not delivered synchronously — the per-subscriber outcome surfaces via the delivery log, and each delivery\'s status is \'pending\' (or \'scheduled\' for the fan-out).
      * Redeliver an event
      * @param param the request object
      */
@@ -1021,7 +1027,7 @@ export class ObjectEventsApi {
     }
 
     /**
-     * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+     * Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id. Returns 202 Accepted: the redelivery is durably enqueued for async submission, not delivered synchronously — the per-subscriber outcome surfaces via the delivery log, and each delivery\'s status is \'pending\' (or \'scheduled\' for the fan-out).
      * Redeliver an event
      * @param param the request object
      */

@@ -10,22 +10,16 @@
  * Do not edit the class manually.
  */
 
-import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
+import { LimitExceededDetails } from '../models/LimitExceededDetails.js';
 import { HttpFile } from '../http/http.js';
 
-export class ErrorBody {
+export class LimitExceededErrorBody {
     /**
-    * Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Known values: invalid_request, unauthorized, forbidden, not_found, conflict, gone, method_not_allowed, payload_too_large, unsupported_media_type, rate_limited, limit_exceeded, internal_error — plus resource-specific codes (e.g. domain_not_verified, invalid_cursor, idempotency_in_flight, idempotency_key_reuse) and the *_not_found / *_exists suffix families. A single canonical code, invalid_request, covers all input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid).
+    * Always limit_exceeded for this response.
     */
-    'code': string;
-    'details'?: ErrorBodyDetails;
-    /**
-    * Human-readable explanation. Not for branching — use code.
-    */
+    'code': LimitExceededErrorBodyCodeEnum;
+    'details': LimitExceededDetails;
     'message': string;
-    /**
-    * Echoes the X-Request-Id response header so a failing call is greppable in logs.
-    */
     'requestId'?: string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -36,13 +30,13 @@ export class ErrorBody {
         {
             "name": "code",
             "baseName": "code",
-            "type": "string",
+            "type": "LimitExceededErrorBodyCodeEnum",
             "format": ""
         },
         {
             "name": "details",
             "baseName": "details",
-            "type": "ErrorBodyDetails",
+            "type": "LimitExceededDetails",
             "format": ""
         },
         {
@@ -59,9 +53,14 @@ export class ErrorBody {
         }    ];
 
     static getAttributeTypeMap() {
-        return ErrorBody.attributeTypeMap;
+        return LimitExceededErrorBody.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
+
+export enum LimitExceededErrorBodyCodeEnum {
+    LimitExceeded = 'limit_exceeded'
+}
+

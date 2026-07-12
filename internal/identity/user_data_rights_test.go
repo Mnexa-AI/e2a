@@ -112,6 +112,21 @@ func TestExportUserData(t *testing.T) {
 	if len(dump.Agents) != 1 {
 		t.Errorf("agents: got %d, want 1", len(dump.Agents))
 	}
+	// The export keys an agent on `email` only. The #436 rename dropped the
+	// redundant `id` (id == email) from every other surface; guard that the
+	// export doesn't reintroduce it as a re-exposed identifier.
+	if len(dump.Agents) == 1 {
+		agentJSON, err := json.Marshal(dump.Agents[0])
+		if err != nil {
+			t.Fatalf("marshal exported agent: %v", err)
+		}
+		if jsonContains(agentJSON, "id") {
+			t.Error("exported agent leaks `id` — it's redundant with `email` (id == email)")
+		}
+		if !jsonContains(agentJSON, "email") {
+			t.Error("exported agent is missing `email` — the agent's identifier")
+		}
+	}
 	if len(dump.APIKeys) != 2 {
 		t.Errorf("api_keys: got %d, want 2", len(dump.APIKeys))
 	}
