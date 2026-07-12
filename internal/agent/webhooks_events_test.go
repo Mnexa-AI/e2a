@@ -69,8 +69,15 @@ func TestBuildPendingApprovalEvent(t *testing.T) {
 	msg := &identity.Message{ID: "pend_1", ApprovalExpiresAt: &expiry}
 	req := outbound.SendRequest{To: []string{"alice@example.com"}, Subject: "review me"}
 	ev := a.buildPendingApprovalEvent(agent, msg, req, "send")
-	if ev.Type != webhookpub.EventEmailPendingReview {
-		t.Errorf("Type = %q, want email.pending_review", ev.Type)
+	if ev.Type != webhookpub.EventEmailReviewRequested {
+		t.Errorf("Type = %q, want email.review_requested", ev.Type)
+	}
+	pdata := ev.Data.(map[string]interface{})
+	if pdata["message_type"] != "send" {
+		t.Errorf("message_type = %v, want send", pdata["message_type"])
+	}
+	if pdata["agent_email"] != agent.ID {
+		t.Errorf("agent_email = %v, want %q", pdata["agent_email"], agent.ID)
 	}
 	if ev.MessageID != "pend_1" {
 		t.Errorf("MessageID = %q, want pend_1", ev.MessageID)
@@ -103,8 +110,14 @@ func TestBuildApprovedEvent(t *testing.T) {
 	if data["edited"] != true {
 		t.Errorf("edited = %v, want true", data["edited"])
 	}
-	if data["reviewed_by_user_id"] != "u_reviewer" {
-		t.Errorf("reviewed_by_user_id = %v", data["reviewed_by_user_id"])
+	if data["message_type"] != "send" {
+		t.Errorf("message_type = %v, want send", data["message_type"])
+	}
+	if data["agent_email"] != agent.ID {
+		t.Errorf("agent_email = %v, want %q", data["agent_email"], agent.ID)
+	}
+	if _, ok := data["reviewed_by_user_id"]; ok {
+		t.Errorf("reviewed_by_user_id must not be exposed, got %v", data["reviewed_by_user_id"])
 	}
 }
 
@@ -119,8 +132,17 @@ func TestBuildRejectedEvent(t *testing.T) {
 		t.Errorf("MessageID = %q", ev.MessageID)
 	}
 	data := ev.Data.(map[string]interface{})
-	if data["rejection_reason"] != "off-policy" {
-		t.Errorf("rejection_reason = %v", data["rejection_reason"])
+	if data["reason"] != "off-policy" {
+		t.Errorf("reason = %v, want off-policy", data["reason"])
+	}
+	if data["message_type"] != "send" {
+		t.Errorf("message_type = %v, want send", data["message_type"])
+	}
+	if data["agent_email"] != "bot@x.example.com" {
+		t.Errorf("agent_email = %v, want bot@x.example.com", data["agent_email"])
+	}
+	if _, ok := data["reviewed_by_user_id"]; ok {
+		t.Errorf("reviewed_by_user_id must not be exposed")
 	}
 }
 

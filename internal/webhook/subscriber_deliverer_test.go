@@ -17,9 +17,12 @@ import (
 
 func TestSubscriberDeliverer_SignsRequest(t *testing.T) {
 	var gotSignatureHeader string
+	var gotEventType, gotSchemaVersion string
 	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSignatureHeader = r.Header.Get("X-E2A-Signature")
+		gotEventType = r.Header.Get("X-E2A-Event-Type")
+		gotSchemaVersion = r.Header.Get("X-E2A-Schema-Version")
 		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -27,12 +30,18 @@ func TestSubscriberDeliverer_SignsRequest(t *testing.T) {
 
 	d := NewSubscriberDeliverer(false, "")
 	body := []byte(`{"event":"email.received","id":"evt_x"}`)
-	out := d.Deliver(context.Background(), srv.URL, body, "whsec_secret", "")
+	out := d.Deliver(context.Background(), srv.URL, body, "whsec_secret", "", "email.received", "1")
 	if !out.Success {
 		t.Fatalf("Deliver returned failure: %+v", out)
 	}
 	if out.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", out.StatusCode)
+	}
+	if gotEventType != "email.received" {
+		t.Errorf("X-E2A-Event-Type = %q, want email.received", gotEventType)
+	}
+	if gotSchemaVersion != "1" {
+		t.Errorf("X-E2A-Schema-Version = %q, want 1", gotSchemaVersion)
 	}
 
 	if !strings.HasPrefix(gotSignatureHeader, "t=") {
@@ -72,7 +81,7 @@ func TestSubscriberDeliverer_DualSigDuringRotationGrace(t *testing.T) {
 
 	d := NewSubscriberDeliverer(false, "")
 	body := []byte(`{"event":"email.received"}`)
-	out := d.Deliver(context.Background(), srv.URL, body, "whsec_new", "whsec_old")
+	out := d.Deliver(context.Background(), srv.URL, body, "whsec_new", "whsec_old", "email.received", "1")
 	if !out.Success {
 		t.Fatalf("Deliver returned failure: %+v", out)
 	}
@@ -91,7 +100,7 @@ func TestSubscriberDeliverer_4xxIsFailure(t *testing.T) {
 	defer srv.Close()
 
 	d := NewSubscriberDeliverer(false, "")
-	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "")
+	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "", "email.blocked", "1")
 	if out.Success {
 		t.Error("4xx response reported as success")
 	}
@@ -107,7 +116,7 @@ func TestSubscriberDeliverer_5xxIsFailure(t *testing.T) {
 	defer srv.Close()
 
 	d := NewSubscriberDeliverer(false, "")
-	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "")
+	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "", "email.blocked", "1")
 	if out.Success {
 		t.Error("5xx response reported as success")
 	}
@@ -122,7 +131,7 @@ func TestSubscriberDeliverer_ConnectionErrorReportsZeroStatus(t *testing.T) {
 	// real service.
 	d := NewSubscriberDeliverer(false, "")
 	d.client.Timeout = 100 * time.Millisecond // speed up the test
-	out := d.Deliver(context.Background(), "http://192.0.2.1:8080/", []byte(`{}`), "whsec_x", "")
+	out := d.Deliver(context.Background(), "http://192.0.2.1:8080/", []byte(`{}`), "whsec_x", "", "email.blocked", "1")
 	if out.Success {
 		t.Error("connection failure reported as success")
 	}
@@ -133,7 +142,7 @@ func TestSubscriberDeliverer_ConnectionErrorReportsZeroStatus(t *testing.T) {
 
 func TestSubscriberDeliverer_RefusesPlaintextInProd(t *testing.T) {
 	d := NewSubscriberDeliverer(true, "") // requireHTTPS=true
-	out := d.Deliver(context.Background(), "http://example.com/hook", []byte(`{}`), "whsec_x", "")
+	out := d.Deliver(context.Background(), "http://example.com/hook", []byte(`{}`), "whsec_x", "", "email.blocked", "1")
 	if out.Success {
 		t.Error("plaintext URL allowed in HTTPS-required mode")
 	}
@@ -157,7 +166,7 @@ func TestSubscriberDeliverer_ExemptsConfiguredInternalSink(t *testing.T) {
 	d := NewSubscriberDeliverer(true /* requireHTTPS */, srv.URL /* internalSinkURL */)
 
 	// Exact match → exempt → delivered over plain HTTP to loopback.
-	out := d.Deliver(context.Background(), srv.URL, []byte(`{"event":"email.received"}`), "whsec_x", "")
+	out := d.Deliver(context.Background(), srv.URL, []byte(`{"event":"email.received"}`), "whsec_x", "", "email.received", "1")
 	if !out.Success {
 		t.Fatalf("delivery to the configured internal sink failed: %+v", out)
 	}
@@ -168,7 +177,7 @@ func TestSubscriberDeliverer_ExemptsConfiguredInternalSink(t *testing.T) {
 	// A DIFFERENT plaintext URL is NOT exempt — exact-match only, so the HTTPS
 	// guard still applies. This is the security property that keeps the
 	// exemption from widening into an arbitrary-internal-host SSRF.
-	out = d.Deliver(context.Background(), "http://example.com/other", []byte(`{}`), "whsec_x", "")
+	out = d.Deliver(context.Background(), "http://example.com/other", []byte(`{}`), "whsec_x", "", "email.blocked", "1")
 	if out.Success {
 		t.Error("a non-sink plaintext URL was allowed — exemption must be exact-match only")
 	}
@@ -187,7 +196,7 @@ func TestSubscriberDeliverer_RefusesRedirects(t *testing.T) {
 	defer srv.Close()
 
 	d := NewSubscriberDeliverer(false, "")
-	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "")
+	out := d.Deliver(context.Background(), srv.URL, []byte(`{}`), "whsec_x", "", "email.blocked", "1")
 	if out.Success {
 		t.Error("3xx response reported as success — redirects must be refused")
 	}

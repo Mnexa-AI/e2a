@@ -433,25 +433,26 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// is untrusted. Deterministic id keeps MTA retries idempotent.
 	// email.flagged fires for a delivered gate-flag. When the message is HELD
 	// (review/block), delivery is suppressed and email.flagged is not fired: a
-	// block emits email.blocked, a review emits email.pending_review (below).
+	// block emits email.blocked, a review emits email.review_requested (below).
 	var flaggedEvent *webhookpub.Event
 	if policyDecision.Flagged && !screenRes.Hold {
 		fe := webhookpub.NewEvent(webhookpub.EventEmailFlagged, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
+			"direction":       "inbound",
 			"agent_email":     agent.EmailAddress(),
-			// from is the AUTHENTICATED From identity the policy evaluated and
-			// flagged — NOT displaySender (Reply-To), which is attacker-
-			// controllable and would name a trusted-looking address on the very
-			// message the gate rejected. display_sender/reply_to carry the
-			// reply-routing addresses separately so the signal is complete.
-			"from":           senderEmail,
-			"display_sender": displaySender,
-			"reply_to":       threadInfo.ReplyTo,
-			"delivered_to":   rcpt,
-			"subject":        threadInfo.Subject,
-			"policy":         agent.InboundPolicy,
-			"reason":         policyDecision.Reason,
+			// Mirror email.received's from/authenticated_from semantics: from is the
+			// display/reply-preferred sender, authenticated_from is the gated From
+			// identity that SPF/DKIM/DMARC and the inbound policy evaluated (and
+			// flagged). A consumer of an allowlist/domain-gated agent MUST treat
+			// authenticated_from — not from — as the verified identity.
+			"from":               displaySender,
+			"authenticated_from": senderEmail,
+			"reply_to":           threadInfo.ReplyTo,
+			"delivered_to":       rcpt,
+			"subject":            threadInfo.Subject,
+			"policy":             agent.InboundPolicy,
+			"reason":             policyDecision.Reason,
 		})
 		fe.AgentID = agent.ID
 		fe.ConversationID = conversationID
@@ -485,14 +486,14 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		blockedEvent = &be
 	}
 
-	// email.pending_review: fired when the applied action is review — the message is
+	// email.review_requested: fired when the applied action is review — the message is
 	// held as pending_review awaiting a human / TTL. The same event fires for
 	// outbound HITL holds (direction-aware); carries the review TTL (approval_expires_at) and
 	// reason_source so a subscriber can drive a review queue from push. Deterministic
 	// id keeps MTA retries idempotent.
 	var pendingReviewEvent *webhookpub.Event
 	if screenRes.Review() {
-		pe := webhookpub.NewEvent(webhookpub.EventEmailPendingReview, agent.UserID, map[string]interface{}{
+		pe := webhookpub.NewEvent(webhookpub.EventEmailReviewRequested, agent.UserID, map[string]interface{}{
 			"message_id":          messageID,
 			"conversation_id":     conversationID,
 			"agent_email":         agent.EmailAddress(),
@@ -507,7 +508,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		pe.AgentID = agent.ID
 		pe.ConversationID = conversationID
 		pe.MessageID = messageID
-		pe.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailPendingReview)
+		pe.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReviewRequested)
 		pendingReviewEvent = &pe
 	}
 
@@ -627,7 +628,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q verified=%t",
 		messageID, displaySender, rcpt, slug, conversationID, threadInfo.Subject, domainAuth.DomainAuthenticated())
 
-	// Inbound events (email.received + flagged/blocked/pending_review variants)
+	// Inbound events (email.received + flagged/blocked/review_requested variants)
 	// are written to the outbox (webhook_events) above, in the message tx; the
 	// drain fans them out and enqueues River delivery jobs. No in-process
 	// fan-out here.
@@ -670,6 +671,7 @@ func buildEmailReceivedPayload(
 	return map[string]interface{}{
 		"message_id":      messageID,
 		"conversation_id": conversationID,
+		"direction":       "inbound",
 		"agent_email":     agent.EmailAddress(),
 		"from":            displaySender,
 		// authenticated_from is the From-header identity that SPF/DKIM/DMARC
@@ -684,7 +686,9 @@ func buildEmailReceivedPayload(
 		"delivered_to":       recipient,
 		"subject":            subject,
 		"auth_headers":       authHeaders,
-		"received_at":        time.Now().UTC().Format(time.RFC3339),
+		// Emit the raw time.Time (marshals to RFC3339Nano) so received_at matches
+		// the precision of approval_expires_at and the envelope created_at.
+		"received_at": time.Now().UTC(),
 	}
 }
 

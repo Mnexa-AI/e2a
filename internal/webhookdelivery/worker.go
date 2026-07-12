@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
 
 // retryBackoffs replicates internal/webhook/retry.go's schedule exactly (~72h
@@ -53,7 +55,7 @@ type WebhookReader interface {
 
 // Deliverer is the POST surface. *webhook.SubscriberDeliverer satisfies it.
 type Deliverer interface {
-	Deliver(ctx context.Context, url string, body []byte, secret, secretPrev string) webhook.DeliveryOutcome
+	Deliver(ctx context.Context, url string, body []byte, secret, secretPrev, eventType, schemaVersion string) webhook.DeliveryOutcome
 }
 
 // WebhookDeliverArgs carries only the Layer 2 delivery id — the worker reads the
@@ -127,7 +129,11 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 		prevSecret = ""
 	}
 
-	out := w.deliverer.Deliver(ctx, wh.URL, d.EventPayload, wh.SigningSecret, prevSecret)
+	// Schema version is stamped from the current constant at delivery time (not read
+	// from the stored envelope bytes) so a redelivered pre-schema_version event still
+	// carries it; the event type comes from the Layer 2 delivery row.
+	out := w.deliverer.Deliver(ctx, wh.URL, d.EventPayload, wh.SigningSecret, prevSecret,
+		d.EventType, strconv.Itoa(webhookpub.SchemaVersion))
 	if out.Success {
 		return w.subStore.MarkDelivered(ctx, d.ID, out.StatusCode) // nil → River completes the job
 	}

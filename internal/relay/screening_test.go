@@ -156,7 +156,7 @@ func TestScreenInbound_ReviewHolds(t *testing.T) {
 		t.Errorf("review hold must set approval_expires_at (TTL)")
 	}
 	if !res.Review() || res.Blocked() {
-		t.Errorf("review hold: Review()=%v Blocked()=%v, want true/false (drives email.pending_review)", res.Review(), res.Blocked())
+		t.Errorf("review hold: Review()=%v Blocked()=%v, want true/false (drives email.review_requested)", res.Review(), res.Blocked())
 	}
 }
 

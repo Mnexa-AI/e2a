@@ -115,7 +115,7 @@ func TestWorkerEmitsInboundReviewRejectedOnExpiry(t *testing.T) {
 		t.Errorf("routing UserID = %q, want owner %q", e.UserID, agent.UserID)
 	}
 	d := dataOf(t, e)
-	if d["direction"] != "inbound" || d["rejection_reason"] != "ttl_expired" {
+	if d["direction"] != "inbound" || d["reason"] != "ttl_expired" {
 		t.Errorf("payload = %v, want inbound/ttl_expired", d)
 	}
 }

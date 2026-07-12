@@ -1,6 +1,6 @@
 # Events API & reconciliation
 
-e2a maintains a durable log of every event it emits to webhook subscribers — `email.received`, `email.sent`, the review-hold events (`email.pending_review`, `email.review_approved`, `email.review_rejected`), and the screening events (`email.flagged`, `email.blocked`), among others. The log is queryable via `/v1/events` for 30 days and is the source of truth for replay.
+e2a maintains a durable log of every event it emits to webhook subscribers — `email.received`, `email.sent`, the review-hold events (`email.review_requested`, `email.review_approved`, `email.review_rejected`), and the screening events (`email.flagged`, `email.blocked`), among others. The log is queryable via `/v1/events` for 30 days and is the source of truth for replay.
 
 This guide is for customers who:
 
@@ -58,9 +58,8 @@ for e in client.events.list(type="email.received", limit=20):
 | `email.received` | Inbound SMTP message accepted | **At-least-once** end-to-end |
 | `email.flagged` | Inbound message accepted but did not match the agent's `inbound_policy` (delivered + flagged, never dropped) | **At-least-once** end-to-end |
 | `email.sent` | Outbound `/send` accepted by SES | Best-effort |
-| `email.failed` | Outbound send terminally failed (retries exhausted / permanent reject) — carries `reason`, `retryable: false` | **At-least-once** |
-| `email.deferred` | Outbound send transiently delayed and still retrying (SES 4xx / ramp deferral) — non-terminal; a later `email.sent`/`email.failed` follows | Best-effort |
-| `email.pending_review` | Message held for human review (outbound HITL or inbound screening) — carries `direction` | **At-least-once** |
+| `email.failed` | Outbound send terminally failed (retries exhausted / permanent reject) — carries `reason` | **At-least-once** |
+| `email.review_requested` | Message held for human review (outbound HITL or inbound screening) — carries `direction` | **At-least-once** |
 | `email.review_approved` | Review approved (outbound: sent; inbound: released to the inbox) | Best-effort |
 | `email.review_rejected` | Review rejected (outbound: discarded; inbound: dropped) | **At-least-once** |
 | `email.blocked` | Message refused by screening (inbound accept-then-quarantine / outbound 403) | **At-least-once** |
@@ -71,7 +70,7 @@ for e in client.events.list(type="email.received", limit=20):
 | `domain.sending_verified` | A domain's async SES sending identity reached the verified terminal state | Best-effort |
 | `domain.sending_failed` | A domain's async SES sending identity reached a failed terminal state | Best-effort |
 
-The review-hold + screening events (`email.flagged`, `email.blocked`, `email.pending_review`, `email.review_approved`, `email.review_rejected`) are **beta** — their payloads may change before they are declared stable.
+The review-hold + screening events (`email.flagged`, `email.blocked`, `email.review_requested`, `email.review_approved`, `email.review_rejected`) are **beta** — their payloads may change before they are declared stable.
 
 Every event payload is **metadata only** — it carries identifiers, routing fields, and verdicts, never message content. In particular `email.received` is a notification: it carries `message_id` + `delivered_to` (plus `agent_email`, `from`, `subject`, and the signed `auth_headers` attestation) but **not** the body. Fetch the full message — body + attachments — with `client.webhooks.fetch_message(event)` / `webhooks.fetchMessage(event)` (which resolves to `GET /v1/agents/{delivered_to}/messages/{message_id}`). This keeps the fan-out payload bounded and makes the REST resource the single source of truth for content.
 

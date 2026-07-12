@@ -53,19 +53,21 @@ func (w *Worker) emitInboundResolved(meta *identity.ReviewMessageMeta, ownerUser
 		data = map[string]interface{}{
 			"message_id":    meta.ID,
 			"direction":     "inbound",
+			"agent_email":   meta.Recipient,
 			"from":          meta.Sender,
 			"subject":       meta.Subject,
-			"type":          meta.Type,
+			"message_type":  meta.Type,
 			"auto_resolved": true,
 		}
 	} else {
 		typ = webhookpub.EventEmailReviewRejected
 		data = map[string]interface{}{
-			"message_id":       meta.ID,
-			"direction":        "inbound",
-			"type":             meta.Type,
-			"rejection_reason": reason,
-			"auto_resolved":    true,
+			"message_id":    meta.ID,
+			"direction":     "inbound",
+			"agent_email":   meta.Recipient,
+			"message_type":  meta.Type,
+			"reason":        reason,
+			"auto_resolved": true,
 		}
 	}
 	e := webhookpub.NewEvent(typ, ownerUserID, data)
@@ -84,12 +86,13 @@ func (w *Worker) emitOutboundApproved(agent *identity.AgentIdentity, sent *ident
 	data := map[string]interface{}{
 		"message_id":          sent.ID,
 		"direction":           "outbound",
+		"agent_email":         agent.EmailAddress(),
 		"provider_message_id": sent.ProviderMessageID,
 		"method":              sent.Method,
 		"from":                agent.EmailAddress(),
 		"to":                  sent.ToRecipients,
 		"subject":             sent.Subject,
-		"type":                sent.Type,
+		"message_type":        sent.Type,
 		"edited":              false,
 		"auto_resolved":       true,
 	}
@@ -114,11 +117,12 @@ func (w *Worker) emitOutboundRejected(ctx context.Context, rejected *identity.Me
 		return // without a routing key the event can't be delivered; don't emit an orphan
 	}
 	data := map[string]interface{}{
-		"message_id":       rejected.ID,
-		"direction":        "outbound",
-		"type":             rejected.Type,
-		"rejection_reason": reason,
-		"auto_resolved":    true,
+		"message_id":    rejected.ID,
+		"direction":     "outbound",
+		"agent_email":   rejected.AgentID,
+		"message_type":  rejected.Type,
+		"reason":        reason,
+		"auto_resolved": true,
 	}
 	e := webhookpub.NewEvent(webhookpub.EventEmailReviewRejected, ownerUserID, data)
 	e.AgentID = rejected.AgentID

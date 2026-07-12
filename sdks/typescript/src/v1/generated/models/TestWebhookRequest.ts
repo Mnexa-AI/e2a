@@ -46,7 +46,6 @@ export enum TestWebhookRequestTypeEnum {
     EmailReceived = 'email.received',
     EmailSent = 'email.sent',
     EmailFailed = 'email.failed',
-    EmailDeferred = 'email.deferred',
     EmailReviewApproved = 'email.review_approved',
     EmailReviewRejected = 'email.review_rejected',
     DomainSendingVerified = 'domain.sending_verified',
@@ -57,6 +56,6 @@ export enum TestWebhookRequestTypeEnum {
     DomainSuppressionAdded = 'domain.suppression_added',
     EmailFlagged = 'email.flagged',
     EmailBlocked = 'email.blocked',
-    EmailPendingReview = 'email.pending_review'
+    EmailReviewRequested = 'email.review_requested'
 }
 
