@@ -702,7 +702,7 @@ class EventsApi:
     ) -> RedeliverView:
         """Redeliver an event
 
-        Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+        Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id. Returns 202 Accepted: the redelivery is durably enqueued for async submission, not delivered synchronously — the per-subscriber outcome surfaces via the delivery log, and each delivery's status is 'pending' (or 'scheduled' for the fan-out).
 
         :param id: (required)
         :type id: str
@@ -740,7 +740,7 @@ class EventsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RedeliverView",
+            '202': "RedeliverView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -773,7 +773,7 @@ class EventsApi:
     ) -> ApiResponse[RedeliverView]:
         """Redeliver an event
 
-        Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+        Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id. Returns 202 Accepted: the redelivery is durably enqueued for async submission, not delivered synchronously — the per-subscriber outcome surfaces via the delivery log, and each delivery's status is 'pending' (or 'scheduled' for the fan-out).
 
         :param id: (required)
         :type id: str
@@ -811,7 +811,7 @@ class EventsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RedeliverView",
+            '202': "RedeliverView",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -844,7 +844,7 @@ class EventsApi:
     ) -> RESTResponseType:
         """Redeliver an event
 
-        Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id.
+        Re-enqueue webhook delivery for an event. With a webhook_id, replays to that subscriber; without, fans out to every originally-matched subscriber. Auto-deduplicated within a short window — receivers must dedup on event id. Returns 202 Accepted: the redelivery is durably enqueued for async submission, not delivered synchronously — the per-subscriber outcome surfaces via the delivery log, and each delivery's status is 'pending' (or 'scheduled' for the fan-out).
 
         :param id: (required)
         :type id: str
@@ -882,7 +882,7 @@ class EventsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '200': "RedeliverView",
+            '202': "RedeliverView",
         }
         response_data = await self.api_client.call_api(
             *_param,
