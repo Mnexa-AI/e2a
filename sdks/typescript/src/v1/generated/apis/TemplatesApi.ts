@@ -72,16 +72,23 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param id 
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public async deleteTemplate(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteTemplate(id: string, confirm: 'DELETE', _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'id' is not null or undefined
         if (id === null || id === undefined) {
             throw new RequiredError("TemplatesApi", "deleteTemplate", "id");
+        }
+
+
+        // verify required parameter 'confirm' is not null or undefined
+        if (confirm === null || confirm === undefined) {
+            throw new RequiredError("TemplatesApi", "deleteTemplate", "confirm");
         }
 
 
@@ -92,6 +99,11 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (confirm !== undefined) {
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;

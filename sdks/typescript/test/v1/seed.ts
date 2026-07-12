@@ -141,8 +141,8 @@ interface DnsRecord {
 /**
  * Seeder mints + verifies real domains and injects real inbound mail for one
  * scenario, tracking everything it creates for teardown. One instance per Runner.
- * Uses its OWN non-throwing fetch (the runner's RawApi throws on 4xx, but the
- * verify poll must read the 412 {verified:false} body while records propagate).
+ * Uses its OWN non-throwing fetch (the runner's RawApi throws on 4xx; verify
+ * always returns 200 with a {verified:false} body while records propagate).
  */
 export class Seeder {
   private readonly domains: string[] = [];

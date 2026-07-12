@@ -72,9 +72,12 @@ type Enforcer interface {
 // reached a cap. Handlers convert it to HTTP 402 with the Limits payload
 // so the dashboard can show the current cap and any upgrade affordance.
 type LimitExceededError struct {
-	Resource string // "agents" | "domains" | "messages"
-	Limit    int    // the cap that was hit
-	Current  int    // the user's current count (counts vary by resource)
+	// Resource is the AccountView usage/limits field stem the client can
+	// key the error to: "agents" | "domains" | "messages_month" |
+	// "storage_bytes". It matches usage.<resource> and limits.max_<resource>.
+	Resource string
+	Limit    int // the cap that was hit
+	Current  int // the user's current count (counts vary by resource)
 	Limits   Limits // full resolved limits for upgrade-URL rendering
 }
 

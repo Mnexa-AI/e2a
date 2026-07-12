@@ -43,7 +43,7 @@ func NewPage[T any](items []T, nextCursor string) Page[T] {
 // and validated identically across the surface.
 type PageParams struct {
 	Cursor string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters."`
-	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"50" doc:"Maximum number of items to return (1-100)."`
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"100" doc:"Maximum number of items to return (1-100)."`
 }
 
 // ErrInvalidCursor is returned when a cursor fails to decode. Handlers map
@@ -89,7 +89,7 @@ func (s *Server) encodeKeyset(createdAt time.Time, id string) (string, error) {
 }
 
 // effectiveLimit normalizes a request limit to the default when unset (<=0).
-// Mirrors the inline `if limit <= 0 { limit = 50 }` the list handlers share.
+// Mirrors the inline `if limit <= 0 { limit = 100 }` the list handlers share.
 func effectiveLimit(limit int) int {
 	if limit <= 0 {
 		return defaultPageLimit
@@ -98,8 +98,8 @@ func effectiveLimit(limit int) int {
 }
 
 // defaultPageLimit is the page size when a list request omits limit — the same
-// default PageParams declares (50).
-const defaultPageLimit = 50
+// default PageParams declares (100).
+const defaultPageLimit = 100
 
 // EncodeCursor serializes an arbitrary cursor payload (the position +
 // filter snapshot a resource needs to resume) into the opaque, URL-safe,

@@ -322,6 +322,7 @@ class WebhooksApi:
     async def delete_webhook(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -337,9 +338,12 @@ class WebhooksApi:
     ) -> None:
         """Delete a webhook
 
+        Delete a webhook subscriber by id. Requires ?confirm=DELETE.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -364,6 +368,7 @@ class WebhooksApi:
 
         _param = self._delete_webhook_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -388,6 +393,7 @@ class WebhooksApi:
     async def delete_webhook_with_http_info(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -403,9 +409,12 @@ class WebhooksApi:
     ) -> ApiResponse[None]:
         """Delete a webhook
 
+        Delete a webhook subscriber by id. Requires ?confirm=DELETE.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -430,6 +439,7 @@ class WebhooksApi:
 
         _param = self._delete_webhook_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -454,6 +464,7 @@ class WebhooksApi:
     async def delete_webhook_without_preload_content(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -469,9 +480,12 @@ class WebhooksApi:
     ) -> RESTResponseType:
         """Delete a webhook
 
+        Delete a webhook subscriber by id. Requires ?confirm=DELETE.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -496,6 +510,7 @@ class WebhooksApi:
 
         _param = self._delete_webhook_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -515,6 +530,7 @@ class WebhooksApi:
     def _delete_webhook_serialize(
         self,
         id,
+        confirm,
         _request_auth,
         _content_type,
         _headers,
@@ -539,6 +555,10 @@ class WebhooksApi:
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
+        if confirm is not None:
+            
+            _query_params.append(('confirm', confirm))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter
@@ -840,7 +860,7 @@ class WebhooksApi:
         id: StrictStr,
         status: Optional[StrictStr] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
-        limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -919,7 +939,7 @@ class WebhooksApi:
         id: StrictStr,
         status: Optional[StrictStr] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
-        limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -998,7 +1018,7 @@ class WebhooksApi:
         id: StrictStr,
         status: Optional[StrictStr] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
-        limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],

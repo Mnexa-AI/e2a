@@ -76,7 +76,9 @@ func TestScope_AccountOnlyRoutesRejectAgentKeys(t *testing.T) {
 		{"list/agent-403", "GET", "/v1/agents", "agtSupport", 403},
 		// Delete agent is admin even on the bound agent.
 		{"delete/account-ok", "DELETE", "/v1/agents/support%40acme.com?confirm=DELETE", "acct", 204},
-		{"delete/agent-bound-403", "DELETE", "/v1/agents/support%40acme.com", "agtSupport", 403},
+		// confirm=DELETE clears Huma's required-param validation so the request
+		// reaches the scope gate (403), like the empty JSON body does for POSTs.
+		{"delete/agent-bound-403", "DELETE", "/v1/agents/support%40acme.com?confirm=DELETE", "agtSupport", 403},
 		// Protection config is account-only — the #13 fix: the screened agent
 		// cannot even READ its own detection tuning, let alone change it.
 		{"protection-get/account-ok", "GET", "/v1/agents/support%40acme.com/protection", "acct", 200},

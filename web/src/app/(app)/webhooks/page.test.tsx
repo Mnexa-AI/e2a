@@ -244,7 +244,7 @@ describe("Webhooks page", () => {
     const deletedIDs: string[] = [];
     global.fetch = makeFetchMock({
       "GET /v1/webhooks": () => jsonResp({ items: [webhook, second] }),
-      [`DELETE /v1/webhooks/${encodeURIComponent("wh_other")}`]: () => {
+      [`DELETE /v1/webhooks/${encodeURIComponent("wh_other")}?confirm=DELETE`]: () => {
         deletedIDs.push("wh_other");
         return {
           ok: true,

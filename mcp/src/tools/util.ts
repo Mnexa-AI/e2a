@@ -32,7 +32,7 @@ export const paginationInput = {
     .positive()
     .max(100)
     .optional()
-    .describe("Max items in this page (1–100). Defaults to a server-chosen page size."),
+    .describe("Max items in this page (1–100). Defaults to a server-chosen page size (100)."),
 } as const;
 
 export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {

@@ -1979,9 +1979,15 @@ Every fix was **test-first**: a contract/store test was written and confirmed to
   `webhook_deliveries`. (`TestConversationMessagesCarryWebhookStatus`.)
 
 **Contract-honesty fixes (all fixed, TDD via `spec_review_test.go` + handler tests):**
-- **MED-1/2** — declare the runtime `202` (outbound HITL hold) and `412`
-  (domain verify "TXT not published") responses that Huma omitted, so SDK
-  codegen models them.
+- **MED-1** — declare the runtime `202` (outbound HITL hold) response that Huma
+  omitted, so SDK codegen models it.
+- **MED-2** — ~~domain verify "TXT not published" declared a `412`~~ **superseded
+  (pre-GA):** `verifyDomain` now always returns **200** with the `VerifyDomainView`
+  diagnostic; a not-yet-published record is the normal `verified:false` outcome,
+  not an HTTP error. `412` (Precondition Failed) is reserved for conditional-request
+  failures and was being special-cased by SDKs/proxies. Clients branch on the body's
+  `verified` boolean, never the status code. (`TestSpecVerifyDomainNo412` +
+  handler tests.)
 - **MED-3** — duplicate-domain registration now returns **`409 domain_taken`**
   (was `400`) via a typed `identity.ErrDomainTaken` sentinel.
 - **MED-4** — a **recipient-count cap** (≤ 50 total to+cc+bcc) on

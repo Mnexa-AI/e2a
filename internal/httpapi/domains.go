@@ -223,6 +223,7 @@ func (s *Server) registerDomains() {
 		Summary: "Register a domain", Tags: []string{"domains"},
 		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
 		Responses: map[string]*huma.Response{
+			"402": s.limitExceededResponse(),
 			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
 				"Conflict — the domain is already claimed by another account (code domain_taken)."),
 			"default": s.errorEnvelopeResponse(),
@@ -232,27 +233,26 @@ func (s *Server) registerDomains() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteDomain", Method: http.MethodDelete, Path: "/v1/domains/{domain}",
 		Summary: "Delete a domain", Tags: []string{"domains"},
-		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).",
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteDomain)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "verifyDomain", Method: http.MethodPost, Path: "/v1/domains/{domain}/verify",
 		Summary: "Verify a domain", Tags: []string{"domains"},
-		Description: "Probe the domain's published DNS and, when the verification TXT is present, mark it verified. Returns the per-record diagnostic; a missing TXT yields 412.",
+		Description: "Probe the domain's published DNS and, when the verification TXT (and inbound MX) are present, mark it verified. Always returns 200 with the per-record diagnostic — branch on the `verified` boolean in the body, not the HTTP status. A not-yet-published record is the normal `verified:false` outcome, not an error.",
 		Security:    []map[string][]string{{"bearer": {}}},
 		Responses: map[string]*huma.Response{
-			"412": s.jsonResponse(reflect.TypeOf(VerifyDomainView{}), "VerifyDomainView",
-				"Precondition Failed — the verification TXT record is not yet published."),
 			"default": s.errorEnvelopeResponse(),
 		},
 	}, s.handleVerifyDomain)
 }
 
-// verifyDomainOutput uses Huma's special Status field to switch between 200
-// (verified / already-verified) and 412 (TXT not yet published).
+// verifyDomainOutput carries the diagnostic body. Both the verified and the
+// not-yet-verified outcomes are 200 (Huma's default) — callers branch on
+// VerifyDomainView.verified, never on the HTTP status.
 type verifyDomainOutput struct {
-	Status int
-	Body   VerifyDomainView
+	Body VerifyDomainView
 }
 
 func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*verifyDomainOutput, error) {
@@ -275,7 +275,7 @@ func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*veri
 	// forced sending re-check for a domain whose sending_status is pending/failed.
 	if d.Verified {
 		s.enqueueSenderProvision(ctx, d.Domain)
-		return &verifyDomainOutput{Status: http.StatusOK, Body: VerifyDomainView{
+		return &verifyDomainOutput{Body: VerifyDomainView{
 			Domain: d.Domain, Verified: true, VerifiedAt: d.VerifiedAt,
 			MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
 		}}, nil
@@ -287,9 +287,12 @@ func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*veri
 	// published — otherwise a TXT-only verify would claim a "verified" MX while
 	// inbound mail silently bounces. A domain can't receive mail without the MX,
 	// so requiring it for `verified` is also the correct inbound semantics.
-	// 412 with the diagnostic so callers see exactly which record is missing.
+	// Not-yet-published is the normal `verified:false` outcome — return 200 with
+	// the diagnostic so callers see exactly which record is missing. This is NOT
+	// an HTTP error (a missing TXT/MX is expected while DNS propagates); clients
+	// poll by re-calling and branching on `verified`, never on the status code.
 	if !check.TXTFound || check.MX != "found" {
-		return &verifyDomainOutput{Status: http.StatusPreconditionFailed, Body: VerifyDomainView{
+		return &verifyDomainOutput{Body: VerifyDomainView{
 			Domain: d.Domain, Verified: false, MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
 		}}, nil
 	}
@@ -302,11 +305,11 @@ func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*veri
 	// Re-read for verified_at; fall back to the bare success shape.
 	updated, err := s.deps.LookupDomain(ctx, in.Domain, user.ID)
 	if err != nil || updated == nil {
-		return &verifyDomainOutput{Status: http.StatusOK, Body: VerifyDomainView{
+		return &verifyDomainOutput{Body: VerifyDomainView{
 			Domain: in.Domain, Verified: true, MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
 		}}, nil
 	}
-	return &verifyDomainOutput{Status: http.StatusOK, Body: VerifyDomainView{
+	return &verifyDomainOutput{Body: VerifyDomainView{
 		Domain: updated.Domain, Verified: true, VerifiedAt: updated.VerifiedAt,
 		MX: check.MX, SPF: check.SPF, DKIM: check.DKIM,
 	}}, nil
@@ -411,8 +414,8 @@ type deleteDomainOutput struct{}
 // deprovisions its SES sending identity and breaks sending for every agent on
 // it, so it requires ?confirm=DELETE — uniform with deleteAccount/deleteAgent.
 type deleteDomainInput struct {
-	Domain  string `path:"domain"`
-	Confirm string `query:"confirm" doc:"Must be DELETE — this is irreversible (deprovisions the domain's sending identity)."`
+	Domain string `path:"domain"`
+	DeleteConfirm
 }
 
 func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) (*deleteDomainOutput, error) {
@@ -423,10 +426,8 @@ func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) 
 	if _, err := s.deps.LookupDomain(ctx, in.Domain, user.ID); err != nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "domain not found")
 	}
-	// Confirm after ownership: a not-owned/missing domain is 404 first.
-	if in.Confirm != "DELETE" {
-		return nil, NewError(http.StatusBadRequest, "confirmation_required", "add ?confirm=DELETE to the request to proceed — this is irreversible")
-	}
+	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
+	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
 	hasAgents, err := s.deps.HasAgentsOnDomain(ctx, in.Domain, user.ID)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to check domain agents")

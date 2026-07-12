@@ -188,9 +188,16 @@ type CreateWebhookRequest struct {
 }
 type createWebhookInput struct{ Body CreateWebhookRequest }
 
-// WebhookIDParam is the path input for single-webhook ops.
+// WebhookIDParam is the path input for single-webhook read/update ops.
 type WebhookIDParam struct {
 	ID string `path:"id"`
+}
+
+// deleteWebhookInput is WebhookIDParam plus the uniform destructive-delete
+// guard (DeleteConfirm) — a dedicated input so only DELETE requires ?confirm.
+type deleteWebhookInput struct {
+	ID string `path:"id"`
+	DeleteConfirm
 }
 
 func (s *Server) registerWebhooks() {
@@ -216,7 +223,8 @@ func (s *Server) registerWebhooks() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteWebhook", Method: http.MethodDelete, Path: "/v1/webhooks/{id}",
 		Summary: "Delete a webhook", Tags: []string{"webhooks"},
-		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Delete a webhook subscriber by id. Requires ?confirm=DELETE.",
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteWebhook)
 
 	huma.Register(s.API, huma.Operation{
@@ -331,14 +339,14 @@ type WebhookDeliveryView struct {
 // ListDeliveriesInput — the per-webhook delivery log, keyset-paginated on
 // (created_at, id) like every other v1 list. The delivery log grows unbounded on
 // a busy webhook, so a cursor (not a fixed cap) is what keeps the whole log
-// reachable; the limit is generous (default 100, up to 500) so a recent view is
+// reachable; the limit is generous (default 100, up to 100) so a recent view is
 // rarely more than one page. `status` restricts to pending|delivered|failed and
 // is pinned into the cursor (a continuation must not change it).
 type ListDeliveriesInput struct {
 	ID     string `path:"id"`
 	Status string `query:"status" enum:"pending,delivered,failed"`
 	Cursor string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter."`
-	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100"`
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"100"`
 }
 
 // deliveriesCursor is the opaque keyset position for the delivery log: the last
@@ -608,7 +616,7 @@ func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*web
 
 type deleteWebhookOutput struct{}
 
-func (s *Server) handleDeleteWebhook(ctx context.Context, in *WebhookIDParam) (*deleteWebhookOutput, error) {
+func (s *Server) handleDeleteWebhook(ctx context.Context, in *deleteWebhookInput) (*deleteWebhookOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err

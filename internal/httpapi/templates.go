@@ -159,9 +159,16 @@ type updateTemplateInput struct {
 	Body UpdateTemplateRequest
 }
 
-// TemplateIDParam is the path input for single-template ops.
+// TemplateIDParam is the path input for single-template read/update ops.
 type TemplateIDParam struct {
 	ID string `path:"id"`
+}
+
+// deleteTemplateInput is TemplateIDParam plus the uniform destructive-delete
+// guard (DeleteConfirm) — a dedicated input so only DELETE requires ?confirm.
+type deleteTemplateInput struct {
+	ID string `path:"id"`
+	DeleteConfirm
 }
 
 func (s *Server) registerTemplates() {
@@ -196,7 +203,7 @@ func (s *Server) registerTemplates() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteTemplate", Method: http.MethodDelete, Path: "/v1/templates/{id}",
 		Summary: "Delete a template (beta)", Tags: []string{"templates"},
-		Description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). " + templatesBetaDoc,
+		Description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteTemplate)
 
@@ -412,7 +419,7 @@ func (s *Server) handleUpdateTemplate(ctx context.Context, in *updateTemplateInp
 
 type deleteTemplateOutput struct{}
 
-func (s *Server) handleDeleteTemplate(ctx context.Context, in *TemplateIDParam) (*deleteTemplateOutput, error) {
+func (s *Server) handleDeleteTemplate(ctx context.Context, in *deleteTemplateInput) (*deleteTemplateOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
