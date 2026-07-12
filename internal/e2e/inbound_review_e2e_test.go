@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/smtp"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +101,10 @@ func inInbox(t *testing.T, ts *testutil.E2ATestServer, agentID, msgID string) bo
 
 func postReview(t *testing.T, ts *testutil.E2ATestServer, key *identity.APIKey, agentEmail, msgID, verb, body string) (int, map[string]any) {
 	t.Helper()
-	u := ts.HTTPServer.URL + "/v1/agents/" + url.PathEscape(agentEmail) + "/messages/" + msgID + "/" + verb
+	// Canonical review path (the agent-path /messages/{id}/approve|reject was removed).
+	// review id == message id, so {id} is msgID; agentEmail is unused now.
+	_ = agentEmail
+	u := ts.HTTPServer.URL + "/v1/reviews/" + msgID + "/" + verb
 	req, _ := http.NewRequest("POST", u, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+key.PlaintextKey)
 	req.Header.Set("Content-Type", "application/json")
