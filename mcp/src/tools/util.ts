@@ -19,6 +19,22 @@ export function strictInputSchema<S extends ZodRawShape>(shape: S) {
 // tool (§6a #3): `cursor` + `limit` in, and the tool returns `{ <items>,
 // next_cursor }`. Spread it into the tool's input schema. This replaces the old
 // mix of `token` / `page_size` / bare `limit`.
+//
+// FROZEN GA CONTRACT — do not change the list-envelope shape. The MCP list tools
+// deliberately return a DOMAIN-NAMED array (`agents`, `messages`, `events`, …)
+// and OMIT `next_cursor` when the list is exhausted (its absence = last page).
+// This is intentionally DIFFERENT from the REST envelope (`{ items, next_cursor:
+// null }`) and mirrors the MCP protocol's own pagination idiom (named array +
+// cursor omitted at end — the spec says treat a *missing* nextCursor as the end;
+// there is no `null` convention). It is the better fit for an LLM caller: named
+// keys are self-describing in a transcript, and omitting the cursor is a cleaner
+// "stop" signal than an explicit `null` (which models echo back and loop on).
+// Because agents/prompts learn this shape, the result key names, the
+// omit-when-done contract, and the `cursor`/`limit` input names are all part of
+// the stable v1 contract post-GA — do NOT rename keys, switch to a generic
+// `items`, or start emitting `next_cursor: null`. (Adding structuredContent /
+// outputSchema later is additive and non-breaking, so that stays a future option.)
+// Ref: MCP pagination spec — https://modelcontextprotocol.io/specification/2025-06-18/server/utilities/pagination
 export const paginationInput = {
   cursor: z
     .string()
