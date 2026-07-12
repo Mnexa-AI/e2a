@@ -35,7 +35,7 @@ class WebhookDeliveryView(BaseModel):
     last_status_code: Optional[StrictInt] = None
     next_retry_at: datetime
     status: StrictStr = Field(description="Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed.")
-    type: StrictStr = Field(description="The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*).")
+    type: StrictStr = Field(description="The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.delivered, …, domain.*).")
     __properties: ClassVar[List[str]] = ["attempts", "created_at", "id", "last_attempt_at", "last_error", "last_status_code", "next_retry_at", "status", "type"]
 
     model_config = ConfigDict(

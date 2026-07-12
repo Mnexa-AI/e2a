@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -32,21 +33,17 @@ import (
 const (
 	EventEmailReceived = "email.received"
 	EventEmailSent     = "email.sent"
-	// Async-send terminal outcomes (async-send-contract.md §4). With the
+	// Async-send terminal outcome (async-send-contract.md §4). With the
 	// persist-first pipeline the API returns 200 `accepted` before the send
-	// completes, so these events are the push signal that a send finished:
+	// completes, so this event is the push signal that a send finished:
 	//   - email.failed: terminal failure (retries exhausted / permanent reject /
-	//     block / review-reject-or-expiry). Carries retryable:false + reason.
-	//   - email.deferred: a transient delay the worker is still retrying (SES 4xx
-	//     / ramp deferral) — not terminal; a later email.sent or email.failed
-	//     follows. Peers (Resend/SendGrid) push the same delayed/deferred signal.
+	//     block / review-reject-or-expiry). Carries reason.
 	// Emitted synchronously in sync outbound mode (the server already knows the
-	// outcome); the async send pipeline (E2A_OUTBOUND_MODE=async) makes them the
+	// outcome); the async send pipeline (E2A_OUTBOUND_MODE=async) makes it the
 	// primary signal.
-	EventEmailFailed   = "email.failed"
-	EventEmailDeferred = "email.deferred"
+	EventEmailFailed = "email.failed"
 	// Review-hold lifecycle (unified, direction-aware — design 2026-06-22). A held
-	// message fires email.pending_review (defined below); on resolution it fires
+	// message fires email.review_requested (defined below); on resolution it fires
 	// email.review_approved (outbound: sent; inbound: released to the agent) or
 	// email.review_rejected. These replace the outbound-only pending_approval /
 	// approval_accepted / approval_rejected — outbound holds now fire the same
@@ -78,13 +75,20 @@ const (
 	// (sender_gate / recipient_gate / inbound_scan / outbound_scan), mirroring the
 	// protection_events audit vocabulary so a subscriber can correlate the two.
 	EventEmailBlocked = "email.blocked"
-	// EventEmailPendingReview fires when an inbound message is held for human review
+	// EventEmailReviewRequested fires when an inbound message is held for human review
 	// (applied action = review → status pending_review). The same event fires for
 	// outbound HITL holds (it is direction-aware) and carries the review TTL plus
 	// reason_source (sender_gate / inbound_scan) so a subscriber can drive an inbound
 	// review queue from push instead of polling.
-	EventEmailPendingReview = "email.pending_review"
+	EventEmailReviewRequested = "email.review_requested"
 )
+
+// SchemaVersion is the current webhook envelope schema version. It is the single
+// source of truth shared by the webhook_events.schema_version column default (see
+// writeOutboxRow), the wire envelope (AsEnvelope), and the X-E2A-Schema-Version
+// delivery header — so the three can never drift. Bump only on an incompatible
+// change to the envelope's shape.
+const SchemaVersion = 1
 
 // AllEventTypes is the canonical allowlist of event names. Used by the handler's
 // event-type validation. Adding a new event type means adding a constant above AND
@@ -93,7 +97,6 @@ var AllEventTypes = []string{
 	EventEmailReceived,
 	EventEmailSent,
 	EventEmailFailed,
-	EventEmailDeferred,
 	EventEmailReviewApproved,
 	EventEmailReviewRejected,
 	EventDomainSendingVerified,
@@ -104,7 +107,7 @@ var AllEventTypes = []string{
 	EventDomainSuppressionAdded,
 	EventEmailFlagged,
 	EventEmailBlocked,
-	EventEmailPendingReview,
+	EventEmailReviewRequested,
 }
 
 // IsValidEventType reports whether name is one of the catalog
@@ -154,7 +157,7 @@ type Event struct {
 
 	// MessageID is the originating message row, if any. May be empty
 	// for events without a direct message backing (e.g.
-	// email.pending_review before the held message gets promoted).
+	// email.review_requested before the held message gets promoted).
 	MessageID string
 
 	// Data is the event-specific payload. Wrapped in the envelope
@@ -185,19 +188,24 @@ func NewEvent(eventType, userID string, data any) Event {
 // `construct_event` helper — a webhook delivery body is the same shape as a
 // GET /v1/events/{id} object, so consumers handle both identically.
 type Envelope struct {
-	Type      string    `json:"type"`
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	Data      any       `json:"data"`
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	// SchemaVersion is the envelope schema version (currently "1"), carried on the
+	// wire so consumers can branch on it before parsing `data`. Sourced from the
+	// SchemaVersion constant — the same value the DB column default uses.
+	SchemaVersion string    `json:"schema_version"`
+	CreatedAt     time.Time `json:"created_at"`
+	Data          any       `json:"data"`
 }
 
 // AsEnvelope returns the wire shape for serialization.
 func (e Event) AsEnvelope() Envelope {
 	return Envelope{
-		Type:      e.Type,
-		ID:        e.ID,
-		CreatedAt: e.CreatedAt,
-		Data:      e.Data,
+		Type:          e.Type,
+		ID:            e.ID,
+		SchemaVersion: strconv.Itoa(SchemaVersion),
+		CreatedAt:     e.CreatedAt,
+		Data:          e.Data,
 	}
 }
 

@@ -258,8 +258,8 @@ func TestEdge_HITLPendingApproval_WritesOutboxRow(t *testing.T) {
 	pendingMsgID := "pmsg_hitl_outbox"
 	fix.seedMessage(pendingMsgID, agent, "outbound")
 	event := webhookpub.Event{
-		ID:        webhookpub.DeterministicEventID(pendingMsgID, webhookpub.EventEmailPendingReview),
-		Type:      webhookpub.EventEmailPendingReview,
+		ID:        webhookpub.DeterministicEventID(pendingMsgID, webhookpub.EventEmailReviewRequested),
+		Type:      webhookpub.EventEmailReviewRequested,
 		UserID:    user,
 		AgentID:   agent,
 		MessageID: pendingMsgID,
@@ -278,7 +278,7 @@ func TestEdge_HITLPendingApproval_WritesOutboxRow(t *testing.T) {
 	if err := fix.pool.QueryRow(ctx,
 		`SELECT count(*) FROM webhook_events
 		 WHERE user_id = $1 AND type = $2 AND id = $3`,
-		user, webhookpub.EventEmailPendingReview, event.ID,
+		user, webhookpub.EventEmailReviewRequested, event.ID,
 	).Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}

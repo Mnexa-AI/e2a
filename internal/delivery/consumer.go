@@ -89,11 +89,16 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 			return err
 		}
 		if evType := pushEventFor(r.Status); evType != "" && c.fire != nil {
+			// agentID is the agent's own address (agent identity id == email), so it
+			// doubles as agent_email. smtp_detail is the SES diagnostic string (named
+			// to disambiguate from the removed duplicate `detail` on email.failed).
 			c.fire(ctx, userID, agentID, evType, map[string]any{
 				"message_id":   messageID,
+				"direction":    "outbound",
+				"agent_email":  agentID,
 				"delivered_to": r.Address,
 				"status":       string(r.Status),
-				"detail":       r.Detail,
+				"smtp_detail":  r.Detail,
 			}, evType+"|"+messageID+"|"+r.Address)
 		}
 		if r.Suppress {

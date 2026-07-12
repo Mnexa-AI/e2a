@@ -523,13 +523,12 @@ components:
         description:
           type: string
         events:
-          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
               - email.failed
-              - email.deferred
               - email.review_approved
               - email.review_rejected
               - domain.sending_verified
@@ -540,7 +539,7 @@ components:
               - domain.suppression_added
               - email.flagged
               - email.blocked
-              - email.pending_review
+              - email.review_requested
             type: string
           type: array
         filters:
@@ -565,7 +564,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
           items:
             type: string
           type: array
@@ -846,7 +845,7 @@ components:
           description: "Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match."
           type: string
         type:
-          description: "Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added."
+          description: "Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added."
           type: string
       required:
         - id
@@ -2108,7 +2107,6 @@ components:
             - email.received
             - email.sent
             - email.failed
-            - email.deferred
             - email.review_approved
             - email.review_rejected
             - domain.sending_verified
@@ -2119,7 +2117,7 @@ components:
             - domain.suppression_added
             - email.flagged
             - email.blocked
-            - email.pending_review
+            - email.review_requested
           type: string
       type: object
     TestWebhookResponse:
@@ -2187,13 +2185,12 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
               - email.sent
               - email.failed
-              - email.deferred
               - email.review_approved
               - email.review_rejected
               - domain.sending_verified
@@ -2204,7 +2201,7 @@ components:
               - domain.suppression_added
               - email.flagged
               - email.blocked
-              - email.pending_review
+              - email.review_requested
             type: string
           type: array
         filters:
@@ -2401,7 +2398,7 @@ components:
           description: "Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."
           type: string
         type:
-          description: "The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."
+          description: "The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.delivered, …, domain.*)."
           type: string
       required:
         - id
@@ -2441,7 +2438,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
           items:
             type: string
           type: array

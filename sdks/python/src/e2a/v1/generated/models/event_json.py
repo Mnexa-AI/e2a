@@ -37,7 +37,7 @@ class EventJSON(BaseModel):
     message_id: Optional[StrictStr] = None
     schema_version: StrictStr = Field(description="Envelope schema version — a semver-ish string label (currently \"1\").")
     status: StrictStr = Field(description="Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.")
-    type: StrictStr = Field(description="Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.")
+    type: StrictStr = Field(description="Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "data", "delivery_status", "id", "message_id", "schema_version", "status", "type"]
 

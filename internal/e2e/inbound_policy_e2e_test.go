@@ -160,16 +160,21 @@ func TestInboundPolicy_EvaluatesFromNotReplyTo(t *testing.T) {
 		t.Error("Reply-To spoof persisted as un-flagged (gate read Reply-To, not From)")
 	}
 
-	// The flagged event must name the AUTHENTICATED From (the identity that
-	// failed the gate), not the trusted-looking Reply-To. Surfacing the
-	// Reply-To here would let an attacker make a rejected message look like it
-	// came from the address they impersonated (review finding #1).
+	// The flagged event mirrors email.received's from/authenticated_from split:
+	// from is the display/reply-preferred sender, authenticated_from is the gated
+	// From identity that failed the gate. A consumer of a gated agent MUST read
+	// authenticated_from — surfacing only the trusted-looking Reply-To would let an
+	// attacker make a rejected message look like it came from the address they
+	// impersonated (review finding #1).
 	if fe := eventData(got, "email.flagged"); fe != nil {
-		if fe["from"] != "stranger@evil.com" {
-			t.Errorf("email.flagged from = %v, want the authenticated From stranger@evil.com", fe["from"])
+		if fe["authenticated_from"] != "stranger@evil.com" {
+			t.Errorf("email.flagged authenticated_from = %v, want the authenticated From stranger@evil.com", fe["authenticated_from"])
 		}
-		if fe["display_sender"] != "friend@trusted.com" {
-			t.Errorf("email.flagged display_sender = %v, want the Reply-To friend@trusted.com", fe["display_sender"])
+		if fe["from"] != "friend@trusted.com" {
+			t.Errorf("email.flagged from = %v, want the Reply-To friend@trusted.com", fe["from"])
+		}
+		if _, ok := fe["display_sender"]; ok {
+			t.Errorf("email.flagged must not carry display_sender (folded into from), got %v", fe["display_sender"])
 		}
 	} else {
 		t.Error("no email.flagged data captured")

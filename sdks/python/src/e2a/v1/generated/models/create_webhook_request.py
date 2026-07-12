@@ -28,7 +28,7 @@ class CreateWebhookRequest(BaseModel):
     CreateWebhookRequest
     """ # noqa: E501
     description: Optional[StrictStr] = None
-    events: List[StrictStr] = Field(description="Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable.")
+    events: List[StrictStr] = Field(description="Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable.")
     filters: Optional[WebhookFiltersView] = None
     url: StrictStr
     __properties: ClassVar[List[str]] = ["description", "events", "filters", "url"]

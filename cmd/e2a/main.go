@@ -74,7 +74,7 @@ func senderIdentityEventFirer(pub webhookpub.Publisher) senderidentity.EventFire
 		if status == senderidentity.StatusFailed {
 			eventType = webhookpub.EventDomainSendingFailed
 			if errMsg != "" {
-				data["error"] = errMsg
+				data["reason"] = errMsg
 			}
 		}
 		pub.Publish(ctx, webhookpub.NewEvent(eventType, userID, data))
