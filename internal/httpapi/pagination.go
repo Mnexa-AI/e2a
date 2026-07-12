@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
+	"time"
 )
 
 // Page is the one list-response shape across every v1 collection
@@ -47,6 +49,57 @@ type PageParams struct {
 // ErrInvalidCursor is returned when a cursor fails to decode. Handlers map
 // it to a 400 with code "invalid_cursor".
 var ErrInvalidCursor = errors.New("invalid pagination cursor")
+
+// keysetCursor is the standard opaque continuation for a collection
+// keyset-paginated on (created_at, id) with no cursor-pinned filters — the
+// common case across the account-scoped lists (agents, domains, webhooks,
+// webhook deliveries, templates, api keys, reviews). The compact json keys keep
+// the encoded cursor short. Resources that must pin extra filters across a
+// continuation (messages, events) define their own richer cursor instead.
+//
+// `id` holds whatever unique tiebreak the resource's ORDER BY uses — the row id
+// for most, the domain string for the domains list (its unique key).
+type keysetCursor struct {
+	CreatedAt time.Time `json:"c"`
+	ID        string    `json:"i"`
+}
+
+// decodeKeyset resolves a (created_at, id) continuation cursor into its keyset
+// position. An empty cursor is the first page (zero time, empty id). A malformed
+// or tampered cursor yields a 400 invalid_cursor envelope.
+func (s *Server) decodeKeyset(cursor string) (time.Time, string, error) {
+	if cursor == "" {
+		return time.Time{}, "", nil
+	}
+	var cur keysetCursor
+	if err := DecodeCursor([]string{s.deps.CursorSecret}, cursor, &cur); err != nil {
+		return time.Time{}, "", NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
+	}
+	return cur.CreatedAt, cur.ID, nil
+}
+
+// encodeKeyset mints the next-page cursor from the last row's (created_at, id).
+// A marshal failure maps to a 500 envelope (matches the other list handlers).
+func (s *Server) encodeKeyset(createdAt time.Time, id string) (string, error) {
+	c, err := EncodeCursor(s.deps.CursorSecret, keysetCursor{CreatedAt: createdAt, ID: id})
+	if err != nil {
+		return "", NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
+	}
+	return c, nil
+}
+
+// effectiveLimit normalizes a request limit to the default when unset (<=0).
+// Mirrors the inline `if limit <= 0 { limit = 50 }` the list handlers share.
+func effectiveLimit(limit int) int {
+	if limit <= 0 {
+		return defaultPageLimit
+	}
+	return limit
+}
+
+// defaultPageLimit is the page size when a list request omits limit — the same
+// default PageParams declares (50).
+const defaultPageLimit = 50
 
 // EncodeCursor serializes an arbitrary cursor payload (the position +
 // filter snapshot a resource needs to resume) into the opaque, URL-safe,

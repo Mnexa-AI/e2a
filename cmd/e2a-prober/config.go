@@ -14,6 +14,7 @@ type config struct {
 	AgentEmail    string
 	APIKey        string
 	WebhookSecret string
+	MCPBaseURL    string        // deployed streamable-HTTP MCP endpoint; empty ⇒ mcp scenario skips
 	SinkURL       string        // what the probe webhook targets (== Listen's public addr + /sink)
 	Listen        string        // serve/run-once bind addr for the sink + status server
 	Interval      time.Duration // serve loop period
@@ -28,6 +29,7 @@ func configFromEnv() config {
 		AgentEmail:    os.Getenv("E2A_PROBE_AGENT_EMAIL"),
 		APIKey:        os.Getenv("E2A_PROBE_API_KEY"),
 		WebhookSecret: os.Getenv("E2A_PROBE_WEBHOOK_SECRET"),
+		MCPBaseURL:    os.Getenv("E2A_PROBE_MCP_URL"),
 		SinkURL:       os.Getenv("E2A_PROBE_SINK_URL"),
 		Listen:        envOr("E2A_PROBE_LISTEN", ":8090"),
 		Interval:      envDuration("E2A_PROBE_INTERVAL", 30*time.Second),

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
@@ -34,7 +35,7 @@ func scopeTestServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("unauthorized")
 		},
-		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+		ListAgents: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.AgentIdentity, error) {
 			return []identity.AgentIdentity{sampleAgent()}, nil
 		},
 		GetAgent: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
@@ -197,7 +198,7 @@ func TestScope_LegacyAuthenticatorIsAccount(t *testing.T) {
 			}
 			return nil, errors.New("unauthorized")
 		},
-		ListAgents: func(ctx context.Context, userID string) ([]identity.AgentIdentity, error) {
+		ListAgents: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.AgentIdentity, error) {
 			return []identity.AgentIdentity{sampleAgent()}, nil
 		},
 		Legacy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }),

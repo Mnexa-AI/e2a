@@ -193,9 +193,13 @@ One binary, several modes (mirrors `cmd/e2a-contract-server`):
 (`GET /v1/agents/{probe}`); **inbound round-trip** (`smtp.SendMail` a unique nonce
 to the SMTP listener → await webhook at `/sink` within the round-trip timeout →
 verify nonce correlation + HMAC); self-send loopback (outbound API + compose path,
-method=loopback, no egress); and **agent_lifecycle** (create → get → delete an
+method=loopback, no egress); **agent_lifecycle** (create → get → delete an
 ephemeral agent on the probe's verified domain — the only mutating scenario,
-self-cleaning via a deferred best-effort delete, no email/owner-notify/metering).
+self-cleaning via a deferred best-effort delete, no email/owner-notify/metering);
+and **mcp_http_round_trip** (the deployed streamable-HTTP MCP surface: a stateless
+Bearer-authed `tools/list` then a `whoami` `tools/call` over the real SSE
+transport — both read-only; skips-as-pass when `E2A_PROBE_MCP_URL` is unset, so a
+stack without an MCP endpoint stays green).
 *(fast-follow)* 5xx SLI from `e2a:/metrics`.
 
 ### SLI exposure on `e2a` (phase 2 / fast-follow)

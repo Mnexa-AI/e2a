@@ -30,10 +30,14 @@ type Authenticator func(r *http.Request) (*identity.User, error)
 // and treats every caller as account-scoped (pre-Slice-5a behavior).
 type PrincipalAuthenticator func(r *http.Request) (*identity.Principal, error)
 
-// AgentLister returns the agents owned by a user. Injected as a narrow
-// function so the foundation slice doesn't depend on the whole store; the
-// remaining ports will widen this into a resource-scoped store interface.
-type AgentLister func(ctx context.Context, userID string) ([]identity.AgentIdentity, error)
+// AgentLister returns one page of the agents owned by a user, keyset-paginated
+// on (created_at, id): limit is the page size (the handler passes limit+1 to
+// detect a further page; limit<=0 returns every agent, which the webhook
+// filter-ownership validation relies on), and afterCreatedAt/afterID is the
+// position from the previous page's last row (zero afterCreatedAt = first page).
+// Injected as a narrow function so the foundation slice doesn't depend on the
+// whole store.
+type AgentLister func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.AgentIdentity, error)
 
 // AgentGetter loads a single agent by its full email address (the
 // identifier). Ownership is checked by the caller against the resolved
@@ -109,8 +113,11 @@ type Deps struct {
 	UpdateAgentProtection func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error
 	DeleteAgent           AgentDeleter
 
-	// domains
-	ListDomains         func(ctx context.Context, userID string) ([]identity.Domain, error)
+	// domains. ListDomains is keyset-paginated on (created_at, domain): the
+	// handler passes limit+1 to detect a further page (limit<=0 = all), and the
+	// after-key from the previous page's last row (zero afterCreatedAt = first
+	// page).
+	ListDomains         func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterDomain string) ([]identity.Domain, error)
 	ClaimDomain         func(ctx context.Context, domain, userID string) (*identity.Domain, error)
 	EnforceDomainCreate func(ctx context.Context, userID string) error
 	DeleteDomain        func(ctx context.Context, domain, userID string) error
@@ -164,7 +171,10 @@ type Deps struct {
 	// (both directions) across the user's agents; GetReviewWithContent loads one
 	// held message (ownership-scoped) for the detail view + approve/reject
 	// resolution. Both intentionally include held inbound — operator surface only.
-	ListReviews          func(ctx context.Context, userID string) ([]identity.ReviewListItem, error)
+	// ListReviews is keyset-paginated on (created_at, id): the handler passes
+	// limit+1 to detect a further page and the after-key from the previous page's
+	// last row (zero afterCreatedAt = first page).
+	ListReviews          func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.ReviewListItem, error)
 	GetReviewWithContent func(ctx context.Context, userID, messageID string) (*identity.Message, error)
 	// SendLimit is the per-agent outbound rate limiter (mirrors
 	// sendLimit.AllowWithRetryAfter; key = agent id). Optional.
@@ -219,7 +229,10 @@ type Deps struct {
 
 	// webhooks
 	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error)
-	ListWebhooks  func(ctx context.Context, userID string) ([]identity.Webhook, error)
+	// ListWebhooks is keyset-paginated on (created_at, id): the handler passes
+	// limit+1 to detect a further page (limit<=0 = all) and the after-key from the
+	// previous page's last row (zero afterCreatedAt = first page).
+	ListWebhooks  func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.Webhook, error)
 	GetWebhook    func(ctx context.Context, webhookID, userID string) (*identity.Webhook, error)
 	UpdateWebhook func(ctx context.Context, webhookID, userID string, u identity.WebhookUpdate) (*identity.Webhook, error)
 	DeleteWebhook func(ctx context.Context, webhookID, userID string) error
@@ -228,7 +241,11 @@ type Deps struct {
 	// InsertPendingForTest). ListDeliveries reads the per-webhook delivery
 	// log (subscriberStore.ListDeliveriesByWebhook).
 	TestWebhookInsert func(ctx context.Context, webhookID, eventType string, envelope []byte) (string, error)
-	ListDeliveries    func(ctx context.Context, webhookID, status string, limit int) ([]webhook.SubscriberDelivery, error)
+	// ListDeliveries is keyset-paginated on (created_at, id): the handler passes
+	// limit+1 to detect a further page and the after-key from the previous page's
+	// last row (zero afterCreatedAt = first page). status optionally restricts to
+	// pending|delivered|failed.
+	ListDeliveries func(ctx context.Context, webhookID, status string, limit int, afterCreatedAt time.Time, afterID string) ([]webhook.SubscriberDelivery, error)
 	// EnqueueDelivery enqueues a River webhook_deliver job for a
 	// webhook_subscriber_deliveries row that was inserted directly — the /test
 	// endpoint and the event-redelivery API. Those two surfaces bypass the outbox
@@ -243,7 +260,7 @@ type Deps struct {
 	// not-found). GetTemplate/GetTemplateByAlias also serve the send path's
 	// template_id/template_alias resolution.
 	CreateTemplate     func(ctx context.Context, userID string, in identity.TemplateCreate) (*identity.Template, error)
-	ListTemplates      func(ctx context.Context, userID string) ([]identity.TemplateSummary, error)
+	ListTemplates      func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.TemplateSummary, error)
 	GetTemplate        func(ctx context.Context, templateID, userID string) (*identity.Template, error)
 	GetTemplateByAlias func(ctx context.Context, alias, userID string) (*identity.Template, error)
 	UpdateTemplate     func(ctx context.Context, templateID, userID string, u identity.TemplateUpdate) (*identity.Template, error)
@@ -253,7 +270,7 @@ type Deps struct {
 	// minted key including its one-time plaintext; agentID is "" for account
 	// scope and a resolved agent id for agent scope.
 	CreateScopedAPIKey func(ctx context.Context, userID, name, scope, agentID string, expiresAt *time.Time) (*identity.APIKey, error)
-	ListAPIKeys        func(ctx context.Context, userID string) ([]identity.APIKey, error)
+	ListAPIKeys        func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.APIKey, error)
 	DeleteAPIKey       func(ctx context.Context, keyID, userID string) error
 
 	// domain verification

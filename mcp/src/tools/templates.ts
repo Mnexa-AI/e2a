@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "../client.js";
 import { z } from "zod";
-import { runTool, strictInputSchema } from "./util.js";
+import { runTool, strictInputSchema, paginationInput } from "./util.js";
 
 /**
  * Template tools (beta) — reusable email templates + the read-only starter
@@ -44,11 +44,19 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
       description:
         "List the account's stored email templates, newest first — summary rows (id, name, alias, subject, timestamps); " +
         "`get_template` returns the full body sources. Use a template on send via `send_message`'s template_id or " +
-        "template_alias. Read-only; cheap. " +
+        "template_alias. **Cursor-paginated:** returns one page in `templates` plus a `next_cursor` when more remain — " +
+        "pass it back as `cursor` for the next page. Read-only; cheap. " +
         BETA,
-      inputSchema: strictInputSchema({}),
+      inputSchema: strictInputSchema({ ...paginationInput }),
     },
-    async () => runTool(async () => ({ templates: await client.listTemplates() })),
+    async (args) =>
+      runTool(async () => {
+        const page = await client.listTemplates({
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        });
+        return { templates: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
+      }),
   );
 
   server.registerTool(
@@ -224,10 +232,22 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         "description, example. Catalog metadata only; `get_starter_template` adds the full body sources. Copy one into " +
         "the account's library with `create_template`'s from_starter, then send with template_alias. Variables marked " +
         "raw:true are {{{…_html}}} fragment slots — HTML-escape any user content you splice into them. " +
+        "**Cursor-paginated:** returns one page in `starter_templates` plus a `next_cursor` when more remain — " +
+        "pass it back as `cursor` for the next page. " +
         APPROVAL_LINK_WARNING + " " + BETA,
-      inputSchema: strictInputSchema({}),
+      inputSchema: strictInputSchema({ ...paginationInput }),
     },
-    async () => runTool(async () => ({ starter_templates: await client.listStarterTemplates() })),
+    async (args) =>
+      runTool(async () => {
+        const page = await client.listStarterTemplates({
+          ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        });
+        return {
+          starter_templates: page.items,
+          ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}),
+        };
+      }),
   );
 
   server.registerTool(

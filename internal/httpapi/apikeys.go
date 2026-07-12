@@ -90,7 +90,12 @@ func (s *Server) registerAPIKeys() {
 	}, s.handleDeleteAPIKey)
 }
 
-func (s *Server) handleListAPIKeys(ctx context.Context, _ *struct{}) (*listAPIKeysOutput, error) {
+// listAPIKeysInput carries the standard cursor/limit (PageParams).
+type listAPIKeysInput struct {
+	PageParams
+}
+
+func (s *Server) handleListAPIKeys(ctx context.Context, in *listAPIKeysInput) (*listAPIKeysOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
@@ -98,15 +103,32 @@ func (s *Server) handleListAPIKeys(ctx context.Context, _ *struct{}) (*listAPIKe
 	if s.deps.ListAPIKeys == nil {
 		return nil, NewError(http.StatusNotImplemented, "not_implemented", "API keys are not available on this deployment")
 	}
-	keys, err := s.deps.ListAPIKeys(ctx, user.ID)
+	afterCreatedAt, afterID, err := s.decodeKeyset(in.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := effectiveLimit(in.Limit)
+	// Fetch limit+1 to detect a further page.
+	keys, err := s.deps.ListAPIKeys(ctx, user.ID, limit+1, afterCreatedAt, afterID)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list API keys")
+	}
+	hasMore := len(keys) > limit
+	if hasMore {
+		keys = keys[:limit]
 	}
 	views := make([]APIKeyView, 0, len(keys))
 	for _, k := range keys {
 		views = append(views, apiKeyView(k))
 	}
-	return &listAPIKeysOutput{Body: NewPage(views, "")}, nil
+	var nextCursor string
+	if hasMore {
+		last := keys[len(keys)-1]
+		if nextCursor, err = s.encodeKeyset(last.CreatedAt, last.ID); err != nil {
+			return nil, err
+		}
+	}
+	return &listAPIKeysOutput{Body: NewPage(views, nextCursor)}, nil
 }
 
 func (s *Server) handleCreateAPIKey(ctx context.Context, in *createAPIKeyInput) (*createAPIKeyOutput, error) {

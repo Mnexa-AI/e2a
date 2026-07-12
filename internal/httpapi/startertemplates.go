@@ -8,6 +8,18 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
+// starterTemplatesCursor is the opaque keyset position over the alias-sorted
+// starter catalog: the last returned alias. The catalog is a small embedded set
+// with no created_at, so alias (its unique, stable sort key) is the whole key.
+type starterTemplatesCursor struct {
+	Alias string `json:"a"`
+}
+
+// listStarterTemplatesInput carries the standard cursor/limit (PageParams).
+type listStarterTemplatesInput struct {
+	PageParams
+}
+
 // Starter templates sub-resource (beta, read-only).
 //
 // Starter templates are the pre-built masters shipped in
@@ -89,18 +101,44 @@ func (s *Server) registerStarterTemplates() {
 	}, s.handleGetStarterTemplate)
 }
 
-func (s *Server) handleListStarterTemplates(ctx context.Context, _ *struct{}) (*listStarterTemplatesOutput, error) {
+func (s *Server) handleListStarterTemplates(ctx context.Context, in *listStarterTemplatesInput) (*listStarterTemplatesOutput, error) {
 	if _, err := s.requireAccountUser(ctx); err != nil {
 		return nil, err
 	}
-	cat := startertemplates.Catalog() // already alias-sorted
-	items := make([]StarterTemplateView, 0, len(cat))
-	for _, m := range cat {
-		items = append(items, starterTemplateView(m))
+	cat := startertemplates.Catalog() // already alias-sorted (ascending)
+	// Keyset over the alias sort key: skip everything up to and including the
+	// cursor's alias, then return the next `limit`.
+	var afterAlias string
+	if in.Cursor != "" {
+		var cur starterTemplatesCursor
+		if err := DecodeCursor([]string{s.deps.CursorSecret}, in.Cursor, &cur); err != nil {
+			return nil, NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
+		}
+		afterAlias = cur.Alias
 	}
-	// The embedded catalog is a handful of masters — always one page
-	// (next_cursor null, webhooks precedent).
-	return &listStarterTemplatesOutput{Body: NewPage(items, "")}, nil
+	limit := effectiveLimit(in.Limit)
+	items := make([]StarterTemplateView, 0, limit)
+	var lastAlias string
+	hasMore := false
+	for _, m := range cat {
+		if afterAlias != "" && m.Alias <= afterAlias {
+			continue
+		}
+		if len(items) == limit {
+			hasMore = true
+			break
+		}
+		items = append(items, starterTemplateView(m))
+		lastAlias = m.Alias
+	}
+	var nextCursor string
+	if hasMore {
+		var err error
+		if nextCursor, err = EncodeCursor(s.deps.CursorSecret, starterTemplatesCursor{Alias: lastAlias}); err != nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
+		}
+	}
+	return &listStarterTemplatesOutput{Body: NewPage(items, nextCursor)}, nil
 }
 
 func (s *Server) handleGetStarterTemplate(ctx context.Context, in *StarterTemplateAliasParam) (*starterTemplateOutput, error) {

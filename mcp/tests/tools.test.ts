@@ -64,7 +64,8 @@ function makeStubClient(
     listConversations: vi.fn(async () => ({ items: [{ conversationId: "conv_1" }], next_cursor: undefined })),
     getConversation: vi.fn(async () => ({ conversationId: "conv_1", messages: [] })),
     listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
-    listAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
+    listAgents: vi.fn(async () => ({ items: [{ email: "bot@example.com" }], next_cursor: undefined })),
+    listAllAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
     // whoami → client.whoami() returns an AccountView (the authenticated
     // account identity), NOT an agent record. No default-agent resolution.
     whoami: vi.fn(async () => ({
@@ -98,9 +99,10 @@ function makeStubClient(
     })),
     updateProtection: vi.fn(async (config: unknown, _addr?: string) => config),
     deleteAgent: vi.fn(async (addr?: string) => addr ?? "bot@example.com"),
-    listDomains: vi.fn(async () => [
-      { domain: "mail.acme.com", verified: true, verificationToken: "tok1" },
-    ]),
+    listDomains: vi.fn(async () => ({
+      items: [{ domain: "mail.acme.com", verified: true, verificationToken: "tok1" }],
+      next_cursor: undefined,
+    })),
     registerDomain: vi.fn(async (domain: string) => ({
       domain,
       verified: false,
@@ -122,9 +124,10 @@ function makeStubClient(
     })),
     deleteDomain: vi.fn(async () => undefined),
     listWebhookDeliveries: vi.fn(
-      async (id: string, _params: { status?: string; limit?: number }) => [
-        { id: "whd_1", webhookId: id, status: "delivered", attempts: 1 },
-      ],
+      async (id: string, _params: { status?: string; cursor?: string; limit?: number }) => ({
+        items: [{ id: "whd_1", webhookId: id, status: "delivered", attempts: 1 }],
+        next_cursor: undefined,
+      }),
     ),
     // Stand-in for McpClient.getMessage() which returns a v1
     // MessageView. Attachments are decoded by the tool from
@@ -166,19 +169,22 @@ function makeStubClient(
     })),
     approveMessage: vi.fn(async () => ({ messageId: "msg_x", status: "sent" })),
     rejectMessage: vi.fn(async () => ({ messageId: "msg_x", status: "rejected" })),
-    // Templates (beta) — SDK-backed: list methods return flat arrays (the
-    // wrapper collapses the single-page pager) and rows are camelCase SDK
-    // views, like every other tool.
-    listTemplates: vi.fn(async () => [
-      {
-        id: "tmpl_1",
-        name: "Welcome",
-        alias: "welcome",
-        subject: "Welcome, {{name}}!",
-        createdAt: "2026-06-01T00:00:00Z",
-        updatedAt: "2026-06-01T00:00:00Z",
-      },
-    ]),
+    // Templates (beta) — SDK-backed: list methods return a Page { items,
+    // next_cursor } (cursor-paginated) and rows are camelCase SDK views, like
+    // every other tool.
+    listTemplates: vi.fn(async () => ({
+      items: [
+        {
+          id: "tmpl_1",
+          name: "Welcome",
+          alias: "welcome",
+          subject: "Welcome, {{name}}!",
+          createdAt: "2026-06-01T00:00:00Z",
+          updatedAt: "2026-06-01T00:00:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    })),
     getTemplate: vi.fn(async (id: string) => ({
       id,
       name: "Welcome",
@@ -210,18 +216,21 @@ function makeStubClient(
       rendered: { subject: "Welcome, Ada!", text: "Hi Ada" },
       suggestedData: { name: "Ada" },
     })),
-    listStarterTemplates: vi.fn(async () => [
-      {
-        alias: "approval-request",
-        name: "Approval request",
-        description: "Ask a human to approve an action.",
-        version: "1",
-        subject: "Approval needed: {{action}}",
-        variables: [
-          { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
-        ],
-      },
-    ]),
+    listStarterTemplates: vi.fn(async () => ({
+      items: [
+        {
+          alias: "approval-request",
+          name: "Approval request",
+          description: "Ask a human to approve an action.",
+          version: "1",
+          subject: "Approval needed: {{action}}",
+          variables: [
+            { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
+          ],
+        },
+      ],
+      next_cursor: undefined,
+    })),
     getStarterTemplate: vi.fn(async (alias: string) => ({
       alias,
       name: "Approval request",

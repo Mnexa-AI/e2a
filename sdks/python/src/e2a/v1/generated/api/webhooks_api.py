@@ -839,6 +839,7 @@ class WebhooksApi:
         self,
         id: StrictStr,
         status: Optional[StrictStr] = None,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
         limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
@@ -861,6 +862,8 @@ class WebhooksApi:
         :type id: str
         :param status:
         :type status: str
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.
+        :type cursor: str
         :param limit:
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
@@ -888,6 +891,7 @@ class WebhooksApi:
         _param = self._list_webhook_deliveries_serialize(
             id=id,
             status=status,
+            cursor=cursor,
             limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -914,6 +918,7 @@ class WebhooksApi:
         self,
         id: StrictStr,
         status: Optional[StrictStr] = None,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
         limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
@@ -936,6 +941,8 @@ class WebhooksApi:
         :type id: str
         :param status:
         :type status: str
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.
+        :type cursor: str
         :param limit:
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
@@ -963,6 +970,7 @@ class WebhooksApi:
         _param = self._list_webhook_deliveries_serialize(
             id=id,
             status=status,
+            cursor=cursor,
             limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -989,6 +997,7 @@ class WebhooksApi:
         self,
         id: StrictStr,
         status: Optional[StrictStr] = None,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
         limit: Optional[Annotated[int, Field(le=500, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
@@ -1011,6 +1020,8 @@ class WebhooksApi:
         :type id: str
         :param status:
         :type status: str
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.
+        :type cursor: str
         :param limit:
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
@@ -1038,6 +1049,7 @@ class WebhooksApi:
         _param = self._list_webhook_deliveries_serialize(
             id=id,
             status=status,
+            cursor=cursor,
             limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
@@ -1059,6 +1071,7 @@ class WebhooksApi:
         self,
         id,
         status,
+        cursor,
         limit,
         _request_auth,
         _content_type,
@@ -1087,6 +1100,10 @@ class WebhooksApi:
         if status is not None:
             
             _query_params.append(('status', status))
+            
+        if cursor is not None:
+            
+            _query_params.append(('cursor', cursor))
             
         if limit is not None:
             
@@ -1132,6 +1149,8 @@ class WebhooksApi:
     @validate_call
     async def list_webhooks(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1147,7 +1166,12 @@ class WebhooksApi:
     ) -> PageWebhookView:
         """List webhooks
 
+        List the webhooks owned by the authenticated account, newest first, with cursor pagination.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1171,6 +1195,8 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._list_webhooks_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1194,6 +1220,8 @@ class WebhooksApi:
     @validate_call
     async def list_webhooks_with_http_info(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1209,7 +1237,12 @@ class WebhooksApi:
     ) -> ApiResponse[PageWebhookView]:
         """List webhooks
 
+        List the webhooks owned by the authenticated account, newest first, with cursor pagination.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1233,6 +1266,8 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._list_webhooks_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1256,6 +1291,8 @@ class WebhooksApi:
     @validate_call
     async def list_webhooks_without_preload_content(
         self,
+        cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1271,7 +1308,12 @@ class WebhooksApi:
     ) -> RESTResponseType:
         """List webhooks
 
+        List the webhooks owned by the authenticated account, newest first, with cursor pagination.
 
+        :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+        :type cursor: str
+        :param limit: Maximum number of items to return (1-100).
+        :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1295,6 +1337,8 @@ class WebhooksApi:
         """ # noqa: E501
 
         _param = self._list_webhooks_serialize(
+            cursor=cursor,
+            limit=limit,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1313,6 +1357,8 @@ class WebhooksApi:
 
     def _list_webhooks_serialize(
         self,
+        cursor,
+        limit,
         _request_auth,
         _content_type,
         _headers,
@@ -1335,6 +1381,14 @@ class WebhooksApi:
 
         # process the path parameters
         # process the query parameters
+        if cursor is not None:
+            
+            _query_params.append(('cursor', cursor))
+            
+        if limit is not None:
+            
+            _query_params.append(('limit', limit))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter

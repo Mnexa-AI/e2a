@@ -107,7 +107,16 @@ export class McpClient {
 
   // ── Agents ──────────────────────────────────────────────────────
 
-  async listAgents(): Promise<AgentView[]> {
+  // Cursor-paginated (GET /v1/agents). One page in `agents` + a next_cursor
+  // when more remain; pass it back as `cursor`.
+  listAgents(params: { cursor?: string; limit?: number } = {}): Promise<Page<AgentView>> {
+    const { cursor, limit } = params;
+    return this.sdk.agents.list(limit !== undefined ? { limit } : {}).page(cursor);
+  }
+
+  // listAllAgents collapses the pager to a flat array for internal aggregations
+  // (list_pending_messages fan-out) that need every agent, not one page.
+  listAllAgents(): Promise<AgentView[]> {
     return this.sdk.agents.list().toArray({ limit: DEFAULT_LIST_LIMIT });
   }
 
@@ -295,7 +304,7 @@ export class McpClient {
   async listPendingMessages(): Promise<MessageSummaryView[]> {
     const addresses = this.agentEmail
       ? [this.agentEmail]
-      : (await this.listAgents()).map((a) => a.email);
+      : (await this.listAllAgents()).map((a) => a.email);
     const out: MessageSummaryView[] = [];
     for (const address of addresses) {
       const rows = await this.sdk.messages
@@ -318,7 +327,7 @@ export class McpClient {
   private async ownerOfPending(messageId: string): Promise<string> {
     const addresses = this.agentEmail
       ? [this.agentEmail]
-      : (await this.listAgents()).map((a) => a.email);
+      : (await this.listAllAgents()).map((a) => a.email);
     for (const address of addresses) {
       const rows = await this.sdk.messages
         .list(address, { direction: "outbound" })
@@ -364,8 +373,10 @@ export class McpClient {
 
   // ── Domains ─────────────────────────────────────────────────────
 
-  listDomains(): Promise<DomainView[]> {
-    return this.sdk.domains.list().toArray({ limit: DEFAULT_LIST_LIMIT });
+  // Cursor-paginated (GET /v1/domains). One page + a next_cursor when more remain.
+  listDomains(params: { cursor?: string; limit?: number } = {}): Promise<Page<DomainView>> {
+    const { cursor, limit } = params;
+    return this.sdk.domains.list(limit !== undefined ? { limit } : {}).page(cursor);
   }
 
   getDomain(domain: string): Promise<DomainView> {
@@ -386,8 +397,10 @@ export class McpClient {
 
   // ── Webhooks ────────────────────────────────────────────────────
 
-  listWebhooks(): Promise<WebhookView[]> {
-    return this.sdk.webhooks.list().toArray({ limit: DEFAULT_LIST_LIMIT });
+  // Cursor-paginated (GET /v1/webhooks). One page + a next_cursor when more remain.
+  listWebhooks(params: { cursor?: string; limit?: number } = {}): Promise<Page<WebhookView>> {
+    const { cursor, limit } = params;
+    return this.sdk.webhooks.list(limit !== undefined ? { limit } : {}).page(cursor);
   }
 
   getWebhook(id: string): Promise<WebhookView> {
@@ -429,25 +442,25 @@ export class McpClient {
   }
 
   // Per-delivery debugging (status/attempts/last_error/last_status_code) for one
-  // webhook. Single page by contract (no cursor); GET /v1/webhooks/{id}/deliveries.
+  // webhook. Cursor-paginated (GET /v1/webhooks/{id}/deliveries): one page + a
+  // next_cursor when more remain. The status filter is pinned into the cursor.
   listWebhookDeliveries(
     id: string,
-    params: { status?: "pending" | "delivered" | "failed"; limit?: number },
-  ): Promise<WebhookDeliveryView[]> {
-    return this.sdk.webhooks
-      .deliveries(id, params)
-      .toArray({ limit: params.limit ?? DEFAULT_LIST_LIMIT });
+    params: { status?: "pending" | "delivered" | "failed"; cursor?: string; limit?: number },
+  ): Promise<Page<WebhookDeliveryView>> {
+    const { cursor, ...rest } = params;
+    return this.sdk.webhooks.deliveries(id, rest).page(cursor);
   }
 
   // ── Templates (beta) ────────────────────────────────────────────
   //
   // SDK-backed (sdk.templates): same retry layer, typed E2AError mapping,
   // and camelCase views as every other tool. Both list endpoints are
-  // single-page by contract (no cursor param), so the wrapper collapses
-  // the pager to a flat array like listAgents/listWebhooks.
+  // cursor-paginated (GET /v1/templates and /v1/starter-templates).
 
-  listTemplates(): Promise<TemplateSummaryView[]> {
-    return this.sdk.templates.list().toArray({ limit: DEFAULT_LIST_LIMIT });
+  listTemplates(params: { cursor?: string; limit?: number } = {}): Promise<Page<TemplateSummaryView>> {
+    const { cursor, limit } = params;
+    return this.sdk.templates.list(limit !== undefined ? { limit } : {}).page(cursor);
   }
 
   getTemplate(id: string): Promise<TemplateView> {
@@ -470,8 +483,9 @@ export class McpClient {
     return this.sdk.templates.validate(body);
   }
 
-  listStarterTemplates(): Promise<StarterTemplateView[]> {
-    return this.sdk.templates.listStarters().toArray({ limit: DEFAULT_LIST_LIMIT });
+  listStarterTemplates(params: { cursor?: string; limit?: number } = {}): Promise<Page<StarterTemplateView>> {
+    const { cursor, limit } = params;
+    return this.sdk.templates.listStarters(limit !== undefined ? { limit } : {}).page(cursor);
   }
 
   getStarterTemplate(alias: string): Promise<StarterTemplateDetailView> {

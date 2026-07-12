@@ -44,6 +44,12 @@ var All = []Scenario{
 	// create/delete churn is heavier than the read-only checks; an operator who
 	// wants a purely read-only prod battery can drop it.
 	{Name: "agent_lifecycle", SmokeSafe: true, Run: scenarioAgentLifecycle},
+	// mcp_http_round_trip exercises the DEPLOYED streamable-HTTP MCP surface
+	// (the co-versioned mcp-server image + its Caddy /mcp route), which no other
+	// scenario touches — tools/list then a whoami tool call, both read-only. It
+	// SKIPS (pass) when E2A_PROBE_MCP_URL is unset, so a prober without an MCP
+	// endpoint configured stays green.
+	{Name: "mcp_http_round_trip", SmokeSafe: true, Run: scenarioMCPHTTPRoundTrip},
 }
 
 func pass(detail string) Result { return Result{Status: StatusPass, Detail: detail} }
@@ -296,6 +302,188 @@ func (p *Probe) do(ctx context.Context, method, u string, body []byte) (int, []b
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return resp.StatusCode, out, nil
+}
+
+// scenarioMCPHTTPRoundTrip exercises the DEPLOYED streamable-HTTP MCP server —
+// the surface that ships to prod but that every other scenario ignores. It is
+// two read-only JSON-RPC calls over the real transport:
+//
+//  1. tools/list — proves the /mcp route, the SSE transport, Bearer auth, and
+//     the tool registry are all live on the candidate mcp-server image;
+//  2. tools/call whoami — a genuine end-to-end MCP dispatch (transport → tool
+//     handler → e2a backend → back), with no mutation and nothing to clean up.
+//
+// The server is stateless (sessionIdGenerator=undefined), so each POST stands
+// alone — no initialize handshake, no Mcp-Session-Id. It authenticates with the
+// probe agent's own Bearer key (the MCP server forwards it to the backend).
+//
+// E2A_PROBE_MCP_URL is the in-cluster endpoint (e.g. http://mcp-server:3000/mcp),
+// matching how the other probe vars address containers directly. NOTE: the MCP
+// server enforces a Host allowlist (MCP_ALLOWED_HOSTS) on /mcp and 421s anything
+// else, so that URL's host MUST be in the deployment's allowlist — the staging
+// compose adds the in-cluster service name there. When E2A_PROBE_MCP_URL is unset
+// the scenario SKIPS (returns pass) so a prober with no MCP endpoint configured
+// stays green rather than warning; the release pipeline's prober gate separately
+// asserts the scenario actually ran (didn't skip) on staging.
+func scenarioMCPHTTPRoundTrip(ctx context.Context, p *Probe) Result {
+	if p.MCPBaseURL == "" {
+		return pass("skipped: E2A_PROBE_MCP_URL unset")
+	}
+
+	// 1. tools/list
+	env, st, err := p.mcpCall(ctx, 1, "tools/list", nil)
+	if err != nil {
+		return fail("mcp tools/list: %v", err)
+	}
+	if st != http.StatusOK {
+		return fail("mcp tools/list: HTTP %d, want 200", st)
+	}
+	names := mcpToolNames(env)
+	if len(names) == 0 {
+		return fail("mcp tools/list: no tools returned")
+	}
+	found := false
+	for _, n := range names {
+		if n == "whoami" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fail("mcp tools/list: missing expected tool 'whoami' (got %d tools)", len(names))
+	}
+
+	// 2. tools/call whoami
+	env, st, err = p.mcpCall(ctx, 2, "tools/call", map[string]any{
+		"name":      "whoami",
+		"arguments": map[string]any{},
+	})
+	if err != nil {
+		return fail("mcp whoami call: %v", err)
+	}
+	if st != http.StatusOK {
+		return fail("mcp whoami call: HTTP %d, want 200", st)
+	}
+	if e, ok := env["error"]; ok && e != nil {
+		return fail("mcp whoami call: JSON-RPC error: %v", e)
+	}
+	res, ok := env["result"].(map[string]any)
+	if !ok {
+		return fail("mcp whoami call: response has no result object")
+	}
+	if isErr, _ := res["isError"].(bool); isErr {
+		return fail("mcp whoami call: tool result isError=true")
+	}
+	content, ok := res["content"].([]any)
+	if !ok || len(content) == 0 {
+		return fail("mcp whoami call: empty tool result content")
+	}
+	// Require an actual non-empty text block — a bare 200 with an empty/typeless
+	// content array (a backend returning nothing useful) must not pass.
+	hasText := false
+	for _, c := range content {
+		cm, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := cm["type"].(string); t == "text" {
+			if s, _ := cm["text"].(string); strings.TrimSpace(s) != "" {
+				hasText = true
+				break
+			}
+		}
+	}
+	if !hasText {
+		return fail("mcp whoami call: result has no non-empty text content")
+	}
+	return pass("mcp http tools/list + whoami round-trip ok")
+}
+
+// mcpCall POSTs one JSON-RPC request to the streamable-HTTP MCP endpoint and
+// returns the decoded response envelope. The MCP SDK answers a POST as an SSE
+// stream (text/event-stream) unless JSON responses are enabled, so the body is
+// parsed accordingly. A non-200 returns (nil, status, nil) — the caller decides.
+func (p *Probe) mcpCall(ctx context.Context, id int, method string, params any) (map[string]any, int, error) {
+	reqBody := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
+	if params != nil {
+		reqBody["params"] = params
+	}
+	b, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.MCPBaseURL, bytes.NewReader(b))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	// Streamable-HTTP requires the client to accept both framings.
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := p.httpClient().Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, nil
+	}
+	env, err := parseJSONRPCEnvelope(raw, resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return env, resp.StatusCode, nil
+}
+
+// parseJSONRPCEnvelope decodes a JSON-RPC message from an MCP streamable-HTTP
+// response, accepting either a bare JSON body or an SSE stream. For SSE it walks
+// each event's data: lines and returns the first that decodes to a message
+// carrying a "jsonrpc" key (ignoring pings / other event types).
+func parseJSONRPCEnvelope(raw []byte, contentType string) (map[string]any, error) {
+	if strings.Contains(contentType, "text/event-stream") {
+		body := strings.ReplaceAll(string(raw), "\r\n", "\n")
+		for _, event := range strings.Split(body, "\n\n") {
+			var data strings.Builder
+			for _, line := range strings.Split(event, "\n") {
+				if after, ok := strings.CutPrefix(line, "data:"); ok {
+					// SSE joins successive data: lines within one event with \n.
+					if data.Len() > 0 {
+						data.WriteByte('\n')
+					}
+					data.WriteString(strings.TrimPrefix(after, " "))
+				}
+			}
+			if data.Len() == 0 {
+				continue
+			}
+			var env map[string]any
+			if err := json.Unmarshal([]byte(data.String()), &env); err != nil {
+				continue
+			}
+			if _, ok := env["jsonrpc"]; ok {
+				return env, nil
+			}
+		}
+		return nil, fmt.Errorf("no JSON-RPC message in SSE stream")
+	}
+	var env map[string]any
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("decode JSON-RPC body: %w", err)
+	}
+	return env, nil
+}
+
+// mcpToolNames pulls the tool names out of a tools/list result envelope.
+func mcpToolNames(env map[string]any) []string {
+	res, _ := env["result"].(map[string]any)
+	rawTools, _ := res["tools"].([]any)
+	names := make([]string, 0, len(rawTools))
+	for _, t := range rawTools {
+		if tm, ok := t.(map[string]any); ok {
+			if n, ok := tm["name"].(string); ok {
+				names = append(names, n)
+			}
+		}
+	}
+	return names
 }
 
 // verifyHMAC checks the X-E2A-Signature header against the body using the

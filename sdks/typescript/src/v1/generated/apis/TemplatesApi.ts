@@ -188,9 +188,13 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
+     * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param limit Maximum number of items to return (1-100).
      */
-    public async listStarterTemplates(_options?: Configuration): Promise<RequestContext> {
+    public async listStarterTemplates(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
+
+
 
         // Path Params
         const localVarPath = '/v1/starter-templates';
@@ -198,6 +202,16 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (cursor !== undefined) {
+            requestContext.setQueryParam("cursor", ObjectSerializer.serialize(cursor, "string", ""));
+        }
+
+        // Query Params
+        if (limit !== undefined) {
+            requestContext.setQueryParam("limit", ObjectSerializer.serialize(limit, "number", "int64"));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;
@@ -218,9 +232,13 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     /**
      * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
+     * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param limit Maximum number of items to return (1-100).
      */
-    public async listTemplates(_options?: Configuration): Promise<RequestContext> {
+    public async listTemplates(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
+
+
 
         // Path Params
         const localVarPath = '/v1/templates';
@@ -228,6 +246,16 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (cursor !== undefined) {
+            requestContext.setQueryParam("cursor", ObjectSerializer.serialize(cursor, "string", ""));
+        }
+
+        // Query Params
+        if (limit !== undefined) {
+            requestContext.setQueryParam("limit", ObjectSerializer.serialize(limit, "number", "int64"));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;

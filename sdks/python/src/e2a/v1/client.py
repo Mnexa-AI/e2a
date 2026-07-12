@@ -248,12 +248,11 @@ class AgentsResource:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[AgentView]:
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_agents(_headers=h))
-            # No cursor param: drop next_cursor so the pager stops after one page.
-            # (Single-page at GA — see webhooks.deliveries.)
-            return _page(resp.items)
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[AgentView]:
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_agents(cursor=cursor, limit=limit, _headers=h))
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -423,11 +422,11 @@ class ReviewsResource:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[ReviewView]:
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_reviews(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[ReviewView]:
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_reviews(cursor=cursor, limit=limit, _headers=h))
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -566,12 +565,11 @@ class DomainsResource:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[DomainView]:
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_domains(_headers=h))
-            # No cursor param: drop next_cursor so the pager stops after one page.
-            # (Single-page at GA — see webhooks.deliveries.)
-            return _page(resp.items)
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[DomainView]:
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_domains(cursor=cursor, limit=limit, _headers=h))
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -656,12 +654,11 @@ class WebhooksResource:
             )
         return await self._c.messages.get(delivered_to, message_id)
 
-    def list(self) -> AutoPager[WebhookView]:
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_webhooks(_headers=h))
-            # No cursor param: drop next_cursor so the pager stops after one page.
-            # (Single-page at GA — see webhooks.deliveries.)
-            return _page(resp.items)
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[WebhookView]:
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(lambda h: self._api.list_webhooks(cursor=cursor, limit=limit, _headers=h))
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -698,14 +695,16 @@ class WebhooksResource:
     def deliveries(
         self, webhook_id: str, *, status: Optional[str] = None, limit: Optional[int] = None
     ) -> AutoPager[WebhookDeliveryView]:
-        async def fetch(_cursor: Optional[str]) -> Page:
+        # Cursor-paginated: the AutoPager walks next_cursor to completion. The
+        # status filter is pinned into the cursor server-side, which the pager
+        # honors by keeping status constant across follow-up requests.
+        async def fetch(cursor: Optional[str]) -> Page:
             resp = await self._c._read(
                 lambda h: self._api.list_webhook_deliveries(
-                    webhook_id, status=status, limit=limit, _headers=h
+                    webhook_id, status=status, cursor=cursor, limit=limit, _headers=h
                 )
             )
-            # No cursor param: drop next_cursor so the pager stops after one page.
-            return _page(resp.items, None)
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -732,11 +731,11 @@ class APIKeysResource:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[APIKeyView]:
-        # No cursor param: single page by contract (see webhooks list).
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[APIKeyView]:
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
         async def fetch(cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_api_keys(_headers=h))
-            return _page(resp.items, None)
+            resp = await self._c._read(lambda h: self._api.list_api_keys(cursor=cursor, limit=limit, _headers=h))
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 

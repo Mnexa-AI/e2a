@@ -77,12 +77,16 @@ func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 	}
 }
 
-// listAgentsOutput uses the shared Page[T] envelope (items + next_cursor) so
-// the list has a pagination slot from GA day one. next_cursor is null at launch
-// (all agents are returned in one page); wiring real cursoring + a server-side
-// limit later is additive — no response-shape change. (GA blocker #3.)
+// listAgentsOutput uses the shared Page[T] envelope (items + next_cursor). The
+// list is keyset-paginated on (created_at, id) — same cursor scheme as every
+// other v1 collection.
 type listAgentsOutput struct {
 	Body Page[AgentView]
+}
+
+// listAgentsInput carries the standard cursor/limit (PageParams).
+type listAgentsInput struct {
+	PageParams
 }
 
 // AddressParam is the shared path input for per-agent operations. The
@@ -102,24 +106,10 @@ func (s *Server) registerAgents() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents",
 		Summary:     "List agents",
-		Description: "List the agents owned by the authenticated account.",
+		Description: "List the agents owned by the authenticated account, newest first, with cursor pagination.",
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
-	}, func(ctx context.Context, _ *struct{}) (*listAgentsOutput, error) {
-		user, err := s.requireAccountUser(ctx)
-		if err != nil {
-			return nil, err
-		}
-		agents, err := s.deps.ListAgents(ctx, user.ID)
-		if err != nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list agents")
-		}
-		items := make([]AgentView, 0, len(agents))
-		for i := range agents {
-			items = append(items, agentViewFromIdentity(&agents[i]))
-		}
-		return &listAgentsOutput{Body: NewPage(items, "")}, nil
-	})
+	}, s.handleListAgents)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getAgent",
@@ -136,6 +126,39 @@ func (s *Server) registerAgents() {
 		}
 		return &agentOutput{Body: agentViewFromIdentity(ag)}, nil
 	})
+}
+
+func (s *Server) handleListAgents(ctx context.Context, in *listAgentsInput) (*listAgentsOutput, error) {
+	user, err := s.requireAccountUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	afterCreatedAt, afterID, err := s.decodeKeyset(in.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := effectiveLimit(in.Limit)
+	// Fetch limit+1 to detect a further page.
+	agents, err := s.deps.ListAgents(ctx, user.ID, limit+1, afterCreatedAt, afterID)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list agents")
+	}
+	hasMore := len(agents) > limit
+	if hasMore {
+		agents = agents[:limit]
+	}
+	items := make([]AgentView, 0, len(agents))
+	for i := range agents {
+		items = append(items, agentViewFromIdentity(&agents[i]))
+	}
+	var nextCursor string
+	if hasMore {
+		last := agents[len(agents)-1]
+		if nextCursor, err = s.encodeKeyset(last.CreatedAt, last.ID); err != nil {
+			return nil, err
+		}
+	}
+	return &listAgentsOutput{Body: NewPage(items, nextCursor)}, nil
 }
 
 // resolveOwnedAgent authenticates the caller, loads the agent by address,

@@ -219,18 +219,33 @@ func (s *Store) GetWebhookByIDInternal(ctx context.Context, webhookID string) (*
 	return w, nil
 }
 
-// ListWebhooksByUser returns every webhook owned by the user — used
-// by the slice-2 GET /v1/webhooks endpoint. Storage layer surfaces
-// enabled and disabled rows alike; filter at the handler if needed.
-func (s *Store) ListWebhooksByUser(ctx context.Context, userID string) ([]Webhook, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, url, description, events, filters,
-		        signing_secret, COALESCE(signing_secret_prev, ''),
-		        signing_secret_prev_expires_at,
-		        enabled, auto_disabled_at, created_at, last_delivered_at
-		 FROM webhooks WHERE user_id = $1 ORDER BY created_at DESC`,
-		userID,
-	)
+// Storage layer surfaces enabled and disabled rows alike; filter at the handler
+// if needed.
+//
+// ListWebhooksByUser returns one page of the user's webhooks, newest-first,
+// keyset-paginated on (created_at, id). limit<=0 returns every webhook
+// unpaginated (the all-consumers: prober seed); a positive limit fetches that
+// many (pass limit+1 to detect a further page) starting after the
+// (afterCreatedAt, afterID) key from the previous page's last row (zero
+// afterCreatedAt = first page).
+func (s *Store) ListWebhooksByUser(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]Webhook, error) {
+	q := `SELECT id, user_id, url, description, events, filters,
+	        signing_secret, COALESCE(signing_secret_prev, ''),
+	        signing_secret_prev_expires_at,
+	        enabled, auto_disabled_at, created_at, last_delivered_at
+	 FROM webhooks WHERE user_id = $1`
+	args := []interface{}{userID}
+	if !afterCreatedAt.IsZero() {
+		i := len(args) + 1
+		q += fmt.Sprintf(` AND (created_at < $%d OR (created_at = $%d AND id < $%d))`, i, i, i+1)
+		args = append(args, afterCreatedAt, afterID)
+	}
+	q += ` ORDER BY created_at DESC, id DESC`
+	if limit > 0 {
+		q += fmt.Sprintf(` LIMIT $%d`, len(args)+1)
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

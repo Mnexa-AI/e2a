@@ -236,7 +236,7 @@ func (ua *UserAuth) setCookie(w http.ResponseWriter, name, value string, maxAge 
 }
 
 func (ua *UserAuth) defaultAgentEmail(ctx context.Context, userID string) string {
-	agents, err := ua.store.ListAgentsByUser(ctx, userID)
+	agents, err := ua.store.ListAgentsByUser(ctx, userID, 0, time.Time{}, "")
 	if err != nil || len(agents) == 0 {
 		return ""
 	}
@@ -594,7 +594,7 @@ func (ua *UserAuth) HandleDashboardAgents(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	agents, err := ua.store.ListAgentsByUser(r.Context(), user.ID)
+	agents, err := ua.store.ListAgentsByUser(r.Context(), user.ID, 0, time.Time{}, "")
 	if err != nil {
 		http.Error(w, "failed to list agents", http.StatusInternalServerError)
 		return
@@ -827,7 +827,7 @@ func (ua *UserAuth) HandleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys, err := ua.store.ListAPIKeys(r.Context(), user.ID)
+	keys, err := ua.store.ListAPIKeys(r.Context(), user.ID, 0, time.Time{}, "")
 	if err != nil {
 		http.Error(w, "failed to list API keys", http.StatusInternalServerError)
 		return

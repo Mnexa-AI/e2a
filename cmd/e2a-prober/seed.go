@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
@@ -81,7 +82,7 @@ func seedProbe(ctx context.Context, store *identity.Store, agentEmail, sinkURL s
 	// Create an API key only if the probe user has none — re-seeding otherwise
 	// accumulates orphan keys (the plaintext is unrecoverable, so an existing
 	// key can't be re-displayed; the operator reuses the one captured first).
-	keys, err := store.ListAPIKeys(ctx, user.ID)
+	keys, err := store.ListAPIKeys(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
 	}
@@ -93,7 +94,7 @@ func seedProbe(ctx context.Context, store *identity.Store, agentEmail, sinkURL s
 		res.APIKey = key.PlaintextKey
 	}
 
-	existing, err := store.ListWebhooksByUser(ctx, user.ID)
+	existing, err := store.ListWebhooksByUser(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
 		return nil, fmt.Errorf("list webhooks: %w", err)
 	}

@@ -184,10 +184,16 @@ type VerifyDomainView struct {
 	DKIM       string     `json:"dkim,omitempty" doc:"Live DKIM probe state. Known values: found, missing, deferred, mismatch. 'mismatch' means a DKIM record IS published at the selector but its key doesn't match the issued one — almost always a truncated/clipped TXT (the value is ~400 chars and must be published in full, ending in 'AQAB'). On 'mismatch', re-publish the complete DKIM record; do not just wait."`
 }
 
-// listDomainsOutput uses the shared Page[T] envelope (items + next_cursor);
-// next_cursor is null at launch. See listAgentsOutput. (GA blocker #3.)
+// listDomainsOutput uses the shared Page[T] envelope (items + next_cursor). The
+// list is keyset-paginated on (created_at, domain) — domain is the unique
+// tiebreak. See listAgentsOutput.
 type listDomainsOutput struct {
 	Body Page[DomainView]
+}
+
+// listDomainsInput carries the standard cursor/limit (PageParams).
+type listDomainsInput struct {
+	PageParams
 }
 type domainOutput struct{ Body DomainView }
 type domainCreateOutput struct{ Body DomainView }
@@ -202,7 +208,8 @@ func (s *Server) registerDomains() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "listDomains", Method: http.MethodGet, Path: "/v1/domains",
 		Summary: "List domains", Tags: []string{"domains"},
-		Security: []map[string][]string{{"bearer": {}}},
+		Description: "List the domains owned by the authenticated account, newest first, with cursor pagination.",
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleListDomains)
 
 	huma.Register(s.API, huma.Operation{
@@ -305,20 +312,39 @@ func (s *Server) handleVerifyDomain(ctx context.Context, in *DomainParam) (*veri
 	}}, nil
 }
 
-func (s *Server) handleListDomains(ctx context.Context, _ *struct{}) (*listDomainsOutput, error) {
+func (s *Server) handleListDomains(ctx context.Context, in *listDomainsInput) (*listDomainsOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err
 	}
-	domains, err := s.deps.ListDomains(ctx, user.ID)
+	// The keyset tiebreak for domains is the domain string (its unique key), so
+	// the cursor's `id` slot carries the after-domain.
+	afterCreatedAt, afterDomain, err := s.decodeKeyset(in.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := effectiveLimit(in.Limit)
+	// Fetch limit+1 to detect a further page.
+	domains, err := s.deps.ListDomains(ctx, user.ID, limit+1, afterCreatedAt, afterDomain)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list domains")
+	}
+	hasMore := len(domains) > limit
+	if hasMore {
+		domains = domains[:limit]
 	}
 	items := make([]DomainView, 0, len(domains))
 	for i := range domains {
 		items = append(items, s.domainView(&domains[i]))
 	}
-	return &listDomainsOutput{Body: NewPage(items, "")}, nil
+	var nextCursor string
+	if hasMore {
+		last := domains[len(domains)-1]
+		if nextCursor, err = s.encodeKeyset(last.CreatedAt, last.Domain); err != nil {
+			return nil, err
+		}
+	}
+	return &listDomainsOutput{Body: NewPage(items, nextCursor)}, nil
 }
 
 func (s *Server) handleGetDomain(ctx context.Context, in *DomainParam) (*domainOutput, error) {
