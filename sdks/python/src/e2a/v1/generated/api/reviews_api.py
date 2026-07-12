@@ -49,7 +49,7 @@ class ReviewsApi:
         self,
         id: StrictStr,
         approve_request: ApproveRequest,
-        idempotency_key: Optional[StrictStr] = None,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -71,7 +71,7 @@ class ReviewsApi:
         :type id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
-        :param idempotency_key:
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -107,6 +107,8 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
             '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -125,7 +127,7 @@ class ReviewsApi:
         self,
         id: StrictStr,
         approve_request: ApproveRequest,
-        idempotency_key: Optional[StrictStr] = None,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -147,7 +149,7 @@ class ReviewsApi:
         :type id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
-        :param idempotency_key:
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -183,6 +185,8 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
             '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -201,7 +205,7 @@ class ReviewsApi:
         self,
         id: StrictStr,
         approve_request: ApproveRequest,
-        idempotency_key: Optional[StrictStr] = None,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -223,7 +227,7 @@ class ReviewsApi:
         :type id: str
         :param approve_request: (required)
         :type approve_request: ApproveRequest
-        :param idempotency_key:
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -259,6 +263,8 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
             '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -321,8 +327,7 @@ class ReviewsApi:
             _default_content_type = (
                 self.api_client.select_header_content_type(
                     [
-                        'application/json', 
-                        'application/octet-stream'
+                        'application/json'
                     ]
                 )
             )

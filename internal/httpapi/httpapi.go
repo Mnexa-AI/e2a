@@ -363,6 +363,7 @@ func New(deps Deps) *Server {
 	// handler. Registered once; applies to every operation.
 	api.UseMiddleware(s.rateLimit)
 	s.registerOperations()
+	s.suppressRawBodyOctetStream()
 
 	// WebSocket transport — registered directly on chi (not Huma; it's a raw
 	// upgrade, not a JSON operation). First-class /v1 inbound transport.
@@ -428,6 +429,40 @@ func (s *Server) registerOperations() {
 	s.registerAPIKeys()
 	s.registerOutbound()
 	s.registerReviews()
+}
+
+// suppressRawBodyOctetStream removes the phantom `application/octet-stream`
+// request-body variant Huma adds for every input struct that carries a
+// `RawBody []byte` capture field (send/reply/forward/approve keep the raw
+// bytes for the Idempotency-Key body hash). The field is a server-side
+// artifact — those operations accept ONLY application/json — but Huma
+// unconditionally documents a binary media type for it
+// (setRequestBodyFromRawBody), so clients generating from the spec would see
+// a bogus content type they must "choose" between. Tagging the field with
+// contentType:"application/json" is not an option: Huma would then OVERWRITE
+// the JSON media type's schema with a bare binary string.
+//
+// Runtime behavior is untouched: Huma parses non-multipart request bodies via
+// the Body schema captured at Register time and never consults
+// RequestBody.Content afterwards (the only runtime readers are the multipart
+// path and RequestBody.Required, both unaffected). The octet-stream entry is
+// dropped only where a JSON variant coexists, so a future genuinely-binary
+// endpoint would keep its declared content type.
+func (s *Server) suppressRawBodyOctetStream() {
+	for _, item := range s.API.OpenAPI().Paths {
+		for _, op := range []*huma.Operation{
+			item.Get, item.Put, item.Post, item.Delete,
+			item.Options, item.Head, item.Patch, item.Trace,
+		} {
+			if op == nil || op.RequestBody == nil || op.RequestBody.Content == nil {
+				continue
+			}
+			c := op.RequestBody.Content
+			if c["application/json"] != nil && c["application/octet-stream"] != nil {
+				delete(c, "application/octet-stream")
+			}
+		}
+	}
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they
