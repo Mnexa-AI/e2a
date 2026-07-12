@@ -10,13 +10,12 @@ lists as an :class:`~e2a.v1.pagination.AutoPager`. Async-only.
 from __future__ import annotations
 
 import os
-from typing import Any, Awaitable, Callable, List, Optional, Sequence, Type, TypeVar, Union
+from typing import Any, Awaitable, Callable, List, Optional, Protocol, Sequence, Type, TypeVar, Union
 
 from pydantic import ValidationError
 
 from ._retry import RetryConfig, request_with_retry
 from .errors import E2AError, E2AValidationError
-from .webhook_signature import WebhookEvent
 from .generated.api.account_api import AccountApi
 from .generated.api.agents_api import AgentsApi
 from .generated.api.conversations_api import ConversationsApi
@@ -88,6 +87,22 @@ T = TypeVar("T")
 _Make = Callable[[Optional["dict[str, str]"]], Awaitable[Any]]
 # A request body accepted as the typed model or a plain dict.
 Body = Union[Any, dict]
+
+
+class EventLike(Protocol):
+    """Structural type for the versioned event envelope — anything with a
+    ``type`` and a ``data`` payload. Both :class:`WebhookEvent` and the
+    WebSocket channel's ``WSEvent`` satisfy it (the two channels carry the
+    same envelope), so envelope-consuming helpers like
+    ``client.webhooks.fetch_message`` accept either without importing the
+    optional ``websockets``-backed module.
+    """
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def data(self) -> Any: ...
 
 DEFAULT_BASE_URL = "https://api.e2a.dev"
 
@@ -622,12 +637,15 @@ class WebhooksResource:
         self._api = api
         self._c = client
 
-    async def fetch_message(self, event: WebhookEvent) -> MessageView:
+    async def fetch_message(self, event: EventLike) -> MessageView:
         """Fetch the full message referenced by an ``email.received`` event.
 
-        The event is a metadata-only notification; this resolves its
-        ``(delivered_to, message_id)`` fetch keys and returns the full
-        :class:`MessageView` (body, attachments, signed headers). Raises
+        Accepts any envelope-shaped event — a verified
+        :class:`~e2a.v1.webhook_signature.WebhookEvent` or the WebSocket
+        channel's :class:`~e2a.v1.websocket.WSEvent` (both channels carry the
+        same envelope). The event is a metadata-only notification; this
+        resolves its ``(delivered_to, message_id)`` fetch keys and returns the
+        full :class:`MessageView` (body, attachments, signed headers). Raises
         ``ValueError`` if the event is not an ``email.received`` carrying those
         keys.
         """

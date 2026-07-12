@@ -304,10 +304,15 @@ content via `GET /v1/agents/{email}/messages/{id}`:
 ```
 
 On connect, all unread messages are drained as `email.received` events
-automatically. Live events are byte-identical to the webhook payload; the
-drain-on-reconnect rebuild emits `authenticated_from`/`auth_headers` as
-present-but-empty and omits `attachments` (not stored on the drained row) —
-the full message (fetched separately) always has everything.
+automatically. Live events carry the same marshaled event envelope as the
+webhook delivery — identical fields and event id; byte layout may differ
+(JSON key order/escaping is not contractual). The drain-on-reconnect rebuild
+carries the full auth contract (`authenticated_from` + the signed
+`auth_headers`, persisted with the message) and diverges from the original
+event in exactly two ways: `attachments` is omitted (the raw message is not
+loaded by the drain query), and `created_at`/`received_at` are the message
+row's time rather than the original event's publish time — the full message
+(fetched separately) always has everything.
 
 ## HITL magic links
 

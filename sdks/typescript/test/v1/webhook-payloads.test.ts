@@ -127,6 +127,94 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(e.data.message_id).toMatch(/^msg_/);
   });
 
+  // Minimal (required-fields-only) fixtures: the same files the server's
+  // presence-semantics lock generates. Parsing them proves the TS types keep
+  // every optional field genuinely optional (absent, not null/empty) and
+  // every required field present even on the sparsest real payload.
+  describe("minimal-variant fixtures (required fields only)", () => {
+    it("email.received.min", () => {
+      const e = construct("email.received.min.json");
+      if (!isEmailReceived(e)) throw new Error("guard failed");
+      const d = e.data;
+      expect(d.message_id).toMatch(/^msg_/);
+      expect(d.delivered_to).toBe("support@agents.example.com");
+      // Required present-but-empty, never absent.
+      expect(d.authenticated_from).toBe("");
+      expect(d.auth_headers).toEqual({});
+      expect(d.to).toEqual(["support@agents.example.com"]);
+      // Optional fields are ABSENT on the wire.
+      expect(d.conversation_id).toBeUndefined();
+      expect(d.cc).toBeUndefined();
+      expect(d.reply_to).toBeUndefined();
+      expect(d.attachments).toBeUndefined();
+    });
+
+    it("email.sent.min", () => {
+      const e = construct("email.sent.min.json");
+      if (!isEmailSent(e)) throw new Error("guard failed");
+      const d = e.data;
+      expect(d.provider_message_id).toBeTruthy();
+      expect(d.conversation_id).toBeUndefined();
+      expect(d.cc).toBeUndefined();
+      expect(d.bcc).toBeUndefined();
+    });
+
+    it("email.failed.min", () => {
+      const e = construct("email.failed.min.json");
+      if (!isEmailFailed(e)) throw new Error("guard failed");
+      const d = e.data;
+      expect(d.reason).toBe("550 5.1.1 user unknown");
+      expect(d.conversation_id).toBeUndefined();
+      expect(d.cc).toBeUndefined();
+      expect(d.bcc).toBeUndefined();
+      expect(d.reason_code).toBeUndefined();
+      expect(d.retryable).toBeUndefined();
+    });
+
+    it("email.delivered.min", () => {
+      const e = construct("email.delivered.min.json");
+      if (!isEmailDelivered(e)) throw new Error("guard failed");
+      expect(e.data.delivered_to).toBe("alice@customer.example.com");
+      expect(e.data.subject).toBeUndefined();
+      expect(e.data.smtp_detail).toBeUndefined();
+    });
+
+    it("email.bounced.min", () => {
+      const e = construct("email.bounced.min.json");
+      if (!isEmailBounced(e)) throw new Error("guard failed");
+      const d = e.data;
+      // The required classification stays even on the sparsest bounce.
+      expect(d.bounce_type).toBe("permanent");
+      expect(d.subject).toBeUndefined();
+      expect(d.smtp_detail).toBeUndefined();
+      expect(d.bounce_sub_type).toBeUndefined();
+    });
+
+    it("email.complained.min", () => {
+      const e = construct("email.complained.min.json");
+      if (!isEmailComplained(e)) throw new Error("guard failed");
+      expect(e.data.delivered_to).toBe("carol@customer.example.com");
+      expect(e.data.subject).toBeUndefined();
+      expect(e.data.smtp_detail).toBeUndefined();
+    });
+
+    it("domain.sending_failed.min", () => {
+      const e = construct("domain.sending_failed.min.json");
+      if (!isDomainSendingFailed(e)) throw new Error("guard failed");
+      expect(e.data.sending_status).toBe("failed");
+      expect(e.data.reason).toBeUndefined();
+    });
+
+    it("domain.suppression_added.min", () => {
+      const e = construct("domain.suppression_added.min.json");
+      if (!isDomainSuppressionAdded(e)) throw new Error("guard failed");
+      expect(e.data.address).toBe("bob@customer.example.com");
+      expect(e.data.source).toBe("bounce");
+      expect(e.data.reason).toBeUndefined();
+      expect(e.data.message_id).toBeUndefined();
+    });
+  });
+
   it("unknown event types still parse (envelope stays open)", () => {
     const raw = JSON.stringify({
       type: "email.future_kind",

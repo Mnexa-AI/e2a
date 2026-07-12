@@ -129,6 +129,59 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 		}, "550 5.1.1 user unknown")
 		goldenassert.Data(t, fixture+"email.failed.json", ev.Data)
 	})
+
+	// Minimal (required-fields-only) variants: the same builders fed only the
+	// required inputs must byte-match the .min.json fixtures, locking the
+	// omitempty presence semantics (no cc/bcc/conversation_id on the wire when
+	// unset) that the fully-populated fixtures above can't detect.
+
+	t.Run("email.sent sync builder minimal", func(t *testing.T) {
+		a := &API{}
+		ev := a.buildSentEvent(
+			agent,
+			&identity.Message{ID: "msg_01h2xcejqtf2nbrexx3vqjhp42"},
+			&outbound.SendResult{
+				MessageID: "0100019283abcdef-1a2b3c4d-0000",
+				Method:    "smtp",
+				To:        []string{"alice@customer.example.com"},
+			},
+			outbound.SendRequest{Subject: "Re: Order #1234 delayed"},
+			"reply",
+		)
+		goldenassert.Data(t, fixture+"email.sent.min.json", ev.Data)
+	})
+
+	t.Run("email.sent async builder minimal emits the identical payload", func(t *testing.T) {
+		ev := buildEmailSentEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:           "msg_01h2xcejqtf2nbrexx3vqjhp42",
+				AgentID:      agent.ID,
+				Sender:       "support@agents.example.com",
+				Method:       "smtp",
+				ToRecipients: []string{"alice@customer.example.com"},
+				Subject:      "Re: Order #1234 delayed",
+				Type:         "reply",
+			},
+		}, "0100019283abcdef-1a2b3c4d-0000")
+		goldenassert.Data(t, fixture+"email.sent.min.json", ev.Data)
+	})
+
+	t.Run("email.failed async builder minimal", func(t *testing.T) {
+		ev := buildEmailFailedEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:           "msg_01h2xcejqtf2nbrexx3vqjhp43",
+				AgentID:      agent.ID,
+				Sender:       "support@agents.example.com",
+				Method:       "smtp",
+				ToRecipients: []string{"alice@customer.example.com"},
+				Subject:      "Re: Order #1234 delayed",
+				Type:         "send",
+			},
+		}, "550 5.1.1 user unknown")
+		goldenassert.Data(t, fixture+"email.failed.min.json", ev.Data)
+	})
 }
 
 func TestBuildSentEvent_NilOutMsgUsesEmptyMessageID(t *testing.T) {

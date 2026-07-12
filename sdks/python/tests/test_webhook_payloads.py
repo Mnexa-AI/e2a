@@ -149,3 +149,95 @@ def test_unknown_event_type_still_parses():
     assert e.type == "email.future_kind"
     assert not is_email_received(e)
     assert e.data == {"anything": True}
+
+
+# ── Minimal (required-fields-only) fixtures ─────────────────────────────
+# The same files the server's presence-semantics lock generates. Parsing
+# them proves every optional field is genuinely optional (ABSENT, not
+# null/empty) and every required field is present even on the sparsest
+# real payload.
+
+
+def test_email_received_minimal():
+    e = _construct("email.received.min.json")
+    assert is_email_received(e)
+    d = e.data
+    assert d["message_id"].startswith("msg_")
+    assert d["delivered_to"] == "support@agents.example.com"
+    # Required present-but-empty, never absent.
+    assert d["authenticated_from"] == ""
+    assert d["auth_headers"] == {}
+    assert d["to"] == ["support@agents.example.com"]
+    # Optional fields are ABSENT on the wire.
+    assert "conversation_id" not in d
+    assert "cc" not in d
+    assert "reply_to" not in d
+    assert "attachments" not in d
+
+
+def test_email_sent_minimal():
+    e = _construct("email.sent.min.json")
+    assert is_email_sent(e)
+    d = e.data
+    assert d["provider_message_id"]
+    assert "conversation_id" not in d
+    assert "cc" not in d
+    assert "bcc" not in d
+
+
+def test_email_failed_minimal():
+    e = _construct("email.failed.min.json")
+    assert is_email_failed(e)
+    d = e.data
+    assert d["reason"] == "550 5.1.1 user unknown"
+    assert "conversation_id" not in d
+    assert "cc" not in d
+    assert "bcc" not in d
+    assert "reason_code" not in d
+    assert "retryable" not in d
+
+
+def test_email_delivered_minimal():
+    e = _construct("email.delivered.min.json")
+    assert is_email_delivered(e)
+    d = e.data
+    assert d["delivered_to"] == "alice@customer.example.com"
+    assert "subject" not in d
+    assert "smtp_detail" not in d
+
+
+def test_email_bounced_minimal():
+    e = _construct("email.bounced.min.json")
+    assert is_email_bounced(e)
+    d = e.data
+    # The required classification stays even on the sparsest bounce.
+    assert d["bounce_type"] == "permanent"
+    assert "subject" not in d
+    assert "smtp_detail" not in d
+    assert "bounce_sub_type" not in d
+
+
+def test_email_complained_minimal():
+    e = _construct("email.complained.min.json")
+    assert is_email_complained(e)
+    d = e.data
+    assert d["delivered_to"] == "carol@customer.example.com"
+    assert "subject" not in d
+    assert "smtp_detail" not in d
+
+
+def test_domain_sending_failed_minimal():
+    e = _construct("domain.sending_failed.min.json")
+    assert is_domain_sending_failed(e)
+    assert e.data["sending_status"] == "failed"
+    assert "reason" not in e.data
+
+
+def test_domain_suppression_added_minimal():
+    e = _construct("domain.suppression_added.min.json")
+    assert is_domain_suppression_added(e)
+    d = e.data
+    assert d["address"] == "bob@customer.example.com"
+    assert d["source"] == "bounce"
+    assert "reason" not in d
+    assert "message_id" not in d

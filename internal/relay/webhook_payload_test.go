@@ -120,3 +120,27 @@ func TestBuildEmailReceivedPayload_Golden(t *testing.T) {
 	)
 	goldenassert.Data(t, "../eventpayload/testdata/email.received.json", payload)
 }
+
+// TestBuildEmailReceivedPayload_GoldenMinimal is the presence-semantics lock:
+// the builder fed only the REQUIRED inputs (no conversation, no cc/reply_to,
+// no auth attestation, no attachments) must marshal byte-identical to the
+// committed required-fields-only fixture — so a flipped `omitempty` (optional
+// field emitted when unset, or a required field dropped when empty) fails
+// here, not in a consumer.
+func TestBuildEmailReceivedPayload_GoldenMinimal(t *testing.T) {
+	receivedAt := time.Date(2026, 7, 1, 10, 30, 0, 123456789, time.UTC)
+	payload := buildEmailReceivedPayload(
+		"msg_01h2xcejqtf2nbrexx3vqjhp41",
+		"", // thread-starting message: no conversation_id
+		"reply@customer.example.com",
+		"", // unauthenticated: present-but-empty, never absent
+		"support@agents.example.com",
+		"Order #1234 delayed",
+		threadInfo{To: []string{"support@agents.example.com"}},
+		nil, // no auth attestation → auth_headers must serialize as {}
+		&identity.AgentIdentity{ID: "support@agents.example.com", Domain: "agents.example.com"},
+		receivedAt,
+		nil, // no attachments → field must be ABSENT
+	)
+	goldenassert.Data(t, "../eventpayload/testdata/email.received.min.json", payload)
+}

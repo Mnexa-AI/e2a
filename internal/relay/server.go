@@ -641,14 +641,22 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// available to every agent regardless of how it's configured.
 	//
 	// The frame is the SAME versioned envelope the webhook channel delivers —
-	// literally this trigger's email.received event (type/id/schema_version/
-	// created_at/data), so a consumer can share one parser across both
-	// channels and dedup WS-vs-webhook on the event id.
+	// this trigger's email.received event (type/id/schema_version/created_at/
+	// data) with identical fields and the identical event id, so a consumer
+	// can share one parser across both channels and dedup WS-vs-webhook on
+	// the event id. Byte layout may differ between the channels (the webhook
+	// body round-trips through Postgres JSONB, which reorders keys and
+	// de-escapes Go's HTML escapes) — JSON key order/escaping is not
+	// contractual, the marshaled JSON value is.
 	if srv.hub != nil && !screenRes.Hold && srv.hub.IsConnected(agent.ID) {
 		if notification, err := json.Marshal(event.AsEnvelope()); err == nil {
 			if srv.hub.Send(agent.ID, notification) {
 				log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
 			}
+		} else {
+			// Practically unreachable (the envelope marshals plain structs),
+			// but a silent swallow would make a dropped live frame invisible.
+			log.Printf("[mail:%s] ws_notify=marshal_failed slug=%s err=%v", messageID, slug, err)
 		}
 	}
 	return nil

@@ -2869,12 +2869,15 @@ type MessageListFilter struct {
 // `status` (outbound HITL lifecycle), `webhook_status`/`last_error`
 // (outbound delivery), and `octet_length(raw_message)` (size column);
 // the polling SDK ignores these fields and reads only the existing
-// inbound-relevant ones from the Message struct.
+// inbound-relevant ones from the Message struct. `auth_headers` (small
+// signed metadata, persisted at intake) is selected so the WS drain path
+// can emit the same authenticated_from/auth_headers a live delivery
+// carries; raw_message stays deliberately unselected (the blob).
 func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]Message, error) {
 	var query string
 	var args []interface{}
 
-	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
+	baseSelect := `SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(octet_length(m.raw_message), 0), m.created_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''), m.auth_headers
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1 AND m.expires_at > now()`
@@ -2991,17 +2994,24 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 		var m Message
 		var outboundDeliveryStatus string
 		var authVerdict []byte
+		var authHeadersJSON []byte
 		if err := rows.Scan(
 			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo,
 			&m.Subject, &m.EmailMessageID, &m.ConversationID,
 			&m.InboxStatus, &m.Status, &m.WebhookStatus, &m.WebhookError, &m.SizeBytes,
 			&m.CreatedAt, &m.Labels,
 			&outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict, &m.Flagged, &m.FlagReason,
+			&authHeadersJSON,
 		); err != nil {
 			return nil, err
 		}
 		if err := unmarshalAuthVerdict(authVerdict, &m); err != nil {
 			return nil, err
+		}
+		if authHeadersJSON != nil {
+			if err := json.Unmarshal(authHeadersJSON, &m.AuthHeaders); err != nil {
+				return nil, fmt.Errorf("unmarshal auth headers: %w", err)
+			}
 		}
 		// DeliveryStatus is overloaded by direction: inbound rows carry the
 		// inbox read/unread status under the legacy JSON key (the polling SDK

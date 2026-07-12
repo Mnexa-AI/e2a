@@ -207,15 +207,173 @@ func canonicalEvents() []struct {
 	}
 }
 
+// minimalEvents returns the REQUIRED-FIELDS-ONLY variant for every stable
+// event that has optional fields — the presence-semantics lock the maximal
+// fixtures above cannot provide: with only fully-populated fixtures, a
+// flipped/added `omitempty` (or a required field accidentally made
+// omittable) passes every byte-level test. Each minimal fixture pins that
+// the optional fields are genuinely ABSENT from the wire when unset and the
+// required fields still serialize (present-but-empty where applicable).
+// domain.sending_verified has no optional fields, so no minimal variant.
+func minimalEvents() []struct {
+	fixture string
+	event   webhookpub.Event
+} {
+	return []struct {
+		fixture string
+		event   webhookpub.Event
+	}{
+		{
+			// received without conversation_id/cc/reply_to/attachments.
+			// auth_headers/to/authenticated_from are REQUIRED: an
+			// unauthenticated minimal intake serializes them present-but-empty,
+			// never absent.
+			fixture: "email.received.min.json",
+			event: webhookpub.Event{
+				ID:        webhookpub.DeterministicEventID("msg_01h2xcejqtf2nbrexx3vqjhp41", webhookpub.EventEmailReceived),
+				Type:      webhookpub.EventEmailReceived,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.EmailReceivedData{
+					MessageID:         "msg_01h2xcejqtf2nbrexx3vqjhp41",
+					AgentEmail:        "support@agents.example.com",
+					Direction:         "inbound",
+					From:              "reply@customer.example.com",
+					AuthenticatedFrom: "",
+					To:                []string{"support@agents.example.com"},
+					DeliveredTo:       "support@agents.example.com",
+					Subject:           "Order #1234 delayed",
+					AuthHeaders:       map[string]string{},
+					ReceivedAt:        fixtureCreatedAt,
+				},
+			},
+		},
+		{
+			// sent without conversation_id/cc/bcc.
+			fixture: "email.sent.min.json",
+			event: webhookpub.Event{
+				ID:        webhookpub.DeterministicEventID("msg_01h2xcejqtf2nbrexx3vqjhp42", webhookpub.EventEmailSent),
+				Type:      webhookpub.EventEmailSent,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.EmailSentData{
+					MessageID:         "msg_01h2xcejqtf2nbrexx3vqjhp42",
+					AgentEmail:        "support@agents.example.com",
+					Direction:         "outbound",
+					ProviderMessageID: "0100019283abcdef-1a2b3c4d-0000",
+					Method:            "smtp",
+					From:              "support@agents.example.com",
+					To:                []string{"alice@customer.example.com"},
+					Subject:           "Re: Order #1234 delayed",
+					MessageType:       "reply",
+				},
+			},
+		},
+		{
+			// failed without conversation_id/cc/bcc/reason_code/retryable.
+			fixture: "email.failed.min.json",
+			event: webhookpub.Event{
+				ID:        webhookpub.DeterministicEventID("msg_01h2xcejqtf2nbrexx3vqjhp43", webhookpub.EventEmailFailed),
+				Type:      webhookpub.EventEmailFailed,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.EmailFailedData{
+					MessageID:   "msg_01h2xcejqtf2nbrexx3vqjhp43",
+					AgentEmail:  "support@agents.example.com",
+					Direction:   "outbound",
+					Method:      "smtp",
+					From:        "support@agents.example.com",
+					To:          []string{"alice@customer.example.com"},
+					Subject:     "Re: Order #1234 delayed",
+					MessageType: "send",
+					Reason:      "550 5.1.1 user unknown",
+				},
+			},
+		},
+		{
+			// delivered without subject/smtp_detail.
+			fixture: "email.delivered.min.json",
+			event: webhookpub.Event{
+				ID:        webhookpub.DeterministicEventID("email.delivered|msg_01h2xcejqtf2nbrexx3vqjhp44|alice@customer.example.com"),
+				Type:      webhookpub.EventEmailDelivered,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.EmailDeliveredData{
+					MessageID:   "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					AgentEmail:  "support@agents.example.com",
+					Direction:   "outbound",
+					DeliveredTo: "alice@customer.example.com",
+				},
+			},
+		},
+		{
+			// bounced without subject/smtp_detail/bounce_sub_type — the
+			// required bounce_type stays.
+			fixture: "email.bounced.min.json",
+			event: webhookpub.Event{
+				ID:        webhookpub.DeterministicEventID("email.bounced|msg_01h2xcejqtf2nbrexx3vqjhp44|bob@customer.example.com"),
+				Type:      webhookpub.EventEmailBounced,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.EmailBouncedData{
+					MessageID:   "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					AgentEmail:  "support@agents.example.com",
+					Direction:   "outbound",
+					DeliveredTo: "bob@customer.example.com",
+					BounceType:  "permanent",
+				},
+			},
+		},
+		{
+			// complained without subject/smtp_detail.
+			fixture: "email.complained.min.json",
+			event: webhookpub.Event{
+				ID:        webhookpub.DeterministicEventID("email.complained|msg_01h2xcejqtf2nbrexx3vqjhp44|carol@customer.example.com"),
+				Type:      webhookpub.EventEmailComplained,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.EmailComplainedData{
+					MessageID:   "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					AgentEmail:  "support@agents.example.com",
+					Direction:   "outbound",
+					DeliveredTo: "carol@customer.example.com",
+				},
+			},
+		},
+		{
+			// sending_failed without reason.
+			fixture: "domain.sending_failed.min.json",
+			event: webhookpub.Event{
+				ID:        "evt_fedcba9876543210fedcba9876543210",
+				Type:      webhookpub.EventDomainSendingFailed,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.DomainSendingFailedData{
+					Domain:        "mail.customer.example.com",
+					SendingStatus: "failed",
+				},
+			},
+		},
+		{
+			// suppression_added without reason/message_id.
+			fixture: "domain.suppression_added.min.json",
+			event: webhookpub.Event{
+				ID:        webhookpub.DeterministicEventID("domain.suppression_added|user_7a6b5c4d|bob@customer.example.com"),
+				Type:      webhookpub.EventDomainSuppressionAdded,
+				CreatedAt: fixtureCreatedAt,
+				Data: eventpayload.DomainSuppressionAddedData{
+					Address: "bob@customer.example.com",
+					Source:  "bounce",
+				},
+			},
+		},
+	}
+}
+
 // TestGoldenFixtures is the canonical envelope-level golden lock: the wire
 // envelope of each stable event, marshaled from the typed payload structs,
-// must byte-for-byte equal the committed fixture. Everything asserts against
-// these files — the per-builder server tests AND the TS/Python SDK tests —
-// so a payload change that isn't a conscious, reviewed fixture regeneration
-// fails on every surface at once.
+// must byte-for-byte equal the committed fixture — for BOTH the maximal
+// (fully-populated) fixtures and the required-fields-only `.min.json`
+// variants (which lock the omitempty presence semantics). Everything asserts
+// against these files — the per-builder server tests AND the TS/Python SDK
+// tests — so a payload change that isn't a conscious, reviewed fixture
+// regeneration fails on every surface at once.
 func TestGoldenFixtures(t *testing.T) {
 	seen := map[string]bool{}
-	for _, c := range canonicalEvents() {
+	for _, c := range append(canonicalEvents(), minimalEvents()...) {
 		c := c
 		seen[c.event.Type] = true
 		t.Run(c.fixture, func(t *testing.T) {

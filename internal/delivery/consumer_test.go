@@ -245,6 +245,48 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 		})
 		goldenassert.Data(t, fixture+"email.complained.json", (*events)[0].data)
 	})
+
+	// Minimal (required-fields-only) variants: SES feedback with no subject
+	// correlation, no diagnostic Detail, and (for bounces) no sub-type must
+	// byte-match the .min.json fixtures — locking that the optional
+	// subject/smtp_detail/bounce_sub_type fields are ABSENT from the wire when
+	// unset, which the fully-populated fixtures above can't detect.
+	fireMinimal := func(sesEvent *Event) *[]firedEvent {
+		t.Helper()
+		store := newFakeConsumerStore()
+		store.corr["ses-golden-min"] = [4]string{msgID, userID, agent, ""} // no subject
+		fire, events := recordingFirer()
+		c := NewConsumer(store, fire)
+		if err := c.Process(context.Background(), sesEvent); err != nil {
+			t.Fatal(err)
+		}
+		return events
+	}
+
+	t.Run("email.delivered minimal", func(t *testing.T) {
+		events := fireMinimal(&Event{
+			Kind: KindDelivery, SESMessageID: "ses-golden-min",
+			Recipients: []RecipientOutcome{{Address: "alice@customer.example.com", Status: StatusDelivered}},
+		})
+		goldenassert.Data(t, fixture+"email.delivered.min.json", (*events)[0].data)
+	})
+
+	t.Run("email.bounced minimal", func(t *testing.T) {
+		events := fireMinimal(&Event{
+			Kind: KindBounce, SESMessageID: "ses-golden-min",
+			BounceType: "permanent",
+			Recipients: []RecipientOutcome{{Address: "bob@customer.example.com", Status: StatusBounced}},
+		})
+		goldenassert.Data(t, fixture+"email.bounced.min.json", (*events)[0].data)
+	})
+
+	t.Run("email.complained minimal", func(t *testing.T) {
+		events := fireMinimal(&Event{
+			Kind: KindComplaint, SESMessageID: "ses-golden-min",
+			Recipients: []RecipientOutcome{{Address: "carol@customer.example.com", Status: StatusComplained}},
+		})
+		goldenassert.Data(t, fixture+"email.complained.min.json", (*events)[0].data)
+	})
 }
 
 func contains(ss []string, s string) bool {

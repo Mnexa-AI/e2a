@@ -1,5 +1,29 @@
 # Changelog
 
+## 5.0.0
+
+Breaking: the WebSocket frame is now the versioned event envelope (server #456).
+
+### Changed
+- **The WebSocket frame is the versioned event envelope** — the same
+  `{type, id, schema_version, created_at, data}` shape a webhook delivery
+  carries, so one parser (and one dedup key: the event `id`) serves both
+  channels. Frames were previously a flat ad-hoc notification object.
+- **`WSNotification` and the `"notification"` emitter event are removed.**
+  Listen for `"event"` on `WSListener` (or iterate `client.listen(...)`)
+  and use the new `WSEvent` type — an alias of `WebhookEvent`. Narrow with
+  the type guards (e.g. `isEmailReceived(event)`) and read the payload from
+  `event.data`.
+
+### Added
+- **Typed per-event payloads** for the nine stable event types
+  (`EmailReceivedData`, `EmailSentData`, `EmailFailedData`,
+  `EmailDeliveredData`, `EmailBouncedData`, `EmailComplainedData`,
+  `DomainSendingVerifiedData`, `DomainSendingFailedData`,
+  `DomainSuppressionAddedData`, plus `AttachmentMeta`) with narrowing guards
+  (`isEmailReceived`, `isEmailSent`, …) shared by the webhook and WS
+  channels. The shapes are locked to the server's committed golden fixtures.
+
 ## 4.1.0
 
 Additive, no breaking changes.

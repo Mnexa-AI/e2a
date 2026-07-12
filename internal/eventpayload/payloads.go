@@ -75,8 +75,9 @@ type EmailReceivedData struct {
 	// AuthHeaders is the signed X-E2A-Auth-* attestation (HMAC-keyed by the
 	// deployment secret, replay-stamped) that lets a subscriber INDEPENDENTLY
 	// verify the inbound SPF/DKIM/DMARC verdict. Small signed metadata, so it
-	// rides on the notification. May be empty on the WebSocket drain path
-	// (see the WS handler) — never absent.
+	// rides on the notification — persisted with the message, so the WS
+	// drain-on-reconnect path re-emits the same attestation the live delivery
+	// carried. Present-but-empty when the intake recorded none — never absent.
 	AuthHeaders map[string]string `json:"auth_headers" nullable:"false"`
 	ReceivedAt  time.Time         `json:"received_at" format:"date-time"`
 	// Attachments is per-attachment METADATA (never bytes) parsed from the

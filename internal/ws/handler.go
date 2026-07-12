@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/eventpayload"
+	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/httpapi"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -190,16 +191,26 @@ func (h *Handler) drainUnread(agent *identity.AgentIdentity) {
 // receives the message on both channels can dedup on it, and the drain path
 // re-emits a byte-stable id across reconnects.
 //
-// This drain-path rebuild populates what the message ROW provides. Three
-// fields the live relay path fills are unavailable here and are emitted
-// present-but-empty (required) or omitted (optional) rather than fabricated:
-//   - authenticated_from: the authenticated From identity isn't stored on the
-//     row (Sender is the display sender) → "".
-//   - auth_headers: not selected by the drain's list query → {}.
-//   - attachments: raw_message is not selected by the drain's list query → omitted.
+// This drain-path rebuild populates what the message ROW provides, including
+// the persisted signed auth attestation: auth_headers is stored at intake
+// (messages.auth_headers) and selected by the drain's list query, and
+// authenticated_from is derived from its X-E2A-Auth-Sender value — the same
+// identity the live path carries. A consumer that gates on authenticated_from
+// therefore gets the SAME verdict whether the frame arrives live or on a
+// drain (critical for dedup-by-id consumers: the drain frame shares the
+// deterministic event id with the webhook delivery, so a mistrusted drain
+// frame would permanently mistrust a verified message).
 //
-// The live relay path (internal/relay) marshals the actual outbox event, so
-// its WS frame is field-complete and byte-identical to the webhook delivery.
+// The only genuine drain divergences from the live event are:
+//   - attachments: raw_message is not selected by the drain's list query →
+//     omitted (fetch the message for attachment metadata + bytes).
+//   - timestamps: created_at / received_at are the message ROW's created_at,
+//     not the original event's publish time.
+//
+// The live relay path (internal/relay) marshals the actual outbox event: the
+// same event envelope — identical fields and event id — as the webhook
+// delivery (byte layout may differ across channels; JSON key order/escaping
+// is not contractual).
 func BuildNotification(msg *identity.Message) []byte {
 	authHeaders := msg.AuthHeaders
 	if authHeaders == nil {
@@ -219,7 +230,7 @@ func BuildNotification(msg *identity.Message) []byte {
 			Direction:         "inbound",
 			ConversationID:    msg.ConversationID,
 			From:              msg.Sender,
-			AuthenticatedFrom: "", // not stored on the row — see doc comment
+			AuthenticatedFrom: authHeaders[headers.HeaderSender],
 			To:                to,
 			CC:                msg.CC,
 			ReplyTo:           msg.ReplyTo,

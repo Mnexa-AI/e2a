@@ -646,13 +646,52 @@ func TestBuildNotification(t *testing.T) {
 	if _, hasRaw := notif["raw_message"]; hasRaw {
 		t.Fatal("notification must not include raw_message; clients fetch via REST")
 	}
-	// Required-but-unavailable fields on the drain path are present-but-empty,
-	// never absent (the schema requires them).
+	// Required fields stay present-but-empty (never absent) when the row
+	// genuinely recorded no auth attestation.
 	if v, ok := notif["authenticated_from"]; !ok || v != "" {
-		t.Fatalf("authenticated_from should be present-but-empty on the drain path, got %v (present=%v)", v, ok)
+		t.Fatalf("authenticated_from should be present-but-empty when the row has no auth headers, got %v (present=%v)", v, ok)
 	}
 	if _, ok := notif["auth_headers"]; !ok {
-		t.Fatal("auth_headers should be present (empty object) on the drain path")
+		t.Fatal("auth_headers should be present (empty object) when the row has none")
+	}
+}
+
+// TestBuildNotification_AuthFieldsFromRow pins the drain-path auth contract:
+// messages.auth_headers IS persisted at intake and selected by the drain's
+// list query, so the drain frame must carry the row's auth_headers and derive
+// authenticated_from from its X-E2A-Auth-Sender value — the same gated
+// identity a live delivery carries. Consumers are documented to GATE on
+// authenticated_from, and the drain frame shares its deterministic event id
+// with the webhook delivery, so a dedup-by-id consumer that saw an empty
+// authenticated_from here first would permanently mistrust a verified message.
+func TestBuildNotification_AuthFieldsFromRow(t *testing.T) {
+	msg := &identity.Message{
+		ID:           "msg_auth",
+		Sender:       "reply@customer.example.com",
+		Recipient:    "bot@agents.e2a.dev",
+		Subject:      "Auth",
+		ToRecipients: []string{"bot@agents.e2a.dev"},
+		AuthHeaders: map[string]string{
+			"X-E2A-Auth-Sender":   "alice@customer.example.com",
+			"X-E2A-Auth-Verified": "true",
+		},
+		CreatedAt: time.Now(),
+	}
+
+	var env struct {
+		Data struct {
+			AuthenticatedFrom string            `json:"authenticated_from"`
+			AuthHeaders       map[string]string `json:"auth_headers"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(BuildNotification(msg), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Data.AuthenticatedFrom != "alice@customer.example.com" {
+		t.Fatalf("authenticated_from = %q, want the row's X-E2A-Auth-Sender value", env.Data.AuthenticatedFrom)
+	}
+	if env.Data.AuthHeaders["X-E2A-Auth-Verified"] != "true" {
+		t.Fatalf("auth_headers = %v, want the row's persisted attestation", env.Data.AuthHeaders)
 	}
 }
 
@@ -679,8 +718,11 @@ func TestBuildNotification_OmitsEmptyConversationID(t *testing.T) {
 // TestBuildNotification_GoldenParity locks the WS drain frame to the same
 // golden fixture the webhook channel asserts against: given a message row
 // carrying everything the fixture's payload needs, the frame's data must be
-// byte-identical to the fixture's data EXCEPT authenticated_from, which is not
-// stored on the row (drain-path limitation, documented on BuildNotification).
+// byte-identical to the fixture's data — including authenticated_from, which
+// is derived from the row's persisted auth_headers (X-E2A-Auth-Sender). The
+// only genuine drain divergences (attachments omitted without raw_message,
+// row-time timestamps) don't apply here because the test row carries the
+// fixture's raw message and created_at.
 func TestBuildNotification_GoldenParity(t *testing.T) {
 	pdf := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("a", 12345)))
 	rawMsg := []byte("From: alice@customer.example.com\r\n" +
@@ -735,12 +777,49 @@ func TestBuildNotification_GoldenParity(t *testing.T) {
 	if err := json.Unmarshal(want, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	// The one documented drain-path divergence.
-	fixture.Data["authenticated_from"] = ""
-
 	got, _ := json.Marshal(env.Data)
 	wantJSON, _ := json.Marshal(fixture.Data)
 	if string(got) != string(wantJSON) {
 		t.Errorf("WS drain frame drifted from the golden fixture\n got: %s\nwant: %s", got, wantJSON)
+	}
+}
+
+// TestBuildNotification_GoldenParityMinimal locks the drain frame for a
+// DRAIN-REALISTIC minimal row — no conversation, no cc/reply_to, no persisted
+// auth attestation, and (as on the real drain query) no raw_message — to the
+// committed required-fields-only fixture. This pins the omitempty presence
+// semantics on the drain path: optional fields ABSENT, required fields
+// present-but-empty (authenticated_from: "", auth_headers: {}).
+func TestBuildNotification_GoldenParityMinimal(t *testing.T) {
+	msg := &identity.Message{
+		ID:           "msg_01h2xcejqtf2nbrexx3vqjhp41",
+		Sender:       "reply@customer.example.com",
+		Recipient:    "support@agents.example.com",
+		Subject:      "Order #1234 delayed",
+		ToRecipients: []string{"support@agents.example.com"},
+		CreatedAt:    time.Date(2026, 7, 1, 10, 30, 0, 123456789, time.UTC),
+	}
+
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(BuildNotification(msg), &env); err != nil {
+		t.Fatal(err)
+	}
+
+	want, err := os.ReadFile("../eventpayload/testdata/email.received.min.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(want, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := json.Marshal(env.Data)
+	wantJSON, _ := json.Marshal(fixture.Data)
+	if string(got) != string(wantJSON) {
+		t.Errorf("WS drain frame drifted from the minimal golden fixture\n got: %s\nwant: %s", got, wantJSON)
 	}
 }
