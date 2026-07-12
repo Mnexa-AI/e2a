@@ -81,6 +81,7 @@ func (s *Server) registerAgentWrites() {
 		DefaultStatus: http.StatusCreated,
 		Responses: map[string]*huma.Response{
 			"402":     s.limitExceededResponse(),
+			"429":     s.rateLimitedResponse(),
 			"default": s.errorEnvelopeResponse(),
 		},
 	}, s.handleCreateAgent)

@@ -78,6 +78,9 @@ models/ProtectionEventExportEntry.ts
 models/ProtectionGateView.ts
 models/ProtectionHoldsView.ts
 models/ProtectionScanView.ts
+models/RateLimitedDetails.ts
+models/RateLimitedEnvelope.ts
+models/RateLimitedErrorBody.ts
 models/RedeliverDelivery.ts
 models/RedeliverEventRequest.ts
 models/RedeliverView.ts

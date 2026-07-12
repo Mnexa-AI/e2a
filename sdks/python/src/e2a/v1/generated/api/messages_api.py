@@ -122,6 +122,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -209,6 +210,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -296,6 +298,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1504,6 +1507,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1591,6 +1595,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1678,6 +1683,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1800,7 +1806,7 @@ class MessagesApi:
     ) -> SendResultView:
         """Send a new email
 
-        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
+        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry).
 
         :param email: (required)
         :type email: str
@@ -1849,6 +1855,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1883,7 +1890,7 @@ class MessagesApi:
     ) -> ApiResponse[SendResultView]:
         """Send a new email
 
-        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
+        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry).
 
         :param email: (required)
         :type email: str
@@ -1932,6 +1939,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1966,7 +1974,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Send a new email
 
-        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
+        Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry).
 
         :param email: (required)
         :type email: str
@@ -2015,6 +2023,7 @@ class MessagesApi:
             '400': "ErrorEnvelope",
             '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
+            '429': "RateLimitedEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,

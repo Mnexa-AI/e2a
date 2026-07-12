@@ -151,9 +151,12 @@ Every failure throws an `E2AError` (or subclass) with `.code` (the stable
 machine code from the response envelope), `.status`, `.requestId`, and
 `.retryable`. Subclasses: `E2AAuthError` (401), `E2APermissionError` (403),
 `E2ANotFoundError` (404), `E2AConflictError` (409), `E2AValidationError` (422),
-`E2AIdempotencyError`, `E2ARateLimitError` (429), `E2AServerError` (5xx),
-`E2AConnectionError` (no response), `E2AWebhookSignatureError` (local verify
-failure).
+`E2AIdempotencyError`, `E2ALimitExceededError` (402 — a **quota** cap; not
+retryable), `E2ARateLimitError` (429 — a request-**rate** limit; retryable after
+`retryAfterSeconds`), `E2AServerError` (5xx), `E2AConnectionError` (no response),
+`E2AWebhookSignatureError` (local verify failure). The 402/429 split is
+permanent — branch on the subclass: 402 → surface a quota/upgrade path, 429 →
+back off and retry.
 
 > Note: e2a hides the existence of agents you don't own — `agents.get` of an
 > unknown address returns `403` (`E2APermissionError`), not `404`.

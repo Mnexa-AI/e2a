@@ -74,6 +74,9 @@ from e2a.v1.generated.models.protection_event_export_entry import ProtectionEven
 from e2a.v1.generated.models.protection_gate_view import ProtectionGateView
 from e2a.v1.generated.models.protection_holds_view import ProtectionHoldsView
 from e2a.v1.generated.models.protection_scan_view import ProtectionScanView
+from e2a.v1.generated.models.rate_limited_details import RateLimitedDetails
+from e2a.v1.generated.models.rate_limited_envelope import RateLimitedEnvelope
+from e2a.v1.generated.models.rate_limited_error_body import RateLimitedErrorBody
 from e2a.v1.generated.models.redeliver_delivery import RedeliverDelivery
 from e2a.v1.generated.models.redeliver_event_request import RedeliverEventRequest
 from e2a.v1.generated.models.redeliver_view import RedeliverView

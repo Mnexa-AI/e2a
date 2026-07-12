@@ -12,6 +12,7 @@ import { ApproveRequest } from '../models/ApproveRequest.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { MessageView } from '../models/MessageView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
+import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
 import { RejectRequest } from '../models/RejectRequest.js';
 import { RejectResultView } from '../models/RejectResultView.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -22,7 +23,7 @@ import { SendResultView } from '../models/SendResultView.js';
 export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
-     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
      * Approve a held message
      * @param id 
      * @param approveRequest 
@@ -242,12 +243,19 @@ export class ReviewsApiResponseProcessor {
             ) as SendResultView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("429", response.httpStatusCode)) {
+            const body: RateLimitedEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "RateLimitedEnvelope", ""
+            ) as RateLimitedEnvelope;
+            throw new ApiException<RateLimitedEnvelope>(response.httpStatusCode, "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path.", body, response.headers);
+        }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
-            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml

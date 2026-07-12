@@ -131,8 +131,11 @@ the underlying HTTP connections.
 Every failure raises an `E2AError` (or subclass) with `.code`, `.status`,
 `.request_id`, `.retryable`: `E2AAuthError` (401), `E2APermissionError` (403),
 `E2ANotFoundError` (404), `E2AConflictError` (409), `E2AValidationError` (422),
-`E2AIdempotencyError`, `E2ARateLimitError` (429), `E2AServerError` (5xx),
-`E2AConnectionError` (no response), `E2AWebhookSignatureError`.
+`E2AIdempotencyError`, `E2ALimitExceededError` (402 — a **quota** cap; not
+retryable), `E2ARateLimitError` (429 — a request-**rate** limit; retryable after
+`retry_after_seconds`), `E2AServerError` (5xx), `E2AConnectionError` (no
+response), `E2AWebhookSignatureError`. The 402/429 split is permanent — branch on
+the exception type: 402 → surface a quota/upgrade path, 429 → back off and retry.
 
 > e2a hides the existence of agents you don't own — `agents.get` of an unknown
 > address raises `E2APermissionError` (403), not `E2ANotFoundError`.

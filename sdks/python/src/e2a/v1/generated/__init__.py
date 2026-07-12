@@ -98,6 +98,9 @@ __all__ = [
     "ProtectionGateView",
     "ProtectionHoldsView",
     "ProtectionScanView",
+    "RateLimitedDetails",
+    "RateLimitedEnvelope",
+    "RateLimitedErrorBody",
     "RedeliverDelivery",
     "RedeliverEventRequest",
     "RedeliverView",
@@ -223,6 +226,9 @@ from e2a.v1.generated.models.protection_event_export_entry import ProtectionEven
 from e2a.v1.generated.models.protection_gate_view import ProtectionGateView as ProtectionGateView
 from e2a.v1.generated.models.protection_holds_view import ProtectionHoldsView as ProtectionHoldsView
 from e2a.v1.generated.models.protection_scan_view import ProtectionScanView as ProtectionScanView
+from e2a.v1.generated.models.rate_limited_details import RateLimitedDetails as RateLimitedDetails
+from e2a.v1.generated.models.rate_limited_envelope import RateLimitedEnvelope as RateLimitedEnvelope
+from e2a.v1.generated.models.rate_limited_error_body import RateLimitedErrorBody as RateLimitedErrorBody
 from e2a.v1.generated.models.redeliver_delivery import RedeliverDelivery as RedeliverDelivery
 from e2a.v1.generated.models.redeliver_event_request import RedeliverEventRequest as RedeliverEventRequest
 from e2a.v1.generated.models.redeliver_view import RedeliverView as RedeliverView

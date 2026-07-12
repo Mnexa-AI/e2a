@@ -1,6 +1,19 @@
 # Changelog
 
-## 4.0.1
+## 4.1.0
+
+Additive, no breaking changes.
+
+### Added
+- **`E2ALimitExceededError`** — the typed error for a `402 limit_exceeded`
+  response (a per-account **quota** cap: monthly messages, storage, agent/domain
+  counts). It is **not** retryable. This completes the permanent GA split with
+  `E2ARateLimitError` (`429 rate_limited`, a request-**rate**/throughput limit,
+  which **is** retryable): branch on the error subclass (equivalently the HTTP
+  status) — `402` → surface a quota/upgrade path, `429` → back off
+  `retryAfterSeconds` and retry. A `402` previously surfaced as the base
+  `E2AError`; it now surfaces as this subclass (still an `E2AError` via
+  `instanceof`, so existing catch-all handling is unaffected).
 
 Additive, no breaking changes.
 

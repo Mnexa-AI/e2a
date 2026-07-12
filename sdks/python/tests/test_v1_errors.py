@@ -6,6 +6,7 @@ from e2a.v1.errors import (
     E2AConnectionError,
     E2AError,
     E2AIdempotencyError,
+    E2ALimitExceededError,
     E2ANotFoundError,
     E2APermissionError,
     E2ARateLimitError,
@@ -27,6 +28,7 @@ def _exc(status, body=None, headers=None):
 def test_status_to_class_mapping():
     cases = {
         401: E2AAuthError,
+        402: E2ALimitExceededError,
         403: E2APermissionError,
         404: E2ANotFoundError,
         409: E2AConflictError,
@@ -46,6 +48,33 @@ def test_retryable_flags():
     assert from_api_exception(_exc(500, body="{}")).retryable is True
     assert from_api_exception(_exc(404, body="{}")).retryable is False
     assert from_api_exception(_exc(422, body="{}")).retryable is False
+
+
+def test_402_429_split():
+    # The permanent GA split: 402 limit_exceeded is a QUOTA cap (NOT retryable);
+    # 429 rate_limited is a request-RATE limit (retryable). Clients branch on the
+    # exception type / HTTP status.
+    quota = from_api_exception(
+        _exc(402, body='{"error":{"code":"limit_exceeded","message":"monthly cap"}}')
+    )
+    assert isinstance(quota, E2ALimitExceededError)
+    assert not isinstance(quota, E2ARateLimitError)
+    assert quota.retryable is False
+
+    rate = from_api_exception(
+        _exc(429, body='{"error":{"code":"rate_limited","message":"slow"}}')
+    )
+    assert isinstance(rate, E2ARateLimitError)
+    assert not isinstance(rate, E2ALimitExceededError)
+    assert rate.retryable is True
+
+    # Code-first: limit_exceeded on an unexpected status still routes to the
+    # quota class (never the rate-limit class).
+    odd = from_api_exception(
+        _exc(400, body='{"error":{"code":"limit_exceeded","message":"cap"}}')
+    )
+    assert isinstance(odd, E2ALimitExceededError)
+    assert odd.retryable is False
 
 
 def test_idempotency_code_wins_over_status():

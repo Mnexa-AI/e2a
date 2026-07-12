@@ -7,6 +7,7 @@ import {
   E2AConflictError,
   E2AValidationError,
   E2AIdempotencyError,
+  E2ALimitExceededError,
   E2ARateLimitError,
   E2AServerError,
   E2AConnectionError,
@@ -20,6 +21,7 @@ import { ApiException } from "../../src/v1/generated/apis/exception.js";
 describe("toE2AError status → class mapping", () => {
   const cases: Array<[number, any, boolean]> = [
     [401, E2AAuthError, false],
+    [402, E2ALimitExceededError, false],
     [403, E2APermissionError, false],
     [404, E2ANotFoundError, false],
     [409, E2AConflictError, false],
@@ -48,6 +50,26 @@ describe("idempotency codes route to E2AIdempotencyError", () => {
   it("idempotency_key_reuse (422) is NOT retryable", () => {
     const err = toE2AError({ status: 422, code: "idempotency_key_reuse", message: "reuse" });
     expect(err).toBeInstanceOf(E2AIdempotencyError);
+    expect(err.retryable).toBe(false);
+  });
+});
+
+describe("the permanent 402 (quota) / 429 (rate) split", () => {
+  it("limit_exceeded (402) → E2ALimitExceededError, NOT retryable", () => {
+    const err = toE2AError({ status: 402, code: "limit_exceeded", message: "monthly cap" });
+    expect(err).toBeInstanceOf(E2ALimitExceededError);
+    expect(err).not.toBeInstanceOf(E2ARateLimitError);
+    expect(err.retryable).toBe(false);
+  });
+  it("rate_limited (429) → E2ARateLimitError, retryable", () => {
+    const err = toE2AError({ status: 429, code: "rate_limited", message: "slow down" });
+    expect(err).toBeInstanceOf(E2ARateLimitError);
+    expect(err).not.toBeInstanceOf(E2ALimitExceededError);
+    expect(err.retryable).toBe(true);
+  });
+  it("limit_exceeded code wins even on an unexpected status (code-first)", () => {
+    const err = toE2AError({ status: 400, code: "limit_exceeded", message: "cap" });
+    expect(err).toBeInstanceOf(E2ALimitExceededError);
     expect(err.retryable).toBe(false);
   });
 });
@@ -116,6 +138,7 @@ describe("code-first class selection (F2)", () => {
   it("unknown code falls back to the status bucket (regression: mappings unchanged)", () => {
     const cases: Array<[number, any]> = [
       [401, E2AAuthError],
+      [402, E2ALimitExceededError],
       [403, E2APermissionError],
       [404, E2ANotFoundError],
       [409, E2AConflictError],
