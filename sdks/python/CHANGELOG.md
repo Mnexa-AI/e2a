@@ -2,21 +2,40 @@
 
 ## 5.0.0
 
-Breaking: the async client class was renamed. No behavioral changes.
+Breaking: the async client class was renamed, and the freed name now ships a
+synchronous client.
 
 ### Changed
-- **`E2AClient` → `AsyncE2AClient`.** The SDK's client is async-only, but its
-  old name inverted the Python-ecosystem convention (httpx, openai, anthropic:
+- **`E2AClient` → `AsyncE2AClient`.** The 4.x client was async-only, but its
+  name inverted the Python-ecosystem convention (httpx, openai, anthropic:
   plain name = sync client, `Async*` prefix = async client) and squatted the
-  name a future synchronous client needs. The class, exports (`e2a` and
-  `e2a.v1`), docs, and examples all now use `AsyncE2AClient`. Migration is
-  mechanical: `from e2a.v1 import AsyncE2AClient`.
-- **`E2AClient` is reserved — no compatibility alias.** The whole point of the
-  rename is to keep the plain name free for a future sync client, so aliasing
-  it to the async client would re-create the problem. Importing or accessing
-  `E2AClient` fails today with a guided `ImportError` ("E2AClient was renamed
-  to AsyncE2AClient in v5; E2AClient is reserved for a future synchronous
-  client") rather than a bare `AttributeError`.
+  name the synchronous client needs. The class, exports (`e2a` and `e2a.v1`),
+  docs, and examples all now use `AsyncE2AClient`; its behavior is unchanged.
+  Migration from 4.x is mechanical: `from e2a.v1 import AsyncE2AClient`.
+
+### Added
+- **`E2AClient` — the synchronous client** — under the name the rename freed
+  (there is deliberately no compatibility alias to the async client). It is a
+  facade over `AsyncE2AClient`: a background daemon thread runs an event loop
+  for the client's lifetime and every call bridges the corresponding async
+  coroutine onto it, so there is exactly one implementation of
+  resources/retries/typed errors/pagination and the two surfaces cannot drift.
+  - Identical constructor (`api_key`, `base_url`, `max_retries`,
+    `max_elapsed_ms`, `timeout_ms`) and resource tree; typed `E2AError`
+    subclasses propagate unwrapped, so `except E2ALimitExceededError:` works
+    the same as in async code.
+  - List endpoints return a **sync pager**: plain `for` iteration, plus
+    `page(cursor)` / `to_list(limit=N)` / `for_each(fn)`.
+  - `client.listen(address)` returns a plain iterable of `WSNotification`;
+    `close()` from another thread unblocks a pending iteration cleanly.
+  - Lifecycle: use as a context manager or call `close()` (idempotent). An
+    unclosed client is cleaned up at GC/interpreter exit and cannot hang
+    shutdown.
+  - **Async-context guard:** calling any sync method while an event loop is
+    running in the current thread raises a guiding `RuntimeError`
+    ("use AsyncE2AClient") instead of blocking the loop. 4.x code that still
+    imports `E2AClient` now gets the sync client — update those imports to
+    `AsyncE2AClient`.
 
 ## 4.2.0
 

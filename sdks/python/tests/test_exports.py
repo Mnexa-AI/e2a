@@ -5,10 +5,13 @@ def test_v1_exports():
     from e2a.v1 import (  # noqa: F401
         AsyncE2AClient,
         AutoPager,
+        E2AClient,
         E2AError,
         E2ANotFoundError,
         E2AWebhookSignatureError,
         Page,
+        SyncAutoPager,
+        SyncStream,
         WebhookEvent,
         WSNotification,
         WSStream,
@@ -17,6 +20,7 @@ def test_v1_exports():
     )
 
     assert AsyncE2AClient is not None
+    assert E2AClient is not None
     assert E2AError is not None
     assert construct_event is not None
 
@@ -26,6 +30,7 @@ def test_toplevel_aliases_point_to_v1():
     import e2a.v1
 
     assert e2a.AsyncE2AClient is e2a.v1.AsyncE2AClient
+    assert e2a.E2AClient is e2a.v1.E2AClient
     assert e2a.E2AError is e2a.v1.E2AError
     assert e2a.E2ANotFoundError is e2a.v1.E2ANotFoundError
     assert e2a.construct_event is e2a.v1.construct_event
@@ -39,6 +44,9 @@ def test_v1_all_is_explicit():
     assert hasattr(e2a.v1, "__all__")
     expected = {
         "AsyncE2AClient",
+        "E2AClient",
+        "SyncAutoPager",
+        "SyncStream",
         "E2AError",
         "E2ANotFoundError",
         "AutoPager",
@@ -56,7 +64,7 @@ def test_toplevel_all_is_explicit():
     import e2a
 
     assert hasattr(e2a, "__all__")
-    assert {"AsyncE2AClient", "E2AError", "construct_event"}.issubset(set(e2a.__all__))
+    assert {"E2AClient", "AsyncE2AClient", "E2AError", "construct_event"}.issubset(set(e2a.__all__))
 
 
 def test_generated_models_accessible_from_v1():
@@ -76,34 +84,26 @@ def test_legacy_surface_is_gone():
         assert not hasattr(e2a.v1, name), f"{name} should be retired"
 
 
-def test_e2aclient_name_is_reserved():
-    """`E2AClient` must NOT resolve — it is reserved for a future sync client.
-
-    The rename (v5) deliberately ships no compatibility alias; both import
-    paths raise a guided ImportError pointing at AsyncE2AClient.
+def test_e2aclient_is_the_sync_client():
+    """`E2AClient` is the synchronous client — the v5 rename freed the plain
+    name for it (plain name = sync, `Async*` = async, per httpx/openai/anthropic
+    convention). It must be the sync facade class, distinct from the async
+    client, and exported from both import paths.
     """
-    import pytest
-
     import e2a
     import e2a.v1
+    from e2a.v1.sync_client import E2AClient as SyncClient
 
-    for mod in (e2a, e2a.v1):
-        with pytest.raises(ImportError) as excinfo:
-            getattr(mod, "E2AClient")
-        assert "renamed to AsyncE2AClient" in str(excinfo.value)
-        assert "reserved for a future synchronous client" in str(excinfo.value)
+    assert e2a.E2AClient is SyncClient
+    assert e2a.v1.E2AClient is SyncClient
+    assert e2a.E2AClient is not e2a.AsyncE2AClient
 
-    with pytest.raises(ImportError, match="AsyncE2AClient"):
-        from e2a import E2AClient  # noqa: F401
-    with pytest.raises(ImportError, match="AsyncE2AClient"):
-        from e2a.v1 import E2AClient  # noqa: F401,F811
-
-    assert "E2AClient" not in e2a.__all__
-    assert "E2AClient" not in e2a.v1.__all__
+    assert "E2AClient" in e2a.__all__
+    assert "E2AClient" in e2a.v1.__all__
 
 
-def test_module_getattr_unknown_name_still_attributeerror():
-    """The reserved-name hook must not swallow ordinary attribute errors."""
+def test_module_unknown_name_still_attributeerror():
+    """Unknown attributes on both packages raise plain AttributeError."""
     import pytest
 
     import e2a

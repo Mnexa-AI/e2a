@@ -1,16 +1,15 @@
 # Top-level convenience alias — points to the current stable API version (v1).
 #
 # The pinned contract path is `e2a.v1`:
-#   from e2a.v1 import AsyncE2AClient
+#   from e2a.v1 import E2AClient        # sync
+#   from e2a.v1 import AsyncE2AClient   # async
 #
 # The top-level `e2a` package re-exports that surface for convenience.
-#
-# `E2AClient` is deliberately NOT exported — the name is reserved for a future
-# synchronous client. Importing it raises a guided ImportError (see __getattr__).
 
 from e2a.v1 import (  # noqa: F401
     AsyncE2AClient,
     AutoPager,
+    E2AClient,
     E2AAuthError,
     E2AConflictError,
     E2AConnectionError,
@@ -24,6 +23,8 @@ from e2a.v1 import (  # noqa: F401
     E2AValidationError,
     E2AWebhookSignatureError,
     Page,
+    SyncAutoPager,
+    SyncStream,
     WebhookEvent,
     WSNotification,
     WSStream,
@@ -32,17 +33,11 @@ from e2a.v1 import (  # noqa: F401
     verify_webhook_signature,
 )
 
-def __getattr__(name: str):
-    if name == "E2AClient":
-        raise ImportError(
-            "E2AClient was renamed to AsyncE2AClient in v5; "
-            "E2AClient is reserved for a future synchronous client"
-        )
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
+    "E2AClient",
     "AsyncE2AClient",
+    "SyncAutoPager",
+    "SyncStream",
     "E2AError",
     "E2AAuthError",
     "E2APermissionError",

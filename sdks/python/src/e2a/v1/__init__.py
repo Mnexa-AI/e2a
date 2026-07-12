@@ -1,4 +1,4 @@
-"""Public surface of the e2a v1 SDK (async-only).
+"""Public surface of the e2a v1 SDK.
 
 The canonical request/response types are the OpenAPI-Generator ``generated``
 models; the hand-written ergonomic layer (:class:`AsyncE2AClient` + resources,
@@ -6,9 +6,11 @@ the typed error hierarchy, retry/pagination, webhook verification, WS) wraps
 them. The legacy flat/sync ``api`` / ``client`` / ``handler`` surface and the
 old swag-generated Pydantic types have been retired in favour of this.
 
-The bare name ``E2AClient`` is deliberately *not* exported: it is reserved for
-a future synchronous client (plain name = sync, ``Async*`` = async, per
-httpx/openai/anthropic convention). Importing it raises a guided ImportError.
+Naming follows the httpx/openai/anthropic convention: the plain name
+:class:`E2AClient` is the synchronous client, ``Async*`` is the async one.
+The sync client is a facade over the async client (one implementation of
+resources/retry/errors/pagination, bridged through a background event loop) —
+see :mod:`e2a.v1.sync_client`.
 """
 
 # Generated request/response models (the canonical types).
@@ -17,6 +19,9 @@ from e2a.v1.generated.models import *  # noqa: F401,F403
 
 # High-level async client.
 from e2a.v1.client import AsyncE2AClient  # noqa: F401
+
+# Synchronous facade over the async client.
+from e2a.v1.sync_client import E2AClient, SyncAutoPager, SyncStream  # noqa: F401
 
 # Typed error hierarchy.
 from e2a.v1.errors import (  # noqa: F401
@@ -47,17 +52,11 @@ from e2a.v1.webhook_signature import (  # noqa: F401
 # Real-time WebSocket stream.
 from e2a.v1.websocket import WSNotification, WSStream  # noqa: F401
 
-def __getattr__(name: str):
-    if name == "E2AClient":
-        raise ImportError(
-            "E2AClient was renamed to AsyncE2AClient in v5; "
-            "E2AClient is reserved for a future synchronous client"
-        )
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
     "AsyncE2AClient",
+    "E2AClient",
+    "SyncAutoPager",
+    "SyncStream",
     # Errors
     "E2AError",
     "E2AAuthError",
