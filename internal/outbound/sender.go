@@ -33,7 +33,7 @@ type DKIMKeyLookup interface {
 type Attachment struct {
 	Filename    string `json:"filename" example:"report.pdf"`
 	ContentType string `json:"content_type" example:"application/pdf"`
-	Data        string `json:"data" example:"base64-encoded-content"` // base64-encoded
+	Data        string `json:"data" example:"base64-encoded-content" doc:"Base64-encoded file content. Each attachment must be ≤ 10 MB decoded; a message may carry at most 10 attachments totaling ≤ 25 MB decoded."` // base64-encoded
 } // @name Attachment
 
 // SendRequest is the outbound email contract.

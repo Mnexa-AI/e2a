@@ -160,6 +160,14 @@ single message.
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
 
+**Outbound attachment limits** (send / reply / forward, enforced on the **decoded**
+bytes — not the base64 wire size): at most **10 attachments** per message, each
+**≤ 10 MB**, and **≤ 25 MB combined**. Too many attachments → `400 invalid_request`;
+an attachment or combined total over its size limit → `413 payload_too_large` (the
+limit and offending size are in `error.details`). On `forward`, the limits apply to
+the **combined** set — the original message's carried-over attachments plus any you
+supply. These are conservative starting limits and may be raised over time.
+
 > **Note:** the older per-message
 > `POST …/messages/{id}/approve` and `…/reject` endpoints still exist for
 > back-compat but are **deprecated** — use the account-scoped **Reviews** queue

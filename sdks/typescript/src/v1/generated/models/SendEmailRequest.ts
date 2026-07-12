@@ -14,6 +14,9 @@ import { Attachment } from '../models/Attachment.js';
 import { HttpFile } from '../http/http.js';
 
 export class SendEmailRequest {
+    /**
+    * File attachments (base64 in each item\'s data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
+    */
     'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
     'cc'?: Array<string>;

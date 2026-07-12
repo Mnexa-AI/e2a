@@ -121,6 +121,14 @@ func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail stri
 		}
 		return SendResultView{Status: identity.MessageStatusReviewApproved, MessageID: meta.ID}, nil
 	}
+	// An approve that edits the held draft can replace its attachments; enforce the
+	// same per-attachment / count / total limits here so this outbound path can't
+	// bypass what send/reply/forward enforce at compose time.
+	if body.Attachments != nil {
+		if env := validateAttachments(*body.Attachments); env != nil {
+			return SendResultView{}, env
+		}
+	}
 	if env := s.checkSendLimit(agentEmail); env != nil {
 		return SendResultView{}, env
 	}

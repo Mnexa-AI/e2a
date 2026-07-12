@@ -15,7 +15,7 @@ import { HttpFile } from '../http/http.js';
 
 export class ForwardRequest {
     /**
-    * Additional attachments to include alongside the forwarded message\'s original attachments, which are carried over automatically.
+    * Additional attachments to include alongside the forwarded message\'s original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
     */
     'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
