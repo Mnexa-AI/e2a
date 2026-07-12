@@ -324,7 +324,7 @@ type ListMessagesInput struct {
 	Since           string   `query:"since" doc:"RFC3339; created_at >= since."`
 	Until           string   `query:"until" doc:"RFC3339; created_at < until."`
 	Cursor          string   `query:"cursor"`
-	Limit           int      `query:"limit" minimum:"1" maximum:"100" default:"50"`
+	Limit           int      `query:"limit" minimum:"1" maximum:"200" default:"100"`
 }
 
 type listMessagesOutput struct {
@@ -551,7 +551,7 @@ func (s *Server) handleListMessages(ctx context.Context, in *ListMessagesInput) 
 
 	limit := in.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = 100
 	}
 
 	// Fetch limit+1 to detect a further page.

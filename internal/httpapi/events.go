@@ -49,7 +49,7 @@ type ListEventsInput struct {
 	Since          string `query:"since" doc:"RFC3339."`
 	Until          string `query:"until" doc:"RFC3339."`
 	Cursor         string `query:"cursor"`
-	Limit          int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
+	Limit          int    `query:"limit" minimum:"1" maximum:"200" default:"100"`
 }
 
 type listEventsOutput struct {
@@ -251,7 +251,7 @@ func (s *Server) handleListEvents(ctx context.Context, in *ListEventsInput) (*li
 	}
 	limit := in.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = 100
 	}
 	var cur eventsCursor
 	if in.Cursor != "" {

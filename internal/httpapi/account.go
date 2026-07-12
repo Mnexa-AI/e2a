@@ -125,7 +125,7 @@ func (s *Server) handleListSuppressions(ctx context.Context, in *listSuppression
 	}
 	limit := in.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = 100
 	}
 	// Fetch limit+1 to detect a further page.
 	list, err := s.deps.ListSuppressions(ctx, user.ID, limit+1, afterCreatedAt, afterAddress)

@@ -2447,15 +2447,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -2565,15 +2565,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -2630,15 +2630,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -2816,7 +2816,7 @@ paths:
           schema:
             default: 100
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -2965,9 +2965,9 @@ paths:
           in: query
           name: limit
           schema:
-            default: 50
+            default: 100
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -3489,15 +3489,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -3688,7 +3688,7 @@ paths:
           in: query
           name: limit
           schema:
-            default: 50
+            default: 100
             format: int64
             maximum: 200
             minimum: 1
@@ -3804,15 +3804,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -3950,15 +3950,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -4021,15 +4021,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -4201,15 +4201,15 @@ paths:
           schema:
             description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
             type: string
-        - description: Maximum number of items to return (1-100).
+        - description: Maximum number of items to return (1-200).
           explode: false
           in: query
           name: limit
           schema:
-            default: 50
-            description: Maximum number of items to return (1-100).
+            default: 100
+            description: Maximum number of items to return (1-200).
             format: int64
-            maximum: 100
+            maximum: 200
             minimum: 1
             type: integer
       responses:
@@ -4370,7 +4370,7 @@ paths:
           schema:
             default: 100
             format: int64
-            maximum: 500
+            maximum: 200
             minimum: 1
             type: integer
       responses:

@@ -208,7 +208,7 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
      * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param limit Maximum number of items to return (1-100).
+     * @param limit Maximum number of items to return (1-200).
      */
     public async listWebhooks(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;

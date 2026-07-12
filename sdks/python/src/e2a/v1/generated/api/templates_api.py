@@ -1107,7 +1107,7 @@ class TemplatesApi:
     async def list_starter_templates(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1127,7 +1127,7 @@ class TemplatesApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-100).
+        :param limit: Maximum number of items to return (1-200).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1178,7 +1178,7 @@ class TemplatesApi:
     async def list_starter_templates_with_http_info(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1198,7 +1198,7 @@ class TemplatesApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-100).
+        :param limit: Maximum number of items to return (1-200).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1249,7 +1249,7 @@ class TemplatesApi:
     async def list_starter_templates_without_preload_content(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1269,7 +1269,7 @@ class TemplatesApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-100).
+        :param limit: Maximum number of items to return (1-200).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1387,7 +1387,7 @@ class TemplatesApi:
     async def list_templates(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1407,7 +1407,7 @@ class TemplatesApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-100).
+        :param limit: Maximum number of items to return (1-200).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1458,7 +1458,7 @@ class TemplatesApi:
     async def list_templates_with_http_info(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1478,7 +1478,7 @@ class TemplatesApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-100).
+        :param limit: Maximum number of items to return (1-200).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1529,7 +1529,7 @@ class TemplatesApi:
     async def list_templates_without_preload_content(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1549,7 +1549,7 @@ class TemplatesApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-100).
+        :param limit: Maximum number of items to return (1-200).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

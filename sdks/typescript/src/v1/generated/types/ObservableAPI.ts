@@ -317,7 +317,7 @@ export class ObservableAccountApi {
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listApiKeysWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageAPIKeyView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -343,7 +343,7 @@ export class ObservableAccountApi {
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listApiKeys(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageAPIKeyView> {
         return this.listApiKeysWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageAPIKeyView>) => apiResponse.data));
@@ -353,7 +353,7 @@ export class ObservableAccountApi {
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listSuppressionsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageSuppression>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -379,7 +379,7 @@ export class ObservableAccountApi {
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listSuppressions(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageSuppression> {
         return this.listSuppressionsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageSuppression>) => apiResponse.data));
@@ -545,7 +545,7 @@ export class ObservableAgentsApi {
      * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listAgentsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageAgentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -571,7 +571,7 @@ export class ObservableAgentsApi {
      * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listAgents(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageAgentView> {
         return this.listAgentsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageAgentView>) => apiResponse.data));
@@ -867,7 +867,7 @@ export class ObservableDomainsApi {
      * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listDomainsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageDomainView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -893,7 +893,7 @@ export class ObservableDomainsApi {
      * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listDomains(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageDomainView> {
         return this.listDomainsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageDomainView>) => apiResponse.data));
@@ -1633,7 +1633,7 @@ export class ObservableReviewsApi {
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listReviewsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageReviewView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -1659,7 +1659,7 @@ export class ObservableReviewsApi {
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listReviews(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageReviewView> {
         return this.listReviewsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageReviewView>) => apiResponse.data));
@@ -1859,7 +1859,7 @@ export class ObservableTemplatesApi {
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listStarterTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageStarterTemplateView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -1885,7 +1885,7 @@ export class ObservableTemplatesApi {
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listStarterTemplates(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageStarterTemplateView> {
         return this.listStarterTemplatesWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageStarterTemplateView>) => apiResponse.data));
@@ -1895,7 +1895,7 @@ export class ObservableTemplatesApi {
      * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageTemplateSummaryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -1921,7 +1921,7 @@ export class ObservableTemplatesApi {
      * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listTemplates(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageTemplateSummaryView> {
         return this.listTemplatesWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageTemplateSummaryView>) => apiResponse.data));
@@ -2155,7 +2155,7 @@ export class ObservableWebhooksApi {
      * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listWebhooksWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageWebhookView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -2181,7 +2181,7 @@ export class ObservableWebhooksApi {
      * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-100).
+     * @param [limit] Maximum number of items to return (1-200).
      */
     public listWebhooks(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageWebhookView> {
         return this.listWebhooksWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageWebhookView>) => apiResponse.data));

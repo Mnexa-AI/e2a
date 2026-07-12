@@ -126,7 +126,7 @@ export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param limit Maximum number of items to return (1-100).
+     * @param limit Maximum number of items to return (1-200).
      */
     public async listReviews(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
