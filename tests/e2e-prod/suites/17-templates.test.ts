@@ -63,9 +63,9 @@ interface ErrEnv {
 }
 
 function delTemplate(id: string) {
-  // deleteTemplate takes no ?confirm — openapi documents only the {id} path
-  // param, and the live server returns 204 for a plain DELETE (verified).
-  return client.delete(`/v1/templates/${encodeURIComponent(id)}`);
+  // deleteTemplate now requires ?confirm=DELETE (uniform destructive-delete
+  // guard, #53) — a plain DELETE is rejected with 422 before the handler runs.
+  return client.delete(`/v1/templates/${encodeURIComponent(id)}?confirm=DELETE`);
 }
 
 // ---------- starter templates ----------
@@ -267,7 +267,7 @@ test("getTemplate: nonexistent id returns 404", async () => {
 });
 
 test("deleteTemplate: nonexistent id returns 404", async () => {
-  const r = await client.delete<ErrEnv>(`/v1/templates/tmpl_${"0".repeat(32)}`);
+  const r = await client.delete<ErrEnv>(`/v1/templates/tmpl_${"0".repeat(32)}?confirm=DELETE`);
   assert.equal(r.status, 404, `nonexistent delete → 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.equal(r.body?.error?.code, "not_found");
 });

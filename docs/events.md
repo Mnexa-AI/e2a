@@ -96,7 +96,7 @@ while [ "$CURSOR" != "null" ] && [ -n "$CURSOR" ]; do
 done
 ```
 
-Page size (`limit`) is 1–200 (default 50). Events past the 30-day retention boundary are not returned; querying their id directly returns **410 Gone**.
+Page size (`limit`) is 1–100 (default 100). Events past the 30-day retention boundary are not returned; querying their id directly returns **410 Gone**.
 
 ## Reconciliation pattern
 

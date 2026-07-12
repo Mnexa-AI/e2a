@@ -101,7 +101,9 @@ const CODE_TABLE: Record<string, { make: Make; retryable: boolean }> = {
   not_found: { make: mkNotFound, retryable: false },
   // 409
   conflict: { make: mkConflict, retryable: false },
-  // 400/422 — input/semantic validation
+  // 400/422 — input/semantic validation. invalid_request is the single
+  // canonical code the server now emits for both statuses; bad_request /
+  // unprocessable_entity are retained only to tolerate legacy/mixed responses.
   invalid_request: { make: mkValidation, retryable: false },
   bad_request: { make: mkValidation, retryable: false },
   unprocessable_entity: { make: mkValidation, retryable: false },
@@ -178,13 +180,16 @@ function retryAfterFromDetails(details: unknown): number | undefined {
   return undefined;
 }
 
+// Fallback code synthesized when the envelope omits one. invalid_request is the
+// single canonical validation code the server emits for BOTH 400 (malformed)
+// and 422 (semantically invalid), so both statuses map to it here.
 const DEFAULT_CODE: Record<number, string> = {
   400: "invalid_request",
   401: "unauthorized",
   403: "forbidden",
   404: "not_found",
   409: "conflict",
-  422: "unprocessable_entity",
+  422: "invalid_request",
   429: "rate_limited",
 };
 

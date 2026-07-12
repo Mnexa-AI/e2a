@@ -28,12 +28,24 @@ const MIME_TYPE_RE = /^[a-zA-Z][a-zA-Z0-9.+-]*\/[a-zA-Z0-9.+-]+$/;
 // truncation that breaks 4-byte alignment.
 const BASE64_STANDARD_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
-// Per-attachment decoded-size cap. Beyond this the LLM has almost
-// certainly hit context-window pressure and the base64 is truncated;
-// the backend's request cap would reject these anyway. 5 MB matches
-// what mature email gateways accept inline before bouncing to a
-// shared-storage upload pattern.
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+// Attachment limits — mirror the backend contract (see the OSS server's
+// internal/httpapi/outbound.go) so the agent gets a specific client-side error
+// instead of a backend 400/413. All are on the DECODED bytes. These are
+// conservative starting values the backend may raise over time; keep them in
+// sync when the backend changes.
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // per attachment
+const MAX_ATTACHMENTS_TOTAL_BYTES = 25 * 1024 * 1024; // combined
+const MAX_ATTACHMENT_COUNT = 10;
+
+// decodedLen returns the decoded byte length of a standard-base64 string, or 0
+// if it doesn't decode — used for the array-level combined-size guard.
+function decodedLen(s: string): number {
+  try {
+    return Buffer.from(s, "base64").length;
+  } catch {
+    return 0;
+  }
+}
 
 export const attachmentInputSchema = z
   .object({
@@ -82,7 +94,7 @@ export const attachmentInputSchema = z
         },
       )
       .describe(
-        "Base64-encoded file content (RFC 4648 §4, standard alphabet, padded). Pass values returned verbatim by other tools (file readers, doc generators, get_attachment); do not attempt to encode raw text yourself. Max 5 MB per attachment after decoding.",
+        "Base64-encoded file content (RFC 4648 §4, standard alphabet, padded). Pass values returned verbatim by other tools (file readers, doc generators, get_attachment); do not attempt to encode raw text yourself. Max 10 MB per attachment after decoding.",
       ),
   })
   .describe(
@@ -94,10 +106,21 @@ export const attachmentInputSchema = z
 // attachments means a plain message (current behavior preserved).
 export const attachmentsArraySchema = z
   .array(attachmentInputSchema)
-  .max(20, "too many attachments (max 20 per message)")
+  .max(
+    MAX_ATTACHMENT_COUNT,
+    `too many attachments (max ${MAX_ATTACHMENT_COUNT} per message)`,
+  )
+  .refine(
+    (atts) =>
+      atts.reduce((sum, a) => sum + decodedLen(a.data), 0) <=
+      MAX_ATTACHMENTS_TOTAL_BYTES,
+    {
+      message: `combined attachments exceed ${MAX_ATTACHMENTS_TOTAL_BYTES / (1024 * 1024)} MB decoded (the total limit)`,
+    },
+  )
   .optional()
   .describe(
-    "Optional list of file attachments. Each entry is base64-encoded; the MCP server forwards them verbatim to the e2a backend, which handles MIME composition. To forward an attachment received on an inbound message, fetch its base64 via `get_attachment` and pass the same shape here.",
+    `Optional list of file attachments (max ${MAX_ATTACHMENT_COUNT}, each ≤ 10 MB decoded, ≤ 25 MB decoded combined). Each entry is base64-encoded; the MCP server forwards them verbatim to the e2a backend, which handles MIME composition. To forward an attachment received on an inbound message, fetch its base64 via \`get_attachment\` and pass the same shape here.`,
   );
 
 export type AttachmentInput = z.infer<typeof attachmentInputSchema>;

@@ -354,7 +354,9 @@ class TemplatesResource {
     return call(() => this.api.updateTemplate(id, patch));
   }
   async delete(id: string): Promise<void> {
-    await call(() => this.api.deleteTemplate(id));
+    // The typed .delete() call is itself the confirmation; the SDK supplies the
+    // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
+    await call(() => this.api.deleteTemplate(id, "DELETE"));
   }
   /** Dry-run template source without persisting: per-part parse errors, a
    *  rendered preview against testData (present only when valid), and
@@ -486,7 +488,9 @@ class WebhooksResource {
     return call(() => this.api.updateWebhook(id, patch));
   }
   async delete(id: string): Promise<void> {
-    await call(() => this.api.deleteWebhook(id));
+    // The typed .delete() call is itself the confirmation; the SDK supplies the
+    // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
+    await call(() => this.api.deleteWebhook(id, "DELETE"));
   }
   rotateSecret(id: string): Promise<RotateSecretResponse> {
     return call(() => this.api.rotateWebhookSecret(id));
@@ -514,7 +518,9 @@ class SuppressionsResource {
     });
   }
   async delete(email: string): Promise<void> {
-    await call(() => this.api.deleteSuppression(email));
+    // The typed .delete() call is itself the confirmation; the SDK supplies the
+    // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
+    await call(() => this.api.deleteSuppression(email, "DELETE"));
   }
 }
 
@@ -532,7 +538,9 @@ class APIKeysResource {
     return call(() => this.api.createApiKey(body));
   }
   async delete(id: string): Promise<void> {
-    await call(() => this.api.deleteApiKey(id));
+    // The typed .delete() call is itself the confirmation; the SDK supplies the
+    // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
+    await call(() => this.api.deleteApiKey(id, "DELETE"));
   }
 }
 

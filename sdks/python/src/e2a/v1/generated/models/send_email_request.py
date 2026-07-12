@@ -27,7 +27,7 @@ class SendEmailRequest(BaseModel):
     """
     SendEmailRequest
     """ # noqa: E501
-    attachments: Optional[List[Attachment]] = None
+    attachments: Optional[List[Attachment]] = Field(default=None, description="File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.")
     bcc: Optional[List[StrictStr]] = None
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None

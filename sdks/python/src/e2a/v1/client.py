@@ -482,7 +482,7 @@ class TemplatesResource:
     async def delete(self, template_id: str) -> None:
         # In-flight sends are unaffected (rendering happens at send time). DELETE
         # is idempotent → safe to retry.
-        await self._c._write_idempotent(lambda h: self._api.delete_template(template_id, _headers=h))
+        await self._c._write_idempotent(lambda h: self._api.delete_template(template_id, confirm="DELETE", _headers=h))
 
     async def validate(self, body: Body) -> ValidateTemplateResponse:
         """Dry-run template source without persisting: per-part parse errors, a
@@ -656,7 +656,7 @@ class WebhooksResource:
         )
 
     async def delete(self, webhook_id: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, _headers=h))
+        await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, confirm="DELETE", _headers=h))
 
     async def rotate_secret(self, webhook_id: str) -> RotateSecretResponse:
         # Server-deduped via Idempotency-Key: a retried rotate replays the first
@@ -703,7 +703,7 @@ class SuppressionsResource:
         return AutoPager(fetch)
 
     async def delete(self, email: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_suppression(email, _headers=h))
+        await self._c._write_idempotent(lambda h: self._api.delete_suppression(email, confirm="DELETE", _headers=h))
 
 
 class APIKeysResource:
@@ -727,7 +727,7 @@ class APIKeysResource:
         return await self._c._write_unsafe(lambda h: self._api.create_api_key(req, _headers=h))
 
     async def delete(self, key_id: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_api_key(key_id, _headers=h))
+        await self._c._write_idempotent(lambda h: self._api.delete_api_key(key_id, confirm="DELETE", _headers=h))
 
 
 class AccountResource:

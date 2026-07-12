@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
+
+	"github.com/Mnexa-AI/e2a/internal/outbound"
 )
 
 // sendURL is POST /v1/agents/{address}/messages for the test agent. The sender
@@ -158,7 +161,7 @@ func TestSendOverCap(t *testing.T) {
 
 // TestSendLargeBodyAccepted guards the outbound body cap: Huma's default is
 // 1 MiB, which would 413 attachment-bearing mail. The send op raises it to
-// maxOutboundBytes (25 MB), so a >1 MiB body is accepted, not rejected.
+// maxOutboundBytes (40 MB), so a >1 MiB body is accepted, not rejected.
 func TestSendLargeBodyAccepted(t *testing.T) {
 	srv := testServer(t)
 	big := strings.Repeat("a", 1500*1024) // ~1.5 MiB — over Huma's 1 MiB default
@@ -166,10 +169,111 @@ func TestSendLargeBodyAccepted(t *testing.T) {
 		"to": []string{"alice@x.com"}, "subject": "Hi", "text": big,
 	})
 	if code == 413 {
-		t.Fatalf("a 1.5 MiB body must be accepted (cap raised to 25 MB), got 413")
+		t.Fatalf("a 1.5 MiB body must be accepted (cap raised to 40 MB), got 413")
 	}
 	if code != 200 || body["status"] != "sent" {
 		t.Fatalf("want 200 sent for a large-but-under-cap body, got %d %v", code, body)
+	}
+}
+
+// b64 encodes n zero bytes as standard base64 — a cheaply-constructed attachment
+// payload of a known DECODED size.
+func b64(n int) string { return base64.StdEncoding.EncodeToString(make([]byte, n)) }
+
+func attField(atts ...map[string]any) []map[string]any { return atts }
+
+// TestSendAttachmentAccepted: a normal small attachment sends (200) — proves
+// attachments flow through the send path and pass validation.
+func TestSendAttachmentAccepted(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
+		"attachments": attField(map[string]any{
+			"filename": "note.txt", "content_type": "text/plain", "data": b64(1024),
+		}),
+	})
+	if code != 200 || body["status"] != "sent" {
+		t.Fatalf("want 200 sent for a small attachment, got %d %v", code, body)
+	}
+}
+
+// TestSendAttachmentTooLarge: a single attachment over 10 MB decoded → 413
+// payload_too_large (proves the per-attachment size limit is wired on the send
+// path and the status propagates).
+func TestSendAttachmentTooLarge(t *testing.T) {
+	srv := testServer(t)
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
+		"attachments": attField(map[string]any{
+			"filename": "big.bin", "content_type": "application/octet-stream",
+			"data": b64(maxAttachmentBytes + 1),
+		}),
+	})
+	if code != 413 || errCode(body) != "payload_too_large" {
+		t.Fatalf("want 413 payload_too_large for an oversized attachment, got %d %v", code, body)
+	}
+}
+
+// TestSendTooManyAttachments: more than 10 attachments → 400 invalid_request
+// (count is a shape error, not an oversize payload).
+func TestSendTooManyAttachments(t *testing.T) {
+	srv := testServer(t)
+	atts := make([]map[string]any, 0, maxAttachmentCount+1)
+	for i := 0; i < maxAttachmentCount+1; i++ {
+		atts = append(atts, map[string]any{
+			"filename": "f.txt", "content_type": "text/plain", "data": b64(8),
+		})
+	}
+	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
+		"attachments": atts,
+	})
+	if code != 400 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 400 invalid_request for too many attachments, got %d %v", code, body)
+	}
+}
+
+// TestValidateAttachments covers the decoded-byte enforcement directly (fast,
+// no multi-tens-of-MB HTTP body): per-attachment cap, combined-total cap, count
+// cap, base64 validity, and the happy path.
+func TestValidateAttachments(t *testing.T) {
+	half := maxAttachmentBytes / 2
+	cases := []struct {
+		name string
+		atts []outbound.Attachment
+		want string // "" = accept; otherwise the expected error code
+	}{
+		{"empty", nil, ""},
+		{"ok", []outbound.Attachment{{Filename: "a", Data: b64(1024)}}, ""},
+		{"per-attachment-over", []outbound.Attachment{{Filename: "a", Data: b64(maxAttachmentBytes + 1)}}, "payload_too_large"},
+		{"per-attachment-at-limit", []outbound.Attachment{{Filename: "a", Data: b64(maxAttachmentBytes)}}, ""},
+		{"total-over", []outbound.Attachment{
+			{Filename: "a", Data: b64(half)}, {Filename: "b", Data: b64(half)},
+			{Filename: "c", Data: b64(half)}, {Filename: "d", Data: b64(half)},
+			{Filename: "e", Data: b64(half)}, {Filename: "f", Data: b64(half + 1)},
+		}, "payload_too_large"},
+		{"bad-base64", []outbound.Attachment{{Filename: "a", Data: "!!!not-base64!!!"}}, "invalid_attachment"},
+		{"too-many", func() []outbound.Attachment {
+			a := make([]outbound.Attachment, maxAttachmentCount+1)
+			for i := range a {
+				a[i] = outbound.Attachment{Filename: "x", Data: b64(4)}
+			}
+			return a
+		}(), "invalid_request"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := validateAttachments(tc.atts)
+			if tc.want == "" {
+				if env != nil {
+					t.Fatalf("want accept, got %d %s", env.status, env.Code())
+				}
+				return
+			}
+			if env == nil || env.Code() != tc.want {
+				t.Fatalf("want error code %q, got %v", tc.want, env)
+			}
+		})
 	}
 }
 

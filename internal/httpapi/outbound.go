@@ -45,6 +45,16 @@ func (s *Server) errorEnvelopeResponse() *huma.Response {
 		"Error — the standard envelope; branch on error.code.")
 }
 
+// limitExceededResponse is the typed 402 response for the cap-enforcing
+// operations (create agent, register domain, send/reply/forward/test). Its
+// schema is the LimitExceededEnvelope, whose error.details is a typed
+// LimitExceededDetails so codegen surfaces a concrete shape (resource keyed to
+// the AccountView usage/limits field stems) instead of a bare `any`.
+func (s *Server) limitExceededResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(LimitExceededEnvelope{}), "LimitExceededEnvelope",
+		"Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.")
+}
+
 // SendResultView is the single outbound result for send/reply/forward/approve/
 // test (MSG-9). Per scenario:
 //   - sent:  status="sent" + message_id (the e2a msg_ id) + provider_message_id
@@ -70,10 +80,35 @@ type SendResultView struct {
 	Edited *bool `json:"edited,omitempty"`
 }
 
-// maxOutboundBytes caps the outbound request body (send/reply/forward). It
-// matches the legacy 25 MB limit so attachments keep working — Huma's default
-// is only 1 MiB, which would silently reject anything but tiny mail.
-const maxOutboundBytes = 25 * 1024 * 1024
+// maxOutboundBytes is the coarse WIRE-size backstop on the outbound request body
+// (send/reply/forward): Huma reads at most this many raw bytes before parsing, so
+// an unbounded body can't exhaust memory. It is deliberately larger than the
+// decoded attachment limits below, because attachment bytes arrive base64-encoded
+// on the wire (~33% larger than decoded): a request at the 25 MB DECODED total is
+// ~33.3 MB of base64 plus the JSON envelope and text body. 40 MB admits any valid
+// request with headroom while the real ceilings — the per-attachment / total
+// DECODED limits — are enforced after decode in validateAttachments. (The legacy
+// 25 MB value was on the WIRE, so it silently rejected legitimately-sized
+// attachment payloads; that raw-vs-decoded mismatch is reconciled here.)
+const maxOutboundBytes = 40 * 1024 * 1024
+
+// Attachment limits, enforced on DECODED bytes (not the base64 wire size) across
+// every outbound path that accepts attachments — send, reply, forward, and an
+// approve that edits the held draft's attachments. Conservative starting values
+// (GA freeze): raising a limit later is non-breaking, lowering is breaking, so we
+// start small and leave headroom under the downstream ceiling. The combined total
+// (25 MB decoded ≈ 33.3 MB base64 in the composed MIME) stays safely under the
+// AWS SES 40 MB per-message ceiling.
+const (
+	// maxAttachmentBytes caps a single attachment's decoded size. Over → 413.
+	maxAttachmentBytes = 10 * 1024 * 1024
+	// maxAttachmentCount caps how many attachments one message may carry. Over → 400.
+	maxAttachmentCount = 10
+	// maxAttachmentsTotalBytes caps the combined decoded size of all attachments on
+	// one message. Over → 413. Aligned to the whole-request budget and kept under
+	// the SES 40 MB encoded ceiling once base64-inflated.
+	maxAttachmentsTotalBytes = 25 * 1024 * 1024
+)
 
 // maxRecipients caps the combined to+cc+bcc fan-out of a single outbound
 // message. A body-size ceiling alone doesn't bound recipient count, so a tiny
@@ -116,7 +151,7 @@ type SendEmailRequest struct {
 	TemplateData   TemplateData          `json:"template_data,omitempty" doc:"Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent's own address."`
-	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
 }
 
 type createMessageInput struct {
@@ -133,39 +168,55 @@ type sendOutput struct {
 }
 
 func (s *Server) registerOutbound() {
-	// 202 Accepted is the HITL-hold outcome of every outbound op: the message
-	// is queued as a pending_review draft rather than sent. Declared
-	// explicitly because Huma infers only the single DefaultStatus (200).
-	held202 := func() *huma.Response {
+	// 202 Accepted covers every non-terminal outbound outcome: the message was
+	// durably accepted but not yet delivered — either queued for async
+	// submission (status=accepted; the terminal sent/failed arrives via GET /
+	// webhook events) or held for human approval (status=pending_review).
+	// Declared explicitly because Huma infers only the single DefaultStatus
+	// (200, kept for the terminal-synchronous status=sent result).
+	accepted202 := func() *huma.Response {
 		return s.jsonResponse(reflect.TypeOf(SendResultView{}), "SendResultView",
-			"Accepted — held for human approval (status=pending_review).")
+			"Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval).")
+	}
+	// 400 and 413 are declared explicitly on every attachment-bearing operation so
+	// a client knows the failure modes up front. 400 invalid_request covers too many
+	// attachments (> 10) and the other request-shape validations; 413 payload_too_large
+	// covers a single attachment over 10 MB (decoded) or a combined total over 25 MB
+	// (decoded). Both render the standard ErrorEnvelope — branch on error.code.
+	badRequest400 := func() *huma.Response {
+		return s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+			"Bad Request — request-shape/validation failure. error.code includes invalid_request (e.g. more than 10 attachments), too_many_recipients, invalid_recipient, invalid_attachment (undecodable base64).")
+	}
+	tooLarge413 := func() *huma.Response {
+		return s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+			"Payload Too Large — an attachment exceeds 10 MB decoded, or the combined attachments exceed 25 MB decoded. error.code = payload_too_large; error.details carries the offending size and the limit.")
 	}
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
-		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key.",
+		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reply",
 		Summary: "Reply to a message", Tags: []string{"messages"},
-		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL.",
+		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/forward",
 		Summary: "Forward a message", Tags: []string{"messages"},
-		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL.",
+		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
@@ -173,7 +224,7 @@ func (s *Server) registerOutbound() {
 		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
 		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
-		Responses:   map[string]*huma.Response{"202": held202(), "default": s.errorEnvelopeResponse()},
+		Responses:   map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleTestSend)
 }
 
@@ -222,7 +273,7 @@ type ReplyRequest struct {
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
-	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false"`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
 }
 
 type replyInput struct {
@@ -358,7 +409,7 @@ type ForwardRequest struct {
 	HTMLBody       string                `json:"html,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
-	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically."`
+	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
 }
 
 type forwardInput struct {
@@ -458,29 +509,65 @@ func validateReplyTo(replyTo string) *ErrorEnvelope {
 	return nil
 }
 
-// validateAttachments rejects any attachment whose Data is not decodable
-// base64. The composer passes att.Data through verbatim into the MIME body
-// (Content-Transfer-Encoding: base64), so malformed base64 otherwise slips past
-// every check and only fails downstream at the SMTP relay — surfacing to the
-// caller as a generic 500 instead of a clear 400. Whitespace (line-wrapping) is
-// stripped first to match how mail decoders treat base64 bodies, so a caller
-// that pre-wraps its base64 is not falsely rejected.
+// validateAttachments enforces the attachment contract on every outbound path
+// (send/reply/forward, and approve-with-edits). It checks, in order:
+//
+//   - count ≤ maxAttachmentCount → 400 invalid_request (too many is a shape/
+//     validation error, not an oversize payload)
+//   - each att.Data is decodable base64 → 400 invalid_attachment (the composer
+//     passes att.Data verbatim into the MIME body with Content-Transfer-Encoding:
+//     base64, so malformed base64 would otherwise slip past every check and only
+//     fail at the SMTP relay as a generic 500)
+//   - each attachment's DECODED size ≤ maxAttachmentBytes → 413 payload_too_large
+//   - the combined DECODED size ≤ maxAttachmentsTotalBytes → 413 payload_too_large
+//
+// All size checks are on DECODED bytes, not the base64 wire size, so the limits a
+// caller sees are the real file sizes and match the bytes SES ultimately carries.
+// Whitespace (line-wrapping) is stripped before decoding to match how mail decoders
+// treat base64 bodies, so a caller that pre-wraps its base64 is not falsely rejected.
 func validateAttachments(atts []outbound.Attachment) *ErrorEnvelope {
+	if len(atts) > maxAttachmentCount {
+		return NewError(http.StatusBadRequest, "invalid_request",
+			fmt.Sprintf("too many attachments — at most %d per message (got %d)", maxAttachmentCount, len(atts))).
+			WithDetails(map[string]any{"max_attachments": maxAttachmentCount, "provided": len(atts)})
+	}
+	var total int
 	for i, att := range atts {
+		name := att.Filename
+		if name == "" {
+			name = fmt.Sprintf("#%d", i)
+		}
 		clean := strings.Map(func(r rune) rune {
 			if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
 				return -1
 			}
 			return r
 		}, att.Data)
-		if _, err := base64.StdEncoding.DecodeString(clean); err != nil {
-			name := att.Filename
-			if name == "" {
-				name = fmt.Sprintf("#%d", i)
-			}
+		decoded, err := base64.StdEncoding.DecodeString(clean)
+		if err != nil {
 			return NewError(http.StatusBadRequest, "invalid_attachment",
 				fmt.Sprintf("attachment %q: data is not valid base64", name))
 		}
+		if len(decoded) > maxAttachmentBytes {
+			return NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
+				fmt.Sprintf("attachment %q is too large — %d bytes decoded, limit is %d (%d MB)",
+					name, len(decoded), maxAttachmentBytes, maxAttachmentBytes/(1024*1024))).
+				WithDetails(map[string]any{
+					"filename":             att.Filename,
+					"decoded_bytes":        len(decoded),
+					"max_attachment_bytes": maxAttachmentBytes,
+				})
+		}
+		total += len(decoded)
+	}
+	if total > maxAttachmentsTotalBytes {
+		return NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
+			fmt.Sprintf("attachments too large — %d bytes decoded in total, limit is %d (%d MB)",
+				total, maxAttachmentsTotalBytes, maxAttachmentsTotalBytes/(1024*1024))).
+			WithDetails(map[string]any{
+				"total_decoded_bytes":         total,
+				"max_attachments_total_bytes": maxAttachmentsTotalBytes,
+			})
 	}
 	return nil
 }
@@ -521,7 +608,7 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 				raw = []byte("{}")
 			}
 			return s.deps.Idempotency.CompleteTx(ctx, tx, uid, nsKey, idempotency.CachedResponse{
-				StatusCode: http.StatusOK, ContentType: "application/json", Body: raw,
+				StatusCode: http.StatusAccepted, ContentType: "application/json", Body: raw,
 			})
 		}
 	}
@@ -554,11 +641,15 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		if res.Held {
 			return http.StatusAccepted, SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil
 		}
-		// Async accept (slice C): 200 with status=accepted. The body MUST match
-		// acceptedView (the idempotency cache is keyed to it) — no provider id /
-		// sent_as yet (the send hasn't happened; they surface via GET / webhooks).
+		// Async accept (slice C): 202 Accepted with status=accepted — the message
+		// is durably persisted and queued for async submission; the terminal
+		// outcome (sent/failed) arrives later via GET / webhooks, not this
+		// response. The body MUST match acceptedView (the idempotency cache is
+		// keyed to it) — no provider id / sent_as yet (the send hasn't happened).
+		// The cached StatusCode (idemCompleteTx, above) is likewise 202 so a
+		// replayed idempotent request returns the same 202, never a stale 200.
 		if res.Status == "accepted" {
-			return http.StatusOK, acceptedView(res.MessageID), nil
+			return http.StatusAccepted, acceptedView(res.MessageID), nil
 		}
 		return http.StatusOK, SendResultView{Status: "sent", MessageID: res.MessageID, ProviderMessageID: res.ProviderMessageID, SentAs: res.SentAs, Method: res.Method}, nil
 	})

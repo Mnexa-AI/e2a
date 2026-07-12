@@ -59,7 +59,7 @@ describe("messages commands", () => {
       direction: "inbound",
       since: "2026-07-01T09:00:00Z",
       conversationId: "conv-1",
-      limit: 100, // unbounded lists page at the server max, not its 50 default
+      limit: 100, // unbounded lists page at the server max (== the 100 default)
     });
     expect(mockStdout).toHaveBeenCalledWith(
       "msg_1\tyou@example.com\t2026-07-01T10:00:00.000Z\n",

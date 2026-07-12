@@ -141,12 +141,12 @@ type attachmentParam struct {
 // AttachmentView is the metadata + short-lived download for one attachment.
 // Bytes are NOT included unless inline was requested for a small file.
 type AttachmentView struct {
-	Index       int    `json:"index"`
-	Filename    string `json:"filename,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
-	SizeBytes   int    `json:"size_bytes"`
-	DownloadURL string `json:"download_url"`
-	ExpiresAt   string `json:"expires_at" format:"date-time"`
+	Index       int       `json:"index"`
+	Filename    string    `json:"filename,omitempty"`
+	ContentType string    `json:"content_type,omitempty"`
+	SizeBytes   int       `json:"size_bytes"`
+	DownloadURL string    `json:"download_url"`
+	ExpiresAt   time.Time `json:"expires_at" format:"date-time"`
 	// Data is the base64 bytes, present ONLY when inline=true and the attachment
 	// is within the inline size cap.
 	Data string `json:"data,omitempty"`
@@ -194,7 +194,7 @@ func (s *Server) handleGetAttachment(ctx context.Context, in *attachmentParam) (
 		ContentType: att.ContentType,
 		SizeBytes:   len(att.Data),
 		DownloadURL: dl,
-		ExpiresAt:   exp.UTC().Format(time.RFC3339),
+		ExpiresAt:   exp.UTC(),
 	}
 	if in.Inline {
 		if len(att.Data) > attachmentInlineMaxBytes {

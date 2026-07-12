@@ -97,7 +97,7 @@ test("authz: PATCH /agents/<email-i-dont-own> returns 404 not_found", async () =
 });
 
 test("authz: DELETE /agents/<email-i-dont-own> returns 404 not_found (no cross-tenant delete)", async () => {
-  const r = await client.delete(`/v1/agents/${encodeURIComponent("nobody@example.com")}`);
+  const r = await client.delete(`/v1/agents/${encodeURIComponent("nobody@example.com")}?confirm=DELETE`);
   // A cross-tenant delete must never succeed: a 2xx here is a critical breach.
   if (r.status === 200 || r.status === 204) {
     fail(SUITE, "cross-tenant-delete", `CRITICAL: deleted an agent we don't own; got ${r.status}`);

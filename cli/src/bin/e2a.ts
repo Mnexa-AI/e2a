@@ -58,7 +58,7 @@ Usage:
         --subject <s>              Subject line
         --body <text>              Plain-text body (or --body-file <f>)
         --html-file <f>            HTML body; text fallback derived if no --body
-        --attach <file>            Attach a file (repeatable)
+        --attach <file>            Attach a file (repeatable; max 10 files, 10 MB each, 25 MB total)
         --conversation-id <id>     Thread id (alias: --conversation)
         --reply-to <email>         Reply-To header (where replies go; default: the agent)
         --idempotency-key <k>      Stable key so a retried invocation can't double-send

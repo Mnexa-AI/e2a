@@ -149,8 +149,8 @@ func (e *DBEnforcer) CheckDomainCreate(ctx context.Context, userID string) error
 // CheckMessageSend enforces both the month-flow cap and the storage
 // stock cap. Either being exceeded blocks the operation. The flow cap
 // is checked first because it's the cheaper read; if both would fail,
-// the user sees "messages" as the reason, which is the easier one to
-// explain ("you sent N this month").
+// the user sees "messages_month" as the reason, which is the easier one
+// to explain ("you sent N this month").
 func (e *DBEnforcer) CheckMessageSend(ctx context.Context, userID string) error {
 	lim, err := e.Get(ctx, userID)
 	if err != nil {
@@ -162,7 +162,7 @@ func (e *DBEnforcer) CheckMessageSend(ctx context.Context, userID string) error 
 	}
 	if msgCount >= lim.MaxMessagesMonth {
 		return &LimitExceededError{
-			Resource: "messages",
+			Resource: "messages_month",
 			Limit:    lim.MaxMessagesMonth,
 			Current:  msgCount,
 			Limits:   lim,
@@ -180,7 +180,7 @@ func (e *DBEnforcer) CheckMessageSend(ctx context.Context, userID string) error 
 		// real value is also surfaced verbatim in the Limits field for
 		// callers that need bytes-accurate access.
 		return &LimitExceededError{
-			Resource: "storage",
+			Resource: "storage_bytes",
 			Limit:    safeInt64ToInt(lim.MaxStorageBytes),
 			Current:  safeInt64ToInt(storage),
 			Limits:   lim,

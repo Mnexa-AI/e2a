@@ -44,10 +44,10 @@ func (a *API) agentAuthReady() bool {
 }
 
 type identityAssertionResponse struct {
-	IdentityAssertion string `json:"identity_assertion"`
-	TokenType         string `json:"token_type"`
-	Subject           string `json:"sub"`
-	ExpiresAt         string `json:"expires_at"`
+	IdentityAssertion string    `json:"identity_assertion"`
+	TokenType         string    `json:"token_type"`
+	Subject           string    `json:"sub"`
+	ExpiresAt         time.Time `json:"expires_at"`
 }
 
 // handleAgentIdentity is POST /agent/identity. In Slice 5b-2 it serves the
@@ -94,7 +94,7 @@ func (a *API) handleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 		IdentityAssertion: assertion,
 		TokenType:         "N_A", // an assertion is presented at /oauth2/token, not used as a bearer
 		Subject:           ag.ID,
-		ExpiresAt:         exp.UTC().Format(time.RFC3339),
+		ExpiresAt:         exp.UTC(),
 	})
 }
 
