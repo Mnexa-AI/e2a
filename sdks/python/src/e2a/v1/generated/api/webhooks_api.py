@@ -1450,7 +1450,7 @@ class WebhooksApi:
     async def rotate_webhook_secret(
         self,
         id: StrictStr,
-        idempotency_key: Optional[StrictStr] = None,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1466,11 +1466,11 @@ class WebhooksApi:
     ) -> RotateSecretResponse:
         """Rotate a webhook signing secret
 
-        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
 
         :param id: (required)
         :type id: str
-        :param idempotency_key:
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1505,6 +1505,8 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "RotateSecretResponse",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1521,7 +1523,7 @@ class WebhooksApi:
     async def rotate_webhook_secret_with_http_info(
         self,
         id: StrictStr,
-        idempotency_key: Optional[StrictStr] = None,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1537,11 +1539,11 @@ class WebhooksApi:
     ) -> ApiResponse[RotateSecretResponse]:
         """Rotate a webhook signing secret
 
-        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
 
         :param id: (required)
         :type id: str
-        :param idempotency_key:
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1576,6 +1578,8 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "RotateSecretResponse",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1592,7 +1596,7 @@ class WebhooksApi:
     async def rotate_webhook_secret_without_preload_content(
         self,
         id: StrictStr,
-        idempotency_key: Optional[StrictStr] = None,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1608,11 +1612,11 @@ class WebhooksApi:
     ) -> RESTResponseType:
         """Rotate a webhook signing secret
 
-        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+        Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
 
         :param id: (required)
         :type id: str
-        :param idempotency_key:
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1647,6 +1651,8 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "RotateSecretResponse",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -2070,6 +2076,7 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WebhookView",
+            '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -2141,6 +2148,7 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WebhookView",
+            '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -2212,6 +2220,7 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "WebhookView",
+            '409': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
