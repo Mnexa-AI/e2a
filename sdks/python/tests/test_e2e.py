@@ -25,7 +25,7 @@ import time
 
 import pytest
 
-from e2a import E2AClient, E2ANotFoundError
+from e2a import AsyncE2AClient, E2ANotFoundError
 
 BASE_URL = os.environ.get("E2A_TEST_BASE_URL", "")
 API_KEY = os.environ.get("E2A_TEST_API_KEY", "")
@@ -47,7 +47,7 @@ def anyio_backend() -> str:
 
 
 async def test_info_reports_deployment() -> None:
-    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+    async with AsyncE2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
         info = await client.info()
         assert isinstance(info.version, str) and info.version
 
@@ -58,7 +58,7 @@ async def test_send_find_get_reply_self_loopback() -> None:
     # for review, which would never land in the inbox.
     domain = AGENT.split("@", 1)[1]
     bot = f"py-sdk-live-{int(time.time() * 1000):x}@{domain}"
-    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+    async with AsyncE2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
         created = await client.agents.create({"email": bot, "name": "py-sdk live e2e"})
         assert created.email == bot
         try:
@@ -99,7 +99,7 @@ async def test_send_find_get_reply_self_loopback() -> None:
 
 
 async def test_list_bounded_page() -> None:
-    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+    async with AsyncE2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
         msgs = await client.messages.list(AGENT, limit=2).to_list(limit=2)
         assert len(msgs) <= 2
         for m in msgs:
@@ -108,6 +108,6 @@ async def test_list_bounded_page() -> None:
 
 
 async def test_get_nonexistent_raises_not_found() -> None:
-    async with E2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
+    async with AsyncE2AClient(api_key=API_KEY, base_url=BASE_URL) as client:
         with pytest.raises(E2ANotFoundError):
             await client.messages.get(AGENT, f"msg_nonexistent_{int(time.time())}")

@@ -25,7 +25,7 @@ to be in the Python SDK).
 - [ ] Migration written + idempotent + safe on prod-sized tables (see [CLAUDE.md](../CLAUDE.md))
 - [ ] OpenAPI spec + generated types refreshed (`make generate` is clean)
 - [ ] TypeScript SDK — generated base regenerated (`make generate-sdk`) **and** resource added to the hand-written `E2AClient` (`sdks/typescript/src/v1/client.ts`)
-- [ ] Python SDK — generated base regenerated (`make generate-sdk`) **and** resource added to the hand-written async `E2AClient` (`sdks/python/src/e2a/v1/client.py`)
+- [ ] Python SDK — generated base regenerated (`make generate-sdk`) **and** resource added to the hand-written `AsyncE2AClient` (`sdks/python/src/e2a/v1/client.py`)
 - [ ] CLI command or flag in `cli/src/commands/` + wired into `cli/src/bin/e2a.ts`
 - [ ] MCP tool in `mcp/src/tools/` + registry assertion in `mcp/tests/{tools,http}.test.ts`
 - [ ] Tests at each surface above (positive + at least one negative-path / regression case)

@@ -42,7 +42,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from e2a.v1 import E2AClient, construct_event, E2AWebhookSignatureError
+from e2a.v1 import AsyncE2AClient, construct_event, E2AWebhookSignatureError
 
 from agent import APP_NAME, agent
 
@@ -61,7 +61,7 @@ def _require_env(name: str) -> str:
     return val
 
 
-# E2A_API_KEY authenticates the E2AClient (fetch + reply); E2A_WEBHOOK_SECRET
+# E2A_API_KEY authenticates the AsyncE2AClient (fetch + reply); E2A_WEBHOOK_SECRET
 # is passed to construct_event to verify each delivery. Assert presence here so
 # a missing value fails fast at startup rather than on the first request.
 _require_env("E2A_API_KEY")
@@ -72,7 +72,7 @@ _require_env("GOOGLE_API_KEY")
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Lazy-init shared resources once per process.
-    app.state.e2a = E2AClient()
+    app.state.e2a = AsyncE2AClient()
     app.state.sessions = InMemorySessionService()
     app.state.runner = Runner(
         agent=agent, app_name=APP_NAME, session_service=app.state.sessions
@@ -105,7 +105,7 @@ async def webhook(request: Request) -> dict[str, str]:
     if event.type != "email.received":
         return {"status": "ignored", "type": event.type}
 
-    client: E2AClient = request.app.state.e2a
+    client: AsyncE2AClient = request.app.state.e2a
     data = event.data  # WebhookPayload: message_id, delivered_to, from, conversation_id, …
     delivered_to = data["delivered_to"]
     message_id = data["message_id"]

@@ -374,7 +374,7 @@ wheels = [
 
 [[package]]
 name = "e2a"
-version = "4.2.0"
+version = "5.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

@@ -1,4 +1,4 @@
-"""Unit tests for the namespaced async E2AClient (Slice 8c-2).
+"""Unit tests for the namespaced AsyncE2AClient (Slice 8c-2).
 
 Mocks httpx (the layer the generated base uses) so these exercise the full
 stack: namespaced resource -> generated *Api -> bearer auth -> retry layer ->
@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from e2a.v1._retry import RetryConfig
-from e2a.v1.client import E2AClient
+from e2a.v1.client import AsyncE2AClient
 from e2a.v1.errors import (
     E2AConflictError,
     E2AConnectionError,
@@ -118,7 +118,7 @@ def _client():
     async def no_sleep(_s):
         return None
 
-    return E2AClient(
+    return AsyncE2AClient(
         api_key="e2a_test", base_url=BASE, _retry_config=RetryConfig(sleep=no_sleep)
     )
 
@@ -127,7 +127,7 @@ def _client():
 
 def test_requires_api_key():
     with pytest.raises(E2AError, match="api_key is required"):
-        E2AClient(base_url=BASE)
+        AsyncE2AClient(base_url=BASE)
 
 
 def test_resources_exposed():
@@ -148,7 +148,7 @@ def test_resources_exposed():
 )
 def test_timeout_ms_to_seconds(timeout_ms, expected_s):
     kwargs = {} if timeout_ms is None else {"timeout_ms": timeout_ms}
-    c = E2AClient(api_key="e2a_test", base_url=BASE, **kwargs)
+    c = AsyncE2AClient(api_key="e2a_test", base_url=BASE, **kwargs)
     assert c._timeout_s == expected_s
 
 
@@ -166,7 +166,7 @@ async def test_timeout_injected_into_transport(monkeypatch):
         raise httpx.ConnectError("boom")  # short-circuit; we only inspect the arg
 
     monkeypatch.setattr(_rest_mod.RESTClientObject, "request", spy)
-    c = E2AClient(api_key="e2a_test", base_url=BASE, timeout_ms=5_000.0)
+    c = AsyncE2AClient(api_key="e2a_test", base_url=BASE, timeout_ms=5_000.0)
     with pytest.raises(httpx.ConnectError):
         await c._api_client.rest_client.request("GET", "http://test.local/x")
     assert seen["timeout"] == 5.0
@@ -181,7 +181,7 @@ async def test_request_timeout_surfaces_as_connection_error(httpx_mock):
     async def no_sleep(_s):
         return None
 
-    c = E2AClient(
+    c = AsyncE2AClient(
         api_key="e2a_test",
         base_url=BASE,
         timeout_ms=50.0,

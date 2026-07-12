@@ -83,7 +83,7 @@ from .generated.models import (
 )
 from .pagination import AutoPager, Page
 
-__all__ = ["E2AClient"]
+__all__ = ["AsyncE2AClient"]
 
 T = TypeVar("T")
 _Make = Callable[[Optional["dict[str, str]"]], Awaitable[Any]]
@@ -123,13 +123,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         ) from e
 
 
-class E2AClient:
+class AsyncE2AClient:
     """Async client for the e2a /v1 API.
 
     Use as an async context manager so the underlying HTTP connections are
     closed::
 
-        async with E2AClient(api_key="e2a_...") as client:
+        async with AsyncE2AClient(api_key="e2a_...") as client:
             agents = await client.agents.list().to_list(limit=100)
     """
 
@@ -200,7 +200,7 @@ class E2AClient:
     async def aclose(self) -> None:
         await self._api_client.close()
 
-    async def __aenter__(self) -> "E2AClient":
+    async def __aenter__(self) -> "AsyncE2AClient":
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
@@ -252,7 +252,7 @@ def _page(items: Optional[Sequence[T]], next_cursor: Optional[str] = None) -> Pa
 
 
 class AgentsResource:
-    def __init__(self, api: AgentsApi, client: E2AClient) -> None:
+    def __init__(self, api: AgentsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -302,7 +302,7 @@ class AgentsResource:
 
 
 class MessagesResource:
-    def __init__(self, api: MessagesApi, client: E2AClient) -> None:
+    def __init__(self, api: MessagesApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -406,7 +406,7 @@ class ReviewsResource:
     path — reviews are addressed by message id alone, no inbox email. Account-
     scoped credentials only; an agent cannot see or resolve holds."""
 
-    def __init__(self, api: ReviewsApi, client: E2AClient) -> None:
+    def __init__(self, api: ReviewsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -450,7 +450,7 @@ class TemplatesResource:
     ``template_alias`` / ``template_data``, mutually exclusive with a literal
     subject/body)."""
 
-    def __init__(self, api: TemplatesApi, client: E2AClient) -> None:
+    def __init__(self, api: TemplatesApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -523,7 +523,7 @@ class TemplatesResource:
 
 
 class ConversationsResource:
-    def __init__(self, api: ConversationsApi, client: E2AClient) -> None:
+    def __init__(self, api: ConversationsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -553,7 +553,7 @@ class ConversationsResource:
 
 
 class DomainsResource:
-    def __init__(self, api: DomainsApi, client: E2AClient) -> None:
+    def __init__(self, api: DomainsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -580,7 +580,7 @@ class DomainsResource:
 
 
 class EventsResource:
-    def __init__(self, api: EventsApi, client: E2AClient) -> None:
+    def __init__(self, api: EventsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -624,7 +624,7 @@ class EventsResource:
 
 
 class WebhooksResource:
-    def __init__(self, api: WebhooksApi, client: E2AClient) -> None:
+    def __init__(self, api: WebhooksApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -702,7 +702,7 @@ class WebhooksResource:
 
 
 class SuppressionsResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -719,7 +719,7 @@ class SuppressionsResource:
 
 
 class APIKeysResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -743,7 +743,7 @@ class APIKeysResource:
 
 
 class AccountResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
         self.suppressions = SuppressionsResource(api, client)

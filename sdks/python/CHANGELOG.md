@@ -1,5 +1,23 @@
 # Changelog
 
+## 5.0.0
+
+Breaking: the async client class was renamed. No behavioral changes.
+
+### Changed
+- **`E2AClient` → `AsyncE2AClient`.** The SDK's client is async-only, but its
+  old name inverted the Python-ecosystem convention (httpx, openai, anthropic:
+  plain name = sync client, `Async*` prefix = async client) and squatted the
+  name a future synchronous client needs. The class, exports (`e2a` and
+  `e2a.v1`), docs, and examples all now use `AsyncE2AClient`. Migration is
+  mechanical: `from e2a.v1 import AsyncE2AClient`.
+- **`E2AClient` is reserved — no compatibility alias.** The whole point of the
+  rename is to keep the plain name free for a future sync client, so aliasing
+  it to the async client would re-create the problem. Importing or accessing
+  `E2AClient` fails today with a guided `ImportError` ("E2AClient was renamed
+  to AsyncE2AClient in v5; E2AClient is reserved for a future synchronous
+  client") rather than a bare `AttributeError`.
+
 ## 4.2.0
 
 Additive, no breaking changes.

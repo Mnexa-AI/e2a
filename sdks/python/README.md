@@ -9,7 +9,23 @@ pip install e2a          # add the [ws] extra for client.listen(): pip install "
 ```
 
 The SDK major version tracks the SDK package's own breaking changes and is
-independent of the API version path (`/v1`): SDK 4.x targets the e2a v1 API.
+independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
+
+## Upgrading to 5.0
+
+5.0 renames the (async-only) client: `E2AClient` → **`AsyncE2AClient`**. One
+mechanical change:
+
+```python
+from e2a.v1 import AsyncE2AClient   # was: from e2a.v1 import E2AClient
+```
+
+Rationale: Python convention (httpx, openai, anthropic) is plain name = sync
+client, `Async*` = async client. The old name inverted that, and squatted the
+name a future synchronous client needs. `E2AClient` is therefore **reserved**
+— there is deliberately no compatibility alias, and importing it raises a
+guided `ImportError` telling you to use `AsyncE2AClient`. Nothing else about
+the client changed: same constructor, resources, and behavior.
 
 ## Upgrading to 4.0
 
@@ -46,11 +62,11 @@ retries + idempotency, and async auto-pagination.
 
 ```python
 import asyncio
-from e2a.v1 import E2AClient
+from e2a.v1 import AsyncE2AClient
 
 async def main():
     # reads E2A_API_KEY; base_url defaults to https://api.e2a.dev
-    async with E2AClient() as client:
+    async with AsyncE2AClient() as client:
         address = "my-agent@agents.e2a.dev"
 
         # List endpoints return an AutoPager: async-iterate, or collect with a limit.
@@ -115,7 +131,7 @@ During a rotation you can pass a list of secrets — accepted if any matches:
 `client.account.suppressions`), plus `await client.info()`. Each method maps to
 a `/v1` operation; per-agent methods take the agent `address` first.
 
-### `E2AClient(api_key=None, *, base_url=None, max_retries=2, max_elapsed_ms=None, timeout_ms=30000)`
+### `AsyncE2AClient(api_key=None, *, base_url=None, max_retries=2, max_elapsed_ms=None, timeout_ms=30000)`
 
 `api_key` falls back to `E2A_API_KEY`; `base_url` to `E2A_BASE_URL` then
 `https://api.e2a.dev`. `timeout_ms` is the per-request timeout (default 30s); a
