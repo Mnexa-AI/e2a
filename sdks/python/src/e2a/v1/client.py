@@ -224,8 +224,14 @@ class E2AClient:
     def listen(self, email: str) -> Any:
         """Open a notification stream for an agent's inbox.
 
-        Yields lightweight notifications; fetch the body with
-        ``client.messages.get(email, id)``.
+        Yields :class:`~e2a.v1.websocket.WSEvent` envelopes — the same
+        versioned shape as webhook deliveries (``email.received`` today;
+        tolerate unknown types). Fetch the body when you need it::
+
+            async for event in client.listen("bot@acme.dev"):
+                if event.type != "email.received":
+                    continue
+                msg = await client.messages.get(event.data["delivered_to"], event.data["message_id"])
         """
         if not email:
             raise E2AError(

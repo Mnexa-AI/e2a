@@ -6,6 +6,7 @@ export * from '../models/AgentIdentity.js';
 export * from '../models/AgentView.js';
 export * from '../models/ApproveRequest.js';
 export * from '../models/Attachment.js';
+export * from '../models/AttachmentMeta.js';
 export * from '../models/AttachmentMetaView.js';
 export * from '../models/AttachmentView.js';
 export * from '../models/AuthVerdict.js';
@@ -23,7 +24,16 @@ export * from '../models/DeleteUserDataResult.js';
 export * from '../models/DeliveryStatusJSON.js';
 export * from '../models/DeploymentInfoView.js';
 export * from '../models/Domain.js';
+export * from '../models/DomainSendingFailedData.js';
+export * from '../models/DomainSendingVerifiedData.js';
+export * from '../models/DomainSuppressionAddedData.js';
 export * from '../models/DomainView.js';
+export * from '../models/EmailBouncedData.js';
+export * from '../models/EmailComplainedData.js';
+export * from '../models/EmailDeliveredData.js';
+export * from '../models/EmailFailedData.js';
+export * from '../models/EmailReceivedData.js';
+export * from '../models/EmailSentData.js';
 export * from '../models/ErrorBody.js';
 export * from '../models/ErrorBodyDetails.js';
 export * from '../models/ErrorEnvelope.js';
@@ -109,6 +119,7 @@ import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
+import { AttachmentMeta } from '../models/AttachmentMeta.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
@@ -126,7 +137,16 @@ import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
+import { DomainSendingFailedData } from '../models/DomainSendingFailedData.js';
+import { DomainSendingVerifiedData } from '../models/DomainSendingVerifiedData.js';
+import { DomainSuppressionAddedData   , DomainSuppressionAddedDataSourceEnum   } from '../models/DomainSuppressionAddedData.js';
 import { DomainView } from '../models/DomainView.js';
+import { EmailBouncedData  , EmailBouncedDataBounceTypeEnum        } from '../models/EmailBouncedData.js';
+import { EmailComplainedData } from '../models/EmailComplainedData.js';
+import { EmailDeliveredData } from '../models/EmailDeliveredData.js';
+import { EmailFailedData } from '../models/EmailFailedData.js';
+import { EmailReceivedData } from '../models/EmailReceivedData.js';
+import { EmailSentData } from '../models/EmailSentData.js';
 import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
@@ -222,6 +242,8 @@ let enumsMap: Set<string> = new Set<string>([
     "CreateAPIKeyRequestScopeEnum",
     "CreateAPIKeyResponseScopeEnum",
     "CreateWebhookRequestEventsEnum",
+    "DomainSuppressionAddedDataSourceEnum",
+    "EmailBouncedDataBounceTypeEnum",
     "LimitExceededDetailsResourceEnum",
     "LimitExceededErrorBodyCodeEnum",
     "MessageSummaryViewDirectionEnum",
@@ -245,6 +267,7 @@ let typeMap: {[index: string]: any} = {
     "AgentView": AgentView,
     "ApproveRequest": ApproveRequest,
     "Attachment": Attachment,
+    "AttachmentMeta": AttachmentMeta,
     "AttachmentMetaView": AttachmentMetaView,
     "AttachmentView": AttachmentView,
     "AuthVerdict": AuthVerdict,
@@ -262,7 +285,16 @@ let typeMap: {[index: string]: any} = {
     "DeliveryStatusJSON": DeliveryStatusJSON,
     "DeploymentInfoView": DeploymentInfoView,
     "Domain": Domain,
+    "DomainSendingFailedData": DomainSendingFailedData,
+    "DomainSendingVerifiedData": DomainSendingVerifiedData,
+    "DomainSuppressionAddedData": DomainSuppressionAddedData,
     "DomainView": DomainView,
+    "EmailBouncedData": EmailBouncedData,
+    "EmailComplainedData": EmailComplainedData,
+    "EmailDeliveredData": EmailDeliveredData,
+    "EmailFailedData": EmailFailedData,
+    "EmailReceivedData": EmailReceivedData,
+    "EmailSentData": EmailSentData,
     "ErrorBody": ErrorBody,
     "ErrorBodyDetails": ErrorBodyDetails,
     "ErrorEnvelope": ErrorEnvelope,

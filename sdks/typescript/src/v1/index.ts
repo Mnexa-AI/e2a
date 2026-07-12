@@ -40,18 +40,46 @@ export type { RetryOptions } from "./retry.js";
 export { AutoPager } from "./pagination.js";
 export type { Page, FetchPage, AutoPagerOptions } from "./pagination.js";
 
-// Webhook signature verification.
-export { verifyWebhookSignature, constructEvent } from "./webhook-signature.js";
+// Webhook signature verification + the typed per-event payloads and their
+// narrowing guards. NOTE: the *Data payload types are hand-written WIRE-shape
+// (snake_case) interfaces from webhook-signature.ts, matched to the server's
+// canonical structs and the shared golden fixtures. These EXPLICIT exports
+// take precedence over the same-named codegen models in the `export *` above
+// (ES star-export conflict resolution) — the generated camelCase models are
+// not the webhook wire shape.
+export {
+  verifyWebhookSignature,
+  constructEvent,
+  isEmailReceived,
+  isEmailSent,
+  isEmailFailed,
+  isEmailDelivered,
+  isEmailBounced,
+  isEmailComplained,
+  isDomainSendingVerified,
+  isDomainSendingFailed,
+  isDomainSuppressionAdded,
+} from "./webhook-signature.js";
 export type {
   VerifySignatureOptions,
   ConstructEventOptions,
   WebhookEvent,
-  EmailReceivedPayload,
+  AttachmentMeta,
+  EmailReceivedData,
+  EmailSentData,
+  EmailFailedData,
+  EmailDeliveredData,
+  EmailBouncedData,
+  EmailComplainedData,
+  DomainSendingVerifiedData,
+  DomainSendingFailedData,
+  DomainSuppressionAddedData,
 } from "./webhook-signature.js";
 
-// Real-time WebSocket stream.
+// Real-time WebSocket stream. Frames are the SAME versioned event envelope as
+// webhook deliveries (WebhookEvent) — WSEvent is an alias.
 export { WSListener, WSStream } from "./ws.js";
-export type { WSListenerOptions, WSListenerEvents, WSNotification } from "./ws.js";
+export type { WSListenerOptions, WSListenerEvents, WSEvent } from "./ws.js";
 
 // Friendly cross-language aliases for the most-used response shapes — mirror
 // the names the Python SDK exports so users reach for the same vocabulary.

@@ -21,6 +21,7 @@ from e2a.v1.generated.models.agent_identity import AgentIdentity
 from e2a.v1.generated.models.agent_view import AgentView
 from e2a.v1.generated.models.approve_request import ApproveRequest
 from e2a.v1.generated.models.attachment import Attachment
+from e2a.v1.generated.models.attachment_meta import AttachmentMeta
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
 from e2a.v1.generated.models.attachment_view import AttachmentView
 from e2a.v1.generated.models.auth_verdict import AuthVerdict
@@ -38,7 +39,16 @@ from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult
 from e2a.v1.generated.models.delivery_status_json import DeliveryStatusJSON
 from e2a.v1.generated.models.deployment_info_view import DeploymentInfoView
 from e2a.v1.generated.models.domain import Domain
+from e2a.v1.generated.models.domain_sending_failed_data import DomainSendingFailedData
+from e2a.v1.generated.models.domain_sending_verified_data import DomainSendingVerifiedData
+from e2a.v1.generated.models.domain_suppression_added_data import DomainSuppressionAddedData
 from e2a.v1.generated.models.domain_view import DomainView
+from e2a.v1.generated.models.email_bounced_data import EmailBouncedData
+from e2a.v1.generated.models.email_complained_data import EmailComplainedData
+from e2a.v1.generated.models.email_delivered_data import EmailDeliveredData
+from e2a.v1.generated.models.email_failed_data import EmailFailedData
+from e2a.v1.generated.models.email_received_data import EmailReceivedData
+from e2a.v1.generated.models.email_sent_data import EmailSentData
 from e2a.v1.generated.models.error_body import ErrorBody
 from e2a.v1.generated.models.error_body_details import ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope

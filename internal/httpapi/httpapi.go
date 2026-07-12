@@ -428,6 +428,9 @@ func (s *Server) registerOperations() {
 	s.registerAPIKeys()
 	s.registerOutbound()
 	s.registerReviews()
+	// Not an operation: exports the typed per-event `data` payload schemas
+	// (EmailReceivedData, …) into components.schemas for docs + codegen.
+	s.registerEventPayloadSchemas()
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

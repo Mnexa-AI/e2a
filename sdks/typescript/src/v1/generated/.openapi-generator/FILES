@@ -24,6 +24,7 @@ models/AgentIdentity.ts
 models/AgentView.ts
 models/ApproveRequest.ts
 models/Attachment.ts
+models/AttachmentMeta.ts
 models/AttachmentMetaView.ts
 models/AttachmentView.ts
 models/AuthVerdict.ts
@@ -41,7 +42,16 @@ models/DeleteUserDataResult.ts
 models/DeliveryStatusJSON.ts
 models/DeploymentInfoView.ts
 models/Domain.ts
+models/DomainSendingFailedData.ts
+models/DomainSendingVerifiedData.ts
+models/DomainSuppressionAddedData.ts
 models/DomainView.ts
+models/EmailBouncedData.ts
+models/EmailComplainedData.ts
+models/EmailDeliveredData.ts
+models/EmailFailedData.ts
+models/EmailReceivedData.ts
+models/EmailSentData.ts
 models/ErrorBody.ts
 models/ErrorBodyDetails.ts
 models/ErrorEnvelope.ts

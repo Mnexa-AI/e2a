@@ -45,6 +45,7 @@ __all__ = [
     "AgentView",
     "ApproveRequest",
     "Attachment",
+    "AttachmentMeta",
     "AttachmentMetaView",
     "AttachmentView",
     "AuthVerdict",
@@ -62,7 +63,16 @@ __all__ = [
     "DeliveryStatusJSON",
     "DeploymentInfoView",
     "Domain",
+    "DomainSendingFailedData",
+    "DomainSendingVerifiedData",
+    "DomainSuppressionAddedData",
     "DomainView",
+    "EmailBouncedData",
+    "EmailComplainedData",
+    "EmailDeliveredData",
+    "EmailFailedData",
+    "EmailReceivedData",
+    "EmailSentData",
     "ErrorBody",
     "ErrorBodyDetails",
     "ErrorEnvelope",
@@ -173,6 +183,7 @@ from e2a.v1.generated.models.agent_identity import AgentIdentity as AgentIdentit
 from e2a.v1.generated.models.agent_view import AgentView as AgentView
 from e2a.v1.generated.models.approve_request import ApproveRequest as ApproveRequest
 from e2a.v1.generated.models.attachment import Attachment as Attachment
+from e2a.v1.generated.models.attachment_meta import AttachmentMeta as AttachmentMeta
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView as AttachmentMetaView
 from e2a.v1.generated.models.attachment_view import AttachmentView as AttachmentView
 from e2a.v1.generated.models.auth_verdict import AuthVerdict as AuthVerdict
@@ -190,7 +201,16 @@ from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult
 from e2a.v1.generated.models.delivery_status_json import DeliveryStatusJSON as DeliveryStatusJSON
 from e2a.v1.generated.models.deployment_info_view import DeploymentInfoView as DeploymentInfoView
 from e2a.v1.generated.models.domain import Domain as Domain
+from e2a.v1.generated.models.domain_sending_failed_data import DomainSendingFailedData as DomainSendingFailedData
+from e2a.v1.generated.models.domain_sending_verified_data import DomainSendingVerifiedData as DomainSendingVerifiedData
+from e2a.v1.generated.models.domain_suppression_added_data import DomainSuppressionAddedData as DomainSuppressionAddedData
 from e2a.v1.generated.models.domain_view import DomainView as DomainView
+from e2a.v1.generated.models.email_bounced_data import EmailBouncedData as EmailBouncedData
+from e2a.v1.generated.models.email_complained_data import EmailComplainedData as EmailComplainedData
+from e2a.v1.generated.models.email_delivered_data import EmailDeliveredData as EmailDeliveredData
+from e2a.v1.generated.models.email_failed_data import EmailFailedData as EmailFailedData
+from e2a.v1.generated.models.email_received_data import EmailReceivedData as EmailReceivedData
+from e2a.v1.generated.models.email_sent_data import EmailSentData as EmailSentData
 from e2a.v1.generated.models.error_body import ErrorBody as ErrorBody
 from e2a.v1.generated.models.error_body_details import ErrorBodyDetails as ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope as ErrorEnvelope

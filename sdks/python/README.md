@@ -149,13 +149,17 @@ List methods return an `AutoPager` — async-iterate it, or use
 ## WebSocket (real-time delivery for local agents)
 
 ```python
-async for notif in client.listen("bot@agents.e2a.dev"):  # falls back to E2A_AGENT_EMAIL
-    email = await client.messages.get(notif.recipient, notif.message_id)
+async for event in client.listen("bot@agents.e2a.dev"):  # falls back to E2A_AGENT_EMAIL
+    if event.type != "email.received":
+        continue  # tolerate future event kinds
+    data = event.data
+    email = await client.messages.get(data["delivered_to"], data["message_id"])
 ```
 
-`client.listen(address)` returns a `WSStream` (async-iterable of
-`WSNotification`) that reconnects with exponential backoff. Requires the `[ws]`
-extra (`pip install "e2a[ws]"`).
+`client.listen(address)` returns a `WSStream` (async-iterable of `WSEvent` —
+the same versioned `{type, id, schema_version, created_at, data}` envelope a
+webhook delivery carries) that reconnects with exponential backoff. Requires
+the `[ws]` extra (`pip install "e2a[ws]"`).
 
 ## Conversation threading
 

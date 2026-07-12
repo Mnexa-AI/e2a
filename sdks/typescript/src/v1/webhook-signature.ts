@@ -68,42 +68,244 @@ export function verifyWebhookSignature(opts: VerifySignatureOptions): boolean {
   return false;
 }
 
-/** A verified webhook event. The per-event `data` shape is typed once the
- *  server emits per-type payload schemas (a tracked follow-up); until then it
- *  is `unknown` and callers narrow on `type`. */
+/** A verified event envelope — the shape of a webhook delivery body, a
+ *  `GET /v1/events/{id}` object, AND a WebSocket frame (all three channels
+ *  share it). `data` is `unknown` at the envelope level so unknown/beta event
+ *  types still parse; narrow on `type` with the `isEmail*` / `isDomain*`
+ *  guards below to get the typed payload of a stable event. */
 export interface WebhookEvent {
   id?: string;
   type: string;
+  /** Envelope schema version (currently "1"). Branch on it before parsing
+   *  `data` if you need forward-compatibility across envelope revisions. */
+  schema_version?: string;
   created_at?: string;
   data: unknown;
   [k: string]: unknown;
+}
+
+// ── Typed per-event `data` payloads (STABLE events) ─────────────────────────
+//
+// Mirrors the server's canonical structs (internal/eventpayload) and the
+// OpenAPI component schemas (EmailReceivedData, …). Locked by the shared
+// golden fixtures under internal/eventpayload/testdata — the server builders
+// and these types are tested against the same files.
+//
+// The beta events (email.flagged, email.blocked, email.review_requested,
+// email.review_approved, email.review_rejected) are intentionally NOT typed:
+// their payloads are open/unstable — access `event.data` generically.
+
+/** Metadata for one attachment (never the bytes). `index` is the stable
+ *  0-based fetch key for `GET …/messages/{id}/attachments/{index}`. */
+export interface AttachmentMeta {
+  filename?: string;
+  content_type?: string;
+  size_bytes: number;
+  index: number;
 }
 
 /** Typed payload of an `email.received` event. The event is a metadata-only
  *  notification — it does NOT carry the message body. `message_id` + `delivered_to`
  *  are the fetch keys; pass the event to {@link E2AClient.webhooks.fetchMessage}
  *  (or call `client.messages.get(delivered_to, message_id)`) to retrieve the full
- *  message (body + attachments). `auth_headers` is the signed X-E2A-Auth-*
+ *  message (body + attachment bytes). `auth_headers` is the signed X-E2A-Auth-*
  *  attestation — verify it to independently confirm the inbound SPF/DKIM/DMARC
  *  verdict. */
-export interface EmailReceivedPayload {
+export interface EmailReceivedData {
   message_id: string;
-  conversation_id?: string;
   /** The receiving agent's email — its id and address (an agent's id IS its email). */
   agent_email: string;
+  /** Always "inbound" on this event. */
+  direction: string;
+  conversation_id?: string;
   /** Display/reply sender (prefers Reply-To). For the authenticated, gated
    *  identity use `authenticated_from`. */
   from: string;
+  /** The From-header identity SPF/DKIM/DMARC verified — treat THIS (not
+   *  `from`) as the gated identity. */
   authenticated_from: string;
   to: string[];
   cc?: string[];
   reply_to?: string[];
-  /** The agent address the message was delivered to — the fetch key. */
+  /** The one agent address this per-agent copy was delivered to (scalar by
+   *  construction — one event per delivery). The fetch key. */
   delivered_to: string;
   subject: string;
-  /** Signed X-E2A-Auth-* attestation of the inbound auth verdict. */
-  auth_headers?: Record<string, string>;
+  /** Signed X-E2A-Auth-* attestation of the inbound auth verdict. May be an
+   *  empty object on the WebSocket drain path; never absent. */
+  auth_headers: Record<string, string>;
   received_at: string;
+  /** Attachment METADATA (never bytes). Omitted when the message has none. */
+  attachments?: AttachmentMeta[];
+}
+
+/** Typed payload of an `email.sent` event — an outbound send was accepted by
+ *  the provider. Identical from the sync and async send paths. */
+export interface EmailSentData {
+  message_id: string;
+  agent_email: string;
+  /** Always "outbound" on this event. */
+  direction: string;
+  conversation_id?: string;
+  /** Provider-assigned (SES) id — the correlation key for the async
+   *  delivered/bounced/complained feedback events. */
+  provider_message_id: string;
+  /** Open set; tolerate unknown values. Known values: smtp. */
+  method: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  /** Open set; tolerate unknown values. Known values: send, reply, forward. */
+  message_type: string;
+}
+
+/** Typed payload of an `email.failed` event — an outbound send terminally
+ *  failed (retries exhausted / permanent reject). */
+export interface EmailFailedData {
+  message_id: string;
+  agent_email: string;
+  /** Always "outbound" on this event. */
+  direction: string;
+  conversation_id?: string;
+  /** Open set; tolerate unknown values. Known values: smtp. */
+  method: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  /** Open set; tolerate unknown values. Known values: send, reply, forward. */
+  message_type: string;
+  /** Human-readable terminal failure diagnostic. */
+  reason: string;
+  /** Optional machine-readable failure code. */
+  reason_code?: string;
+  /** Whether re-submitting could succeed. Present only when the send path
+   *  genuinely knows; absent ≠ false. */
+  retryable?: boolean;
+}
+
+/** Typed payload of an `email.delivered` event — the recipient's server
+ *  accepted an outbound message, per recipient. The event TYPE is the
+ *  outcome; there is no `status` field. */
+export interface EmailDeliveredData {
+  message_id: string;
+  agent_email: string;
+  /** Always "outbound" on this event. */
+  direction: string;
+  /** The one recipient address this per-recipient outcome is about. */
+  delivered_to: string;
+  subject?: string;
+  /** Provider diagnostic (e.g. the remote SMTP response), when present. */
+  smtp_detail?: string;
+}
+
+/** Typed payload of an `email.bounced` event — EmailDeliveredData's fields
+ *  plus the SES bounce classification. */
+export interface EmailBouncedData {
+  message_id: string;
+  agent_email: string;
+  /** Always "outbound" on this event. */
+  direction: string;
+  /** The one recipient address this per-recipient outcome is about. */
+  delivered_to: string;
+  subject?: string;
+  smtp_detail?: string;
+  /** Normalized SES bounce classification. Only a permanent (hard) bounce
+   *  auto-suppresses the address. */
+  bounce_type: "permanent" | "transient" | "undetermined";
+  /** Raw SES bounceSubType (e.g. General, NoEmail, MailboxFull). */
+  bounce_sub_type?: string;
+}
+
+/** Typed payload of an `email.complained` event — a recipient marked an
+ *  outbound message as spam. `smtp_detail` carries the complaint feedback
+ *  type when present. */
+export interface EmailComplainedData {
+  message_id: string;
+  agent_email: string;
+  /** Always "outbound" on this event. */
+  direction: string;
+  /** The one recipient address this per-recipient outcome is about. */
+  delivered_to: string;
+  subject?: string;
+  smtp_detail?: string;
+}
+
+/** Typed payload of a `domain.sending_verified` event. */
+export interface DomainSendingVerifiedData {
+  domain: string;
+  /** Open set; tolerate unknown values. Known values: verified. */
+  sending_status: string;
+}
+
+/** Typed payload of a `domain.sending_failed` event. */
+export interface DomainSendingFailedData {
+  domain: string;
+  /** Open set; tolerate unknown values. Known values: failed. */
+  sending_status: string;
+  reason?: string;
+}
+
+/** Typed payload of a `domain.suppression_added` event — an address was
+ *  auto-suppressed after a hard bounce or complaint. Account-scoped despite
+ *  the `domain.` prefix. */
+export interface DomainSuppressionAddedData {
+  address: string;
+  source: "bounce" | "complaint";
+  reason?: string;
+  /** The outbound message whose feedback triggered the suppression, when known. */
+  message_id?: string;
+}
+
+// ── Discriminated narrowing guards ──────────────────────────────────────────
+//
+// `event.data` narrows to the typed payload:
+//
+//     const event = constructEvent(rawBody, header, secret);
+//     if (isEmailReceived(event)) {
+//       const msg = await client.webhooks.fetchMessage(event);
+//     } else if (isEmailBounced(event)) {
+//       console.log(event.data.bounce_type, event.data.delivered_to);
+//     } // unknown/beta types: handle event.data generically.
+
+/** Narrow a verified event to `email.received` with typed `data`. */
+export function isEmailReceived(e: WebhookEvent): e is WebhookEvent & { type: "email.received"; data: EmailReceivedData } {
+  return e.type === "email.received";
+}
+/** Narrow a verified event to `email.sent` with typed `data`. */
+export function isEmailSent(e: WebhookEvent): e is WebhookEvent & { type: "email.sent"; data: EmailSentData } {
+  return e.type === "email.sent";
+}
+/** Narrow a verified event to `email.failed` with typed `data`. */
+export function isEmailFailed(e: WebhookEvent): e is WebhookEvent & { type: "email.failed"; data: EmailFailedData } {
+  return e.type === "email.failed";
+}
+/** Narrow a verified event to `email.delivered` with typed `data`. */
+export function isEmailDelivered(e: WebhookEvent): e is WebhookEvent & { type: "email.delivered"; data: EmailDeliveredData } {
+  return e.type === "email.delivered";
+}
+/** Narrow a verified event to `email.bounced` with typed `data`. */
+export function isEmailBounced(e: WebhookEvent): e is WebhookEvent & { type: "email.bounced"; data: EmailBouncedData } {
+  return e.type === "email.bounced";
+}
+/** Narrow a verified event to `email.complained` with typed `data`. */
+export function isEmailComplained(e: WebhookEvent): e is WebhookEvent & { type: "email.complained"; data: EmailComplainedData } {
+  return e.type === "email.complained";
+}
+/** Narrow a verified event to `domain.sending_verified` with typed `data`. */
+export function isDomainSendingVerified(e: WebhookEvent): e is WebhookEvent & { type: "domain.sending_verified"; data: DomainSendingVerifiedData } {
+  return e.type === "domain.sending_verified";
+}
+/** Narrow a verified event to `domain.sending_failed` with typed `data`. */
+export function isDomainSendingFailed(e: WebhookEvent): e is WebhookEvent & { type: "domain.sending_failed"; data: DomainSendingFailedData } {
+  return e.type === "domain.sending_failed";
+}
+/** Narrow a verified event to `domain.suppression_added` with typed `data`. */
+export function isDomainSuppressionAdded(e: WebhookEvent): e is WebhookEvent & { type: "domain.suppression_added"; data: DomainSuppressionAddedData } {
+  return e.type === "domain.suppression_added";
 }
 
 export interface ConstructEventOptions {

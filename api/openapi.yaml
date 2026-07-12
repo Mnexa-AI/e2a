@@ -270,6 +270,24 @@ components:
         - content_type
         - data
       type: object
+    AttachmentMeta:
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+        filename:
+          type: string
+        index:
+          description: Stable 0-based attachment index (document order) — the fetch key for the attachment-bytes endpoint.
+          format: int64
+          type: integer
+        size_bytes:
+          format: int64
+          type: integer
+      required:
+        - size_bytes
+        - index
+      type: object
     AttachmentMetaView:
       additionalProperties: false
       properties:
@@ -748,6 +766,50 @@ components:
         - agent_count
         - sending_status
       type: object
+    DomainSendingFailedData:
+      additionalProperties: false
+      properties:
+        domain:
+          type: string
+        reason:
+          type: string
+        sending_status:
+          description: "Terminal sending-identity status. Open set; tolerate unknown values. Known values: failed."
+          type: string
+      required:
+        - domain
+        - sending_status
+      type: object
+    DomainSendingVerifiedData:
+      additionalProperties: false
+      properties:
+        domain:
+          type: string
+        sending_status:
+          description: "Terminal sending-identity status. Open set; tolerate unknown values. Known values: verified."
+          type: string
+      required:
+        - domain
+        - sending_status
+      type: object
+    DomainSuppressionAddedData:
+      additionalProperties: false
+      properties:
+        address:
+          type: string
+        message_id:
+          type: string
+        reason:
+          type: string
+        source:
+          enum:
+            - bounce
+            - complaint
+          type: string
+      required:
+        - address
+        - source
+      type: object
     DomainView:
       additionalProperties: false
       properties:
@@ -790,6 +852,241 @@ components:
         - agent_count
         - sending_status
       type: object
+    EmailBouncedData:
+      additionalProperties: false
+      properties:
+        agent_email:
+          type: string
+        bounce_sub_type:
+          type: string
+        bounce_type:
+          enum:
+            - permanent
+            - transient
+            - undetermined
+          type: string
+        delivered_to:
+          description: The one recipient address this per-recipient outcome is about.
+          type: string
+        direction:
+          description: Always "outbound" on this event.
+          type: string
+        message_id:
+          type: string
+        smtp_detail:
+          type: string
+        subject:
+          type: string
+      required:
+        - message_id
+        - agent_email
+        - direction
+        - delivered_to
+        - bounce_type
+      type: object
+    EmailComplainedData:
+      additionalProperties: false
+      properties:
+        agent_email:
+          type: string
+        delivered_to:
+          description: The one recipient address this per-recipient outcome is about.
+          type: string
+        direction:
+          description: Always "outbound" on this event.
+          type: string
+        message_id:
+          type: string
+        smtp_detail:
+          type: string
+        subject:
+          type: string
+      required:
+        - message_id
+        - agent_email
+        - direction
+        - delivered_to
+      type: object
+    EmailDeliveredData:
+      additionalProperties: false
+      properties:
+        agent_email:
+          type: string
+        delivered_to:
+          description: The one recipient address this per-recipient outcome is about.
+          type: string
+        direction:
+          description: Always "outbound" on this event.
+          type: string
+        message_id:
+          type: string
+        smtp_detail:
+          type: string
+        subject:
+          type: string
+      required:
+        - message_id
+        - agent_email
+        - direction
+        - delivered_to
+      type: object
+    EmailFailedData:
+      additionalProperties: false
+      properties:
+        agent_email:
+          type: string
+        bcc:
+          items:
+            type: string
+          type: array
+        cc:
+          items:
+            type: string
+          type: array
+        conversation_id:
+          type: string
+        direction:
+          description: Always "outbound" on this event.
+          type: string
+        from:
+          type: string
+        message_id:
+          type: string
+        message_type:
+          description: "Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."
+          type: string
+        method:
+          description: "Transport used for the send. Open set; tolerate unknown values. Known values: smtp."
+          type: string
+        reason:
+          type: string
+        reason_code:
+          type: string
+        retryable:
+          type: boolean
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type: array
+      required:
+        - message_id
+        - agent_email
+        - direction
+        - method
+        - from
+        - to
+        - subject
+        - message_type
+        - reason
+      type: object
+    EmailReceivedData:
+      additionalProperties: false
+      properties:
+        agent_email:
+          description: The receiving agent's email — its id and address (an agent's id IS its email).
+          type: string
+        attachments:
+          items:
+            $ref: "#/components/schemas/AttachmentMeta"
+          type: array
+        auth_headers:
+          additionalProperties:
+            type: string
+          type: object
+        authenticated_from:
+          description: The From-header identity SPF/DKIM/DMARC verified — treat THIS (not from) as the gated identity.
+          type: string
+        cc:
+          items:
+            type: string
+          type: array
+        conversation_id:
+          type: string
+        delivered_to:
+          description: The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message.
+          type: string
+        direction:
+          description: Always "inbound" on this event.
+          type: string
+        from:
+          description: Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.
+          type: string
+        message_id:
+          type: string
+        received_at:
+          format: date-time
+          type: string
+        reply_to:
+          items:
+            type: string
+          type: array
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type: array
+      required:
+        - message_id
+        - agent_email
+        - direction
+        - from
+        - authenticated_from
+        - to
+        - delivered_to
+        - subject
+        - auth_headers
+        - received_at
+      type: object
+    EmailSentData:
+      additionalProperties: false
+      properties:
+        agent_email:
+          type: string
+        bcc:
+          items:
+            type: string
+          type: array
+        cc:
+          items:
+            type: string
+          type: array
+        conversation_id:
+          type: string
+        direction:
+          description: Always "outbound" on this event.
+          type: string
+        from:
+          type: string
+        message_id:
+          type: string
+        message_type:
+          description: "Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."
+          type: string
+        method:
+          description: "Transport used for the send. Open set; tolerate unknown values. Known values: smtp."
+          type: string
+        provider_message_id:
+          type: string
+        subject:
+          type: string
+        to:
+          items:
+            type: string
+          type: array
+      required:
+        - message_id
+        - agent_email
+        - direction
+        - provider_message_id
+        - method
+        - from
+        - to
+        - subject
+        - message_type
+      type: object
     ErrorBody:
       additionalProperties: false
       properties:
@@ -831,6 +1128,7 @@ components:
           type: string
         data:
           additionalProperties: {}
+          description: "Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas: email.received → EmailReceivedData, email.sent → EmailSentData, email.failed → EmailFailedData, email.delivered → EmailDeliveredData, email.bounced → EmailBouncedData, email.complained → EmailComplainedData, domain.sending_verified → DomainSendingVerifiedData, domain.sending_failed → DomainSendingFailedData, domain.suppression_added → DomainSuppressionAddedData. The beta events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) have open payloads that may change before they are declared stable."
           type: object
         delivery_status:
           $ref: "#/components/schemas/DeliveryStatusJSON"
@@ -845,7 +1143,7 @@ components:
           description: "Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match."
           type: string
         type:
-          description: "Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added."
+          description: "Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Stable types have frozen data schemas — see the data field."
           type: string
       required:
         - id

@@ -20,26 +20,30 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.delivery_status_json import DeliveryStatusJSON
+from e2a.v1.generated.models.attachment_meta import AttachmentMeta
 from typing import Optional, Set
 from typing_extensions import Self
 
-class EventJSON(BaseModel):
+class EmailReceivedData(BaseModel):
     """
-    EventJSON
+    EmailReceivedData
     """ # noqa: E501
-    agent_email: Optional[StrictStr] = None
+    agent_email: StrictStr = Field(description="The receiving agent's email — its id and address (an agent's id IS its email).")
+    attachments: Optional[List[AttachmentMeta]] = None
+    auth_headers: Dict[str, StrictStr]
+    authenticated_from: StrictStr = Field(description="The From-header identity SPF/DKIM/DMARC verified — treat THIS (not from) as the gated identity.")
+    cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
-    created_at: datetime
-    data: Dict[str, Any] = Field(description="Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas: email.received → EmailReceivedData, email.sent → EmailSentData, email.failed → EmailFailedData, email.delivered → EmailDeliveredData, email.bounced → EmailBouncedData, email.complained → EmailComplainedData, domain.sending_verified → DomainSendingVerifiedData, domain.sending_failed → DomainSendingFailedData, domain.suppression_added → DomainSuppressionAddedData. The beta events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) have open payloads that may change before they are declared stable.")
-    delivery_status: Optional[DeliveryStatusJSON] = None
-    id: StrictStr
-    message_id: Optional[StrictStr] = None
-    schema_version: StrictStr = Field(description="Envelope schema version — a semver-ish string label (currently \"1\").")
-    status: StrictStr = Field(description="Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.")
-    type: StrictStr = Field(description="Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Stable types have frozen data schemas — see the data field.")
+    delivered_to: StrictStr = Field(description="The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message.")
+    direction: StrictStr = Field(description="Always \"inbound\" on this event.")
+    var_from: StrictStr = Field(description="Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.", alias="from")
+    message_id: StrictStr
+    received_at: datetime
+    reply_to: Optional[List[StrictStr]] = None
+    subject: StrictStr
+    to: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "data", "delivery_status", "id", "message_id", "schema_version", "status", "type"]
+    __properties: ClassVar[List[str]] = ["agent_email", "attachments", "auth_headers", "authenticated_from", "cc", "conversation_id", "delivered_to", "direction", "from", "message_id", "received_at", "reply_to", "subject", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -59,7 +63,7 @@ class EventJSON(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of EventJSON from a JSON string"""
+        """Create an instance of EmailReceivedData from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,9 +86,13 @@ class EventJSON(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of delivery_status
-        if self.delivery_status:
-            _dict['delivery_status'] = self.delivery_status.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of each item in attachments (list)
+        _items = []
+        if self.attachments:
+            for _item_attachments in self.attachments:
+                if _item_attachments:
+                    _items.append(_item_attachments.to_dict())
+            _dict['attachments'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -94,7 +102,7 @@ class EventJSON(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of EventJSON from a dict"""
+        """Create an instance of EmailReceivedData from a dict"""
         if obj is None:
             return None
 
@@ -103,15 +111,19 @@ class EventJSON(BaseModel):
 
         _obj = cls.model_validate({
             "agent_email": obj.get("agent_email"),
+            "attachments": [AttachmentMeta.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
+            "auth_headers": obj.get("auth_headers"),
+            "authenticated_from": obj.get("authenticated_from"),
+            "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
-            "created_at": obj.get("created_at"),
-            "data": obj.get("data"),
-            "delivery_status": DeliveryStatusJSON.from_dict(obj["delivery_status"]) if obj.get("delivery_status") is not None else None,
-            "id": obj.get("id"),
+            "delivered_to": obj.get("delivered_to"),
+            "direction": obj.get("direction"),
+            "from": obj.get("from"),
             "message_id": obj.get("message_id"),
-            "schema_version": obj.get("schema_version"),
-            "status": obj.get("status"),
-            "type": obj.get("type")
+            "received_at": obj.get("received_at"),
+            "reply_to": obj.get("reply_to"),
+            "subject": obj.get("subject"),
+            "to": obj.get("to")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

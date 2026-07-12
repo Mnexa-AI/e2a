@@ -9,10 +9,14 @@ def test_v1_exports():
         E2ANotFoundError,
         E2AWebhookSignatureError,
         Page,
+        EmailBouncedData,
+        EmailReceivedData,
         WebhookEvent,
-        WSNotification,
+        WSEvent,
         WSStream,
         construct_event,
+        is_email_bounced,
+        is_email_received,
         verify_webhook_signature,
     )
 
@@ -46,7 +50,10 @@ def test_v1_all_is_explicit():
         "verify_webhook_signature",
         "construct_event",
         "WebhookEvent",
-        "WSNotification",
+        "EmailReceivedData",
+        "EmailBouncedData",
+        "is_email_received",
+        "WSEvent",
         "WSStream",
     }
     assert expected.issubset(set(e2a.v1.__all__))
