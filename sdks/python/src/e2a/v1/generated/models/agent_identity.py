@@ -31,7 +31,6 @@ class AgentIdentity(BaseModel):
     domain: StrictStr
     domain_verified: StrictBool
     email: StrictStr
-    id: StrictStr
     inbound_7d: StrictInt
     inbound_allowlist: Optional[List[StrictStr]] = None
     inbound_policy: StrictStr
@@ -56,7 +55,7 @@ class AgentIdentity(BaseModel):
     ttl_seconds: StrictInt
     user_id: StrictStr
     webhook_healthy: StrictBool
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "on_expiry", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "ttl_seconds", "user_id", "webhook_healthy"]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "on_expiry", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "ttl_seconds", "user_id", "webhook_healthy"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -123,7 +122,6 @@ class AgentIdentity(BaseModel):
             "domain": obj.get("domain"),
             "domain_verified": obj.get("domain_verified"),
             "email": obj.get("email"),
-            "id": obj.get("id"),
             "inbound_7d": obj.get("inbound_7d"),
             "inbound_allowlist": obj.get("inbound_allowlist"),
             "inbound_policy": obj.get("inbound_policy"),

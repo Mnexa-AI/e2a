@@ -172,7 +172,7 @@ describe("Templates page", () => {
       "GET /v1/templates": () =>
         jsonResp({ items: [template], next_cursor: null }),
       "/v1/starter-templates": () => jsonResp(starterCatalog),
-      [`DELETE /v1/templates/${encodeURIComponent(template.id)}`]: () => {
+      [`DELETE /v1/templates/${encodeURIComponent(template.id)}?confirm=DELETE`]: () => {
         deletedIDs.push(template.id);
         return {
           ok: true,

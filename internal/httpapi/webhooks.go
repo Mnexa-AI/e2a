@@ -42,9 +42,9 @@ type WebhookView struct {
 	Events          []string           `json:"events" nullable:"false" doc:"The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."`
 	Filters         WebhookFiltersView `json:"filters"`
 	Enabled         bool               `json:"enabled"`
-	AutoDisabledAt  string             `json:"auto_disabled_at,omitempty" format:"date-time"`
-	CreatedAt       string             `json:"created_at" format:"date-time"`
-	LastDeliveredAt string             `json:"last_delivered_at,omitempty" format:"date-time"`
+	AutoDisabledAt  *time.Time         `json:"auto_disabled_at,omitempty" format:"date-time"`
+	CreatedAt       time.Time          `json:"created_at" format:"date-time"`
+	LastDeliveredAt *time.Time         `json:"last_delivered_at,omitempty" format:"date-time"`
 }
 
 // CreateWebhookResponse is WebhookView plus the one-time signing secret (WH-3),
@@ -67,14 +67,10 @@ func webhookView(wh *identity.Webhook) WebhookView {
 			Labels:          wh.Filters.Labels,
 		},
 		Enabled:   wh.Enabled,
-		CreatedAt: wh.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt: wh.CreatedAt.UTC(),
 	}
-	if wh.AutoDisabledAt != nil {
-		v.AutoDisabledAt = wh.AutoDisabledAt.UTC().Format(time.RFC3339)
-	}
-	if wh.LastDeliveredAt != nil {
-		v.LastDeliveredAt = wh.LastDeliveredAt.UTC().Format(time.RFC3339)
-	}
+	v.AutoDisabledAt = utcPtr(wh.AutoDisabledAt)
+	v.LastDeliveredAt = utcPtr(wh.LastDeliveredAt)
 	return v
 }
 
@@ -192,9 +188,16 @@ type CreateWebhookRequest struct {
 }
 type createWebhookInput struct{ Body CreateWebhookRequest }
 
-// WebhookIDParam is the path input for single-webhook ops.
+// WebhookIDParam is the path input for single-webhook read/update ops.
 type WebhookIDParam struct {
 	ID string `path:"id"`
+}
+
+// deleteWebhookInput is WebhookIDParam plus the uniform destructive-delete
+// guard (DeleteConfirm) — a dedicated input so only DELETE requires ?confirm.
+type deleteWebhookInput struct {
+	ID string `path:"id"`
+	DeleteConfirm
 }
 
 func (s *Server) registerWebhooks() {
@@ -220,7 +223,8 @@ func (s *Server) registerWebhooks() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteWebhook", Method: http.MethodDelete, Path: "/v1/webhooks/{id}",
 		Summary: "Delete a webhook", Tags: []string{"webhooks"},
-		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Delete a webhook subscriber by id. Requires ?confirm=DELETE.",
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteWebhook)
 
 	huma.Register(s.API, huma.Operation{
@@ -321,28 +325,28 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 
 // WebhookDeliveryView mirrors the legacy per-delivery wire shape.
 type WebhookDeliveryView struct {
-	ID             string `json:"id"`
-	EventType      string `json:"type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."`
-	Status         string `json:"status" doc:"Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."`
-	Attempts       int    `json:"attempts"`
-	LastError      string `json:"last_error,omitempty"`
-	LastStatusCode *int   `json:"last_status_code,omitempty"`
-	LastAttemptAt  string `json:"last_attempt_at,omitempty" format:"date-time"`
-	NextRetryAt    string `json:"next_retry_at" format:"date-time"`
-	CreatedAt      string `json:"created_at" format:"date-time"`
+	ID             string     `json:"id"`
+	EventType      string     `json:"type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."`
+	Status         string     `json:"status" doc:"Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."`
+	Attempts       int        `json:"attempts"`
+	LastError      string     `json:"last_error,omitempty"`
+	LastStatusCode *int       `json:"last_status_code,omitempty"`
+	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty" format:"date-time"`
+	NextRetryAt    time.Time  `json:"next_retry_at" format:"date-time"`
+	CreatedAt      time.Time  `json:"created_at" format:"date-time"`
 }
 
 // ListDeliveriesInput — the per-webhook delivery log, keyset-paginated on
 // (created_at, id) like every other v1 list. The delivery log grows unbounded on
 // a busy webhook, so a cursor (not a fixed cap) is what keeps the whole log
-// reachable; the limit is generous (default 100, up to 500) so a recent view is
+// reachable; the limit is generous (default 100, up to 100) so a recent view is
 // rarely more than one page. `status` restricts to pending|delivered|failed and
 // is pinned into the cursor (a continuation must not change it).
 type ListDeliveriesInput struct {
 	ID     string `path:"id"`
 	Status string `query:"status" enum:"pending,delivered,failed"`
 	Cursor string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter."`
-	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100"`
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"100"`
 }
 
 // deliveriesCursor is the opaque keyset position for the delivery log: the last
@@ -395,12 +399,10 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDelive
 		v := WebhookDeliveryView{
 			ID: d.ID, EventType: d.EventType, Status: d.Status, Attempts: d.Attempts,
 			LastError: d.LastError, LastStatusCode: d.LastStatusCode,
-			NextRetryAt: d.NextRetryAt.UTC().Format(time.RFC3339),
-			CreatedAt:   d.CreatedAt.UTC().Format(time.RFC3339),
+			NextRetryAt: d.NextRetryAt.UTC(),
+			CreatedAt:   d.CreatedAt.UTC(),
 		}
-		if d.LastAttemptAt != nil {
-			v.LastAttemptAt = d.LastAttemptAt.UTC().Format(time.RFC3339)
-		}
+		v.LastAttemptAt = utcPtr(d.LastAttemptAt)
 		items = append(items, v)
 	}
 	var nextCursor string
@@ -489,8 +491,8 @@ func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput
 }
 
 type rotateSecretResponse struct {
-	SigningSecret           string `json:"signing_secret"`
-	PreviousSecretExpiresAt string `json:"previous_secret_expires_at" format:"date-time"`
+	SigningSecret           string    `json:"signing_secret"`
+	PreviousSecretExpiresAt time.Time `json:"previous_secret_expires_at" format:"date-time"`
 }
 
 type rotateSecretOutput struct {
@@ -524,7 +526,7 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *rotateSecret
 			}
 			return http.StatusOK, rotateSecretResponse{
 				SigningSecret:           secret,
-				PreviousSecretExpiresAt: prevExpires.UTC().Format(time.RFC3339),
+				PreviousSecretExpiresAt: prevExpires.UTC(),
 			}, nil
 		})
 	if err != nil {
@@ -614,7 +616,7 @@ func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*web
 
 type deleteWebhookOutput struct{}
 
-func (s *Server) handleDeleteWebhook(ctx context.Context, in *WebhookIDParam) (*deleteWebhookOutput, error) {
+func (s *Server) handleDeleteWebhook(ctx context.Context, in *deleteWebhookInput) (*deleteWebhookOutput, error) {
 	user, err := s.requireAccountUser(ctx)
 	if err != nil {
 		return nil, err

@@ -172,7 +172,7 @@ async function delAgent(email: string): Promise<void> {
   await client.delete(`/v1/agents/${encodeURIComponent(email)}?confirm=DELETE`);
 }
 async function delHook(id: string): Promise<void> {
-  await client.delete(`/v1/webhooks/${encodeURIComponent(id)}`);
+  await client.delete(`/v1/webhooks/${encodeURIComponent(id)}?confirm=DELETE`);
 }
 
 // pollEvent: poll listEvents (filtered type+agent_email+since) until an event

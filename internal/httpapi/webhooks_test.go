@@ -44,8 +44,8 @@ func TestCreateWebhookInvalidEventType(t *testing.T) {
 		"url": "https://example.com/hook", "events": []string{"email.invented"},
 	})
 	// Unknown event now rejected by the schema enum (WH-2) → 422 before the handler.
-	if code != 422 || errCode(body) != "unprocessable_entity" {
-		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)
+	if code != 422 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 422 invalid_request, got %d %v", code, body)
 	}
 }
 
@@ -122,7 +122,7 @@ func TestGetWebhookNotFound(t *testing.T) {
 
 func TestDeleteWebhook(t *testing.T) {
 	srv := testServer(t)
-	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/webhooks/wh_1", nil)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/v1/webhooks/wh_1?confirm=DELETE", nil)
 	req.Header.Set("Authorization", "Bearer good")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -136,7 +136,7 @@ func TestDeleteWebhook(t *testing.T) {
 
 func TestDeleteWebhookNotFound(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/webhooks/wh_missing", "good", nil)
+	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/webhooks/wh_missing?confirm=DELETE", "good", nil)
 	if code != 404 {
 		t.Fatalf("want 404, got %d", code)
 	}
@@ -208,8 +208,8 @@ func TestTestWebhookInvalidEvent(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"type": "email.invented"})
 	// Unknown event now rejected by the schema enum (WH-2) → 422 before the handler.
-	if code != 422 || errCode(body) != "unprocessable_entity" {
-		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)
+	if code != 422 || errCode(body) != "invalid_request" {
+		t.Fatalf("want 422 invalid_request, got %d %v", code, body)
 	}
 }
 

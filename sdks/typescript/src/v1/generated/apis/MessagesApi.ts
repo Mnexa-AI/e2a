@@ -12,6 +12,7 @@ import { ApproveRequest } from '../models/ApproveRequest.js';
 import { AttachmentView } from '../models/AttachmentView.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { MessageView } from '../models/MessageView.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { RejectRequest } from '../models/RejectRequest.js';
@@ -748,6 +749,13 @@ export class MessagesApiResponseProcessor {
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Bad Request — request-shape/validation failure. error.code includes invalid_request (e.g. more than 10 attachments), too_many_recipients, invalid_recipient, invalid_attachment (undecodable base64).", body, response.headers);
         }
+        if (isCodeInRange("402", response.httpStatusCode)) {
+            const body: LimitExceededEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "LimitExceededEnvelope", ""
+            ) as LimitExceededEnvelope;
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
+        }
         if (isCodeInRange("413", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
@@ -949,6 +957,13 @@ export class MessagesApiResponseProcessor {
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Bad Request — request-shape/validation failure. error.code includes invalid_request (e.g. more than 10 attachments), too_many_recipients, invalid_recipient, invalid_attachment (undecodable base64).", body, response.headers);
         }
+        if (isCodeInRange("402", response.httpStatusCode)) {
+            const body: LimitExceededEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "LimitExceededEnvelope", ""
+            ) as LimitExceededEnvelope;
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
+        }
         if (isCodeInRange("413", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
@@ -1005,6 +1020,13 @@ export class MessagesApiResponseProcessor {
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Bad Request — request-shape/validation failure. error.code includes invalid_request (e.g. more than 10 attachments), too_many_recipients, invalid_recipient, invalid_attachment (undecodable base64).", body, response.headers);
+        }
+        if (isCodeInRange("402", response.httpStatusCode)) {
+            const body: LimitExceededEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "LimitExceededEnvelope", ""
+            ) as LimitExceededEnvelope;
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
         }
         if (isCodeInRange("413", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(

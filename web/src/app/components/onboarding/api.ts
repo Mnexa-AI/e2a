@@ -73,8 +73,10 @@ export async function verifyDomain(
   });
 }
 
+// DELETE /v1/domains/{domain}. The v1 surface guards destructive deletes
+// behind an explicit `?confirm=DELETE` query param.
 export async function deleteDomain(domain: string): Promise<void> {
-  return request("/v1/domains/" + encodeURIComponent(domain), {
+  return request("/v1/domains/" + encodeURIComponent(domain) + "?confirm=DELETE", {
     method: "DELETE",
   });
 }

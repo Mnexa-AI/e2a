@@ -16,7 +16,7 @@ from pydantic import validate_call, Field, StrictFloat, StrictStr, StrictInt
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
-from pydantic import Field, StrictStr
+from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.account_view import AccountView
@@ -322,7 +322,7 @@ class AccountApi:
     @validate_call
     async def delete_account(
         self,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -340,7 +340,7 @@ class AccountApi:
 
         Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
 
-        :param confirm: Must be DELETE — this is irreversible.
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -389,7 +389,7 @@ class AccountApi:
     @validate_call
     async def delete_account_with_http_info(
         self,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -407,7 +407,7 @@ class AccountApi:
 
         Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
 
-        :param confirm: Must be DELETE — this is irreversible.
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -456,7 +456,7 @@ class AccountApi:
     @validate_call
     async def delete_account_without_preload_content(
         self,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -474,7 +474,7 @@ class AccountApi:
 
         Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
 
-        :param confirm: Must be DELETE — this is irreversible.
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -586,6 +586,7 @@ class AccountApi:
     async def delete_api_key(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -601,10 +602,12 @@ class AccountApi:
     ) -> None:
         """Revoke an API key
 
-        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -629,6 +632,7 @@ class AccountApi:
 
         _param = self._delete_api_key_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -653,6 +657,7 @@ class AccountApi:
     async def delete_api_key_with_http_info(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -668,10 +673,12 @@ class AccountApi:
     ) -> ApiResponse[None]:
         """Revoke an API key
 
-        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -696,6 +703,7 @@ class AccountApi:
 
         _param = self._delete_api_key_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -720,6 +728,7 @@ class AccountApi:
     async def delete_api_key_without_preload_content(
         self,
         id: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -735,10 +744,12 @@ class AccountApi:
     ) -> RESTResponseType:
         """Revoke an API key
 
-        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
 
         :param id: (required)
         :type id: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -763,6 +774,7 @@ class AccountApi:
 
         _param = self._delete_api_key_serialize(
             id=id,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -782,6 +794,7 @@ class AccountApi:
     def _delete_api_key_serialize(
         self,
         id,
+        confirm,
         _request_auth,
         _content_type,
         _headers,
@@ -806,6 +819,10 @@ class AccountApi:
         if id is not None:
             _path_params['id'] = id
         # process the query parameters
+        if confirm is not None:
+            
+            _query_params.append(('confirm', confirm))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter
@@ -847,6 +864,7 @@ class AccountApi:
     async def delete_suppression(
         self,
         address: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -862,10 +880,12 @@ class AccountApi:
     ) -> None:
         """Remove an address from the suppression list
 
-        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).
+        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
 
         :param address: (required)
         :type address: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -890,6 +910,7 @@ class AccountApi:
 
         _param = self._delete_suppression_serialize(
             address=address,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -914,6 +935,7 @@ class AccountApi:
     async def delete_suppression_with_http_info(
         self,
         address: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -929,10 +951,12 @@ class AccountApi:
     ) -> ApiResponse[None]:
         """Remove an address from the suppression list
 
-        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).
+        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
 
         :param address: (required)
         :type address: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -957,6 +981,7 @@ class AccountApi:
 
         _param = self._delete_suppression_serialize(
             address=address,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -981,6 +1006,7 @@ class AccountApi:
     async def delete_suppression_without_preload_content(
         self,
         address: StrictStr,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -996,10 +1022,12 @@ class AccountApi:
     ) -> RESTResponseType:
         """Remove an address from the suppression list
 
-        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).
+        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
 
         :param address: (required)
         :type address: str
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1024,6 +1052,7 @@ class AccountApi:
 
         _param = self._delete_suppression_serialize(
             address=address,
+            confirm=confirm,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1043,6 +1072,7 @@ class AccountApi:
     def _delete_suppression_serialize(
         self,
         address,
+        confirm,
         _request_auth,
         _content_type,
         _headers,
@@ -1067,6 +1097,10 @@ class AccountApi:
         if address is not None:
             _path_params['address'] = address
         # process the query parameters
+        if confirm is not None:
+            
+            _query_params.append(('confirm', confirm))
+            
         # process the header parameters
         # process the form parameters
         # process the body parameter

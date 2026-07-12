@@ -214,3 +214,55 @@ func TestSendTemplateIdempotentRetryAfterTemplateDelete(t *testing.T) {
 		t.Fatalf("DeliverOutbound ran %d times, want exactly 1 (retry must replay, not re-send)", deliveries)
 	}
 }
+
+// TestSendAccepted202AndIdempotentReplay pins the async-accept convention: an
+// enqueued (status=accepted) send returns 202 Accepted — not 200 — and a
+// byte-identical keyed retry REPLAYS the cached 202 (never a stale 200). The
+// 200-for-accepted status was baked into the idempotency cache, so this guards
+// both the live response and the cached-status replay.
+func TestSendAccepted202AndIdempotentReplay(t *testing.T) {
+	deliveries := 0
+	srv := httptest.NewServer(New(Deps{
+		Authenticator: func(r *http.Request) (*identity.User, error) { return &identity.User{ID: "u_1"}, nil },
+		GetAgent: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			return &identity.AgentIdentity{ID: address, Email: address, UserID: "u_1", DomainVerified: true}, nil
+		},
+		Idempotency: newMemIdem(),
+		DeliverOutbound: func(ctx context.Context, u *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, mt, rt string, ref *identity.Message, ic agent.AcceptIdemCompleter) (*agent.OutboundResult, *agent.OutboundError) {
+			deliveries++
+			// Async pipeline: durably persisted + queued, terminal outcome later.
+			return &agent.OutboundResult{MessageID: "msg_acc", Status: "accepted", Method: "smtp"}, nil
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	rawBody := []byte(`{"to":["alice@x.com"],"subject":"Hi","text":"hello"}`)
+	send := func() (int, map[string]any) {
+		req, _ := http.NewRequest("POST", srv.URL+"/v1/agents/a%40acme.com/messages", bytes.NewReader(rawBody))
+		req.Header.Set("Authorization", "Bearer good")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "acc-key-1")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body
+	}
+
+	code, body := send()
+	if code != http.StatusAccepted || body["status"] != "accepted" || body["message_id"] != "msg_acc" {
+		t.Fatalf("first send: want 202 accepted msg_acc, got %d %v", code, body)
+	}
+
+	// Byte-identical retry must replay the cached 202 — not a stale 200.
+	code, body = send()
+	if code != http.StatusAccepted || body["status"] != "accepted" || body["message_id"] != "msg_acc" {
+		t.Fatalf("keyed retry: want replayed 202 accepted, got %d %v", code, body)
+	}
+	if deliveries != 1 {
+		t.Fatalf("DeliverOutbound ran %d times, want exactly 1 (retry must replay, not re-enqueue)", deliveries)
+	}
+}

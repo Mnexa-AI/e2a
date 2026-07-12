@@ -92,12 +92,16 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   all owned data; returns per-table row counts (GDPR Art. 17). Irreversible.
 - `GET /v1/account/export` — JSON dump of every record the account owns (GDPR
   Art. 15). Omits internal identifiers; see [data-handling.md](data-handling.md).
-- `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{id}` — mint
-  (plaintext shown once), list (metadata only), and revoke API keys. Account
-  scope only.
-- `GET /v1/account/suppressions`, `DELETE /v1/account/suppressions/{address}` —
-  the recipient suppression list (auto-added on hard bounce/complaint; sends to a
-  suppressed address fail with `recipient_suppressed`). Delete to un-suppress.
+- `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{id}?confirm=DELETE`
+  — mint (plaintext shown once), list (metadata only), and revoke API keys.
+  Account scope only.
+- `GET /v1/account/suppressions`, `DELETE /v1/account/suppressions/{address}?confirm=DELETE`
+  — the recipient suppression list (auto-added on hard bounce/complaint; sends to
+  a suppressed address fail with `recipient_suppressed`). Delete to un-suppress.
+
+Every `DELETE` endpoint requires the `?confirm=DELETE` query param (a required
+`enum: [DELETE]`); a missing or wrong value is rejected before the delete runs.
+The SDKs and CLI supply it automatically for their typed `delete(...)` calls.
 
 ### Domains (`/v1/domains`)
 
@@ -105,7 +109,8 @@ Custom sending/receiving domains and their DNS verification.
 
 - `GET /v1/domains`, `POST /v1/domains` — list / register (returns required MX +
   TXT records and the DKIM selector/key).
-- `GET/DELETE /v1/domains/{domain}` — fetch / delete.
+- `GET /v1/domains/{domain}`, `DELETE /v1/domains/{domain}?confirm=DELETE` —
+  fetch / delete (delete deprovisions the sending identity; irreversible).
 - `POST /v1/domains/{domain}/verify` — verify ownership via the TXT record.
 
 ### Agents (`/v1/agents`)
@@ -135,8 +140,10 @@ single message.
   `read_status`, `sort`, `from`, `subject_contains`, `conversation_id`, `labels`,
   `since`, `until`) and cursor pagination. Held outbound drafts appear with
   `status=pending_review`.
-- `POST …/messages` — send a new email (a new thread). `202` + `pending_review`
-  when the agent's protection policy holds it for review. The send result
+- `POST …/messages` — send a new email (a new thread). Returns `202 Accepted` for
+  every non-terminal outcome — `pending_review` when the agent's protection policy
+  holds it for review, or `accepted` when the async pipeline durably queues it —
+  and `200 OK` for the terminal-synchronous `sent`. The send result
   `status` is an open set — known values `accepted | sent | pending_review |
   review_approved | failed`. **Always branch on `status`, not the HTTP code.**
   `accepted` (async pipeline) means the message is durably persisted and queued;
@@ -203,8 +210,9 @@ own **per-webhook signing secret** that signs the payloads sent to it.
 
 - `GET /v1/webhooks`, `POST /v1/webhooks` — list / create (the secret is returned
   once, at creation).
-- `GET/PATCH/DELETE /v1/webhooks/{id}` — fetch / partial-update
-  (`url`/`events`/`filters` are full-replace when present) / delete.
+- `GET/PATCH /v1/webhooks/{id}`, `DELETE /v1/webhooks/{id}?confirm=DELETE` —
+  fetch / partial-update (`url`/`events`/`filters` are full-replace when present)
+  / delete.
 - `POST /v1/webhooks/{id}/rotate-secret` — mint a new secret; the previous one
   stays valid for a 24h grace window.
 - `GET /v1/webhooks/{id}/deliveries` — the per-webhook delivery log (debug view).
@@ -233,7 +241,10 @@ semantics.
   and time range; cursor pagination.
 - `GET /v1/events/{id}` — one event (returns `410 Gone` past retention).
 - `POST /v1/events/{id}/redeliver` — re-enqueue delivery for an event (to one
-  webhook or all originally-matched). Receivers must dedup on event id.
+  webhook or all originally-matched). Returns `202 Accepted`: the redelivery is
+  durably enqueued for async submission (per-delivery `status: pending`, or
+  `scheduled` for the fan-out), not delivered synchronously. Receivers must dedup
+  on event id.
 
 ## Real-time delivery (WebSocket)
 

@@ -170,7 +170,7 @@ export default function APIKeysPage() {
       )
     )
       return;
-    const res = await fetch(`/v1/account/api-keys/${id}`, {
+    const res = await fetch(`/v1/account/api-keys/${id}?confirm=DELETE`, {
       method: "DELETE",
       credentials: "include",
     });

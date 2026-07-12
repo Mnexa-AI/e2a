@@ -81,7 +81,7 @@ func (s *Server) registerAccount() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteSuppression", Method: http.MethodDelete, Path: "/v1/account/suppressions/{address}",
 		Summary: "Remove an address from the suppression list", Tags: []string{"account"},
-		Description: "Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).",
+		Description: "Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.",
 		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
 	}, s.handleDeleteSuppression)
 }
@@ -125,7 +125,7 @@ func (s *Server) handleListSuppressions(ctx context.Context, in *listSuppression
 	}
 	limit := in.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = 100
 	}
 	// Fetch limit+1 to detect a further page.
 	list, err := s.deps.ListSuppressions(ctx, user.ID, limit+1, afterCreatedAt, afterAddress)
@@ -149,6 +149,7 @@ func (s *Server) handleListSuppressions(ctx context.Context, in *listSuppression
 
 type deleteSuppressionInput struct {
 	Address string `path:"address"`
+	DeleteConfirm
 }
 type deleteSuppressionOutput struct{ Status int }
 
@@ -203,7 +204,7 @@ func (s *Server) handleExportUserData(ctx context.Context, _ *struct{}) (*export
 }
 
 type deleteAccountInput struct {
-	Confirm string `query:"confirm" doc:"Must be DELETE — this is irreversible."`
+	DeleteConfirm
 }
 
 type deleteAccountOutput struct {
@@ -215,9 +216,8 @@ func (s *Server) handleDeleteAccount(ctx context.Context, in *deleteAccountInput
 	if err != nil {
 		return nil, err
 	}
-	if in.Confirm != "DELETE" {
-		return nil, NewError(http.StatusBadRequest, "confirmation_required", "add ?confirm=DELETE to the request to proceed — this is irreversible")
-	}
+	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
+	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
 	if s.deps.DeleteUserData == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
 	}

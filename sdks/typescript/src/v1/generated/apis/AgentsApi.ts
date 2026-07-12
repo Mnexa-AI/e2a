@@ -11,6 +11,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 import { AgentView } from '../models/AgentView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
+import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -70,12 +71,12 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete an agent the caller owns.
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
      * Delete an agent
      * @param email 
-     * @param confirm Must be DELETE — this is irreversible.
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public async deleteAgent(email: string, confirm?: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteAgent(email: string, confirm: 'DELETE', _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -83,6 +84,11 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
             throw new RequiredError("AgentsApi", "deleteAgent", "email");
         }
 
+
+        // verify required parameter 'confirm' is not null or undefined
+        if (confirm === null || confirm === undefined) {
+            throw new RequiredError("AgentsApi", "deleteAgent", "confirm");
+        }
 
 
         // Path Params
@@ -95,7 +101,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
 
         // Query Params
         if (confirm !== undefined) {
-            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "string", ""));
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
         }
 
 
@@ -404,12 +410,19 @@ export class AgentsApiResponseProcessor {
             ) as AgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("402", response.httpStatusCode)) {
+            const body: LimitExceededEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "LimitExceededEnvelope", ""
+            ) as LimitExceededEnvelope;
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
+        }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
-            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
@@ -622,6 +635,13 @@ export class AgentsApiResponseProcessor {
                 "SendResultView", ""
             ) as SendResultView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("402", response.httpStatusCode)) {
+            const body: LimitExceededEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "LimitExceededEnvelope", ""
+            ) as LimitExceededEnvelope;
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(

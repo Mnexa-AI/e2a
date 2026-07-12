@@ -225,7 +225,8 @@ test("domain verify NEGATIVE control: an unpublished domain does NOT verify (gua
     // The discriminating assertion: verified MUST be false. A dev-mode
     // short-circuit would report verified=true here and fail this test.
     assert.equal(v.body?.verified, false, `unpublished domain must report verified=false, got ${v.status} ${v.raw.slice(0, 160)}`);
-    assert.equal(v.status, 412, `unpublished domain verify → 412 not-verified, got ${v.status}`);
+    // Not-yet-verified is a normal 200 (branch on .verified), not a 412.
+    assert.equal(v.status, 200, `unpublished domain verify → 200 with verified:false, got ${v.status}`);
   } finally {
     if (registered) {
       try {

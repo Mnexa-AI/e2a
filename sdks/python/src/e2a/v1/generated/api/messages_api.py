@@ -446,6 +446,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -532,6 +533,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -618,6 +620,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -2132,6 +2135,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -2218,6 +2222,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -2304,6 +2309,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -2474,6 +2480,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -2556,6 +2563,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
@@ -2638,6 +2646,7 @@ class MessagesApi:
             '200': "SendResultView",
             '202': "SendResultView",
             '400': "ErrorEnvelope",
+            '402': "LimitExceededEnvelope",
             '413': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(

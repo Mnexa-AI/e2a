@@ -90,7 +90,11 @@ type Domain struct {
 }
 
 type AgentIdentity struct {
-	ID             string    `json:"id"`
+	// ID is the agent's full email address and its identifier (id == email;
+	// EmailAddress() returns it). It is never serialized: every API surface
+	// keys an agent on `email`, and the #436 rename dropped the redundant
+	// `id` from the public contract. Kept as a field for internal use only.
+	ID             string    `json:"-"`
 	Domain         string    `json:"domain"`
 	Email          string    `json:"email"`
 	Name           string    `json:"name"`

@@ -72,15 +72,23 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
      * Delete a webhook
      * @param id 
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public async deleteWebhook(id: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteWebhook(id: string, confirm: 'DELETE', _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'id' is not null or undefined
         if (id === null || id === undefined) {
             throw new RequiredError("WebhooksApi", "deleteWebhook", "id");
+        }
+
+
+        // verify required parameter 'confirm' is not null or undefined
+        if (confirm === null || confirm === undefined) {
+            throw new RequiredError("WebhooksApi", "deleteWebhook", "confirm");
         }
 
 
@@ -91,6 +99,11 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (confirm !== undefined) {
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;

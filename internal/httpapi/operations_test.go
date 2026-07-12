@@ -479,7 +479,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 		},
 		EnforceMessageSend: func(ctx context.Context, userID string) error {
 			if userID == "u_overcap" {
-				return &limits.LimitExceededError{Resource: "messages", Limit: 1, Current: 1, Limits: limits.Limits{PlanCode: "free"}}
+				return &limits.LimitExceededError{Resource: "messages_month", Limit: 1, Current: 1, Limits: limits.Limits{PlanCode: "free"}}
 			}
 			return nil
 		},
