@@ -323,7 +323,7 @@ class ConversationsApi:
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -406,7 +406,7 @@ class ConversationsApi:
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -489,7 +489,7 @@ class ConversationsApi:
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],

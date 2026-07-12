@@ -247,7 +247,7 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param limit Maximum number of items to return (1-200).
+     * @param limit Maximum number of items to return (1-100).
      */
     public async listApiKeys(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
@@ -291,7 +291,7 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param limit Maximum number of items to return (1-200).
+     * @param limit Maximum number of items to return (1-100).
      */
     public async listSuppressions(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;

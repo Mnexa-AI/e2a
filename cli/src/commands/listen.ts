@@ -28,7 +28,7 @@ async function inConversation(
     since,
     readStatus: "all",
     sort: "asc",
-    limit: 200,
+    limit: 100,
   })) {
     if (m.id === notification.message_id) return true;
     if (++scanned >= 500) break; // NaN-since safety bound

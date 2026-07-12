@@ -840,7 +840,7 @@ class WebhooksApi:
         id: StrictStr,
         status: Optional[StrictStr] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -919,7 +919,7 @@ class WebhooksApi:
         id: StrictStr,
         status: Optional[StrictStr] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -998,7 +998,7 @@ class WebhooksApi:
         id: StrictStr,
         status: Optional[StrictStr] = None,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter.")] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1150,7 +1150,7 @@ class WebhooksApi:
     async def list_webhooks(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1170,7 +1170,7 @@ class WebhooksApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-200).
+        :param limit: Maximum number of items to return (1-100).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1221,7 +1221,7 @@ class WebhooksApi:
     async def list_webhooks_with_http_info(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1241,7 +1241,7 @@ class WebhooksApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-200).
+        :param limit: Maximum number of items to return (1-100).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1292,7 +1292,7 @@ class WebhooksApi:
     async def list_webhooks_without_preload_content(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1312,7 +1312,7 @@ class WebhooksApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-200).
+        :param limit: Maximum number of items to return (1-100).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

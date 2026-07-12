@@ -104,7 +104,7 @@ export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
      * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param limit Maximum number of items to return (1-200).
+     * @param limit Maximum number of items to return (1-100).
      */
     public async listDomains(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;

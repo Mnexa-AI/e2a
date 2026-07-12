@@ -59,7 +59,7 @@ type ListConversationsInput struct {
 	Since   string `query:"since" doc:"RFC3339."`
 	Until   string `query:"until" doc:"RFC3339."`
 	Cursor  string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change since/until."`
-	Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"100"`
+	Limit   int    `query:"limit" minimum:"1" maximum:"100" default:"100"`
 }
 
 // conversationsCursor is the opaque keyset position + the filter identity so a

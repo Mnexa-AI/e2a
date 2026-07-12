@@ -25,9 +25,9 @@ const GET_USAGE = "usage: e2a messages get <message-id> [--text] [--agent <inbox
 const DIRECTIONS = ["inbound", "outbound", "all"] as const;
 const READ_STATUSES = ["unread", "read", "all"] as const;
 
-// The server pages at 100 by default but allows 200; always ask for the max so
-// draining a mailbox costs half the round trips.
-const MAX_PAGE_SIZE = 200;
+// The server pages at 100 by default, which is also the max; always ask for the
+// max so draining a mailbox costs the fewest round trips.
+const MAX_PAGE_SIZE = 100;
 
 // Default output is TSV (id, from, created_at) in ascending order —
 // the shape a shell poll loop wants (`while IFS=$'\t' read -r id from at`).

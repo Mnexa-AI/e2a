@@ -1311,7 +1311,7 @@ class MessagesApi:
         since: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at >= since.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1422,7 +1422,7 @@ class MessagesApi:
         since: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at >= since.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1533,7 +1533,7 @@ class MessagesApi:
         since: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at >= since.")] = None,
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
-        limit: Optional[Annotated[int, Field(le=200, strict=True, ge=1)]] = None,
+        limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],

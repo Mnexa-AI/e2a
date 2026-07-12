@@ -579,7 +579,7 @@ class DomainsApi:
     async def list_domains(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -599,7 +599,7 @@ class DomainsApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-200).
+        :param limit: Maximum number of items to return (1-100).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -650,7 +650,7 @@ class DomainsApi:
     async def list_domains_with_http_info(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -670,7 +670,7 @@ class DomainsApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-200).
+        :param limit: Maximum number of items to return (1-100).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -721,7 +721,7 @@ class DomainsApi:
     async def list_domains_without_preload_content(
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
-        limit: Annotated[Optional[Annotated[int, Field(le=200, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-200).")] = None,
+        limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -741,7 +741,7 @@ class DomainsApi:
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
-        :param limit: Maximum number of items to return (1-200).
+        :param limit: Maximum number of items to return (1-100).
         :type limit: int
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

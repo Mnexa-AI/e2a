@@ -43,7 +43,7 @@ func NewPage[T any](items []T, nextCursor string) Page[T] {
 // and validated identically across the surface.
 type PageParams struct {
 	Cursor string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters."`
-	Limit  int    `query:"limit" minimum:"1" maximum:"200" default:"100" doc:"Maximum number of items to return (1-200)."`
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"100" doc:"Maximum number of items to return (1-100)."`
 }
 
 // ErrInvalidCursor is returned when a cursor fails to decode. Handlers map

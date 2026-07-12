@@ -324,7 +324,7 @@ type ListMessagesInput struct {
 	Since           string   `query:"since" doc:"RFC3339; created_at >= since."`
 	Until           string   `query:"until" doc:"RFC3339; created_at < until."`
 	Cursor          string   `query:"cursor"`
-	Limit           int      `query:"limit" minimum:"1" maximum:"200" default:"100"`
+	Limit           int      `query:"limit" minimum:"1" maximum:"100" default:"100"`
 }
 
 type listMessagesOutput struct {

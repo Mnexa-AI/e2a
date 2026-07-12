@@ -241,7 +241,7 @@ export class PromiseAccountApi {
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listApiKeysWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAPIKeyView>> {
         const observableOptions = wrapOptions(_options);
@@ -253,7 +253,7 @@ export class PromiseAccountApi {
      * API keys for the account (metadata only — secrets are shown once, at creation). Account scope only: an agent-scoped credential cannot manage keys.
      * List API keys
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listApiKeys(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageAPIKeyView> {
         const observableOptions = wrapOptions(_options);
@@ -265,7 +265,7 @@ export class PromiseAccountApi {
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listSuppressionsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageSuppression>> {
         const observableOptions = wrapOptions(_options);
@@ -277,7 +277,7 @@ export class PromiseAccountApi {
      * Addresses e2a will refuse to send to (auto-added on a hard bounce or complaint, or added manually). Sends to a suppressed address fail with recipient_suppressed.
      * List suppressed recipient addresses
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listSuppressions(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageSuppression> {
         const observableOptions = wrapOptions(_options);
@@ -398,7 +398,7 @@ export class PromiseAgentsApi {
      * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listAgentsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAgentView>> {
         const observableOptions = wrapOptions(_options);
@@ -410,7 +410,7 @@ export class PromiseAgentsApi {
      * List the agents owned by the authenticated account, newest first, with cursor pagination.
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listAgents(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageAgentView> {
         const observableOptions = wrapOptions(_options);
@@ -626,7 +626,7 @@ export class PromiseDomainsApi {
      * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listDomainsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageDomainView>> {
         const observableOptions = wrapOptions(_options);
@@ -638,7 +638,7 @@ export class PromiseDomainsApi {
      * List the domains owned by the authenticated account, newest first, with cursor pagination.
      * List domains
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listDomains(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageDomainView> {
         const observableOptions = wrapOptions(_options);
@@ -1180,7 +1180,7 @@ export class PromiseReviewsApi {
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listReviewsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageReviewView>> {
         const observableOptions = wrapOptions(_options);
@@ -1192,7 +1192,7 @@ export class PromiseReviewsApi {
      * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
      * List messages awaiting review
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listReviews(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageReviewView> {
         const observableOptions = wrapOptions(_options);
@@ -1335,7 +1335,7 @@ export class PromiseTemplatesApi {
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listStarterTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageStarterTemplateView>> {
         const observableOptions = wrapOptions(_options);
@@ -1347,7 +1347,7 @@ export class PromiseTemplatesApi {
      * List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable.
      * List starter templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listStarterTemplates(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageStarterTemplateView> {
         const observableOptions = wrapOptions(_options);
@@ -1359,7 +1359,7 @@ export class PromiseTemplatesApi {
      * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listTemplatesWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageTemplateSummaryView>> {
         const observableOptions = wrapOptions(_options);
@@ -1371,7 +1371,7 @@ export class PromiseTemplatesApi {
      * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listTemplates(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageTemplateSummaryView> {
         const observableOptions = wrapOptions(_options);
@@ -1536,7 +1536,7 @@ export class PromiseWebhooksApi {
      * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listWebhooksWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageWebhookView>> {
         const observableOptions = wrapOptions(_options);
@@ -1548,7 +1548,7 @@ export class PromiseWebhooksApi {
      * List the webhooks owned by the authenticated account, newest first, with cursor pagination.
      * List webhooks
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
-     * @param [limit] Maximum number of items to return (1-200).
+     * @param [limit] Maximum number of items to return (1-100).
      */
     public listWebhooks(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageWebhookView> {
         const observableOptions = wrapOptions(_options);

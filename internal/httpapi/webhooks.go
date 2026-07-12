@@ -335,14 +335,14 @@ type WebhookDeliveryView struct {
 // ListDeliveriesInput — the per-webhook delivery log, keyset-paginated on
 // (created_at, id) like every other v1 list. The delivery log grows unbounded on
 // a busy webhook, so a cursor (not a fixed cap) is what keeps the whole log
-// reachable; the limit is generous (default 100, up to 200) so a recent view is
+// reachable; the limit is generous (default 100, up to 100) so a recent view is
 // rarely more than one page. `status` restricts to pending|delivered|failed and
 // is pinned into the cursor (a continuation must not change it).
 type ListDeliveriesInput struct {
 	ID     string `path:"id"`
 	Status string `query:"status" enum:"pending,delivered,failed"`
 	Cursor string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the status filter."`
-	Limit  int    `query:"limit" minimum:"1" maximum:"200" default:"100"`
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"100"`
 }
 
 // deliveriesCursor is the opaque keyset position for the delivery log: the last

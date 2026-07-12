@@ -49,7 +49,7 @@ type ListEventsInput struct {
 	Since          string `query:"since" doc:"RFC3339."`
 	Until          string `query:"until" doc:"RFC3339."`
 	Cursor         string `query:"cursor"`
-	Limit          int    `query:"limit" minimum:"1" maximum:"200" default:"100"`
+	Limit          int    `query:"limit" minimum:"1" maximum:"100" default:"100"`
 }
 
 type listEventsOutput struct {

@@ -153,9 +153,9 @@ export interface AccountApiListApiKeysRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof AccountApilistApiKeys
@@ -172,9 +172,9 @@ export interface AccountApiListSuppressionsRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof AccountApilistSuppressions
@@ -393,9 +393,9 @@ export interface AgentsApiListAgentsRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof AgentsApilistAgents
@@ -650,7 +650,7 @@ export interface ConversationsApiListConversationsRequest {
     /**
      * 
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof ConversationsApilistConversations
@@ -742,9 +742,9 @@ export interface DomainsApiListDomainsRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof DomainsApilistDomains
@@ -930,7 +930,7 @@ export interface EventsApiListEventsRequest {
     /**
      * 
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof EventsApilistEvents
@@ -1215,7 +1215,7 @@ export interface MessagesApiListMessagesRequest {
     /**
      * 
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof MessagesApilistMessages
@@ -1585,9 +1585,9 @@ export interface ReviewsApiListReviewsRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof ReviewsApilistReviews
@@ -1743,9 +1743,9 @@ export interface TemplatesApiListStarterTemplatesRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof TemplatesApilistStarterTemplates
@@ -1762,9 +1762,9 @@ export interface TemplatesApiListTemplatesRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof TemplatesApilistTemplates
@@ -2007,7 +2007,7 @@ export interface WebhooksApiListWebhookDeliveriesRequest {
     /**
      * 
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof WebhooksApilistWebhookDeliveries
@@ -2024,9 +2024,9 @@ export interface WebhooksApiListWebhooksRequest {
      */
     cursor?: string
     /**
-     * Maximum number of items to return (1-200).
+     * Maximum number of items to return (1-100).
      * Minimum: 1
-     * Maximum: 200
+     * Maximum: 100
      * Defaults to: 100
      * @type number
      * @memberof WebhooksApilistWebhooks
