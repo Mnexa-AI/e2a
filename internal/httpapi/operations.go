@@ -141,7 +141,9 @@ func (s *Server) handleListAgents(ctx context.Context, in *listAgentsInput) (*li
 	if err != nil {
 		return nil, err
 	}
-	afterCreatedAt, afterID, err := s.decodeKeyset(in.Cursor)
+	// The cursor is bound to the view (live vs trash) so a continuation can't
+	// silently flip between them.
+	afterCreatedAt, afterID, err := s.decodeKeysetView(in.Cursor, in.Deleted)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +172,7 @@ func (s *Server) handleListAgents(ctx context.Context, in *listAgentsInput) (*li
 	var nextCursor string
 	if hasMore {
 		last := agents[len(agents)-1]
-		if nextCursor, err = s.encodeKeyset(last.CreatedAt, last.ID); err != nil {
+		if nextCursor, err = s.encodeKeysetView(last.CreatedAt, last.ID, in.Deleted); err != nil {
 			return nil, err
 		}
 	}

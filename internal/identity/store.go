@@ -1257,6 +1257,12 @@ func (s *Store) ListDeletedAgentsByUser(ctx context.Context, userID string, limi
 }
 
 func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string, deleted bool) ([]AgentIdentity, error) {
+	// The per-agent activity stats exclude trashed messages (deleted_at IS
+	// NOT NULL) — the dashboard's 7-day counters and last-delivery must agree
+	// with what the inbox actually shows. For the TRASH listing (deleted=
+	// true) the stats are skipped entirely below: the trash view renders
+	// identity fields only, and five correlated probes per trashed agent
+	// against the prod-sized messages table would be pure waste.
 	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at, a.deleted_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
@@ -1265,19 +1271,36 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 		        a.inbound_scan, a.inbound_scan_review_threshold, a.inbound_scan_block_threshold,
 		        a.outbound_scan, a.outbound_scan_review_threshold, a.outbound_scan_block_threshold,
 		        a.inbound_scan_sensitivity, a.outbound_scan_sensitivity,
-		        d.verified as domain_verified,
+		        d.verified as domain_verified,`
+	if deleted {
+		// Trash view: identity fields only — zero-value the stats columns so
+		// the scan shape stays uniform without paying five correlated probes
+		// against the prod-sized messages table per trashed agent (the trash
+		// UI renders none of them).
+		q += `
+		        0 AS inbound_7d, 0 AS outbound_7d, 0 AS pending_count,
+		        NULL::timestamptz AS last_delivery_at, ''::text AS webhook_status`
+	} else {
+		// Live stats exclude trashed messages so the dashboard counters agree
+		// with what the inbox shows.
+		q += `
 		        (SELECT count(*) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'inbound'
+		             AND m.deleted_at IS NULL
 		             AND m.created_at > now() - interval '7 days') AS inbound_7d,
 		        (SELECT count(*) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'outbound'
+		             AND m.deleted_at IS NULL
 		             AND m.created_at > now() - interval '7 days') AS outbound_7d,
 		        (SELECT count(*) FROM messages m
 		           WHERE m.agent_id = a.id AND m.status = 'pending_review' AND m.direction = 'outbound') AS pending_count,
 		        (SELECT max(m.created_at) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'outbound'
+		             AND m.deleted_at IS NULL
 		             AND m.status = 'sent') AS last_delivery_at,
-		        ` + webhookStatusSQL + ` AS webhook_status
+		        ` + webhookStatusSQL + ` AS webhook_status`
+	}
+	q += `
 		 FROM agent_identities a
 		 JOIN domains d ON a.domain = d.domain
 		 WHERE a.user_id = $1`
@@ -1329,40 +1352,30 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 
 // DeleteAgent removes an agent and everything bound to it. It returns the
 // number of message rows removed with the agent — the messages are deleted
-// explicitly (rather than left to the agent_identities → messages FK cascade)
-// purely so their rows-affected count is available for the API's deletion
-// receipt at zero extra query cost; webhook_deliveries still cascade from the
-// deleted messages. The ownership join on the messages delete plus the
-// single-transaction scope keep it exactly as safe as the old cascade path.
+// explicitly rather than left to the agent_identities → messages FK cascade.
+// Besides providing the API's deletion receipt, this ensures the storage
+// metering trigger can resolve the owning user while the agent row exists.
 func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) (messagesDeleted int64, err error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback(ctx)
-
-	msgTag, err := tx.Exec(ctx,
-		`DELETE FROM messages USING agent_identities a
-		 WHERE messages.agent_id = a.id AND a.id = $1 AND a.user_id = $2`, agentID, userID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	tag, err := tx.Exec(ctx,
-		`DELETE FROM agent_identities WHERE id = $1 AND user_id = $2`, agentID, userID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	if tag.RowsAffected() == 0 {
-		// The deferred rollback undoes the messages delete — though the
-		// ownership join means none can have matched if the agent row didn't.
-		return 0, fmt.Errorf("agent not found or not owned by user")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return 0, err
-	}
-	return msgTag.RowsAffected(), nil
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		var lockedID string
+		queryErr := tx.QueryRow(ctx,
+			`SELECT id FROM agent_identities WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+			agentID, userID).Scan(&lockedID)
+		if errors.Is(queryErr, pgx.ErrNoRows) {
+			return fmt.Errorf("agent not found or not owned by user")
+		}
+		if queryErr != nil {
+			return queryErr
+		}
+		msgTag, err := tx.Exec(ctx, `DELETE FROM messages WHERE agent_id = $1`, agentID)
+		if err != nil {
+			return err
+		}
+		messagesDeleted = msgTag.RowsAffected()
+		_, err = tx.Exec(ctx, `DELETE FROM agent_identities WHERE id = $1`, agentID)
+		return err
+	})
+	return messagesDeleted, err
 }
 
 // SoftDeleteAgent moves a live agent to the trash (docs/design/
@@ -1385,59 +1398,94 @@ func (s *Store) SoftDeleteAgent(ctx context.Context, agentID, userID string) err
 }
 
 // RestoreAgent brings a trashed agent back to life, messages and config
-// intact. Returns ErrNotInTrash when the agent exists but is live, and a
-// not-found error when it doesn't exist (or isn't the caller's).
+// intact. The agent's live messages resume their clocks exactly where they
+// stopped: expires_at (and, for still-held drafts, approval_expires_at) are
+// shifted forward by the time spent in the trash, so a restore never
+// resurrects an inbox whose mail immediately expires — nor auto-resolves a
+// hold whose review TTL silently lapsed while the inbox was trashed.
+// Returns ErrNotInTrash when the agent exists but is live, and a not-found
+// error when it doesn't exist (or isn't the caller's).
 func (s *Store) RestoreAgent(ctx context.Context, agentID, userID string) error {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_identities SET deleted_at = NULL
-		  WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`, agentID, userID,
-	)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		// Disambiguate "live" from "gone" so the handler can 409 vs 404.
-		var exists bool
-		if err := s.pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM agent_identities WHERE id = $1 AND user_id = $2)`,
-			agentID, userID).Scan(&exists); err != nil {
+	return s.WithTx(ctx, func(tx pgx.Tx) error {
+		var deletedAt *time.Time
+		err := tx.QueryRow(ctx,
+			`SELECT deleted_at FROM agent_identities
+			  WHERE id = $1 AND user_id = $2 FOR UPDATE`, agentID, userID,
+		).Scan(&deletedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("agent not found or not owned by user")
+		}
+		if err != nil {
 			return err
 		}
-		if exists {
+		if deletedAt == nil {
 			return ErrNotInTrash
 		}
-		return fmt.Errorf("agent not found or not owned by user")
-	}
-	return nil
+		if _, err := tx.Exec(ctx,
+			`UPDATE agent_identities SET deleted_at = NULL WHERE id = $1`, agentID); err != nil {
+			return err
+		}
+		// Give back the trash time to the agent's LIVE messages only —
+		// message-level trash rows keep their own suspended clock.
+		_, err = tx.Exec(ctx,
+			`UPDATE messages
+			    SET expires_at = expires_at + (now() - $2::timestamptz),
+			        approval_expires_at = CASE
+			          WHEN status = 'pending_review' AND approval_expires_at IS NOT NULL
+			          THEN approval_expires_at + (now() - $2::timestamptz)
+			          ELSE approval_expires_at END
+			  WHERE agent_id = $1 AND deleted_at IS NULL`, agentID, *deletedAt)
+		return err
+	})
 }
 
-// agentPurgeBatch bounds one janitor pass of PurgeDeletedAgents. Each agent
-// delete cascades to its messages, so the batch is deliberately small — the
-// hourly sweep drains any realistic backlog in a couple of ticks.
+// agentPurgeBatch bounds one janitor pass of PurgeDeletedAgents: one agent
+// per transaction, so the messages drained with it are bounded by that one
+// inbox rather than a whole batch's worth of cascades.
 var agentPurgeBatch = 100
 
 // PurgeDeletedAgents hard-deletes agents whose trash retention has lapsed
-// (deleted_at older than TrashRetention). ON DELETE CASCADE removes their
-// messages; the storage-metering trigger reconciles account_usage per row.
-// Batched + idempotent — safe for the hourly janitor to interrupt/repeat.
+// (deleted_at older than TrashRetention). One agent per transaction, its
+// messages deleted explicitly BEFORE the agent row (not via ON DELETE
+// CASCADE) so the storage-metering trigger — which resolves the owning user
+// through the agent row — still reconciles account_usage; see DeleteAgent.
+// Idempotent and interruption-safe: each agent commits independently, so a
+// janitor timeout mid-backlog resumes next tick.
 func (s *Store) PurgeDeletedAgents(ctx context.Context) (int64, error) {
 	var total int64
-	for {
-		tag, err := s.pool.Exec(ctx,
-			`DELETE FROM agent_identities WHERE id IN (
-			   SELECT id FROM agent_identities
-			    WHERE deleted_at IS NOT NULL AND deleted_at <= now() - make_interval(secs => $1)
-			    LIMIT $2)`,
-			TrashRetention.Seconds(), agentPurgeBatch)
+	for i := 0; i < agentPurgeBatch; i++ {
+		var purged bool
+		err := s.WithTx(ctx, func(tx pgx.Tx) error {
+			var id string
+			err := tx.QueryRow(ctx,
+				`SELECT id FROM agent_identities
+				  WHERE deleted_at IS NOT NULL AND deleted_at <= now() - make_interval(secs => $1)
+				  LIMIT 1 FOR UPDATE SKIP LOCKED`,
+				TrashRetention.Seconds()).Scan(&id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil // drained
+			}
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM messages WHERE agent_id = $1`, id); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM agent_identities WHERE id = $1`, id); err != nil {
+				return err
+			}
+			purged = true
+			return nil
+		})
 		if err != nil {
 			return total, err
 		}
-		n := tag.RowsAffected()
-		total += n
-		if n < int64(agentPurgeBatch) {
+		if !purged {
 			return total, nil
 		}
+		total++
 	}
+	return total, nil
 }
 
 // --- Messages ---
@@ -2169,7 +2217,8 @@ func (s *Store) GetOutboundMessageForUser(ctx context.Context, messageID, userID
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
 		 LEFT JOIN users r ON r.id = m.reviewed_by_user_id
-		 WHERE m.id = $1 AND a.user_id = $2 AND m.direction = 'outbound'`,
+		 WHERE m.id = $1 AND a.user_id = $2 AND m.direction = 'outbound'
+		   AND a.deleted_at IS NULL`,
 		messageID, userID,
 	).Scan(
 		&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject,
@@ -2369,6 +2418,7 @@ func (s *Store) ApproveAndSend(
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
 		 WHERE m.id = $1 AND m.direction = 'outbound'
+		   AND a.deleted_at IS NULL
 		 FOR NO KEY UPDATE OF m`,
 		messageID,
 	).Scan(
@@ -2536,7 +2586,8 @@ func (s *Store) ResolveOutboundOwner(ctx context.Context, messageID string) (use
 		`SELECT a.user_id, m.agent_id
 		 FROM messages m
 		 JOIN agent_identities a ON a.id = m.agent_id
-		 WHERE m.id = $1 AND m.direction = 'outbound'`,
+		 WHERE m.id = $1 AND m.direction = 'outbound'
+		   AND a.deleted_at IS NULL`,
 		messageID,
 	).Scan(&userID, &agentID)
 	if err != nil {
@@ -3004,7 +3055,7 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 		  WHERE id = $1
 		    AND status = 'pending_review'
 		    AND direction = 'outbound'
-		    AND agent_id IN (SELECT id FROM agent_identities WHERE user_id = $2)`,
+		    AND agent_id IN (SELECT id FROM agent_identities WHERE user_id = $2 AND deleted_at IS NULL)`,
 		messageID, userID, MessageStatusReviewRejected, reason,
 	)
 	if err != nil {
@@ -3462,14 +3513,22 @@ var expiredDeleteBatch int64 = 5000
 // rows whose TrashRetention window has lapsed. A row in the trash is NOT
 // subject to natural expiry (the clock is suspended; RestoreMessage gives
 // the time back), so the two arms are disjoint.
+//
+// Arm (a) also skips messages whose AGENT is in the trash: a trashed inbox
+// must come back "messages included" for the full TrashRetention window
+// (docs/design/trash-soft-delete.md), so its messages' natural-expiry clocks
+// are suspended exactly like message-level trash — RestoreAgent gives the
+// time back, and PurgeDeletedAgents removes them with the agent at day 30.
 func (s *Store) DeleteExpiredMessages(ctx context.Context) (int64, error) {
 	var total int64
 	for {
 		tag, err := s.pool.Exec(ctx,
 			`DELETE FROM messages WHERE ctid IN (
-			   SELECT ctid FROM messages
-			    WHERE (deleted_at IS NULL AND expires_at <= now())
-			       OR (deleted_at IS NOT NULL AND deleted_at <= now() - make_interval(secs => $2))
+			   SELECT m.ctid FROM messages m
+			    WHERE (m.deleted_at IS NULL AND m.expires_at <= now()
+			           AND NOT EXISTS (SELECT 1 FROM agent_identities a
+			                            WHERE a.id = m.agent_id AND a.deleted_at IS NOT NULL))
+			       OR (m.deleted_at IS NOT NULL AND m.deleted_at <= now() - make_interval(secs => $2))
 			    LIMIT $1)`,
 			expiredDeleteBatch, TrashRetention.Seconds())
 		if err != nil {

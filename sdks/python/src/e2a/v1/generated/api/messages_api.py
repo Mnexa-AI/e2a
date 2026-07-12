@@ -52,7 +52,7 @@ class MessagesApi:
         self,
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
-        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.")] = None,
+        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.")] = None,
         confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
         _request_timeout: Union[
             None,
@@ -75,7 +75,7 @@ class MessagesApi:
         :type email: str
         :param id: The message id, e.g. msg_abc123. (required)
         :type id: str
-        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
         :type permanent: bool
         :param confirm: Must be the literal DELETE when permanent=true.
         :type confirm: str
@@ -131,7 +131,7 @@ class MessagesApi:
         self,
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
-        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.")] = None,
+        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.")] = None,
         confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
         _request_timeout: Union[
             None,
@@ -154,7 +154,7 @@ class MessagesApi:
         :type email: str
         :param id: The message id, e.g. msg_abc123. (required)
         :type id: str
-        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
         :type permanent: bool
         :param confirm: Must be the literal DELETE when permanent=true.
         :type confirm: str
@@ -210,7 +210,7 @@ class MessagesApi:
         self,
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
-        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.")] = None,
+        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.")] = None,
         confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
         _request_timeout: Union[
             None,
@@ -233,7 +233,7 @@ class MessagesApi:
         :type email: str
         :param id: The message id, e.g. msg_abc123. (required)
         :type id: str
-        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
         :type permanent: bool
         :param confirm: Must be the literal DELETE when permanent=true.
         :type confirm: str

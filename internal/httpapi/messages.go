@@ -164,7 +164,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		Status:      m.InboxStatus,
 		Labels:      orEmptyStrings(m.Labels),
 		CreatedAt:   m.CreatedAt.UTC(),
-		DeletedAt:   utcTimePtr(m.DeletedAt),
+		DeletedAt:   utcPtr(m.DeletedAt),
 		AuthHeaders: m.AuthHeaders,
 		Auth:        authVerdict(m.Auth),
 		RawMessage:  m.RawMessage,
@@ -277,15 +277,6 @@ type MessageSummaryView struct {
 	Auth *AuthVerdict `json:"auth,omitempty"`
 }
 
-// utcTimePtr normalizes an optional timestamp to UTC (nil-safe), mirroring
-// the .UTC() every non-pointer timestamp on the surface gets.
-func utcTimePtr(t *time.Time) *time.Time {
-	if t == nil {
-		return nil
-	}
-	u := t.UTC()
-	return &u
-}
 
 // AuthVerdict is the wire schema for the structured inbound auth verdict
 // (MSG-11) — a clean public name for emailauth.Result (the trust primitive the
@@ -329,7 +320,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		SizeBytes:      m.SizeBytes,
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC(),
-		DeletedAt:      utcTimePtr(m.DeletedAt),
+		DeletedAt:      utcPtr(m.DeletedAt),
 		Auth:           authVerdict(m.Auth),
 		Flagged:        m.Flagged,
 		FlagReason:     m.FlagReason,
@@ -528,8 +519,8 @@ func (s *Server) handleUpdateMessage(ctx context.Context, in *updateMessageInput
 // because the default path doesn't take it).
 type deleteMessageInput struct {
 	MessageIDParam
-	Permanent bool   `query:"permanent" doc:"Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE."`
-	Confirm   string `query:"confirm" enum:"DELETE" doc:"Must be the literal DELETE when permanent=true."`
+	Permanent bool   `query:"permanent" doc:"Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential."`
+	Confirm   string `query:"confirm" doc:"Must be the literal DELETE when permanent=true."`
 }
 
 type deleteMessageOutput struct{}
@@ -550,10 +541,18 @@ func mapTrashErr(err error, resource string) error {
 }
 
 // handleDeleteMessage moves a message to the trash (default), or permanently
-// purges an already-trashed one (permanent=true&confirm=DELETE). Per-agent
-// operation like labels: an agent-scoped credential may manage its own
-// messages' trash (resolveOwnedAgent pins it to its bound agent).
+// purges an already-trashed one (permanent=true&confirm=DELETE). The default
+// (reversible) delete is a per-agent operation like labels: an agent-scoped
+// credential may manage its own messages' trash (resolveOwnedAgent pins it
+// to its bound agent). The PERMANENT purge is account-only, like every other
+// irreversible delete on the surface — a leaked/injected agent credential
+// must not be able to destroy inbox evidence beyond recovery.
 func (s *Server) handleDeleteMessage(ctx context.Context, in *deleteMessageInput) (*deleteMessageOutput, error) {
+	if in.Permanent {
+		if _, err := s.requireAccountScope(ctx); err != nil {
+			return nil, err
+		}
+	}
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err

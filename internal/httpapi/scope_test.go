@@ -50,6 +50,18 @@ func scopeTestServer(t *testing.T) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
+		GetAgentAnyState: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			switch address {
+			case "support@acme.com":
+				a := sampleAgent()
+				return &a, nil
+			case "other@acme.com":
+				a := sampleAgent()
+				a.ID = "other@acme.com"
+				return &a, nil
+			}
+			return nil, errors.New("not found")
+		},
 		UpdateAgentName: func(ctx context.Context, agentID, userID, name string) error {
 			return nil
 		},

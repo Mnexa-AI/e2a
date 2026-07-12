@@ -91,14 +91,22 @@ func (s *DeliveryStore) GetPendingDeliveries(ctx context.Context, limit int) ([]
 	// next_retry_at in the same statement so the lease is committed
 	// atomically with the read. RETURNING gives us the same shape the
 	// caller previously got from the plain SELECT.
+	//
+	// Trash gate (migration 062): a message moved to the trash — or a whole
+	// inbox moved there — must not keep delivering. Its pending row simply
+	// sits unclaimed: a restore inside the retry window resumes it, otherwise
+	// the TTL prune drops it.
 	rows, err := tx.Query(ctx,
 		`WITH candidates AS (
 		    SELECT wd.message_id
 		    FROM webhook_deliveries wd
+		    JOIN messages msg ON msg.id = wd.message_id
+		    JOIN agent_identities ag ON ag.id = msg.agent_id
 		    WHERE wd.status = 'pending' AND wd.next_retry_at <= now() AND wd.expires_at > now()
+		      AND msg.deleted_at IS NULL AND ag.deleted_at IS NULL
 		    ORDER BY wd.next_retry_at
 		    LIMIT $1
-		    FOR UPDATE SKIP LOCKED
+		    FOR UPDATE OF wd SKIP LOCKED
 		 )
 		 UPDATE webhook_deliveries wd
 		 SET next_retry_at = now() + ($2 * interval '1 second')

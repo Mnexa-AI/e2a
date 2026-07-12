@@ -62,6 +62,11 @@ var ErrInvalidCursor = errors.New("invalid pagination cursor")
 type keysetCursor struct {
 	CreatedAt time.Time `json:"c"`
 	ID        string    `json:"i"`
+	// Deleted binds a cursor to the trash view (?deleted=true) on collections
+	// that have one (agents), so a continuation can't silently flip between
+	// the live list and the trash. omitempty keeps pre-existing live-list
+	// cursors decodable (absent = live view).
+	Deleted bool `json:"dl,omitempty"`
 }
 
 // decodeKeyset resolves a (created_at, id) continuation cursor into its keyset
@@ -78,10 +83,34 @@ func (s *Server) decodeKeyset(cursor string) (time.Time, string, error) {
 	return cur.CreatedAt, cur.ID, nil
 }
 
+// decodeKeysetView is decodeKeyset for collections with a trash view: it also
+// verifies the cursor was minted for the SAME view (live vs deleted), so a
+// live-list cursor replayed with ?deleted=true (or vice versa) is a 400
+// instead of a silently truncated other-view listing.
+func (s *Server) decodeKeysetView(cursor string, deleted bool) (time.Time, string, error) {
+	if cursor == "" {
+		return time.Time{}, "", nil
+	}
+	var cur keysetCursor
+	if err := DecodeCursor([]string{s.deps.CursorSecret}, cursor, &cur); err != nil {
+		return time.Time{}, "", NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
+	}
+	if cur.Deleted != deleted {
+		return time.Time{}, "", NewError(http.StatusBadRequest, "invalid_cursor",
+			"cursor was created with a different view — start a new query without a cursor")
+	}
+	return cur.CreatedAt, cur.ID, nil
+}
+
 // encodeKeyset mints the next-page cursor from the last row's (created_at, id).
 // A marshal failure maps to a 500 envelope (matches the other list handlers).
 func (s *Server) encodeKeyset(createdAt time.Time, id string) (string, error) {
-	c, err := EncodeCursor(s.deps.CursorSecret, keysetCursor{CreatedAt: createdAt, ID: id})
+	return s.encodeKeysetView(createdAt, id, false)
+}
+
+// encodeKeysetView is encodeKeyset carrying the trash-view flag.
+func (s *Server) encodeKeysetView(createdAt time.Time, id string, deleted bool) (string, error) {
+	c, err := EncodeCursor(s.deps.CursorSecret, keysetCursor{CreatedAt: createdAt, ID: id, Deleted: deleted})
 	if err != nil {
 		return "", NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
 	}

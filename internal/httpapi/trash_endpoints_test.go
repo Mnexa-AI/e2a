@@ -250,7 +250,11 @@ func TestRestoreAgent(t *testing.T) {
 
 func TestRestoreAgentNotInTrash(t *testing.T) {
 	srv := testServer(t, func(d *Deps) {
-		d.RestoreAgent = func(ctx context.Context, agentID, userID string) error { return nil }
+		// The store is the source of truth for the trash-state decision: a
+		// live agent's restore returns ErrNotInTrash.
+		d.RestoreAgent = func(ctx context.Context, agentID, userID string) error {
+			return identity.ErrNotInTrash
+		}
 		d.GetAgentAnyState = func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
 			a := sampleAgent() // live — DeletedAt nil
 			return &a, nil
@@ -329,6 +333,62 @@ func TestListMessagesDeletedView(t *testing.T) {
 	row, _ := items[0].(map[string]any)
 	if row["deleted_at"] == nil {
 		t.Fatalf("trash row missing deleted_at: %v", row)
+	}
+}
+
+// TestDeleteMessagePermanentIsAccountOnly: the irreversible message purge is
+// barred for agent-scoped credentials — a leaked/injected agent key must not
+// destroy inbox evidence beyond recovery. The reversible trash stays open to
+// the agent (its own inbox hygiene).
+func TestDeleteMessagePermanentIsAccountOnly(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c), func(d *Deps) {
+		d.PrincipalAuthenticator = func(r *http.Request) (*identity.Principal, error) {
+			if r.Header.Get("Authorization") == "Bearer agentkey" {
+				return &identity.Principal{
+					User:    &identity.User{ID: "u_1", Email: "owner@acme.com"},
+					Scope:   identity.ScopeAgent,
+					AgentID: "support@acme.com",
+				}, nil
+			}
+			return nil, errUnauthorizedTest
+		}
+	})
+	code, body := sendJSON(t, "DELETE",
+		srv.URL+"/v1/agents/support%40acme.com/messages/msg_1?permanent=true&confirm=DELETE", "agentkey", nil)
+	if code != 403 {
+		t.Fatalf("permanent purge by agent-scoped key: want 403, got %d %v", code, body)
+	}
+	if c.purgeMsg != 0 {
+		t.Fatal("purge dep reached despite scope rejection")
+	}
+	// The reversible soft delete on its own agent still works.
+	code, body = sendJSON(t, "DELETE",
+		srv.URL+"/v1/agents/support%40acme.com/messages/msg_1", "agentkey", nil)
+	if code != 204 {
+		t.Fatalf("soft delete by agent-scoped key on own agent: want 204, got %d %v", code, body)
+	}
+}
+
+// TestListAgentsCursorBoundToView: a cursor minted for the live agents list
+// must not continue a trash (?deleted=true) listing, and vice versa.
+func TestListAgentsCursorBoundToView(t *testing.T) {
+	srv := testServer(t)
+	liveCursor, err := EncodeCursor("", keysetCursor{CreatedAt: time.Unix(1700000000, 0).UTC(), ID: "a@acme.com"})
+	if err != nil {
+		t.Fatalf("EncodeCursor: %v", err)
+	}
+	code, body := sendJSON(t, "GET", srv.URL+"/v1/agents?deleted=true&cursor="+liveCursor, "good", nil)
+	if code != 400 || errCode(body) != "invalid_cursor" {
+		t.Fatalf("live cursor on trash view: want 400 invalid_cursor, got %d %v", code, body)
+	}
+	trashCursor, err := EncodeCursor("", keysetCursor{CreatedAt: time.Unix(1700000000, 0).UTC(), ID: "a@acme.com", Deleted: true})
+	if err != nil {
+		t.Fatalf("EncodeCursor: %v", err)
+	}
+	code, body = sendJSON(t, "GET", srv.URL+"/v1/agents?cursor="+trashCursor, "good", nil)
+	if code != 400 || errCode(body) != "invalid_cursor" {
+		t.Fatalf("trash cursor on live view: want 400 invalid_cursor, got %d %v", code, body)
 	}
 }
 

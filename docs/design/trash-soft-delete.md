@@ -31,9 +31,17 @@ fraction of the table) so the write amplification is negligible.
   reject first); attempting returns `ErrMessageHeld` → HTTP 409.
 - **Hidden while trashed**: every agent-facing read path excludes
   `deleted_at IS NOT NULL` rows — list, conversations, reply/forward anchors,
-  In-Reply-To threading lookups, unread counts. Exception: the single-message
-  GET returns trashed rows (annotated with `deleted_at`) so the trash view
-  can open them, mirroring Gmail's "view message in trash".
+  unread counts, per-agent dashboard stats. A pending webhook delivery for a
+  trashed message stops being claimed (it resumes if the message is restored
+  inside the retry window; otherwise the TTL prune drops it), and a
+  queued-but-unsent async outbound send no-ops if its message (or its agent)
+  was trashed — deleting is the user's lever to stop an in-flight send. Two
+  deliberate exceptions: the single-message GET returns trashed rows
+  (annotated with `deleted_at`) so the trash view can open them, mirroring
+  Gmail's "view message in trash"; and the In-Reply-To / References
+  threading lookup (`LookupConversationID`) still resolves conversation ids
+  off trashed anchors, so a reply arriving while the original sits in the
+  trash keeps threading correctly.
 - **Expiry clock pauses in trash**: messages already carry a natural TTL
   (`expires_at`, `MessageTTL` = 10 days). Restore shifts the deadline by the
   time spent in trash (`expires_at += now() - deleted_at`), so a restored
@@ -62,10 +70,23 @@ fraction of the table) so the write amplification is negligible.
     same address conflicts until the trash entry is restored or purged,
     like Gmail address reuse rules. The messages stay attached untouched;
     restore brings the whole inbox back, messages included.
+  - A trashed agent does NOT consume a `max_agents` plan slot
+    (`usage.CountAgentsByUser` mirrors the live list's trash exclusion), so
+    a replacement can be created immediately.
+- **Message clocks pause with the inbox**: the janitor's natural-expiry arm
+  skips messages whose agent is trashed, and `RestoreAgent` shifts every
+  live message's `expires_at` — and a still-held draft's
+  `approval_expires_at` — forward by the time spent in the trash. Restore
+  therefore returns the inbox exactly as it was: no mail silently expired
+  mid-window, and no held draft auto-resolves because its review TTL
+  "lapsed" while the inbox was invisible.
 - **Purge**: janitor `PurgeDeletedAgents` hard-deletes agents with
-  `deleted_at <= now() - TrashRetention` in small batches; `ON DELETE
-  CASCADE` removes their messages (the storage-metering trigger reconciles
-  `account_usage` per row).
+  `deleted_at <= now() - TrashRetention`, one agent per transaction, its
+  messages deleted explicitly BEFORE the agent row (not via `ON DELETE
+  CASCADE`) — the storage-metering trigger resolves the owning user through
+  the agent row, so a cascade would leak the bytes in
+  `account_usage.storage_bytes` forever. `DeleteAgent` (the permanent
+  delete) drains the same way.
 - **Delete forever**: `DELETE /v1/agents/{email}?permanent=true&confirm=DELETE`
   hard-deletes from either state (trash UI uses it on trashed inboxes; API
   callers keep a one-shot irreversible delete).
@@ -82,7 +103,9 @@ deployment (or test) can tune it; no config knob until someone needs one.
 
 - `AgentView`, `MessageView`, `MessageSummaryView` gain `deleted_at`
   (RFC3339Nano, omitted when live).
-- `GET /v1/agents?deleted=true` — list trashed agents (same page envelope).
+- `GET /v1/agents?deleted=true` — list trashed agents (same page envelope;
+  the keyset cursor is bound to the view, so a live-list cursor replayed
+  against the trash — or vice versa — is a 400 `invalid_cursor`).
 - `DELETE /v1/agents/{email}?confirm=DELETE` — **now moves to trash**
   (breaking semantics change, documented; previously irreversible).
   `&permanent=true` — irreversible hard delete (any state).
@@ -93,9 +116,13 @@ deployment (or test) can tune it; no config knob until someone needs one.
   Held-for-review → 409 `message_held`. `?permanent=true&confirm=DELETE` —
   purge, only valid on a trashed message (otherwise 409 `not_in_trash`).
 - `POST /v1/agents/{email}/messages/{id}/restore` — restore → MessageView.
-- Message trash/restore are per-agent operations (resolveOwnedAgent), so an
-  agent-scoped credential can manage its own trash, like labels. Agent
-  trash/restore/permanent-delete stay account-scoped (requireAccountScope).
+- Message trash/restore (the REVERSIBLE ops) are per-agent operations
+  (resolveOwnedAgent), so an agent-scoped credential can manage its own
+  trash, like labels. The PERMANENT message purge is account-only — like
+  every other irreversible delete on the surface, so a leaked or
+  prompt-injected agent credential cannot destroy inbox evidence beyond
+  recovery. Agent trash/restore/permanent-delete stay account-scoped
+  (requireAccountScope).
 
 No new webhook events in this slice (disposition events stay curated).
 

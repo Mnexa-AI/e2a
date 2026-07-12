@@ -99,6 +99,15 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 			}
 			return nil, errors.New("not found")
 		},
+		// Any-state resolution mirrors the live getter by default (no trashed
+		// agents in the base fixture); trash tests override it.
+		GetAgentAnyState: func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			if address == "support@acme.com" {
+				a := sampleAgent()
+				return &a, nil
+			}
+			return nil, errors.New("not found")
+		},
 		CreateTemplate: func(ctx context.Context, userID string, in identity.TemplateCreate) (*identity.Template, error) {
 			// "welcome" is held by the fixture template tmpl_1, so a create
 			// defaulting to a starter's alias collides exactly like "taken".

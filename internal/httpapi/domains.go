@@ -434,12 +434,12 @@ func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) 
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to check domain agents")
 	}
 	if hasAgents {
-		return nil, NewError(http.StatusBadRequest, "domain_has_agents", "cannot delete domain while agents exist — delete agents first")
+		return nil, NewError(http.StatusBadRequest, "domain_has_agents", "cannot delete domain while agents exist — delete its agents first (including any in the trash: they hold the address until restored or permanently deleted)")
 	}
 	if err := s.deps.DeleteDomain(ctx, in.Domain, user.ID); err != nil {
 		switch {
 		case errors.Is(err, identity.ErrDomainHasAgents):
-			return nil, NewError(http.StatusBadRequest, "domain_has_agents", "cannot delete domain while agents exist — delete agents first")
+			return nil, NewError(http.StatusBadRequest, "domain_has_agents", "cannot delete domain while agents exist — delete its agents first (including any in the trash: they hold the address until restored or permanently deleted)")
 		case errors.Is(err, identity.ErrDomainNotFound):
 			return nil, NewError(http.StatusNotFound, "not_found", "domain not found")
 		default:

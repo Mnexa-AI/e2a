@@ -20,17 +20,8 @@ import {
   invalidateAgentMessages,
   invalidateAgentUnread,
 } from "../../../../../lib/swrKeys";
+import { TRASH_RETENTION_DAYS, daysLeft } from "../../../../../lib/trash";
 import type { MessageSummary } from "../../../../components/types";
-
-// Retention window mirrored from the backend (identity.TrashRetention).
-// Display-only — the janitor owns the real clock.
-const TRASH_RETENTION_DAYS = 30;
-
-function daysLeft(deletedAt: string): number {
-  const purgeAt =
-    new Date(deletedAt).getTime() + TRASH_RETENTION_DAYS * 24 * 3600 * 1000;
-  return Math.max(0, Math.ceil((purgeAt - Date.now()) / (24 * 3600 * 1000)));
-}
 
 export default function AgentTrashPage() {
   return (

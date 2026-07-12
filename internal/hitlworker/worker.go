@@ -165,6 +165,16 @@ func (w *Worker) processOne(ctx context.Context, c identity.ExpirationCandidate)
 func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate) {
 	agent, err := w.store.GetAgentByID(ctx, c.AgentID)
 	if err != nil {
+		// Not-found means the agent was hard-deleted or moved to the trash
+		// between the sweep's candidate list and this load (GetAgentByID
+		// excludes trashed agents — migration 062). SKIP, don't terminally
+		// reject: a trashed inbox's holds must come back intact on restore
+		// (RestoreAgent shifts their approval TTLs), and a hard-deleted
+		// agent's rows are gone anyway.
+		if errors.Is(err, pgx.ErrNoRows) {
+			log.Printf("[hitl-worker] auto-approve %s: agent %s gone or trashed — skipping", c.MessageID, c.AgentID)
+			return
+		}
 		log.Printf("[hitl-worker] auto-approve %s: agent lookup failed: %v", c.MessageID, err)
 		w.autoReject(ctx, c.MessageID, fmt.Sprintf("auto-approve failed: agent lookup: %v", err))
 		return

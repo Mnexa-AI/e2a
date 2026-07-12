@@ -125,9 +125,9 @@ func (j *Janitor) Sweep(ctx context.Context) error {
 		j.metrics.JanitorRowsDeleted("messages", int(deleted))
 	}
 
-	// Trashed agents past TrashRetention: hard delete, cascading to their
-	// messages (docs/design/trash-soft-delete.md). After the messages pass so
-	// a first-deploy backlog drains the cheap per-row deletes first.
+	// Trashed agents past TrashRetention: hard delete, messages included
+	// (docs/design/trash-soft-delete.md). Order relative to the other prunes
+	// is arbitrary — each pass is independent and idempotent.
 	if deleted, err := j.messages.PurgeDeletedAgents(ctx); err != nil {
 		log.Printf("Failed to purge trashed agents: %v", err)
 		errs = append(errs, err)

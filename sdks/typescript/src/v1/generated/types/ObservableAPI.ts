@@ -1197,10 +1197,10 @@ export class ObservableMessagesApi {
      * Delete a message (move to trash)
      * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
-     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
      * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
      */
-    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteMessage(email, id, permanent, confirm, _config);
@@ -1225,10 +1225,10 @@ export class ObservableMessagesApi {
      * Delete a message (move to trash)
      * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
-     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
      * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
      */
-    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
+    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: string, _options?: ConfigurationOptions): Observable<void> {
         return this.deleteMessageWithHttpInfo(email, id, permanent, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
     }
 

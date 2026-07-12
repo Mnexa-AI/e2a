@@ -121,12 +121,16 @@ func (s *Store) GetAccountClass(ctx context.Context, userID string) (AccountClas
 // — therefore count only agents the user can actually see and manage, so an
 // orphaned agent neither shows up as usage nor blocks creating a new one.
 func (s *Store) CountAgentsByUser(ctx context.Context, userID string) (int, error) {
+	// deleted_at IS NULL mirrors ListAgentsByUser's trash exclusion
+	// (migration 062): a soft-deleted agent is invisible to the user, so it
+	// must neither show up as usage nor consume a max_agents slot — the user
+	// can always create a replacement while the old inbox sits in the trash.
 	var count int
 	err := s.pool.QueryRow(ctx,
 		`SELECT COUNT(*)
 		   FROM agent_identities a
 		   JOIN domains d ON a.domain = d.domain
-		  WHERE a.user_id = $1`, userID,
+		  WHERE a.user_id = $1 AND a.deleted_at IS NULL`, userID,
 	).Scan(&count)
 	return count, err
 }

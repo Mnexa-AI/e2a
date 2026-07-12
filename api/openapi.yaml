@@ -3863,12 +3863,12 @@ paths:
           schema:
             description: The message id, e.g. msg_abc123.
             type: string
-        - description: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+        - description: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
           explode: false
           in: query
           name: permanent
           schema:
-            description: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+            description: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
             type: boolean
         - description: Must be the literal DELETE when permanent=true.
           explode: false
@@ -3876,8 +3876,6 @@ paths:
           name: confirm
           schema:
             description: Must be the literal DELETE when permanent=true.
-            enum:
-              - DELETE
             type: string
       responses:
         "204":

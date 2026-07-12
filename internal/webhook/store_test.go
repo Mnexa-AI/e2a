@@ -224,3 +224,39 @@ func TestDeliveryStatusUpdatesByMessageID(t *testing.T) {
 		t.Fatalf("WebhookAttempts = %d, want 2", activity[0].WebhookAttempts)
 	}
 }
+
+// TestGetPendingDeliveriesSkipsTrash: migration 062's trash gate — a pending
+// delivery whose message (or whole inbox) was soft-deleted must not be
+// claimed; it resumes if the message is restored inside the retry window.
+func TestGetPendingDeliveriesSkipsTrash(t *testing.T) {
+	_, identityStore, deliveryStore, agent, msg := setupDeliveryFixture(t)
+	ctx := context.Background()
+
+	if _, err := deliveryStore.CreateDelivery(ctx, msg.ID, "boom"); err != nil {
+		t.Fatalf("CreateDelivery: %v", err)
+	}
+
+	// Trash the message → not claimable.
+	if err := identityStore.SoftDeleteMessage(ctx, msg.ID, agent.ID); err != nil {
+		t.Fatalf("SoftDeleteMessage: %v", err)
+	}
+	pending, err := deliveryStore.GetPendingDeliveries(ctx, 10)
+	if err != nil {
+		t.Fatalf("GetPendingDeliveries: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("claimed %d deliveries for a trashed message, want 0", len(pending))
+	}
+
+	// Restore → claimable again (the skip left the row unleased).
+	if err := identityStore.RestoreMessage(ctx, msg.ID, agent.ID); err != nil {
+		t.Fatalf("RestoreMessage: %v", err)
+	}
+	pending, err = deliveryStore.GetPendingDeliveries(ctx, 10)
+	if err != nil {
+		t.Fatalf("GetPendingDeliveries after restore: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("claimed %d deliveries after restore, want 1", len(pending))
+	}
+}

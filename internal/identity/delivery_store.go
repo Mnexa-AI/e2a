@@ -245,9 +245,12 @@ func (s *Store) GetSendOutcome(ctx context.Context, messageID string) (SendOutco
 }
 
 // LoadOutboundForSend returns the payload the async send worker submits, or nil if
-// the row is gone (agent-delete cascade / TTL) — the worker treats that as a
-// no-op. Reads the envelope (to+cc+bcc) and the persisted wire bytes; does not
-// touch message_recipients (those are written at MarkSent).
+// the row is gone (agent delete / TTL) — the worker treats that as a no-op.
+// A message in the trash, or one whose AGENT is in the trash, counts as gone:
+// deleting is the user's one lever to stop a queued-but-unsent message (e.g.
+// snoozed behind a provider-outage retry horizon), and a trashed inbox must
+// never emit mail. Reads the envelope (to+cc+bcc) and the persisted wire
+// bytes; does not touch message_recipients (those are written at MarkSent).
 func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*OutboundSendPayload, error) {
 	var (
 		deliveryStatus string
@@ -258,10 +261,12 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 		createdAt      time.Time
 	)
 	err := s.pool.QueryRow(ctx,
-		`SELECT COALESCE(delivery_status,''), COALESCE(envelope_from,''), COALESCE(sent_as,''),
-		        to_recipients, cc, bcc, raw_message, created_at
-		   FROM messages
-		  WHERE id = $1 AND direction = 'outbound'`,
+		`SELECT COALESCE(m.delivery_status,''), COALESCE(m.envelope_from,''), COALESCE(m.sent_as,''),
+		        m.to_recipients, m.cc, m.bcc, m.raw_message, m.created_at
+		   FROM messages m
+		   JOIN agent_identities a ON a.id = m.agent_id
+		  WHERE m.id = $1 AND m.direction = 'outbound'
+		    AND m.deleted_at IS NULL AND a.deleted_at IS NULL`,
 		messageID,
 	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &to, &cc, &bcc, &raw, &createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {

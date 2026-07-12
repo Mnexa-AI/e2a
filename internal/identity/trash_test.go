@@ -345,6 +345,162 @@ func TestAgentTrashLifecycle(t *testing.T) {
 	}
 }
 
+// TestAgentTrashPausesMessageClocks: while an inbox sits in the trash its
+// messages' natural expiry is suspended (the janitor must not eat them), and
+// RestoreAgent gives the time back — expires_at and a held draft's
+// approval_expires_at shift forward by the time spent trashed, so restore
+// returns the inbox exactly as it was.
+func TestAgentTrashPausesMessageClocks(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := trashTestSetup(t, store, "pause-trash")
+
+	msg := trashInbound(t, store, agentID, "bot@pause-trash.example.com", "keep me")
+	held, err := store.CreatePendingOutboundMessage(ctx, agentID,
+		[]string{"x@example.com"}, nil, nil, "held", "body", "", nil,
+		"send", "", "", "", 3600)
+	if err != nil {
+		t.Fatalf("CreatePendingOutboundMessage: %v", err)
+	}
+
+	if err := store.SoftDeleteAgent(ctx, agentID, userID); err != nil {
+		t.Fatalf("SoftDeleteAgent: %v", err)
+	}
+	// Simulate 20 days in the trash: both messages would be far past their
+	// natural clocks if those kept ticking.
+	if _, err := pool.Exec(ctx,
+		`UPDATE agent_identities SET deleted_at = deleted_at - interval '20 days' WHERE id = $1`, agentID); err != nil {
+		t.Fatalf("backdate agent: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages SET expires_at = expires_at - interval '20 days',
+		                     created_at = created_at - interval '20 days',
+		                     approval_expires_at = approval_expires_at - interval '20 days'
+		  WHERE agent_id = $1`, agentID); err != nil {
+		t.Fatalf("backdate messages: %v", err)
+	}
+
+	// The janitor must not touch the trashed inbox's messages even though
+	// their expires_at is long past.
+	if _, err := store.DeleteExpiredMessages(ctx); err != nil {
+		t.Fatalf("DeleteExpiredMessages: %v", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id = $1`, agentID).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("messages of trashed agent survived = %d (err=%v), want 2", n, err)
+	}
+
+	if err := store.RestoreAgent(ctx, agentID, userID); err != nil {
+		t.Fatalf("RestoreAgent: %v", err)
+	}
+	// The inbound message resumes with ~10 days of life left (it had all of
+	// MessageTTL left when the agent was trashed).
+	var expires, approval time.Time
+	if err := pool.QueryRow(ctx, `SELECT expires_at FROM messages WHERE id = $1`, msg.ID).Scan(&expires); err != nil {
+		t.Fatalf("read expires_at: %v", err)
+	}
+	if left := time.Until(expires); left < 9*24*time.Hour || left > 11*24*time.Hour {
+		t.Errorf("restored message lifetime = %v, want ~10 days", left)
+	}
+	// The held draft resumes with ~1h of review window left — NOT already
+	// lapsed (which would let the TTL sweep auto-resolve it immediately).
+	if err := pool.QueryRow(ctx, `SELECT approval_expires_at FROM messages WHERE id = $1`, held.ID).Scan(&approval); err != nil {
+		t.Fatalf("read approval_expires_at: %v", err)
+	}
+	if left := time.Until(approval); left < 30*time.Minute || left > 90*time.Minute {
+		t.Errorf("restored hold review window = %v, want ~1h", left)
+	}
+	// And the restored hold is back in the review surfaces.
+	pending, err := store.ListPendingOutboundForUser(ctx, userID, 100)
+	if err != nil {
+		t.Fatalf("ListPendingOutboundForUser: %v", err)
+	}
+	found := false
+	for _, p := range pending {
+		if p.ID == held.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("restored agent's hold missing from pending list")
+	}
+}
+
+// TestTrashedAgentHoldsCannotBeResolved: the hold-resolution paths treat a
+// trashed agent's held draft as nonexistent — no approve, no reject-scrub.
+func TestTrashedAgentHoldsCannotBeResolved(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := trashTestSetup(t, store, "resolve-trash")
+
+	held, err := store.CreatePendingOutboundMessage(ctx, agentID,
+		[]string{"x@example.com"}, nil, nil, "held", "body", "", nil,
+		"send", "", "", "", 3600)
+	if err != nil {
+		t.Fatalf("CreatePendingOutboundMessage: %v", err)
+	}
+	if err := store.SoftDeleteAgent(ctx, agentID, userID); err != nil {
+		t.Fatalf("SoftDeleteAgent: %v", err)
+	}
+
+	if got, err := store.GetOutboundMessageForUser(ctx, held.ID, userID); err == nil && got != nil {
+		t.Error("GetOutboundMessageForUser resolved a trashed agent's hold")
+	}
+	if _, _, err := store.ResolveOutboundOwner(ctx, held.ID); err == nil {
+		t.Error("ResolveOutboundOwner resolved a trashed agent's hold")
+	}
+	if _, err := store.RejectPending(ctx, held.ID, userID, "nope"); err == nil {
+		t.Error("RejectPending scrubbed a trashed agent's hold")
+	}
+	// The draft body is intact for restore.
+	var bodyText *string
+	if err := pool.QueryRow(ctx, `SELECT body_text FROM messages WHERE id = $1`, held.ID).Scan(&bodyText); err != nil {
+		t.Fatalf("read body_text: %v", err)
+	}
+	if bodyText == nil || *bodyText != "body" {
+		t.Errorf("held draft body was scrubbed while agent trashed: %v", bodyText)
+	}
+}
+
+// TestLoadOutboundForSendSkipsTrash: the async send worker's load treats a
+// trashed message — or a message of a trashed agent — as gone (nil, nil), so
+// deleting is an effective "stop this queued send" lever.
+func TestLoadOutboundForSendSkipsTrash(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := trashTestSetup(t, store, "send-trash")
+
+	msg, err := store.CreateOutboundMessage(ctx, agentID,
+		[]string{"x@example.com"}, nil, nil, "queued send", "send", "smtp", "", "", []byte("raw"))
+	if err != nil {
+		t.Fatalf("CreateOutboundMessage: %v", err)
+	}
+	// Live: the worker sees the payload.
+	if p, err := store.LoadOutboundForSend(ctx, msg.ID); err != nil || p == nil {
+		t.Fatalf("LoadOutboundForSend(live) = (%v, %v), want payload", p, err)
+	}
+	// Message in the trash → gone.
+	if err := store.SoftDeleteMessage(ctx, msg.ID, agentID); err != nil {
+		t.Fatalf("SoftDeleteMessage: %v", err)
+	}
+	if p, err := store.LoadOutboundForSend(ctx, msg.ID); err != nil || p != nil {
+		t.Fatalf("LoadOutboundForSend(trashed msg) = (%v, %v), want (nil, nil)", p, err)
+	}
+	// Restore the message, trash the whole AGENT → also gone.
+	if err := store.RestoreMessage(ctx, msg.ID, agentID); err != nil {
+		t.Fatalf("RestoreMessage: %v", err)
+	}
+	if err := store.SoftDeleteAgent(ctx, agentID, userID); err != nil {
+		t.Fatalf("SoftDeleteAgent: %v", err)
+	}
+	if p, err := store.LoadOutboundForSend(ctx, msg.ID); err != nil || p != nil {
+		t.Fatalf("LoadOutboundForSend(trashed agent) = (%v, %v), want (nil, nil)", p, err)
+	}
+}
+
 // TestPurgeDeletedAgents: only trashed agents past TrashRetention are purged,
 // and the purge cascades to their messages.
 func TestPurgeDeletedAgents(t *testing.T) {

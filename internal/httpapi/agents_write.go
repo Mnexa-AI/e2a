@@ -184,41 +184,36 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 	}
 	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
 	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
-	if in.Permanent {
-		// Delete forever: resolve across trash state so an agent can be purged
-		// from the trash view.
-		ag, err := s.resolveOwnedAgentAnyState(ctx, in.Address)
-		if err != nil {
-			return nil, err
-		}
-		if s.deps.PermanentDeleteAgent == nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
-		}
-		messagesDeleted, err := s.deps.PermanentDeleteAgent(ctx, ag.ID, ag.UserID)
-		if err != nil {
-			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
-		}
-		return &deleteAgentOutput{Body: DeleteAgentResult{
-			Deleted:         true,
-			Email:           ag.ID,
-			MessagesDeleted: messagesDeleted,
-		}}, nil
-	}
-	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	//
+	// One resolution path across both variants: any-state, so permanent=true
+	// can purge an agent already in the trash. A trashed agent is 404 for the
+	// SOFT delete — matching every live lookup's view of it.
+	ag, err := s.resolveOwnedAgentAnyState(ctx, in.Address)
 	if err != nil {
 		return nil, err
 	}
-	if s.deps.DeleteAgent == nil {
-		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
+	var messagesDeleted int64
+	if in.Permanent {
+		if s.deps.PermanentDeleteAgent == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
+		}
+		messagesDeleted, err = s.deps.PermanentDeleteAgent(ctx, ag.ID, ag.UserID)
+	} else if ag.DeletedAt != nil {
+		return nil, NewError(http.StatusNotFound, "not_found", "agent not found")
+	} else {
+		if s.deps.DeleteAgent == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
+		}
+		err = s.deps.DeleteAgent(ctx, ag.ID, ag.UserID)
 	}
-	if err := s.deps.DeleteAgent(ctx, ag.ID, ag.UserID); err != nil {
+	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
 	}
 	// ag.ID is the agent's email (canonical form) — echo it as the identity key.
 	return &deleteAgentOutput{Body: DeleteAgentResult{
 		Deleted:         true,
 		Email:           ag.ID,
-		MessagesDeleted: 0,
+		MessagesDeleted: messagesDeleted,
 	}}, nil
 }
 
@@ -235,9 +230,8 @@ func (s *Server) handleRestoreAgent(ctx context.Context, in *AddressParam) (*age
 	if err != nil {
 		return nil, err
 	}
-	if ag.DeletedAt == nil {
-		return nil, NewError(http.StatusConflict, "not_in_trash", "agent is not in the trash")
-	}
+	// The trash-state decision belongs to the store (its UPDATE is the one
+	// atomic check); the handler only maps the sentinel.
 	if err := s.deps.RestoreAgent(ctx, ag.ID, ag.UserID); err != nil {
 		if errors.Is(err, identity.ErrNotInTrash) {
 			return nil, NewError(http.StatusConflict, "not_in_trash", "agent is not in the trash")

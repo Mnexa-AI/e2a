@@ -91,3 +91,52 @@ func TestCountAgentsByUser_ExcludesOrphanedAgents(t *testing.T) {
 		t.Errorf("CountAgentsByUser = %d, want 1 (orphaned agent must not consume a slot)", count)
 	}
 }
+
+// TestCountAgentsByUser_ExcludesTrashedAgents mirrors migration 062's trash
+// exclusion: a soft-deleted agent is invisible to ListAgentsByUser, so it
+// must neither show up as usage nor consume a max_agents slot — the user can
+// create a replacement while the old inbox sits in the trash.
+func TestCountAgentsByUser_ExcludesTrashedAgents(t *testing.T) {
+	pool := testutil.TestDB(t)
+	usageStore := usage.NewStore(pool)
+	idStore := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, err := idStore.CreateOrGetUser(ctx, "trash-count@example.com", "Trash Count", "google-trash-count")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	if _, err := idStore.ClaimOrCreateDomain(ctx, "trashcount.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	for _, email := range []string{"a@trashcount.example.com", "b@trashcount.example.com"} {
+		if _, err := idStore.CreateAgent(ctx, email, "trashcount.example.com", "", "", "", user.ID); err != nil {
+			t.Fatalf("CreateAgent %s: %v", email, err)
+		}
+	}
+	if n, err := usageStore.CountAgentsByUser(ctx, user.ID); err != nil || n != 2 {
+		t.Fatalf("pre-trash CountAgentsByUser = %d, err=%v; want 2", n, err)
+	}
+
+	if err := idStore.SoftDeleteAgent(ctx, "b@trashcount.example.com", user.ID); err != nil {
+		t.Fatalf("SoftDeleteAgent: %v", err)
+	}
+	// The count drops with the trash move — and stays equal to the live list.
+	if n, err := usageStore.CountAgentsByUser(ctx, user.ID); err != nil || n != 1 {
+		t.Fatalf("post-trash CountAgentsByUser = %d, err=%v; want 1", n, err)
+	}
+	list, err := idStore.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListAgentsByUser: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("live list = %d rows, want 1 (mirror invariant)", len(list))
+	}
+	// Restore brings the slot usage back.
+	if err := idStore.RestoreAgent(ctx, "b@trashcount.example.com", user.ID); err != nil {
+		t.Fatalf("RestoreAgent: %v", err)
+	}
+	if n, err := usageStore.CountAgentsByUser(ctx, user.ID); err != nil || n != 2 {
+		t.Fatalf("post-restore CountAgentsByUser = %d, err=%v; want 2", n, err)
+	}
+}

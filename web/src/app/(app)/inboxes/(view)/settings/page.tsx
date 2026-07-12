@@ -12,6 +12,7 @@ import { deleteAgent, getProtection } from "../../../../components/onboarding/ap
 import { useAgents } from "../../../../components/hooks/useAgents";
 import {
   invalidateAgents,
+  invalidateDeletedAgents,
   invalidateProtection,
   protectionKey,
 } from "../../../../../lib/swrKeys";
@@ -82,6 +83,8 @@ function AgentSettingsContent({ email }: { email: string }) {
     try {
       await deleteAgent(agent.email);
       await invalidateAgents();
+      // The inbox now lives in the trash — a mounted /trash page is stale.
+      void invalidateDeletedAgents();
       // replace, not push: the inbox is gone, so Back must not return to
       // this now-dead settings page.
       router.replace("/inboxes");
