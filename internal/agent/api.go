@@ -1330,8 +1330,8 @@ type ForwardRequest struct {
 	To             []string              `json:"to"`
 	CC             []string              `json:"cc,omitempty"`
 	BCC            []string              `json:"bcc,omitempty"`
-	Body           string                `json:"body,omitempty"`
-	HTMLBody       string                `json:"html_body,omitempty"`
+	Body           string                `json:"text,omitempty"`
+	HTMLBody       string                `json:"html,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty"`
 }

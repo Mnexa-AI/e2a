@@ -51,7 +51,7 @@ describe("login --with-key", () => {
   it("validates the key via /v1/account and saves key + scope + bound agent", async () => {
     mockAccountGet.mockResolvedValue({
       scope: "agent",
-      agentAddress: "tether@agents.e2a.dev",
+      agentEmail: "tether@agents.e2a.dev",
       user: { id: "usr_1", email: "o@x.com" },
     });
     const { loginWithKey } = await import("../commands/login.js");
@@ -88,7 +88,7 @@ describe("login --with-key", () => {
     try {
       mockAccountGet.mockResolvedValue({
         scope: "agent",
-        agentAddress: "t@agents.e2a.dev",
+        agentEmail: "t@agents.e2a.dev",
         user: { id: "u", email: "o@x.com" },
       });
       const { loginWithKey } = await import("../commands/login.js");
@@ -115,7 +115,7 @@ describe("login --with-key", () => {
     try {
       mockAccountGet.mockResolvedValue({
         scope: "agent",
-        agentAddress: "t@agents.e2a.dev",
+        agentEmail: "t@agents.e2a.dev",
         user: { id: "u", email: "o@x.com" },
       });
       const { loginWithKey } = await import("../commands/login.js");

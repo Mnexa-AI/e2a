@@ -27,7 +27,7 @@ func TestSend_WaitSent_PollsToSent(t *testing.T) {
 		}
 	})
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages?wait=sent", "good",
-		map[string]any{"to": []string{"x@y.com"}, "subject": "s", "body": "b"})
+		map[string]any{"to": []string{"x@y.com"}, "subject": "s", "text": "b"})
 	if code != 200 || body["status"] != "sent" || body["provider_message_id"] != "ses-abc" {
 		t.Fatalf("wait=sent: want 200 sent + provider id, got %d %v", code, body)
 	}

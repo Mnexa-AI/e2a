@@ -21,7 +21,7 @@ interface AccountView {
   user: { id: string; email: string };
   scope: "account" | "agent";
   plan_code: string;
-  agent_address?: string;
+  agent_email?: string;
   upgrade_url: string;
   limits: { max_agents: number; max_domains: number; max_messages_month: number; max_storage_bytes: number };
   usage: { agents: number; domains: number; messages_month: number; storage_bytes: number };

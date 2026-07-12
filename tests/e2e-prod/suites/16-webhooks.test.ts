@@ -37,7 +37,7 @@ interface PageWebhookView {
 }
 interface WebhookDeliveryView {
   id: string;
-  event_type: string;
+  type: string;
   status: string;
   attempts: number;
   next_retry_at: string;
@@ -141,7 +141,7 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
       "deliveries.next_cursor is string|null",
     );
     for (const d of del.body!.items) {
-      assert.ok(d.id && d.event_type && d.status, "delivery view has id/event_type/status");
+      assert.ok(d.id && d.type && d.status, "delivery view has id/type/status");
       assert.equal(typeof d.attempts, "number", "delivery.attempts is a number");
     }
 

@@ -32,7 +32,7 @@ test("quota: send /v1/agents/{email}/messages rapidly until first 429 (spec says
   const MAX_PROBE = 70;
   for (let i = 0; i < MAX_PROBE; i++) {
     const r = await burst.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: ["blackhole@e2a.dev"], subject: `probe ${i}`, body: "x" },
+      body: { to: ["blackhole@e2a.dev"], subject: `probe ${i}`, text: "x" },
     });
     if (r.status === 429) {
       limited = { status: r.status, retryAfter: r.headers["retry-after"], index: i };

@@ -80,7 +80,7 @@ function AgentInboxContent() {
 
   const initialMessages = initialPage?.items ?? [];
   // Concatenate the initial page with any imperatively-loaded older
-  // pages, then de-dupe by `message_id`. The de-dupe matters because
+  // pages, then de-dupe by `id`. The de-dupe matters because
   // SWR can revalidate the initial page mid-session (focus event,
   // explicit invalidation from the focus page's approve flow). New
   // messages arriving at the top push the initial-page boundary
@@ -91,8 +91,8 @@ function AgentInboxContent() {
     const seen = new Set<string>();
     const out: MessageSummary[] = [];
     for (const m of [...initialMessages, ...olderPages.flat()]) {
-      if (seen.has(m.message_id)) continue;
-      seen.add(m.message_id);
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
       out.push(m);
     }
     return out;
@@ -146,7 +146,7 @@ function AgentInboxContent() {
     const pending = m.review_status === "pending_review" ? "&pending=1" : "";
     return (
       `/inboxes/messages/view?email=${encodeURIComponent(email)}` +
-      `&id=${encodeURIComponent(m.message_id)}` +
+      `&id=${encodeURIComponent(m.id)}` +
       `&direction=${m.direction}${pending}` +
       (withHeaders ? "&headers=1" : "")
     );

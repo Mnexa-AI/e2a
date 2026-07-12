@@ -60,7 +60,7 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
      * The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
      * List events
      * @param type 
-     * @param agentId 
+     * @param agentEmail 
      * @param conversationId 
      * @param messageId 
      * @param since RFC3339.
@@ -68,7 +68,7 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
      * @param cursor 
      * @param limit 
      */
-    public async listEvents(type?: string, agentId?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
+    public async listEvents(type?: string, agentEmail?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
 
@@ -92,8 +92,8 @@ export class EventsApiRequestFactory extends BaseAPIRequestFactory {
         }
 
         // Query Params
-        if (agentId !== undefined) {
-            requestContext.setQueryParam("agent_id", ObjectSerializer.serialize(agentId, "string", ""));
+        if (agentEmail !== undefined) {
+            requestContext.setQueryParam("agent_email", ObjectSerializer.serialize(agentEmail, "string", ""));
         }
 
         // Query Params

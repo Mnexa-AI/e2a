@@ -170,7 +170,7 @@ export function ThreadDetail({
       >
         {thread.messages.map((m) => (
           <ThreadBubble
-            key={m.message_id}
+            key={m.id}
             message={m}
             counterparty={thread.counterparty}
             agentEmail={agentEmail}

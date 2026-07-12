@@ -14,7 +14,7 @@ func TestSendTooManyRecipients(t *testing.T) {
 		to[i] = fmt.Sprintf("r%d@x.com", i)
 	}
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": to, "subject": "Hi", "body": "hello",
+		"to": to, "subject": "Hi", "text": "hello",
 	})
 	if code != 400 || errCode(body) != "too_many_recipients" {
 		t.Fatalf("want 400 too_many_recipients, got %d %v", code, body)
@@ -34,14 +34,14 @@ func TestSendRecipientCapCountsAllFields(t *testing.T) {
 	}
 	// 20 + 20 + 11 = 51 -> over the cap.
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": mk("t", 20), "cc": mk("c", 20), "bcc": mk("b", 11), "subject": "Hi", "body": "hello",
+		"to": mk("t", 20), "cc": mk("c", 20), "bcc": mk("b", 11), "subject": "Hi", "text": "hello",
 	})
 	if code != 400 || errCode(body) != "too_many_recipients" {
 		t.Fatalf("split over cap: want 400 too_many_recipients, got %d %v", code, body)
 	}
 	// 20 + 20 + 10 = 50 -> at the cap, allowed (subject HOLD avoided -> sent).
 	code, _ = postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": mk("t", 20), "cc": mk("c", 20), "bcc": mk("b", 10), "subject": "Hi", "body": "hello",
+		"to": mk("t", 20), "cc": mk("c", 20), "bcc": mk("b", 10), "subject": "Hi", "text": "hello",
 	})
 	if code != 200 {
 		t.Fatalf("at cap: want 200, got %d", code)
@@ -56,7 +56,7 @@ func TestForwardTooManyRecipients(t *testing.T) {
 		to[i] = fmt.Sprintf("r%d@x.com", i)
 	}
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/forward", "good", map[string]any{
-		"to": to, "body": "fwd",
+		"to": to, "text": "fwd",
 	})
 	if code != 400 || errCode(body) != "too_many_recipients" {
 		t.Fatalf("forward: want 400 too_many_recipients, got %d %v", code, body)
@@ -71,7 +71,7 @@ func TestReplyTooManyRecipients(t *testing.T) {
 		cc[i] = fmt.Sprintf("r%d@x.com", i)
 	}
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{
-		"body": "re", "cc": cc,
+		"text": "re", "cc": cc,
 	})
 	if code != 400 || errCode(body) != "too_many_recipients" {
 		t.Fatalf("reply: want 400 too_many_recipients, got %d %v", code, body)

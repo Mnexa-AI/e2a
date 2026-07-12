@@ -106,8 +106,8 @@ const starterCatalog = {
 
 const starterDetail = {
   ...starterCatalog.items[0],
-  body: "Welcome aboard, courtesy of {{company_name}}.",
-  html_body:
+  text: "Welcome aboard, courtesy of {{company_name}}.",
+  html:
     "<html><head><style>@media (prefers-color-scheme: dark){.x{color:#fff !important}}</style></head><body><p>Hello from {{company_name}}</p><table>{{{items_html}}}</table></body></html>",
 };
 

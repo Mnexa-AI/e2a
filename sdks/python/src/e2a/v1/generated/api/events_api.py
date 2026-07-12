@@ -304,7 +304,7 @@ class EventsApi:
     async def list_events(
         self,
         type: Optional[StrictStr] = None,
-        agent_id: Optional[StrictStr] = None,
+        agent_email: Optional[StrictStr] = None,
         conversation_id: Optional[StrictStr] = None,
         message_id: Optional[StrictStr] = None,
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
@@ -330,8 +330,8 @@ class EventsApi:
 
         :param type:
         :type type: str
-        :param agent_id:
-        :type agent_id: str
+        :param agent_email:
+        :type agent_email: str
         :param conversation_id:
         :type conversation_id: str
         :param message_id:
@@ -368,7 +368,7 @@ class EventsApi:
 
         _param = self._list_events_serialize(
             type=type,
-            agent_id=agent_id,
+            agent_email=agent_email,
             conversation_id=conversation_id,
             message_id=message_id,
             since=since,
@@ -399,7 +399,7 @@ class EventsApi:
     async def list_events_with_http_info(
         self,
         type: Optional[StrictStr] = None,
-        agent_id: Optional[StrictStr] = None,
+        agent_email: Optional[StrictStr] = None,
         conversation_id: Optional[StrictStr] = None,
         message_id: Optional[StrictStr] = None,
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
@@ -425,8 +425,8 @@ class EventsApi:
 
         :param type:
         :type type: str
-        :param agent_id:
-        :type agent_id: str
+        :param agent_email:
+        :type agent_email: str
         :param conversation_id:
         :type conversation_id: str
         :param message_id:
@@ -463,7 +463,7 @@ class EventsApi:
 
         _param = self._list_events_serialize(
             type=type,
-            agent_id=agent_id,
+            agent_email=agent_email,
             conversation_id=conversation_id,
             message_id=message_id,
             since=since,
@@ -494,7 +494,7 @@ class EventsApi:
     async def list_events_without_preload_content(
         self,
         type: Optional[StrictStr] = None,
-        agent_id: Optional[StrictStr] = None,
+        agent_email: Optional[StrictStr] = None,
         conversation_id: Optional[StrictStr] = None,
         message_id: Optional[StrictStr] = None,
         since: Annotated[Optional[StrictStr], Field(description="RFC3339.")] = None,
@@ -520,8 +520,8 @@ class EventsApi:
 
         :param type:
         :type type: str
-        :param agent_id:
-        :type agent_id: str
+        :param agent_email:
+        :type agent_email: str
         :param conversation_id:
         :type conversation_id: str
         :param message_id:
@@ -558,7 +558,7 @@ class EventsApi:
 
         _param = self._list_events_serialize(
             type=type,
-            agent_id=agent_id,
+            agent_email=agent_email,
             conversation_id=conversation_id,
             message_id=message_id,
             since=since,
@@ -584,7 +584,7 @@ class EventsApi:
     def _list_events_serialize(
         self,
         type,
-        agent_id,
+        agent_email,
         conversation_id,
         message_id,
         since,
@@ -617,9 +617,9 @@ class EventsApi:
             
             _query_params.append(('type', type))
             
-        if agent_id is not None:
+        if agent_email is not None:
             
-            _query_params.append(('agent_id', agent_id))
+            _query_params.append(('agent_email', agent_email))
             
         if conversation_id is not None:
             

@@ -26,12 +26,12 @@ class ValidateTemplateRequest(BaseModel):
     """
     ValidateTemplateRequest
     """ # noqa: E501
-    body: Optional[StrictStr] = None
-    html_body: Optional[StrictStr] = None
+    html: Optional[StrictStr] = None
     subject: Optional[StrictStr] = None
     test_data: Optional[Dict[str, Any]] = Field(default=None, description="Sample template_data to render the preview with. Missing variables render as empty strings.")
+    text: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["body", "html_body", "subject", "test_data"]
+    __properties: ClassVar[List[str]] = ["html", "subject", "test_data", "text"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -91,10 +91,10 @@ class ValidateTemplateRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "body": obj.get("body"),
-            "html_body": obj.get("html_body"),
+            "html": obj.get("html"),
             "subject": obj.get("subject"),
-            "test_data": obj.get("test_data")
+            "test_data": obj.get("test_data"),
+            "text": obj.get("text")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

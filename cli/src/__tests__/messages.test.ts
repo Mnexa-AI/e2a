@@ -15,13 +15,13 @@ function summaries(...items: Array<Record<string, unknown>>) {
 }
 
 const M1 = {
-  messageId: "msg_1",
+  id: "msg_1",
   _from: "you@example.com",
   createdAt: new Date("2026-07-01T10:00:00Z"),
   subject: "re: status",
 };
 const M2 = {
-  messageId: "msg_2",
+  id: "msg_2",
   _from: "other@example.com",
   createdAt: new Date("2026-07-01T10:05:00Z"),
   subject: "re: status",
@@ -72,7 +72,7 @@ describe("messages commands", () => {
   it("sanitizes TSV delimiters out of the sender-controlled From field", async () => {
     mockList.mockReturnValue(
       summaries({
-        messageId: "msg_evil",
+        id: "msg_evil",
         _from: 'Evil\tName\n"attacker@x.com"',
         createdAt: new Date("2026-07-01T10:00:00Z"),
         subject: "s",
@@ -97,7 +97,7 @@ describe("messages commands", () => {
     const parsed = JSON.parse(line);
     expect(parsed.from).toBe("you@example.com");
     expect(parsed._from).toBeUndefined();
-    expect(parsed.messageId).toBe("msg_1");
+    expect(parsed.id).toBe("msg_1");
     expect(parsed.createdAt).toBe("2026-07-01T10:00:00.000Z");
   });
 
@@ -133,7 +133,7 @@ describe("messages commands", () => {
 
   it("get --text prefers parsed text over raw body text", async () => {
     mockGet.mockResolvedValue({
-      messageId: "msg_1",
+      id: "msg_1",
       parsed: { text: "just the reply" },
       body: { text: "just the reply\n> quoted history" },
     });
@@ -145,12 +145,12 @@ describe("messages commands", () => {
   });
 
   it("get --text falls back to body text, then empty", async () => {
-    mockGet.mockResolvedValue({ messageId: "msg_1", body: { text: "raw body" } });
+    mockGet.mockResolvedValue({ id: "msg_1", body: { text: "raw body" } });
     const { messagesGet } = await import("../commands/messages.js");
     await messagesGet("msg_1", { text: true });
     expect(mockStdout).toHaveBeenCalledWith("raw body\n");
 
-    mockGet.mockResolvedValue({ messageId: "msg_2" });
+    mockGet.mockResolvedValue({ id: "msg_2" });
     await messagesGet("msg_2", { text: true });
     expect(mockStdout).toHaveBeenCalledWith("\n");
   });
@@ -159,7 +159,7 @@ describe("messages commands", () => {
     // parsed.text === "" means the parser ran and the reply was ALL quoted
     // history — must NOT fall through to the unstripped raw body.
     mockGet.mockResolvedValue({
-      messageId: "msg_q",
+      id: "msg_q",
       parsed: { text: "" },
       body: { text: "> the entire quoted thread" },
     });
@@ -169,7 +169,7 @@ describe("messages commands", () => {
   });
 
   it("get emits full JSON without --text", async () => {
-    const full = { messageId: "msg_1", subject: "s", conversationId: "conv-1" };
+    const full = { id: "msg_1", subject: "s", conversationId: "conv-1" };
     mockGet.mockResolvedValue(full);
     const { messagesGet } = await import("../commands/messages.js");
     await messagesGet("msg_1", {});

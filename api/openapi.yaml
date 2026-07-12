@@ -27,7 +27,7 @@ components:
     APIKeyView:
       additionalProperties: false
       properties:
-        agent:
+        agent_email:
           description: Bound inbox email for agent-scoped keys; omitted for account scope.
           type: string
         created_at:
@@ -73,7 +73,7 @@ components:
     AccountView:
       additionalProperties: false
       properties:
-        agent_address:
+        agent_email:
           type: string
         limits:
           $ref: "#/components/schemas/LimitsCapsView"
@@ -140,6 +140,8 @@ components:
           type: string
         name:
           type: string
+        on_expiry:
+          type: string
         outbound_7d:
           format: int64
           type: integer
@@ -168,9 +170,7 @@ components:
           type: integer
         public:
           type: boolean
-        review_expiration_action:
-          type: string
-        review_ttl_seconds:
+        ttl_seconds:
           format: int64
           type: integer
         user_id:
@@ -186,8 +186,8 @@ components:
         - public
         - created_at
         - user_id
-        - review_ttl_seconds
-        - review_expiration_action
+        - ttl_seconds
+        - on_expiry
         - inbound_7d
         - outbound_7d
         - pending_count
@@ -217,12 +217,9 @@ components:
           type: boolean
         email:
           type: string
-        id:
-          type: string
         name:
           type: string
       required:
-        - id
         - domain
         - email
         - name
@@ -240,15 +237,15 @@ components:
           items:
             type: string
           type: array
-        body:
-          type: string
         cc:
           items:
             type: string
           type: array
-        html_body:
+        html:
           type: string
         subject:
+          type: string
+        text:
           type: string
         to:
           items:
@@ -345,13 +342,13 @@ components:
     ConversationDetailView:
       additionalProperties: false
       properties:
-        conversation_id:
-          type: string
         first_message_at:
           format: date-time
           type: string
         has_unread:
           type: boolean
+        id:
+          type: string
         inbound_count:
           format: int64
           type: integer
@@ -362,7 +359,7 @@ components:
         last_message_at:
           format: date-time
           type: string
-        latest_sender:
+        latest_from:
           type: string
         latest_subject:
           type: string
@@ -384,7 +381,7 @@ components:
         - participants
         - labels
         - messages
-        - conversation_id
+        - id
         - last_message_at
         - first_message_at
         - message_count
@@ -392,25 +389,25 @@ components:
         - outbound_count
         - has_unread
         - latest_subject
-        - latest_sender
+        - latest_from
       type: object
     ConversationSummaryView:
       additionalProperties: false
       properties:
-        conversation_id:
-          type: string
         first_message_at:
           format: date-time
           type: string
         has_unread:
           type: boolean
+        id:
+          type: string
         inbound_count:
           format: int64
           type: integer
         last_message_at:
           format: date-time
           type: string
-        latest_sender:
+        latest_from:
           type: string
         latest_subject:
           type: string
@@ -421,7 +418,7 @@ components:
           format: int64
           type: integer
       required:
-        - conversation_id
+        - id
         - last_message_at
         - first_message_at
         - message_count
@@ -429,12 +426,12 @@ components:
         - outbound_count
         - has_unread
         - latest_subject
-        - latest_sender
+        - latest_from
       type: object
     CreateAPIKeyRequest:
       additionalProperties: false
       properties:
-        agent:
+        agent_email:
           description: Inbox email to bind the key to; required when scope=agent.
           type: string
         expires_at:
@@ -454,7 +451,7 @@ components:
     CreateAPIKeyResponse:
       additionalProperties: false
       properties:
-        agent:
+        agent_email:
           description: Bound inbox email for agent-scoped keys; omitted for account scope.
           type: string
         created_at:
@@ -506,13 +503,10 @@ components:
         alias:
           description: Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.
           type: string
-        body:
-          description: Plain-text body template source (no HTML escaping). Required unless from_starter is set.
-          type: string
         from_starter:
-          description: "Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable."
+          description: "Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, text and html — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
-        html_body:
+        html:
           description: Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).
           type: string
         name:
@@ -520,6 +514,9 @@ components:
           type: string
         subject:
           description: Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.
+          type: string
+        text:
+          description: Plain-text body template source (no HTML escaping). Required unless from_starter is set.
           type: string
       type: object
     CreateWebhookRequest:
@@ -724,11 +721,11 @@ components:
           type: string
         domain:
           type: string
-        is_primary:
-          type: boolean
         last_checked_at:
           format: date-time
           type: string
+        primary:
+          type: boolean
         sending_error:
           type: string
         sending_last_checked_at:
@@ -750,7 +747,7 @@ components:
         - verified
         - verification_token
         - created_at
-        - is_primary
+        - primary
         - agent_count
         - sending_status
       type: object
@@ -821,7 +818,7 @@ components:
     EventJSON:
       additionalProperties: false
       properties:
-        agent_id:
+        agent_email:
           type: string
         conversation_id:
           type: string
@@ -838,8 +835,8 @@ components:
         message_id:
           type: string
         schema_version:
-          format: int64
-          type: integer
+          description: Envelope schema version — a semver-ish string label (currently "1").
+          type: string
         status:
           description: "Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match."
           type: string
@@ -866,18 +863,18 @@ components:
           items:
             type: string
           type: array
-        body:
-          type: string
         cc:
           items:
             type: string
           type: array
         conversation_id:
           type: string
-        html_body:
+        html:
           type: string
         reply_to:
           description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
+          type: string
+        text:
           type: string
         to:
           items:
@@ -885,7 +882,7 @@ components:
           type: array
       required:
         - to
-        - body
+        - text
       type: object
     LimitsCapsView:
       additionalProperties: false
@@ -932,7 +929,7 @@ components:
     Message:
       additionalProperties: false
       properties:
-        agent_id:
+        agent_email:
           type: string
         approval_expires_at:
           format: date-time
@@ -950,10 +947,6 @@ components:
           type:
             - array
             - "null"
-        body_html:
-          type: string
-        body_text:
-          type: string
         cc:
           items:
             type: string
@@ -964,6 +957,8 @@ components:
           type: string
         created_at:
           format: date-time
+          type: string
+        delivered_to:
           type: string
         delivery_detail:
           type: string
@@ -982,9 +977,11 @@ components:
           type: string
         flagged:
           type: boolean
-        id:
+        from:
           type: string
-        inbox_status:
+        html:
+          type: string
+        id:
           type: string
         labels:
           items:
@@ -999,7 +996,7 @@ components:
         raw_message:
           contentEncoding: base64
           type: string
-        recipient:
+        read_status:
           type: string
         rejection_reason:
           type: string
@@ -1023,8 +1020,6 @@ components:
         scan_score:
           format: double
           type: number
-        sender:
-          type: string
         sent_as:
           type: string
         size_bytes:
@@ -1034,7 +1029,9 @@ components:
           type: string
         subject:
           type: string
-        to_recipients:
+        text:
+          type: string
+        to:
           items:
             type: string
           type:
@@ -1051,10 +1048,10 @@ components:
           type: string
       required:
         - id
-        - agent_id
+        - agent_email
         - direction
-        - sender
-        - recipient
+        - from
+        - delivered_to
         - subject
         - created_at
         - expires_at
@@ -1094,6 +1091,9 @@ components:
         created_at:
           format: date-time
           type: string
+        delivered_to:
+          description: The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array).
+          type: string
         delivery_detail:
           type: string
         delivery_status:
@@ -1110,15 +1110,13 @@ components:
           type: boolean
         from:
           type: string
+        id:
+          type: string
         labels:
           items:
             type: string
           type: array
-        message_id:
-          type: string
         read_status:
-          type: string
-        recipient:
           type: string
         reply_to:
           description: The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here).
@@ -1145,11 +1143,11 @@ components:
         webhook_status:
           type: string
       required:
-        - message_id
+        - id
         - direction
         - from
         - to
-        - recipient
+        - delivered_to
         - subject
         - read_status
         - labels
@@ -1179,6 +1177,9 @@ components:
         created_at:
           format: date-time
           type: string
+        delivered_to:
+          description: The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array).
+          type: string
         delivery_detail:
           type: string
         delivery_status:
@@ -1195,20 +1196,18 @@ components:
           type: boolean
         from:
           type: string
+        id:
+          type: string
         labels:
           items:
             type: string
           type: array
-        message_id:
-          type: string
         parsed:
           $ref: "#/components/schemas/MessageParsedView"
         raw_message:
           contentEncoding: base64
           type: string
         read_status:
-          type: string
-        recipient:
           type: string
         reply_to:
           description: The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).
@@ -1235,12 +1234,12 @@ components:
         webhook_status:
           type: string
       required:
-        - message_id
+        - id
         - from
         - to
         - cc
         - reply_to
-        - recipient
+        - delivered_to
         - subject
         - conversation_id
         - direction
@@ -1487,7 +1486,7 @@ components:
       properties:
         action:
           type: string
-        agent_id:
+        agent_email:
           type: string
         created_at:
           format: date-time
@@ -1500,19 +1499,19 @@ components:
           type: string
         message_id:
           type: string
+        peer_address:
+          type: string
         reason:
           type: string
-        score:
+        scan_score:
           format: double
           type: number
         source:
           type: string
-        subject_addr:
-          type: string
       required:
         - id
         - message_id
-        - agent_id
+        - agent_email
         - direction
         - source
         - reason
@@ -1647,15 +1646,15 @@ components:
     RenderedTemplateView:
       additionalProperties: false
       properties:
-        body:
-          type: string
-        html_body:
+        html:
           type: string
         subject:
           type: string
+        text:
+          type: string
       required:
         - subject
-        - body
+        - text
       type: object
     ReplyRequest:
       additionalProperties: false
@@ -1668,23 +1667,23 @@ components:
           items:
             type: string
           type: array
-        body:
-          type: string
         cc:
           items:
             type: string
           type: array
         conversation_id:
           type: string
-        html_body:
+        html:
           type: string
         reply_all:
           type: boolean
         reply_to:
           description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
           type: string
+        text:
+          type: string
       required:
-        - body
+        - text
       type: object
     Result:
       additionalProperties: false
@@ -1703,7 +1702,7 @@ components:
     ReviewView:
       additionalProperties: false
       properties:
-        agent:
+        agent_email:
           description: The inbox (agent address) the held message belongs to.
           type: string
         conversation_id:
@@ -1735,7 +1734,7 @@ components:
           type: array
       required:
         - id
-        - agent
+        - agent_email
         - direction
         - from
         - to
@@ -1766,16 +1765,13 @@ components:
           items:
             type: string
           type: array
-        body:
-          description: Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
-          type: string
         cc:
           items:
             type: string
           type: array
         conversation_id:
           type: string
-        html_body:
+        html:
           description: Literal HTML body. Mutually exclusive with template_id/template_alias.
           type: string
         reply_to:
@@ -1793,6 +1789,9 @@ components:
           type: object
         template_id:
           description: "Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
+          type: string
+        text:
+          description: Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
           type: string
         to:
           items:
@@ -1832,18 +1831,18 @@ components:
       properties:
         alias:
           type: string
-        body:
-          description: The plain-text part's template source.
-          type: string
         description:
           type: string
-        html_body:
+        html:
           description: The HTML part's template source.
           type: string
         name:
           type: string
         subject:
           description: Subject template source ({{variable}} interpolation).
+          type: string
+        text:
+          description: The plain-text part's template source.
           type: string
         variables:
           items:
@@ -1852,8 +1851,8 @@ components:
         version:
           type: string
       required:
-        - body
-        - html_body
+        - text
+        - html
         - alias
         - name
         - description
@@ -1952,7 +1951,7 @@ components:
         message:
           type: string
         part:
-          description: "Which part failed. Known values: subject, body, html_body."
+          description: "Which part failed. Known values: subject, text, html."
           type: string
       required:
         - part
@@ -1989,9 +1988,6 @@ components:
         alias:
           description: Optional per-user unique handle usable as template_alias on send.
           type: string
-        body:
-          description: The plain-text part's template source.
-          type: string
         created_at:
           format: date-time
           type: string
@@ -2001,7 +1997,7 @@ components:
         from_starter_version:
           description: "The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
-        html_body:
+        html:
           description: The optional HTML part's template source.
           type: string
         id:
@@ -2010,6 +2006,9 @@ components:
           type: string
         subject:
           type: string
+        text:
+          description: The plain-text part's template source.
+          type: string
         updated_at:
           format: date-time
           type: string
@@ -2017,7 +2016,7 @@ components:
         - id
         - name
         - subject
-        - body
+        - text
         - created_at
         - updated_at
       type: object
@@ -2027,7 +2026,7 @@ components:
         data:
           additionalProperties: {}
           type: object
-        event:
+        type:
           enum:
             - email.received
             - email.sent
@@ -2093,14 +2092,14 @@ components:
         alias:
           description: Set to "" to clear the alias.
           type: string
-        body:
-          type: string
-        html_body:
+        html:
           description: Set to "" to remove the HTML part.
           type: string
         name:
           type: string
         subject:
+          type: string
+        text:
           type: string
       type: object
     UpdateWebhookRequest:
@@ -2139,7 +2138,7 @@ components:
     UsageEventEntry:
       additionalProperties: false
       properties:
-        agent_id:
+        agent_email:
           type: string
         created_at:
           format: date-time
@@ -2148,16 +2147,16 @@ components:
           type: string
         domain:
           type: string
-        event_type:
-          type: string
         id:
+          type: string
+        type:
           type: string
       required:
         - id
-        - agent_id
+        - agent_email
         - domain
         - direction
-        - event_type
+        - type
         - created_at
       type: object
     UserExport:
@@ -2234,9 +2233,7 @@ components:
     ValidateTemplateRequest:
       additionalProperties: false
       properties:
-        body:
-          type: string
-        html_body:
+        html:
           type: string
         subject:
           type: string
@@ -2244,6 +2241,8 @@ components:
           additionalProperties: {}
           description: Sample template_data to render the preview with. Missing variables render as empty strings.
           type: object
+        text:
+          type: string
       type: object
     ValidateTemplateResponse:
       additionalProperties: false
@@ -2295,9 +2294,6 @@ components:
         created_at:
           format: date-time
           type: string
-        event_type:
-          description: "The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."
-          type: string
         id:
           type: string
         last_attempt_at:
@@ -2314,9 +2310,12 @@ components:
         status:
           description: "Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."
           type: string
+        type:
+          description: "The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."
+          type: string
       required:
         - id
-        - event_type
+        - type
         - status
         - attempts
         - next_retry_at
@@ -2325,7 +2324,7 @@ components:
     WebhookFiltersView:
       additionalProperties: false
       properties:
-        agent_ids:
+        agent_emails:
           items:
             type: string
           type: array
@@ -2416,7 +2415,7 @@ paths:
       tags:
         - account
     get:
-      description: The authenticated principal's identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+      description: The authenticated principal's identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
       operationId: getAccount
       responses:
         "200":
@@ -3653,7 +3652,7 @@ paths:
             type: string
         - explode: false
           in: query
-          name: agent_id
+          name: agent_email
           schema:
             type: string
         - explode: false
@@ -4012,7 +4011,7 @@ paths:
         - templates
   /v1/templates:
     get:
-      description: "List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable."
+      description: "List the account's templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: listTemplates
       parameters:
         - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
@@ -4052,7 +4051,7 @@ paths:
       tags:
         - templates
     post:
-      description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable."
+      description: "Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: createTemplate
       requestBody:
         content:
@@ -4158,7 +4157,7 @@ paths:
       tags:
         - templates
     patch:
-      description: "Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable."
+      description: "Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: updateTemplate
       parameters:
         - in: path

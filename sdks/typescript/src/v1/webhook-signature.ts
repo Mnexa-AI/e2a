@@ -80,16 +80,17 @@ export interface WebhookEvent {
 }
 
 /** Typed payload of an `email.received` event. The event is a metadata-only
- *  notification — it does NOT carry the message body. `message_id` + `recipient`
+ *  notification — it does NOT carry the message body. `message_id` + `delivered_to`
  *  are the fetch keys; pass the event to {@link E2AClient.webhooks.fetchMessage}
- *  (or call `client.messages.get(recipient, message_id)`) to retrieve the full
+ *  (or call `client.messages.get(delivered_to, message_id)`) to retrieve the full
  *  message (body + attachments). `auth_headers` is the signed X-E2A-Auth-*
  *  attestation — verify it to independently confirm the inbound SPF/DKIM/DMARC
  *  verdict. */
 export interface EmailReceivedPayload {
   message_id: string;
   conversation_id?: string;
-  agent: { id: string; email: string; domain: string };
+  /** The receiving agent's email — its id and address (an agent's id IS its email). */
+  agent_email: string;
   /** Display/reply sender (prefers Reply-To). For the authenticated, gated
    *  identity use `authenticated_from`. */
   from: string;
@@ -98,7 +99,7 @@ export interface EmailReceivedPayload {
   cc?: string[];
   reply_to?: string[];
   /** The agent address the message was delivered to — the fetch key. */
-  recipient: string;
+  delivered_to: string;
   subject: string;
   /** Signed X-E2A-Auth-* attestation of the inbound auth verdict. */
   auth_headers?: Record<string, string>;

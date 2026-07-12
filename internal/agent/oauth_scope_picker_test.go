@@ -52,7 +52,7 @@ func (f *consentFixture) whoami(t *testing.T, bearer string) (scope, agentAddres
 	}
 	var body struct {
 		Scope        string `json:"scope"`
-		AgentAddress string `json:"agent_address"`
+		AgentAddress string `json:"agent_email"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)

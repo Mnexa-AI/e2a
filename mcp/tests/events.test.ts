@@ -103,7 +103,7 @@ describe("MCP events tools", () => {
         name: "list_events",
         arguments: {
           type: "email.received",
-          agent_id: "ag_x",
+          agent_email: "ag_x",
           conversation_id: "conv_y",
           message_id: "msg_z",
           since: "2026-06-01T00:00:00Z",
@@ -114,7 +114,7 @@ describe("MCP events tools", () => {
       });
       expect(stub.listEvents).toHaveBeenCalledWith({
         type: "email.received",
-        agentId: "ag_x",
+        agentEmail: "ag_x",
         conversationId: "conv_y",
         messageId: "msg_z",
         since: "2026-06-01T00:00:00Z",

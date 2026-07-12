@@ -16,7 +16,7 @@ export class CreateAPIKeyRequest {
     /**
     * Inbox email to bind the key to; required when scope=agent.
     */
-    'agent'?: string;
+    'agentEmail'?: string;
     /**
     * Optional hard expiry (RFC 3339, must be in the future). Omit for a never-expiring key.
     */
@@ -36,8 +36,8 @@ export class CreateAPIKeyRequest {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agent",
-            "baseName": "agent",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

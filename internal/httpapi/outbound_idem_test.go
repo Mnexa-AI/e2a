@@ -65,7 +65,7 @@ func TestSendIdempotencyRouteIncludesAgent(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	send := func(addr string) {
-		b, _ := json.Marshal(map[string]any{"to": []string{"x@y.com"}, "subject": "Hi", "body": "hello"})
+		b, _ := json.Marshal(map[string]any{"to": []string{"x@y.com"}, "subject": "Hi", "text": "hello"})
 		req, _ := http.NewRequest("POST", srv.URL+"/v1/agents/"+addr+"/messages", bytes.NewReader(b))
 		req.Header.Set("Authorization", "Bearer good")
 		req.Header.Set("Content-Type", "application/json")

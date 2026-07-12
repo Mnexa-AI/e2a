@@ -32,8 +32,8 @@ class Domain(BaseModel):
     dkim_public_key: Optional[StrictStr] = None
     dkim_selector: Optional[StrictStr] = None
     domain: StrictStr
-    is_primary: StrictBool
     last_checked_at: Optional[datetime] = None
+    primary: StrictBool
     sending_error: Optional[StrictStr] = None
     sending_last_checked_at: Optional[datetime] = None
     sending_status: StrictStr
@@ -41,7 +41,7 @@ class Domain(BaseModel):
     verification_token: StrictStr
     verified: StrictBool
     verified_at: Optional[datetime] = None
-    __properties: ClassVar[List[str]] = ["agent_count", "created_at", "dkim_public_key", "dkim_selector", "domain", "is_primary", "last_checked_at", "sending_error", "sending_last_checked_at", "sending_status", "user_id", "verification_token", "verified", "verified_at"]
+    __properties: ClassVar[List[str]] = ["agent_count", "created_at", "dkim_public_key", "dkim_selector", "domain", "last_checked_at", "primary", "sending_error", "sending_last_checked_at", "sending_status", "user_id", "verification_token", "verified", "verified_at"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -99,8 +99,8 @@ class Domain(BaseModel):
             "dkim_public_key": obj.get("dkim_public_key"),
             "dkim_selector": obj.get("dkim_selector"),
             "domain": obj.get("domain"),
-            "is_primary": obj.get("is_primary"),
             "last_checked_at": obj.get("last_checked_at"),
+            "primary": obj.get("primary"),
             "sending_error": obj.get("sending_error"),
             "sending_last_checked_at": obj.get("sending_last_checked_at"),
             "sending_status": obj.get("sending_status"),

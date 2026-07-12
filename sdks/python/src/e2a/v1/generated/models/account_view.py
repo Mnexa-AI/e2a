@@ -29,14 +29,14 @@ class AccountView(BaseModel):
     """
     AccountView
     """ # noqa: E501
-    agent_address: Optional[StrictStr] = None
+    agent_email: Optional[StrictStr] = None
     limits: LimitsCapsView
     plan_code: StrictStr
     scope: StrictStr
     upgrade_url: StrictStr
     usage: LimitsUsageView
     user: AccountUserView
-    __properties: ClassVar[List[str]] = ["agent_address", "limits", "plan_code", "scope", "upgrade_url", "usage", "user"]
+    __properties: ClassVar[List[str]] = ["agent_email", "limits", "plan_code", "scope", "upgrade_url", "usage", "user"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -98,7 +98,7 @@ class AccountView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_address": obj.get("agent_address"),
+            "agent_email": obj.get("agent_email"),
             "limits": LimitsCapsView.from_dict(obj["limits"]) if obj.get("limits") is not None else None,
             "plan_code": obj.get("plan_code"),
             "scope": obj.get("scope"),

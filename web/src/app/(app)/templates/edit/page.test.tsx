@@ -71,8 +71,8 @@ const template = {
   name: "Order receipt",
   alias: "receipt",
   subject: "Your receipt for {{order_id}}",
-  body: "Order {{order_id}} total: {{total}}",
-  html_body: "<p>Order {{order_id}}: {{total}}</p>",
+  text: "Order {{order_id}} total: {{total}}",
+  html: "<p>Order {{order_id}}: {{total}}</p>",
   created_at: "2026-06-20T10:00:00Z",
   updated_at: "2026-06-28T09:30:00Z",
 };
@@ -133,8 +133,8 @@ describe("Template edit page", () => {
       name: "Renamed receipt",
       alias: "receipt",
       subject: "Your receipt for {{order_id}}",
-      body: "Order {{order_id}} total: {{total}}",
-      html_body: "<p>Order {{order_id}}: {{total}}</p>",
+      text: "Order {{order_id}} total: {{total}}",
+      html: "<p>Order {{order_id}}: {{total}}</p>",
     });
     await waitFor(() =>
       expect(screen.getByText(/^saved$/i)).toBeInTheDocument(),
@@ -171,8 +171,8 @@ describe("Template edit page", () => {
           errors: [],
           rendered: {
             subject: `Your receipt for ${data.order_id ?? ""}`,
-            body: `Order ${data.order_id ?? ""} total: ${data.total ?? ""}`,
-            html_body: `<p>Order ${data.order_id ?? ""}: ${data.total ?? ""}</p>`,
+            text: `Order ${data.order_id ?? ""} total: ${data.total ?? ""}`,
+            html: `<p>Order ${data.order_id ?? ""}: ${data.total ?? ""}</p>`,
           },
           suggested_data: { order_id: "order_id_value", total: "total_value" },
         });
@@ -193,8 +193,8 @@ describe("Template edit page", () => {
     );
     expect(validateBodies[0]).toMatchObject({
       subject: template.subject,
-      body: template.body,
-      html_body: template.html_body,
+      text: template.text,
+      html: template.html,
       test_data: {},
     });
 
@@ -222,7 +222,7 @@ describe("Template edit page", () => {
       "POST /v1/templates/validate": () =>
         jsonResp({
           valid: false,
-          errors: [{ part: "body", message: "unclosed variable" }],
+          errors: [{ part: "text", message: "unclosed variable" }],
         }),
     }) as unknown as typeof fetch;
 

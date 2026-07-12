@@ -28,16 +28,16 @@ class TemplateView(BaseModel):
     TemplateView
     """ # noqa: E501
     alias: Optional[StrictStr] = Field(default=None, description="Optional per-user unique handle usable as template_alias on send.")
-    body: StrictStr = Field(description="The plain-text part's template source.")
     created_at: datetime
     from_starter_alias: Optional[StrictStr] = Field(default=None, description="The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.")
     from_starter_version: Optional[StrictStr] = Field(default=None, description="The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable.")
-    html_body: Optional[StrictStr] = Field(default=None, description="The optional HTML part's template source.")
+    html: Optional[StrictStr] = Field(default=None, description="The optional HTML part's template source.")
     id: StrictStr
     name: StrictStr
     subject: StrictStr
+    text: StrictStr = Field(description="The plain-text part's template source.")
     updated_at: datetime
-    __properties: ClassVar[List[str]] = ["alias", "body", "created_at", "from_starter_alias", "from_starter_version", "html_body", "id", "name", "subject", "updated_at"]
+    __properties: ClassVar[List[str]] = ["alias", "created_at", "from_starter_alias", "from_starter_version", "html", "id", "name", "subject", "text", "updated_at"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -91,14 +91,14 @@ class TemplateView(BaseModel):
 
         _obj = cls.model_validate({
             "alias": obj.get("alias"),
-            "body": obj.get("body"),
             "created_at": obj.get("created_at"),
             "from_starter_alias": obj.get("from_starter_alias"),
             "from_starter_version": obj.get("from_starter_version"),
-            "html_body": obj.get("html_body"),
+            "html": obj.get("html"),
             "id": obj.get("id"),
             "name": obj.get("name"),
             "subject": obj.get("subject"),
+            "text": obj.get("text"),
             "updated_at": obj.get("updated_at")
         })
         return _obj

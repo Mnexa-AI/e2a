@@ -20,24 +20,24 @@ import { runTool, strictInputSchema, paginationInput } from "./util.js";
 export function registerWebhookTools(server: McpServer, client: McpClient): void {
   const filtersSchema = z
     .object({
-      agent_ids: z.array(z.string()).optional(),
+      agent_emails: z.array(z.string()).optional(),
       conversation_ids: z.array(z.string()).optional(),
       labels: z.array(z.string()).optional(),
     })
     .strict()
     .describe(
-      "Optional scope filters. Empty / missing keys mean 'no constraint of that type'. agent_ids must reference agents owned by the caller; cross-user ids are rejected. conversation_ids / labels are exact-match.",
+      "Optional scope filters. Empty / missing keys mean 'no constraint of that type'. agent_emails must reference agents owned by the caller; cross-user addresses are rejected. conversation_ids / labels are exact-match.",
     );
 
   // Map the snake_case tool filter shape to the SDK's camelCase
   // WebhookFiltersView. Returns undefined for an absent filter so we
   // don't send an empty object.
   const mapFilters = (
-    f?: { agent_ids?: string[]; conversation_ids?: string[]; labels?: string[] },
-  ): { agentIds?: string[]; conversationIds?: string[]; labels?: string[] } | undefined => {
+    f?: { agent_emails?: string[]; conversation_ids?: string[]; labels?: string[] },
+  ): { agentEmails?: string[]; conversationIds?: string[]; labels?: string[] } | undefined => {
     if (!f) return undefined;
     return {
-      ...(f.agent_ids !== undefined ? { agentIds: f.agent_ids } : {}),
+      ...(f.agent_emails !== undefined ? { agentEmails: f.agent_emails } : {}),
       ...(f.conversation_ids !== undefined ? { conversationIds: f.conversation_ids } : {}),
       ...(f.labels !== undefined ? { labels: f.labels } : {}),
     };
@@ -179,7 +179,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
         "Schedules a one-off delivery to the webhook with a synthetic envelope, bypassing filter matching. Returns the delivery_id; inspect the outcome (status/attempts/last_error) via `list_webhook_deliveries`. Returns an error if the webhook is disabled. Cheap and safe — the synthetic event does not touch real inbound or review state.",
       inputSchema: strictInputSchema({
         id: z.string().min(1).describe("Webhook id (wh_…)."),
-        event: z
+        type: z
           .string()
           .optional()
           .describe(
@@ -188,7 +188,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
       }),
     },
     async (args) =>
-      runTool(() => client.testWebhook(args.id, { event: args.event })),
+      runTool(() => client.testWebhook(args.id, { type: args.type })),
   );
 
   server.registerTool(

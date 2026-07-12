@@ -42,6 +42,7 @@ class AgentIdentity(BaseModel):
     inbound_scan_sensitivity: StrictStr
     last_delivery_at: Optional[datetime] = None
     name: StrictStr
+    on_expiry: StrictStr
     outbound_7d: StrictInt
     outbound_allowlist: Optional[List[StrictStr]] = None
     outbound_policy: StrictStr
@@ -52,11 +53,10 @@ class AgentIdentity(BaseModel):
     outbound_scan_sensitivity: StrictStr
     pending_count: StrictInt
     public: StrictBool
-    review_expiration_action: StrictStr
-    review_ttl_seconds: StrictInt
+    ttl_seconds: StrictInt
     user_id: StrictStr
     webhook_healthy: StrictBool
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "review_expiration_action", "review_ttl_seconds", "user_id", "webhook_healthy"]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "inbound_7d", "inbound_allowlist", "inbound_policy", "inbound_policy_action", "inbound_scan", "inbound_scan_block_threshold", "inbound_scan_review_threshold", "inbound_scan_sensitivity", "last_delivery_at", "name", "on_expiry", "outbound_7d", "outbound_allowlist", "outbound_policy", "outbound_policy_action", "outbound_scan", "outbound_scan_block_threshold", "outbound_scan_review_threshold", "outbound_scan_sensitivity", "pending_count", "public", "ttl_seconds", "user_id", "webhook_healthy"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -134,6 +134,7 @@ class AgentIdentity(BaseModel):
             "inbound_scan_sensitivity": obj.get("inbound_scan_sensitivity"),
             "last_delivery_at": obj.get("last_delivery_at"),
             "name": obj.get("name"),
+            "on_expiry": obj.get("on_expiry"),
             "outbound_7d": obj.get("outbound_7d"),
             "outbound_allowlist": obj.get("outbound_allowlist"),
             "outbound_policy": obj.get("outbound_policy"),
@@ -144,8 +145,7 @@ class AgentIdentity(BaseModel):
             "outbound_scan_sensitivity": obj.get("outbound_scan_sensitivity"),
             "pending_count": obj.get("pending_count"),
             "public": obj.get("public"),
-            "review_expiration_action": obj.get("review_expiration_action"),
-            "review_ttl_seconds": obj.get("review_ttl_seconds"),
+            "ttl_seconds": obj.get("ttl_seconds"),
             "user_id": obj.get("user_id"),
             "webhook_healthy": obj.get("webhook_healthy")
         })

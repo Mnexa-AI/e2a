@@ -81,15 +81,15 @@ async def test_send_find_get_reply_self_loopback() -> None:
                 await asyncio.sleep(1.5)
             assert found is not None, f"an inbound message with subject {subject!r} must appear within ~18s"
 
-            full = await client.messages.get(bot, found.message_id)
-            assert full.message_id == found.message_id
+            full = await client.messages.get(bot, found.id)
+            assert full.id == found.id
             assert full.subject == subject
             # The delivered body is under `parsed` (inbound-extracted MIME), not
             # `body` (the held-outbound draft field, null for inbound by design).
             assert full.parsed is not None and "Hello from the Python SDK live e2e" in full.parsed.text
 
             reply = await client.messages.reply(
-                bot, found.message_id, {"body": "Reply from the Python SDK live e2e"}
+                bot, found.id, {"body": "Reply from the Python SDK live e2e"}
             )
             assert reply.message_id
             # Fresh unprotected inbox → the reply sends immediately (same as send).
@@ -103,8 +103,8 @@ async def test_list_bounded_page() -> None:
         msgs = await client.messages.list(AGENT, limit=2).to_list(limit=2)
         assert len(msgs) <= 2
         for m in msgs:
-            assert m.message_id
-            assert m.recipient
+            assert m.id
+            assert m.delivered_to
 
 
 async def test_get_nonexistent_raises_not_found() -> None:

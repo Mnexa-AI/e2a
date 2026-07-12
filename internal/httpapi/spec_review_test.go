@@ -192,7 +192,7 @@ func TestSpecStatusEnums(t *testing.T) {
 		{"RedeliverView", "status"},
 		{"RedeliverDelivery", "status"},
 		{"WebhookDeliveryView", "status"},
-		{"WebhookDeliveryView", "event_type"},
+		{"WebhookDeliveryView", "type"},
 		{"DomainView", "sending_status"},
 		{"ReviewView", "review_status"},
 	}

@@ -28,17 +28,17 @@ class ProtectionEventExportEntry(BaseModel):
     ProtectionEventExportEntry
     """ # noqa: E501
     action: StrictStr
-    agent_id: StrictStr
+    agent_email: StrictStr
     created_at: datetime
     detector: Optional[StrictStr] = None
     direction: StrictStr
     id: StrictStr
     message_id: StrictStr
+    peer_address: Optional[StrictStr] = None
     reason: StrictStr
-    score: Optional[Union[StrictFloat, StrictInt]] = None
+    scan_score: Optional[Union[StrictFloat, StrictInt]] = None
     source: StrictStr
-    subject_addr: Optional[StrictStr] = None
-    __properties: ClassVar[List[str]] = ["action", "agent_id", "created_at", "detector", "direction", "id", "message_id", "reason", "score", "source", "subject_addr"]
+    __properties: ClassVar[List[str]] = ["action", "agent_email", "created_at", "detector", "direction", "id", "message_id", "peer_address", "reason", "scan_score", "source"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -92,16 +92,16 @@ class ProtectionEventExportEntry(BaseModel):
 
         _obj = cls.model_validate({
             "action": obj.get("action"),
-            "agent_id": obj.get("agent_id"),
+            "agent_email": obj.get("agent_email"),
             "created_at": obj.get("created_at"),
             "detector": obj.get("detector"),
             "direction": obj.get("direction"),
             "id": obj.get("id"),
             "message_id": obj.get("message_id"),
+            "peer_address": obj.get("peer_address"),
             "reason": obj.get("reason"),
-            "score": obj.get("score"),
-            "source": obj.get("source"),
-            "subject_addr": obj.get("subject_addr")
+            "scan_score": obj.get("scan_score"),
+            "source": obj.get("source")
         })
         return _obj
 

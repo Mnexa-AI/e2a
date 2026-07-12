@@ -184,7 +184,7 @@ scenarios:
         expect:
           status: 200
           body_contains:
-            - message_id
+            - id
             - auth_headers
             - raw_message
 
@@ -278,7 +278,7 @@ scenarios:
         body:
           to: ["someone@example.com"]
           subject: probe
-          body: probe
+          text: probe
         expect:
           status: 401
           body_match:
@@ -324,7 +324,7 @@ scenarios:
         body:
           to: ["someone@example.com"]
           subject: probe
-          body: probe
+          text: probe
         expect:
           status: 401
           body_match:
@@ -455,7 +455,7 @@ scenarios:
           to:
             - alice@example.com
           subject: Hold me
-          body: please review before sending
+          text: please review before sending
         expect:
           status: 202
           body_contains:
@@ -503,7 +503,7 @@ scenarios:
           to:
             - alice@example.com
           subject: To be rejected
-          body: this should never go out
+          text: this should never go out
         expect:
           status: 202
           body_contains:
@@ -570,7 +570,7 @@ scenarios:
           to:
             - someone@example.com
           subject: an outbound row
-          body: pending
+          text: pending
         expect:
           status: 202
 

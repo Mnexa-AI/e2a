@@ -17,7 +17,6 @@ export class AgentView {
     'domain': string;
     'domainVerified': boolean;
     'email': string;
-    'id': string;
     'name': string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -46,12 +45,6 @@ export class AgentView {
         {
             "name": "email",
             "baseName": "email",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "id",
-            "baseName": "id",
             "type": "string",
             "format": ""
         },

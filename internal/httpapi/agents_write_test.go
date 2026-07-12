@@ -110,8 +110,11 @@ func TestCreateAgentHappyPath(t *testing.T) {
 	if code != 201 {
 		t.Fatalf("status %d body %v", code, body)
 	}
-	if body["id"] != "bot@acme.com" || body["domain"] != "acme.com" {
+	if body["email"] != "bot@acme.com" || body["domain"] != "acme.com" {
 		t.Fatalf("unexpected create response: %v", body)
+	}
+	if _, hasID := body["id"]; hasID {
+		t.Fatalf("AgentView must not carry a redundant id (email is the identity): %v", body)
 	}
 }
 

@@ -83,7 +83,7 @@ test("mcp-ext: send_email tool happy path with HITL agent queues message", async
     agent_email: email,
     to: [SINK_EMAIL],
     subject: uniqueSubject("mcp send"),
-    body: "from MCP",
+    text: "from MCP",
   });
   if (r.isError) {
     fail(SUITE, "send-email-error", `send_email isError on valid input: ${extractText(r).slice(0, 200)}`);
@@ -109,7 +109,7 @@ test("mcp-ext: list_pending_messages and get_pending_message round-trip", async 
   const email = await ensureHitlAgent();
   // Queue one via API (so we know we have something to inspect).
   const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp pending"), body: "x" },
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp pending"), text: "x" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "pending-setup-failed", `send returned ${s.status}, can't probe pending tools`);
@@ -155,7 +155,7 @@ test("mcp-ext: reject_pending_message via MCP transitions the message", async ()
   }
   const email = await ensureHitlAgent();
   const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp reject"), body: "x" },
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp reject"), text: "x" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "reject-setup-failed", `send returned ${s.status}`);
@@ -182,7 +182,7 @@ test("mcp-ext: approve_pending_message via MCP sends the message", async () => {
   }
   const email = await ensureHitlAgent();
   const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp approve"), body: "x" },
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp approve"), text: "x" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "approve-setup-failed", `send returned ${s.status}`);
@@ -246,7 +246,7 @@ test("mcp-ext: reply_to_message via MCP — to bogus id surfaces error", async (
   }
   const r = await callTool(mcp, "reply_to_message", {
     message_id: `msg_bogus_${Date.now()}`,
-    body: "should never go out",
+    text: "should never go out",
   });
   if (!r.isError) {
     fail(SUITE, "reply-bogus-not-error", `reply_to_message with bogus id did not error: ${extractText(r).slice(0, 200)}`);

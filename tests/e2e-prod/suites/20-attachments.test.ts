@@ -76,7 +76,7 @@ async function doSetup(): Promise<SentAttachment | null> {
       body: {
         to: ["success@simulator.amazonses.com"],
         subject: uniqueSubject("attach"),
-        body: "see attached",
+        text: "see attached",
         attachments: [{ filename: ATTACH_FILENAME, content_type: ATTACH_CTYPE, data: ATTACH_B64 }],
       },
     },
@@ -236,7 +236,7 @@ test("getAttachment: a HELD (pending_review) draft carrying an attachment expose
       body: {
         to: ["success@simulator.amazonses.com"],
         subject: uniqueSubject("held attach"),
-        body: "held with attachment",
+        text: "held with attachment",
         attachments: [{ filename: ATTACH_FILENAME, content_type: ATTACH_CTYPE, data: ATTACH_B64 }],
       },
     },

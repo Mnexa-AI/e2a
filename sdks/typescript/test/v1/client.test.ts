@@ -137,13 +137,13 @@ describe("E2AClient", () => {
   });
 
   it("agents.create POSTs the body to /v1/agents", async () => {
-    globalThis.fetch = mockFetch(201, { id: "ag_new", email: "new@test.dev" });
+    globalThis.fetch = mockFetch(201, { email: "new@test.dev", domain: "test.dev" });
     const res = await client.agents.create({ email: "new@test.dev" });
     const { url, init } = lastCall();
     expect(init.method).toBe("POST");
     expect(url).toContain("/v1/agents");
     expect(JSON.parse(init.body as string)).toMatchObject({ email: "new@test.dev" });
-    expect(res.id).toBe("ag_new");
+    expect(res.email).toBe("new@test.dev");
   });
 
   it("agents.list returns an AutoPager over the agents array", async () => {
@@ -157,7 +157,7 @@ describe("E2AClient", () => {
 
   it("messages.send mints an Idempotency-Key for the POST", async () => {
     globalThis.fetch = mockFetch(200, { message_id: "msg_s1", status: "sent" });
-    await client.messages.send("bot@test.dev", { to: ["a@x.com"], subject: "Hi", body: "Hello" } as never);
+    await client.messages.send("bot@test.dev", { to: ["a@x.com"], subject: "Hi", text: "Hello" } as never);
     const { url, init, headers } = lastCall();
     expect(init.method).toBe("POST");
     expect(url).toContain("/v1/agents/bot%40test.dev/messages");
@@ -168,7 +168,7 @@ describe("E2AClient", () => {
     globalThis.fetch = mockFetch(200, { message_id: "msg_s2", status: "sent" });
     await client.messages.send(
       "bot@test.dev",
-      { to: ["a@x.com"], subject: "Hi", body: "Hello" } as never,
+      { to: ["a@x.com"], subject: "Hi", text: "Hello" } as never,
       { idempotencyKey: "caller-key-123" },
     );
     expect(lastCall().headers["Idempotency-Key"]).toBe("caller-key-123");
@@ -180,8 +180,8 @@ describe("E2AClient", () => {
       calls.push(url);
       const cursor = new URL(url).searchParams.get("cursor");
       const text = cursor
-        ? JSON.stringify({ items: [{ message_id: "msg_2" }], next_cursor: null })
-        : JSON.stringify({ items: [{ message_id: "msg_1" }], next_cursor: "cur_2" });
+        ? JSON.stringify({ items: [{ id: "msg_2" }], next_cursor: null })
+        : JSON.stringify({ items: [{ id: "msg_1" }], next_cursor: "cur_2" });
       return {
         status: 200,
         headers: new Headers({ "content-type": "application/json" }),
@@ -191,7 +191,7 @@ describe("E2AClient", () => {
     }) as unknown as typeof fetch;
 
     const items = await client.messages.list("bot@test.dev").toArray({ limit: 50 });
-    expect(items.map((m) => m.messageId)).toEqual(["msg_1", "msg_2"]);
+    expect(items.map((m) => m.id)).toEqual(["msg_1", "msg_2"]);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain("cursor=cur_2");
   });
@@ -215,12 +215,12 @@ describe("E2AClient", () => {
   });
 
   // ── webhooks.fetchMessage: email.received is metadata-only ──────
-  it("webhooks.fetchMessage resolves (recipient, message_id) → GET the full message", async () => {
-    globalThis.fetch = mockFetch(200, { message_id: "msg_9", subject: "Hi", raw_message: "..." });
+  it("webhooks.fetchMessage resolves (delivered_to, message_id) → GET the full message", async () => {
+    globalThis.fetch = mockFetch(200, { id: "msg_9", subject: "Hi", raw_message: "..." });
     const event = {
       id: "evt_1",
       type: "email.received",
-      data: { message_id: "msg_9", recipient: "bot@test.dev" },
+      data: { message_id: "msg_9", delivered_to: "bot@test.dev" },
     };
     const msg = await client.webhooks.fetchMessage(event);
     const { url, init } = lastCall();
@@ -228,16 +228,16 @@ describe("E2AClient", () => {
     // the fetch keys carried by the metadata-only event drive the URL
     expect(url).toContain("/messages/msg_9");
     expect(url).toContain("bot%40test.dev");
-    expect(msg.messageId).toBe("msg_9");
+    expect(msg.id).toBe("msg_9");
   });
 
   it("webhooks.fetchMessage rejects a non-received event or missing fetch keys", async () => {
     expect(() =>
-      client.webhooks.fetchMessage({ type: "email.bounced", data: { message_id: "m", recipient: "r" } }),
+      client.webhooks.fetchMessage({ type: "email.bounced", data: { message_id: "m", delivered_to: "r" } }),
     ).toThrow(/email\.received/);
     expect(() =>
       client.webhooks.fetchMessage({ type: "email.received", data: { message_id: "m" } }),
-    ).toThrow(/recipient/);
+    ).toThrow(/delivered_to/);
   });
 
   // ── Reviews: account-scoped, id-addressed (no inbox email) ──────
@@ -276,12 +276,12 @@ describe("E2AClient", () => {
 
   it("conversations.list threads next_cursor across pages", async () => {
     const { fn, calls } = pagingFetch({
-      "": { items: [{ conversation_id: "conv_1" }], next_cursor: "cur_2" },
-      cur_2: { items: [{ conversation_id: "conv_2" }], next_cursor: null },
+      "": { items: [{ id: "conv_1" }], next_cursor: "cur_2" },
+      cur_2: { items: [{ id: "conv_2" }], next_cursor: null },
     });
     globalThis.fetch = fn as unknown as typeof fetch;
     const items = await client.conversations.list("bot@test.dev").toArray({ limit: 50 });
-    expect(items.map((c) => c.conversationId)).toEqual(["conv_1", "conv_2"]);
+    expect(items.map((c) => c.id)).toEqual(["conv_1", "conv_2"]);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain("cursor=cur_2");
   });
@@ -317,7 +317,7 @@ describe("E2AClient", () => {
   // locks in the consistent-pagination contract (no more silent single-page cap).
 
   it.each([
-    ["agents", () => client.agents.list(), [{ id: "ag_1" }, { id: "ag_2" }], (r: { id: string }) => r.id],
+    ["agents", () => client.agents.list(), [{ email: "a@x.dev" }, { email: "b@x.dev" }], (r: { email: string }) => r.email],
     ["domains", () => client.domains.list(), [{ domain: "a.dev" }, { domain: "b.dev" }], (r: { domain: string }) => r.domain],
     ["webhooks", () => client.webhooks.list(), [{ id: "wh_1" }, { id: "wh_2" }], (r: { id: string }) => r.id],
     ["templates", () => client.templates.list(), [{ id: "t_1", name: "A" }, { id: "t_2", name: "B" }], (r: { id: string }) => r.id],
@@ -344,8 +344,8 @@ describe("E2AClient", () => {
       id: "tmpl_1",
       name: "Welcome",
       subject: "Welcome, {{name}}!",
-      body: "Hi {{name}}",
-      html_body: "<p>Hi {{name}}</p>",
+      text: "Hi {{name}}",
+      html: "<p>Hi {{name}}</p>",
       from_starter_alias: "welcome",
       from_starter_version: "1",
       created_at: "2026-06-01T00:00:00Z",
@@ -355,14 +355,14 @@ describe("E2AClient", () => {
     const { url, init } = lastCall();
     expect(init.method).toBe("GET");
     expect(url).toContain("/v1/templates/tmpl_1");
-    expect(tmpl.htmlBody).toBe("<p>Hi {{name}}</p>");
+    expect(tmpl.html).toBe("<p>Hi {{name}}</p>");
     expect(tmpl.fromStarterAlias).toBe("welcome");
     expect(tmpl.fromStarterVersion).toBe("1");
   });
 
   it("templates.create POSTs camelCase input as the snake_case wire body", async () => {
     globalThis.fetch = mockFetch(201, {
-      id: "tmpl_new", name: "Approvals", subject: "s", body: "b",
+      id: "tmpl_new", name: "Approvals", subject: "s", text: "b",
       created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
     });
     await client.templates.create({ fromStarter: "approval-request", alias: "my-approvals" });
@@ -377,16 +377,16 @@ describe("E2AClient", () => {
     });
   });
 
-  it("templates.update PATCHes the id and keeps an explicit html_body:'' clear", async () => {
+  it("templates.update PATCHes the id and keeps an explicit html:'' clear", async () => {
     globalThis.fetch = mockFetch(200, {
-      id: "tmpl_1", name: "Welcome", subject: "New {{x}}", body: "b",
+      id: "tmpl_1", name: "Welcome", subject: "New {{x}}", text: "b",
       created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-02T00:00:00Z",
     });
-    await client.templates.update("tmpl_1", { subject: "New {{x}}", htmlBody: "" });
+    await client.templates.update("tmpl_1", { subject: "New {{x}}", html: "" });
     const { url, init } = lastCall();
     expect(init.method).toBe("PATCH");
     expect(url).toContain("/v1/templates/tmpl_1");
-    expect(JSON.parse(init.body as string)).toEqual({ subject: "New {{x}}", html_body: "" });
+    expect(JSON.parse(init.body as string)).toEqual({ subject: "New {{x}}", html: "" });
   });
 
   it("templates.delete issues DELETE /v1/templates/{id}", async () => {
@@ -401,13 +401,13 @@ describe("E2AClient", () => {
     globalThis.fetch = mockFetch(200, {
       valid: true,
       errors: [],
-      rendered: { subject: "Welcome, Ada!", body: "Hi Ada", html_body: "<p>Hi Ada</p>" },
+      rendered: { subject: "Welcome, Ada!", text: "Hi Ada", html: "<p>Hi Ada</p>" },
       // suggested_data is nested (dot-path variables emit nested objects).
       suggested_data: { user: { name: "example" } },
     });
     const res = await client.templates.validate({
       subject: "Welcome, {{user.name}}!",
-      body: "Hi {{user.name}}",
+      text: "Hi {{user.name}}",
       testData: { user: { name: "Ada" } },
     });
     const { url, init } = lastCall();
@@ -415,11 +415,11 @@ describe("E2AClient", () => {
     expect(url).toContain("/v1/templates/validate");
     expect(JSON.parse(init.body as string)).toEqual({
       subject: "Welcome, {{user.name}}!",
-      body: "Hi {{user.name}}",
+      text: "Hi {{user.name}}",
       test_data: { user: { name: "Ada" } },
     });
     expect(res.valid).toBe(true);
-    expect(res.rendered?.htmlBody).toBe("<p>Hi Ada</p>");
+    expect(res.rendered?.html).toBe("<p>Hi Ada</p>");
     expect(res.suggestedData).toEqual({ user: { name: "example" } });
   });
 
@@ -430,8 +430,8 @@ describe("E2AClient", () => {
       description: "Ask a human to approve an action.",
       version: "1",
       subject: "Approval needed: {{action}}",
-      body: "Approve: {{approve_url}}",
-      html_body: '<a href="{{approve_url}}">Approve</a>',
+      text: "Approve: {{approve_url}}",
+      html: '<a href="{{approve_url}}">Approve</a>',
       variables: [
         { name: "approve_url", required: true, raw: false, description: "d", example: "https://x/approve" },
       ],
@@ -440,7 +440,7 @@ describe("E2AClient", () => {
     const { url, init } = lastCall();
     expect(init.method).toBe("GET");
     expect(url).toContain("/v1/starter-templates/approval-request");
-    expect(starter.htmlBody).toContain("{{approve_url}}");
+    expect(starter.html).toContain("{{approve_url}}");
     expect(starter.variables[0].name).toBe("approve_url");
   });
 
@@ -449,7 +449,7 @@ describe("E2AClient", () => {
       error: { code: "invalid_template", message: "template part body failed to parse" },
     });
     const err = await client.templates
-      .create({ name: "x", subject: "s", body: "{{#bad}}" })
+      .create({ name: "x", subject: "s", text: "{{#bad}}" })
       .catch((e) => e);
     expect(err).toBeInstanceOf(E2AValidationError);
     expect(err.code).toBe("invalid_template");

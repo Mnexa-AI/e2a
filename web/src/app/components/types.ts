@@ -1,5 +1,4 @@
 export type AgentData = {
-  id: string;
   domain: string;
   email: string;
 };
@@ -12,7 +11,6 @@ export type UserInfo = {
 };
 
 export type DashboardAgent = {
-  id: string;
   domain: string;
   email: string;
   name: string;
@@ -90,7 +88,7 @@ export type PendingMessageInboundContext = {
 // app's `status` (delivery) + `review_status` (review) fields below. The
 // dashboard inbox uses this projection directly.
 export type MessageSummary = {
-  message_id: string;
+  id: string;
   direction: "inbound" | "outbound";
   from: string;
   to: string[];
@@ -130,7 +128,7 @@ export type ListMessagesResponse = {
 // `auth_headers` + `raw_message`, and the parsed text/plain body comes
 // through `body.text`.
 export type InboundMessageDetail = {
-  message_id: string;
+  id: string;
   from: string;
   to: string[];
   cc: string[];
@@ -160,10 +158,10 @@ export type APIKeyData = {
   key_prefix?: string; // non-secret prefix, shown in list view
   name: string;
   // Credential scope: "account" (workspace admin) or "agent" (bound to a
-  // single inbox). `agent` is the bound inbox email, present only for agent
-  // scope.
+  // single inbox). `agent_email` is the bound inbox email, present only for
+  // agent scope.
   scope?: string;
-  agent?: string;
+  agent_email?: string;
   created_at: string;
   // Updated on every successful authenticated request. Null until the
   // key is first used. Surfaces in the "Last used" column.

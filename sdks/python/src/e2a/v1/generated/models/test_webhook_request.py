@@ -27,9 +27,9 @@ class TestWebhookRequest(BaseModel):
     TestWebhookRequest
     """ # noqa: E501
     data: Optional[Dict[str, Any]] = None
-    event: Optional[StrictStr] = None
+    type: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["data", "event"]
+    __properties: ClassVar[List[str]] = ["data", "type"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -90,7 +90,7 @@ class TestWebhookRequest(BaseModel):
 
         _obj = cls.model_validate({
             "data": obj.get("data"),
-            "event": obj.get("event")
+            "type": obj.get("type")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

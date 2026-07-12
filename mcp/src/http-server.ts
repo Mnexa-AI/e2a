@@ -298,7 +298,7 @@ function buildClient(
  * Resolve a bearer's scope + bound agent from whoami (GET /account), which the
  * backend scope-filters per credential (§6a). This drives both tool-tier gating
  * (server.ts) and the per-agent default:
- *   - agent scope   → pin the bound agent (whoami.agentAddress); the credential
+ *   - agent scope   → pin the bound agent (whoami.agentEmail); the credential
  *     IS that agent. Surface = runtime tier.
  *   - account scope → no default agent (per §6a, explicit `email` required —
  *     the old single-agent auto-resolve is dropped). Surface = full.
@@ -322,7 +322,7 @@ export async function resolvePrincipal(
   try {
     const me = await probe.whoami();
     const scope: Scope = me.scope === "account" ? "account" : "agent";
-    const agentEmail = scope === "agent" && me.agentAddress ? me.agentAddress : undefined;
+    const agentEmail = scope === "agent" && me.agentEmail ? me.agentEmail : undefined;
     return { value: { scope, ...(agentEmail ? { agentEmail } : {}) }, cacheable: true };
   } catch (err) {
     if (isUnauthorizedError(err)) {

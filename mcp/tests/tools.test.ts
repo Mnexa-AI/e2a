@@ -133,10 +133,10 @@ function makeStubClient(
     // MessageView. Attachments are decoded by the tool from
     // `rawMessage`; the default raw carries one small PDF.
     getMessage: vi.fn(async (id: string, _addr?: string) => ({
-      messageId: id,
+      id,
       conversationId: "conv_x",
       _from: "alice@example.com",
-      recipient: "bot@example.com",
+      deliveredTo: "bot@example.com",
       to: ["bot@example.com"],
       cc: [],
       replyTo: [],
@@ -189,7 +189,7 @@ function makeStubClient(
       id,
       name: "Welcome",
       subject: "Welcome, {{name}}!",
-      body: "Hi {{name}}",
+      text: "Hi {{name}}",
       createdAt: "2026-06-01T00:00:00Z",
       updatedAt: "2026-06-01T00:00:00Z",
     })),
@@ -204,7 +204,7 @@ function makeStubClient(
       id,
       name: "Welcome",
       subject: "Welcome, {{name}}!",
-      body: "Hi {{name}}",
+      text: "Hi {{name}}",
       ...patch,
       createdAt: "2026-06-01T00:00:00Z",
       updatedAt: "2026-06-02T00:00:00Z",
@@ -213,7 +213,7 @@ function makeStubClient(
     validateTemplate: vi.fn(async () => ({
       valid: true,
       errors: [],
-      rendered: { subject: "Welcome, Ada!", body: "Hi Ada" },
+      rendered: { subject: "Welcome, Ada!", text: "Hi Ada" },
       suggestedData: { name: "Ada" },
     })),
     listStarterTemplates: vi.fn(async () => ({
@@ -237,8 +237,8 @@ function makeStubClient(
       description: "Ask a human to approve an action.",
       version: "1",
       subject: "Approval needed: {{action}}",
-      body: "Approve: {{approve_url}}",
-      htmlBody: "<a href=\"{{approve_url}}\">Approve</a>",
+      text: "Approve: {{approve_url}}",
+      html: "<a href=\"{{approve_url}}\">Approve</a>",
       variables: [
         { name: "approve_url", required: true, raw: false, description: "Confirmation-page URL", example: "https://x/approve" },
       ],
@@ -446,12 +446,12 @@ describe("e2a MCP server", () => {
       arguments: {
         to: ["alice@example.com"],
         subject: "hi",
-        body: "hello",
+        text: "hello",
         cc: ["bob@example.com"],
       },
     });
     expect(stub.send).toHaveBeenCalledWith(
-      { to: ["alice@example.com"], subject: "hi", body: "hello", cc: ["bob@example.com"] },
+      { to: ["alice@example.com"], subject: "hi", text: "hello", cc: ["bob@example.com"] },
       {},
       undefined,
     );
@@ -462,13 +462,13 @@ describe("e2a MCP server", () => {
       name: "reply_to_message",
       arguments: {
         message_id: "msg_in",
-        body: "thanks",
+        text: "thanks",
         reply_all: true,
       },
     });
     expect(stub.reply).toHaveBeenCalledWith(
       "msg_in",
-      { body: "thanks", replyAll: true },
+      { text: "thanks", replyAll: true },
       {},
       undefined,
     );
@@ -480,13 +480,13 @@ describe("e2a MCP server", () => {
       arguments: {
         message_id: "msg_in",
         to: ["destination@example.com"],
-        body: "FYI",
+        text: "FYI",
       },
     });
     expect(stub.forward).toHaveBeenCalledWith(
       "msg_in",
       ["destination@example.com"],
-      { body: "FYI" },
+      { text: "FYI" },
       {},
       undefined,
     );
@@ -583,9 +583,9 @@ describe("e2a MCP server", () => {
     expect(stub.getMessage).toHaveBeenCalledWith("msg_abc", undefined);
     const content = res.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
-    expect(parsed.message_id).toBe("msg_abc");
+    expect(parsed.id).toBe("msg_abc");
     expect(parsed.from).toBe("alice@example.com");
-    expect(parsed.body_text).toBe("hello world");
+    expect(parsed.text).toBe("hello world");
     // Critical: attachments surfaced as metadata-only (no `data`)
     // — bytes blow the LLM's context if returned here. Same reason
     // raw_message is omitted from this response entirely.
@@ -854,15 +854,15 @@ describe("e2a MCP server", () => {
       arguments: {
         message_id: "msg_p",
         subject: "edited subject",
-        body_text: "edited body",
+        text: "edited body",
       },
     });
     // The wrapper resolves the owning agent internally, so the tool no
-    // longer passes an address; the tool's body_text input maps to the
+    // longer passes an address; the tool's text input maps to the
     // ApproveRequest `body` field (aligned with send/reply).
     expect(stub.approveMessage).toHaveBeenCalledWith("msg_p", {
       subject: "edited subject",
-      body: "edited body",
+      text: "edited body",
     });
   });
 
@@ -925,12 +925,12 @@ describe("e2a MCP server", () => {
       arguments: {
         to: ["alice@example.com"],
         subject: "x",
-        body: "y",
+        text: "y",
         idempotency_key: "send-key-9",
       },
     });
     expect(stub.send).toHaveBeenCalledWith(
-      expect.objectContaining({ to: ["alice@example.com"], subject: "x", body: "y" }),
+      expect.objectContaining({ to: ["alice@example.com"], subject: "x", text: "y" }),
       { idempotencyKey: "send-key-9" },
       undefined,
     );
@@ -941,13 +941,13 @@ describe("e2a MCP server", () => {
       name: "reply_to_message",
       arguments: {
         message_id: "msg_in_xyz",
-        body: "reply",
+        text: "reply",
         idempotency_key: "reply-key-9",
       },
     });
     expect(stub.reply).toHaveBeenCalledWith(
       "msg_in_xyz",
-      expect.objectContaining({ body: "reply" }),
+      expect.objectContaining({ text: "reply" }),
       { idempotencyKey: "reply-key-9" },
       undefined,
     );
@@ -980,7 +980,7 @@ describe("e2a MCP server", () => {
       arguments: {
         to: ["alice@example.com"],
         subject: "with file",
-        body: "see attached",
+        text: "see attached",
         attachments: [sampleAttachment],
       },
     });
@@ -996,13 +996,13 @@ describe("e2a MCP server", () => {
       name: "reply_to_message",
       arguments: {
         message_id: "msg_in",
-        body: "reply with file",
+        text: "reply with file",
         attachments: [sampleAttachment],
       },
     });
     expect(stub.reply).toHaveBeenCalledWith(
       "msg_in",
-      expect.objectContaining({ body: "reply with file", attachments: [sdkAttachment] }),
+      expect.objectContaining({ text: "reply with file", attachments: [sdkAttachment] }),
       {},
       undefined,
     );
@@ -1039,7 +1039,7 @@ describe("e2a MCP server", () => {
       arguments: {
         to: ["alice@example.com"],
         subject: "bad",
-        body: "x",
+        text: "x",
         attachments: [
           {
             filename: "a.txt",
@@ -1060,7 +1060,7 @@ describe("e2a MCP server", () => {
       arguments: {
         to: ["alice@example.com"],
         subject: "bad",
-        body: "x",
+        text: "x",
         attachments: [
           {
             filename: "a.txt",
@@ -1080,7 +1080,7 @@ describe("e2a MCP server", () => {
       arguments: {
         to: ["alice@example.com"],
         subject: "bad",
-        body: "x",
+        text: "x",
         attachments: [
           {
             filename: "a.txt",
@@ -1108,7 +1108,7 @@ describe("e2a MCP server", () => {
     );
     const res = await client.callTool({
       name: "send_message",
-      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
     });
     expect(res.isError).toBe(true);
     const content = res.content as Array<{ type: string; text: string }>;
@@ -1127,7 +1127,7 @@ describe("e2a MCP server", () => {
     );
     const res = await client.callTool({
       name: "send_message",
-      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
     });
     expect(res.isError).toBe(true);
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
@@ -1142,7 +1142,7 @@ describe("e2a MCP server", () => {
     );
     const res = await client.callTool({
       name: "send_message",
-      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
     });
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     expect(text).toContain("[rate_limited]");
@@ -1154,7 +1154,7 @@ describe("e2a MCP server", () => {
     (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("email is required"));
     const res = await client.callTool({
       name: "send_message",
-      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
     });
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     expect(text).toBe("e2a error: email is required");
@@ -1167,7 +1167,7 @@ describe("e2a MCP server", () => {
     );
     const res = await client.callTool({
       name: "send_message",
-      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
     });
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     expect(text).toBe("e2a error: weird");
@@ -1185,7 +1185,7 @@ describe("e2a MCP server", () => {
     );
     const res = await client.callTool({
       name: "send_message",
-      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
     });
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     // Exactly one real code bracket (the trusted code); message is single-line.
@@ -1200,7 +1200,7 @@ describe("e2a MCP server", () => {
     );
     const res = await client.callTool({
       name: "send_message",
-      arguments: { to: ["x@example.com"], subject: "s", body: "b" },
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
     });
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     expect(text.length).toBeLessThan(600); // bounded, not 5000+
@@ -1236,16 +1236,16 @@ describe("e2a MCP server", () => {
         name: "Order shipped",
         alias: "order-shipped",
         subject: "Your order {{order_id}} shipped",
-        body: "Hi {{name}}, it shipped.",
-        html_body: "<p>Hi {{name}}</p>",
+        text: "Hi {{name}}, it shipped.",
+        html: "<p>Hi {{name}}</p>",
       },
     });
     expect(stub.createTemplate).toHaveBeenCalledWith({
       name: "Order shipped",
       alias: "order-shipped",
       subject: "Your order {{order_id}} shipped",
-      body: "Hi {{name}}, it shipped.",
-      htmlBody: "<p>Hi {{name}}</p>",
+      text: "Hi {{name}}, it shipped.",
+      html: "<p>Hi {{name}}</p>",
     });
   });
 
@@ -1265,12 +1265,12 @@ describe("e2a MCP server", () => {
   it("update_template splits id from the patch", async () => {
     await client.callTool({
       name: "update_template",
-      arguments: { id: "tmpl_1", subject: "New subject {{x}}", html_body: "" },
+      arguments: { id: "tmpl_1", subject: "New subject {{x}}", html: "" },
     });
-    // html_body: "" is a deliberate clear — it must survive to the wire.
+    // html: "" is a deliberate clear — it must survive to the wire.
     expect(stub.updateTemplate).toHaveBeenCalledWith("tmpl_1", {
       subject: "New subject {{x}}",
-      htmlBody: "",
+      html: "",
     });
   });
 
@@ -1297,13 +1297,13 @@ describe("e2a MCP server", () => {
       name: "validate_template",
       arguments: {
         subject: "Welcome, {{name}}!",
-        body: "Hi {{name}}",
+        text: "Hi {{name}}",
         test_data: { name: "Ada" },
       },
     });
     expect(stub.validateTemplate).toHaveBeenCalledWith({
       subject: "Welcome, {{name}}!",
-      body: "Hi {{name}}",
+      text: "Hi {{name}}",
       testData: { name: "Ada" },
     });
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
@@ -1327,8 +1327,8 @@ describe("e2a MCP server", () => {
     });
     expect(stub.getStarterTemplate).toHaveBeenCalledWith("approval-request");
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
-    expect(payload.body).toContain("{{approve_url}}");
-    expect(payload.htmlBody).toContain("{{approve_url}}");
+    expect(payload.text).toContain("{{approve_url}}");
+    expect(payload.html).toContain("{{approve_url}}");
   });
 
   // ── send_message template references (beta) ─────────────────────
@@ -1371,7 +1371,7 @@ describe("e2a MCP server", () => {
     (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new E2AError({
         code: "invalid_request",
-        message: "a template reference is mutually exclusive with subject, body and html_body",
+        message: "a template reference is mutually exclusive with subject, body and html",
         status: 400,
         retryable: false,
       }),
@@ -1381,7 +1381,7 @@ describe("e2a MCP server", () => {
       arguments: {
         to: ["alice@example.com"],
         subject: "literal",
-        body: "literal",
+        text: "literal",
         template_alias: "welcome",
       },
     });

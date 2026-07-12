@@ -14,14 +14,17 @@ import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { HttpFile } from '../http/http.js';
 
 export class EventJSON {
-    'agentId'?: string;
+    'agentEmail'?: string;
     'conversationId'?: string;
     'createdAt': Date;
     'data': any;
     'deliveryStatus'?: DeliveryStatusJSON;
     'id': string;
     'messageId'?: string;
-    'schemaVersion': number;
+    /**
+    * Envelope schema version — a semver-ish string label (currently \"1\").
+    */
+    'schemaVersion': string;
     /**
     * Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.
     */
@@ -37,8 +40,8 @@ export class EventJSON {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agentId",
-            "baseName": "agent_id",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },
@@ -81,8 +84,8 @@ export class EventJSON {
         {
             "name": "schemaVersion",
             "baseName": "schema_version",
-            "type": "number",
-            "format": "int64"
+            "type": "string",
+            "format": ""
         },
         {
             "name": "status",

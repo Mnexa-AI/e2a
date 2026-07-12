@@ -58,7 +58,7 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
 
       // A self-send loopback lands an INBOUND copy in the same inbox; poll for it.
       // Filter to inbound so the just-sent outbound copy (same subject) can't match.
-      let found: { messageId: string } | undefined;
+      let found: { id: string } | undefined;
       for (let i = 0; i < 12 && !found; i++) {
         const msgs = await client.messages.list(bot, { direction: "inbound", limit: 20 }).toArray({ limit: 20 });
         found = msgs.find((m) => m.subject === subject);
@@ -66,14 +66,14 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
       }
       expect(found, `an inbound message with subject "${subject}" must appear within ~18s`).toBeTruthy();
 
-      const full = await client.messages.get(bot, found!.messageId);
-      expect(full.messageId).toBe(found!.messageId);
+      const full = await client.messages.get(bot, found!.id);
+      expect(full.id).toBe(found!.id);
       expect(full.subject).toBe(subject);
       // The delivered body is under `parsed` (inbound-extracted MIME), not `body`
       // (the held-outbound draft field, which is null for inbound by design).
       expect(full.parsed?.text ?? "").toContain(bodyText);
 
-      const reply = await client.messages.reply(bot, found!.messageId, {
+      const reply = await client.messages.reply(bot, found!.id, {
         body: "Reply from the TS SDK live e2e",
       });
       expect(reply.messageId).toBeTruthy();
@@ -88,8 +88,8 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
     const msgs = await client.messages.list(AGENT, { limit: 2 }).toArray({ limit: 2 });
     expect(msgs.length).toBeLessThanOrEqual(2);
     for (const m of msgs) {
-      expect(m.messageId).toBeTruthy();
-      expect(m.recipient).toBeTruthy();
+      expect(m.id).toBeTruthy();
+      expect(m.deliveredTo).toBeTruthy();
     }
   });
 

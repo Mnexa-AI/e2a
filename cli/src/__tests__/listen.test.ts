@@ -19,7 +19,7 @@ function makeNotification(overrides: Partial<WSNotification> = {}): WSNotificati
   return {
     message_id: "msg_123",
     from: "alice@example.com",
-    recipient: "bot@agents.e2a.dev",
+    delivered_to: "bot@agents.e2a.dev",
     subject: "Hello",
     received_at: "2025-01-15T10:30:00Z",
     ...overrides,
@@ -155,9 +155,9 @@ describe("listen notification handling", () => {
 
   it("fetches and prints raw JSON for --json mode", async () => {
     const full = {
-      messageId: "msg_123",
+      id: "msg_123",
       _from: "alice@example.com",
-      recipient: "bot@agents.e2a.dev",
+      delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
     };
@@ -178,9 +178,9 @@ describe("listen notification handling", () => {
 
   it("forwards exact raw JSON to a generic webhook", async () => {
     const full = {
-      messageId: "msg_123",
+      id: "msg_123",
       _from: "alice@example.com",
-      recipient: "bot@agents.e2a.dev",
+      delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
     };
@@ -225,9 +225,9 @@ describe("listen notification handling", () => {
     // No parsed/body text — exercise the rawMessage decode fallback.
     const raw = "Subject: Hello\r\n\r\nHi there!";
     const full = {
-      messageId: "msg_123",
+      id: "msg_123",
       _from: "alice@example.com",
-      recipient: "bot@agents.e2a.dev",
+      delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       body: { text: "", html: "" },
       parsed: { text: "", truncated: false },
@@ -284,7 +284,7 @@ describe("listen notification handling", () => {
     expect(client.messages.reply).toHaveBeenCalledWith(
       "bot@agents.e2a.dev",
       "msg_123",
-      { body: "Thanks for the email." },
+      { text: "Thanks for the email." },
     );
     expect(mockStderr).toHaveBeenCalledWith(
       "Replied to alice@example.com (msg_123)\n",

@@ -179,12 +179,12 @@ test("domains: verify nonexistent domain returns 404", async () => {
 
 test("domains: PATCH on nonexistent domain returns 4xx", async () => {
   const r = await client.patch(`/v1/domains/${encodeURIComponent("definitely-not-registered-" + Date.now() + ".example.com")}`, {
-    body: { is_primary: true },
+    body: { primary: true },
   });
   assert.ok(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("domains: PATCH with is_primary=true on owned domain promotes it (200) [needs verified domain]", async () => {
+test("domains: PATCH with primary=true on owned domain promotes it (200) [needs verified domain]", async () => {
   // Promotion only works on verified domains — we can't create one. Document the gap.
-  info(SUITE, "primary-promotion-coverage-limit", "is_primary promotion requires a verified domain; can't exercise on a fake test domain");
+  info(SUITE, "primary-promotion-coverage-limit", "primary promotion requires a verified domain; can't exercise on a fake test domain");
 });

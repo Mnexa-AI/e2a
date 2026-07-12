@@ -62,7 +62,7 @@ func TestDecodeCursorMalformed(t *testing.T) {
 
 func TestDecodeCursorTamperedPayload(t *testing.T) {
 	type cur struct {
-		Agent string `json:"agent"`
+		Agent string `json:"agent_email"`
 	}
 	enc := EncodeMust(t, testSecret, cur{Agent: "agent_a"})
 	// Flip a byte in the base64 payload segment (before the '.'); the

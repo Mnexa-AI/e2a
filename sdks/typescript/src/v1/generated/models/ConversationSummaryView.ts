@@ -13,12 +13,12 @@
 import { HttpFile } from '../http/http.js';
 
 export class ConversationSummaryView {
-    'conversationId': string;
     'firstMessageAt': Date;
     'hasUnread': boolean;
+    'id': string;
     'inboundCount': number;
     'lastMessageAt': Date;
-    'latestSender': string;
+    'latestFrom': string;
     'latestSubject': string;
     'messageCount': number;
     'outboundCount': number;
@@ -29,12 +29,6 @@ export class ConversationSummaryView {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "conversationId",
-            "baseName": "conversation_id",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "firstMessageAt",
             "baseName": "first_message_at",
             "type": "Date",
@@ -44,6 +38,12 @@ export class ConversationSummaryView {
             "name": "hasUnread",
             "baseName": "has_unread",
             "type": "boolean",
+            "format": ""
+        },
+        {
+            "name": "id",
+            "baseName": "id",
+            "type": "string",
             "format": ""
         },
         {
@@ -59,8 +59,8 @@ export class ConversationSummaryView {
             "format": "date-time"
         },
         {
-            "name": "latestSender",
-            "baseName": "latest_sender",
+            "name": "latestFrom",
+            "baseName": "latest_from",
             "type": "string",
             "format": ""
         },

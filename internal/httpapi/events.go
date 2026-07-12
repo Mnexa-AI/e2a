@@ -43,7 +43,7 @@ type eventsCursor struct {
 // legacy page_size/token).
 type ListEventsInput struct {
 	Type           string `query:"type"`
-	AgentID        string `query:"agent_id"`
+	AgentID        string `query:"agent_email"`
 	ConversationID string `query:"conversation_id"`
 	MessageID      string `query:"message_id"`
 	Since          string `query:"since" doc:"RFC3339."`

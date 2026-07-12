@@ -127,8 +127,8 @@ import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
-import { MessageSummaryView      , MessageSummaryViewDirectionEnum                  } from '../models/MessageSummaryView.js';
-import { MessageView         , MessageViewDirectionEnum                    } from '../models/MessageView.js';
+import { MessageSummaryView       , MessageSummaryViewDirectionEnum                 } from '../models/MessageSummaryView.js';
+import { MessageView          , MessageViewDirectionEnum                   } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
@@ -169,7 +169,7 @@ import { SuppressionExportEntry } from '../models/SuppressionExportEntry.js';
 import { TemplatePartError } from '../models/TemplatePartError.js';
 import { TemplateSummaryView } from '../models/TemplateSummaryView.js';
 import { TemplateView } from '../models/TemplateView.js';
-import { TestWebhookRequest , TestWebhookRequestEventEnum   } from '../models/TestWebhookRequest.js';
+import { TestWebhookRequest , TestWebhookRequestTypeEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
@@ -211,7 +211,7 @@ let enumsMap: Set<string> = new Set<string>([
     "ProtectionHoldsViewOnExpiryEnum",
     "ProtectionScanViewSensitivityEnum",
     "ReviewViewDirectionEnum",
-    "TestWebhookRequestEventEnum",
+    "TestWebhookRequestTypeEnum",
     "UpdateWebhookRequestEventsEnum",
 ]);
 

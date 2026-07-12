@@ -13,12 +13,12 @@
 import { HttpFile } from '../http/http.js';
 
 export class UsageEventEntry {
-    'agentId': string;
+    'agentEmail': string;
     'createdAt': Date;
     'direction': string;
     'domain': string;
-    'eventType': string;
     'id': string;
+    'type': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -26,8 +26,8 @@ export class UsageEventEntry {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agentId",
-            "baseName": "agent_id",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },
@@ -50,14 +50,14 @@ export class UsageEventEntry {
             "format": ""
         },
         {
-            "name": "eventType",
-            "baseName": "event_type",
+            "name": "id",
+            "baseName": "id",
             "type": "string",
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
+            "name": "type",
+            "baseName": "type",
             "type": "string",
             "format": ""
         }    ];

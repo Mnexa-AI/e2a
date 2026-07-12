@@ -439,7 +439,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		fe := webhookpub.NewEvent(webhookpub.EventEmailFlagged, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
-			"agent":           map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+			"agent_email":     agent.EmailAddress(),
 			// from is the AUTHENTICATED From identity the policy evaluated and
 			// flagged — NOT displaySender (Reply-To), which is attacker-
 			// controllable and would name a trusted-looking address on the very
@@ -448,7 +448,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 			"from":           senderEmail,
 			"display_sender": displaySender,
 			"reply_to":       threadInfo.ReplyTo,
-			"recipient":      rcpt,
+			"delivered_to":   rcpt,
 			"subject":        threadInfo.Subject,
 			"policy":         agent.InboundPolicy,
 			"reason":         policyDecision.Reason,
@@ -470,10 +470,10 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		be := webhookpub.NewEvent(webhookpub.EventEmailBlocked, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
-			"agent":           map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+			"agent_email":     agent.EmailAddress(),
 			"direction":       "inbound",
 			"from":            senderEmail,
-			"recipient":       rcpt,
+			"delivered_to":    rcpt,
 			"subject":         threadInfo.Subject,
 			"reason":          screenRes.Reason,
 			"reason_source":   screenRes.Denorm.ReviewReason,
@@ -495,10 +495,10 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		pe := webhookpub.NewEvent(webhookpub.EventEmailPendingReview, agent.UserID, map[string]interface{}{
 			"message_id":          messageID,
 			"conversation_id":     conversationID,
-			"agent":               map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+			"agent_email":         agent.EmailAddress(),
 			"direction":           "inbound",
 			"from":                senderEmail,
-			"recipient":           rcpt,
+			"delivered_to":        rcpt,
 			"subject":             threadInfo.Subject,
 			"reason":              screenRes.Reason,
 			"reason_source":       screenRes.Denorm.ReviewReason,
@@ -670,12 +670,8 @@ func buildEmailReceivedPayload(
 	return map[string]interface{}{
 		"message_id":      messageID,
 		"conversation_id": conversationID,
-		"agent": map[string]interface{}{
-			"id":     agent.ID,
-			"email":  agent.EmailAddress(),
-			"domain": agent.Domain,
-		},
-		"from": displaySender,
+		"agent_email":     agent.EmailAddress(),
+		"from":            displaySender,
 		// authenticated_from is the From-header identity that SPF/DKIM/DMARC
 		// and the inbound trust policy (decision 10) actually pertain to.
 		// It can differ from "from" (which prefers Reply-To for reply
@@ -685,7 +681,7 @@ func buildEmailReceivedPayload(
 		"to":                 threadInfo.To,
 		"cc":                 threadInfo.CC,
 		"reply_to":           threadInfo.ReplyTo,
-		"recipient":          recipient,
+		"delivered_to":       recipient,
 		"subject":            subject,
 		"auth_headers":       authHeaders,
 		"received_at":        time.Now().UTC().Format(time.RFC3339),

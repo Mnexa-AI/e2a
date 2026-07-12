@@ -95,7 +95,7 @@ test("mcp: send_email with invalid recipient returns isError, never sends mail",
   const r = await callTool(mcp, sendTool.name, {
     to: ["definitely not a valid email"],
     subject: "should fail validation",
-    body: "should never reach SMTP",
+    text: "should never reach SMTP",
   });
   if (r.isError) {
     info(SUITE, "send-bad-recipient-error", "MCP send tool reported isError on invalid recipient — good");

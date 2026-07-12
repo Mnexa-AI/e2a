@@ -53,7 +53,7 @@ func TestCreateWebhookUnownedAgentFilter(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
 		"url": "https://example.com/hook", "events": []string{"email.received"},
-		"filters": map[string]any{"agent_ids": []string{"someone-else@x.com"}},
+		"filters": map[string]any{"agent_emails": []string{"someone-else@x.com"}},
 	})
 	if code != 400 {
 		t.Fatalf("want 400 for unowned agent filter, got %d %v", code, body)
@@ -64,7 +64,7 @@ func TestCreateWebhookOwnedAgentFilter(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
 		"url": "https://example.com/hook", "events": []string{"email.received"},
-		"filters": map[string]any{"agent_ids": []string{"support@acme.com"}},
+		"filters": map[string]any{"agent_emails": []string{"support@acme.com"}},
 	})
 	if code != 201 {
 		t.Fatalf("owned agent filter should be accepted, got %d %v", code, body)
@@ -198,7 +198,7 @@ func TestRotateWebhookSecretNotFound(t *testing.T) {
 
 func TestTestWebhook(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"event": "email.received"})
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"type": "email.received"})
 	if code != 200 || body["delivery_id"] != "whd_test_1" {
 		t.Fatalf("want 200 delivery_id, got %d %v", code, body)
 	}
@@ -206,7 +206,7 @@ func TestTestWebhook(t *testing.T) {
 
 func TestTestWebhookInvalidEvent(t *testing.T) {
 	srv := testServer(t)
-	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"event": "email.invented"})
+	code, body := postJSON(t, srv.URL+"/v1/webhooks/wh_1/test", "good", map[string]any{"type": "email.invented"})
 	// Unknown event now rejected by the schema enum (WH-2) → 422 before the handler.
 	if code != 422 || errCode(body) != "unprocessable_entity" {
 		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)

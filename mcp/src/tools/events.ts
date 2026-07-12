@@ -27,7 +27,7 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
           .describe(
             "Exact event type filter. Valid values: `email.received`, `email.sent`, `email.pending_review`, `email.review_approved`, `email.review_rejected`, `email.blocked`, `email.delivered`, `email.bounced`, `email.complained`, `email.flagged`, `domain.sending_verified`, `domain.sending_failed`, `domain.suppression_added`.",
           ),
-        agent_id: z.string().optional(),
+        agent_email: z.string().optional(),
         conversation_id: z.string().optional(),
         message_id: z.string().optional(),
         since: z
@@ -42,7 +42,7 @@ export function registerEventTools(server: McpServer, client: McpClient): void {
       runTool(async () => {
         const page = await client.listEvents({
           ...(args.type !== undefined ? { type: args.type } : {}),
-          ...(args.agent_id !== undefined ? { agentId: args.agent_id } : {}),
+          ...(args.agent_email !== undefined ? { agentEmail: args.agent_email } : {}),
           ...(args.conversation_id !== undefined
             ? { conversationId: args.conversation_id }
             : {}),

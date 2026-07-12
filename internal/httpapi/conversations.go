@@ -14,7 +14,7 @@ import (
 // timestamp in the surface (was previously plain strings, which generated an
 // untyped `string` in the SDKs and risked a .getTime()/parse crash).
 type ConversationSummaryView struct {
-	ID             string    `json:"conversation_id"`
+	ID             string    `json:"id"`
 	LastMessageAt  time.Time `json:"last_message_at" format:"date-time"`
 	FirstMessageAt time.Time `json:"first_message_at" format:"date-time"`
 	MessageCount   int       `json:"message_count"`
@@ -22,7 +22,7 @@ type ConversationSummaryView struct {
 	OutboundCount  int       `json:"outbound_count"`
 	HasUnread      bool      `json:"has_unread"`
 	LatestSubject  string    `json:"latest_subject"`
-	LatestSender   string    `json:"latest_sender"`
+	LatestSender   string    `json:"latest_from"`
 }
 
 func conversationSummaryView(c identity.ConversationSummary) ConversationSummaryView {

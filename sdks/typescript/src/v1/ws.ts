@@ -23,14 +23,14 @@ function fatalErrorForStatus(status: number): E2AError {
  * The body is intentionally not included — fetch it via REST when (and
  * only when) you actually need it:
  *
- *     const email = await client.messages.get(notif.recipient, notif.message_id);
+ *     const email = await client.messages.get(notif.delivered_to, notif.message_id);
  */
 export interface WSNotification {
   message_id: string;
   conversation_id?: string;
   from: string;
   /** Per-delivery target (this agent's address). */
-  recipient: string;
+  delivered_to: string;
   subject: string;
   received_at: string;
 }

@@ -251,7 +251,7 @@ func serverWithSendLimit(t *testing.T) *httptest.Server {
 func TestSendRateLimited(t *testing.T) {
 	srv := serverWithSendLimit(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages", "good", map[string]any{
-		"to": []string{"a@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"a@x.com"}, "subject": "Hi", "text": "hello",
 	})
 	if code != 429 || errCode(body) != "rate_limited" {
 		t.Fatalf("want 429 rate_limited, got %d %v", code, body)
@@ -271,7 +271,7 @@ func TestSendRateLimited(t *testing.T) {
 func TestSendRateLimitSetsRetryAfterHeader(t *testing.T) {
 	srv := serverWithSendLimit(t)
 	req, _ := http.NewRequest("POST", srv.URL+"/v1/agents/support%40acme.com/messages",
-		strings.NewReader(`{"to":["a@x.com"],"subject":"Hi","body":"hello"}`))
+		strings.NewReader(`{"to":["a@x.com"],"subject":"Hi","text":"hello"}`))
 	req.Header.Set("Authorization", "Bearer good")
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)

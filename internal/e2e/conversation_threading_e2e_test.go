@@ -72,7 +72,7 @@ func TestConversationThreadingE2E_OutboundRooted(t *testing.T) {
 
 	// (1) Agent sends first, NO conversation_id.
 	status, body := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey,
-		`{"to":["alice@gmail.com"],"subject":"Project kickoff","body":"Let's start."}`)
+		`{"to":["alice@gmail.com"],"subject":"Project kickoff","text":"Let's start."}`)
 	if status != 200 {
 		t.Fatalf("send status=%d body=%s", status, body)
 	}
@@ -104,7 +104,7 @@ func TestConversationThreadingE2E_OutboundRooted(t *testing.T) {
 
 	// (3) Agent replies to Alice with NO conversation_id — must inherit the thread.
 	status, body = authedJSON(t, "POST", subResource(ts.HTTPServer.URL, agent.EmailAddress(), in.ID, "reply"),
-		key.PlaintextKey, `{"body":"On it."}`)
+		key.PlaintextKey, `{"text":"On it."}`)
 	if status != 200 {
 		t.Fatalf("reply status=%d body=%s", status, body)
 	}
@@ -126,7 +126,7 @@ func TestConversationThreadingE2E_ExplicitForwardFirstContact(t *testing.T) {
 
 	// Explicit id is preserved.
 	status, body := authedJSON(t, "POST", sendURL(ts.HTTPServer.URL, agent.EmailAddress()), key.PlaintextKey,
-		`{"to":["x@gmail.com"],"subject":"s","body":"b","conversation_id":"conv_explicit_xyz"}`)
+		`{"to":["x@gmail.com"],"subject":"s","text":"b","conversation_id":"conv_explicit_xyz"}`)
 	if status != 200 {
 		t.Fatalf("explicit send status=%d %s", status, body)
 	}
@@ -147,7 +147,7 @@ func TestConversationThreadingE2E_ExplicitForwardFirstContact(t *testing.T) {
 
 	// Forward starts a new thread (does not inherit the inbound's — here empty — id).
 	status, body = authedJSON(t, "POST", subResource(ts.HTTPServer.URL, agent.EmailAddress(), in.ID, "forward"),
-		key.PlaintextKey, `{"to":["carol@gmail.com"],"body":"fyi"}`)
+		key.PlaintextKey, `{"to":["carol@gmail.com"],"text":"fyi"}`)
 	if status != 200 {
 		t.Fatalf("forward status=%d %s", status, body)
 	}

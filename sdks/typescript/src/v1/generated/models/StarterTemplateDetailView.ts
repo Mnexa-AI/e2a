@@ -15,20 +15,20 @@ import { HttpFile } from '../http/http.js';
 
 export class StarterTemplateDetailView {
     'alias': string;
-    /**
-    * The plain-text part\'s template source.
-    */
-    'body': string;
     'description': string;
     /**
     * The HTML part\'s template source.
     */
-    'htmlBody': string;
+    'html': string;
     'name': string;
     /**
     * Subject template source ({{variable}} interpolation).
     */
     'subject': string;
+    /**
+    * The plain-text part\'s template source.
+    */
+    'text': string;
     'variables': Array<StarterTemplateVariableView>;
     'version': string;
 
@@ -44,20 +44,14 @@ export class StarterTemplateDetailView {
             "format": ""
         },
         {
-            "name": "body",
-            "baseName": "body",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "description",
             "baseName": "description",
             "type": "string",
             "format": ""
         },
         {
-            "name": "htmlBody",
-            "baseName": "html_body",
+            "name": "html",
+            "baseName": "html",
             "type": "string",
             "format": ""
         },
@@ -70,6 +64,12 @@ export class StarterTemplateDetailView {
         {
             "name": "subject",
             "baseName": "subject",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "text",
+            "baseName": "text",
             "type": "string",
             "format": ""
         },

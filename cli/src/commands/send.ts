@@ -137,8 +137,8 @@ export async function send(opts: SendOptions): Promise<void> {
     {
       to: opts.to,
       subject: opts.subject,
-      body,
-      htmlBody,
+      text: body,
+      html: htmlBody,
       conversationId: opts.conversationId,
       replyTo: opts.replyTo,
       attachments: readAttachments(opts.attach),
@@ -157,7 +157,7 @@ export async function reply(messageId: string | undefined, opts: ReplyOptions): 
   const result = await client.messages.reply(
     agentEmail,
     messageId,
-    { body, htmlBody, replyTo: opts.replyTo, attachments: readAttachments(opts.attach) },
+    { text: body, html: htmlBody, replyTo: opts.replyTo, attachments: readAttachments(opts.attach) },
     opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : undefined,
   );
   emitSendResult(result, opts.json);

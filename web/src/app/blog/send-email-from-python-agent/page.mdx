@@ -53,7 +53,7 @@ async with E2AClient(api_key="e2a_...") as client:
         {
             "to": ["alice@example.com"],
             "subject": "Quick question",
-            "body": "Hi Alice — I'm your scheduling assistant. Got a second for a quick sync?",
+            "text": "Hi Alice — I'm your scheduling assistant. Got a second for a quick sync?",
         },
     )
 ```
@@ -77,7 +77,7 @@ async def inbox(request):
     print(f"{msg['from']}: {msg['subject']}")
     async with E2AClient(api_key="e2a_...") as client:
         await client.messages.reply(
-            msg["recipient"], msg["message_id"], {"body": "Got it. Does Thursday 2pm work?"}
+            msg["delivered_to"], msg["message_id"], {"text": "Got it. Does Thursday 2pm work?"}
         )
     return {"ok": True}
 ```
@@ -89,9 +89,9 @@ from e2a.v1 import E2AClient
 
 async with E2AClient(api_key="e2a_...") as client:
     async for notif in client.listen("research-assistant@agents.e2a.dev"):
-        msg = await client.messages.get(notif.recipient, notif.message_id)
+        msg = await client.messages.get(notif.delivered_to, notif.message_id)
         print(f"{notif.from_}: {notif.subject}")
-        await client.messages.reply(notif.recipient, notif.message_id, {"body": "Got it, on it."})
+        await client.messages.reply(notif.delivered_to, notif.message_id, {"text": "Got it, on it."})
 ```
 
 `listen()` holds a WebSocket and yields a lightweight `WSNotification` when mail arrives (message_id, from_, subject, conversation_id). Fetch the full body with `client.messages.get(...)` and respond with `client.messages.reply(...)`.
@@ -104,10 +104,10 @@ Multi-turn threading is the difference between an agent that sends isolated emai
 async for notif in client.listen("research-assistant@agents.e2a.dev"):
     convo_id = notif.conversation_id or new_id()
 
-    msg = await client.messages.get(notif.recipient, notif.message_id)
+    msg = await client.messages.get(notif.delivered_to, notif.message_id)
     draft = await compose_reply(msg, history=load_history(convo_id))
     await client.messages.reply(
-        notif.recipient, notif.message_id, {"body": draft, "conversation_id": convo_id}
+        notif.delivered_to, notif.message_id, {"text": draft, "conversation_id": convo_id}
     )
 ```
 

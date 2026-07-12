@@ -278,17 +278,17 @@ class MessagesResource {
   send(email: string, body: SendEmailRequest, opts: RequestOptions = {}): Promise<SendResultView> {
     return call(() => this.api.sendMessage(email, body, opts.idempotencyKey));
   }
-  reply(email: string, id: string, body: ReplyRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.replyToMessage(email, id, body, opts.idempotencyKey));
+  reply(email: string, messageId: string, body: ReplyRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.replyToMessage(email, messageId, body, opts.idempotencyKey));
   }
-  forward(email: string, id: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.forwardMessage(email, id, body, opts.idempotencyKey));
+  forward(email: string, messageId: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.forwardMessage(email, messageId, body, opts.idempotencyKey));
   }
-  /** @deprecated Use `client.reviews.approve(id, body)` — the review queue is
+  /** @deprecated Use `client.reviews.approve(messageId, body)` — the review queue is
    *  account-scoped and id-addressed, so you no longer pass the inbox email.
    *  This agent-path endpoint is deprecated and will be removed. */
-  approve(email: string, id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.approveMessage(email, id, body, opts.idempotencyKey));
+  approve(email: string, messageId: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.approveMessage(email, messageId, body, opts.idempotencyKey));
   }
   /** @deprecated Use `client.reviews.reject(id, body)`. See `approve` above. */
   reject(email: string, id: string, body: RejectRequest = {}): Promise<RejectResultView> {
@@ -320,8 +320,8 @@ class ReviewsResource {
   }
   /** Approve a hold: send the outbound draft (honoring Idempotency-Key +
    *  optional reviewer overrides) or release the inbound hold to the inbox. */
-  approve(id: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.approveReview(id, body, opts.idempotencyKey));
+  approve(messageId: string, body: ApproveRequest = {}, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.approveReview(messageId, body, opts.idempotencyKey));
   }
   /** Reject a hold: discard the outbound draft / drop the inbound hold. */
   reject(id: string, body: RejectRequest = {}): Promise<RejectResultView> {
@@ -332,11 +332,11 @@ class ReviewsResource {
 /** Reusable email templates + the read-only starter catalog (beta — shapes may
  *  change before templates are declared stable). Account scope only; the
  *  send-side reference lives on `messages.send` (template_id / template_alias /
- *  template_data, mutually exclusive with literal subject/body). */
+ *  template_data, mutually exclusive with literal subject/text). */
 class TemplatesResource {
   constructor(private readonly api: PromiseTemplatesApi) {}
   /** List the account's stored templates, newest first. Summary rows only (no
-   *  body/html_body sources) — `get(id)` returns the full sources. */
+   *  text/html sources) — `get(id)` returns the full sources. */
   list(params: { limit?: number } = {}): AutoPager<TemplateSummaryView> {
     // Cursor-paginated: the AutoPager walks next_cursor to completion.
     return new AutoPager(async (cursor) => {
@@ -348,14 +348,14 @@ class TemplatesResource {
   get(id: string): Promise<TemplateView> {
     return call(() => this.api.getTemplate(id));
   }
-  /** Create a template from literal source (name + subject + body), or copy a
+  /** Create a template from literal source (name + subject + text), or copy a
    *  starter verbatim via `fromStarter` (mutually exclusive with the source
    *  fields — edit the created copy afterwards with `update`). */
   create(body: CreateTemplateRequest): Promise<TemplateView> {
     return call(() => this.api.createTemplate(body));
   }
   /** Partial update; omitted fields are left unchanged. Changed parts are
-   *  re-parsed. Set alias or htmlBody to "" to clear them. */
+   *  re-parsed. Set alias or html to "" to clear them. */
   update(id: string, patch: UpdateTemplateRequest): Promise<TemplateView> {
     return call(() => this.api.updateTemplate(id, patch));
   }
@@ -425,7 +425,7 @@ class DomainsResource {
 
 export interface ListEventsParams {
   type?: string;
-  agentId?: string;
+  agentEmail?: string;
   conversationId?: string;
   messageId?: string;
   since?: string;
@@ -438,7 +438,7 @@ class EventsResource {
   list(params: ListEventsParams = {}): AutoPager<EventJSON> {
     return new AutoPager(async (cursor) => {
       const page = await call(() =>
-        this.api.listEvents(params.type, params.agentId, params.conversationId, params.messageId,
+        this.api.listEvents(params.type, params.agentEmail, params.conversationId, params.messageId,
           params.since, params.until, cursor, params.limit),
       );
       return { items: page.items ?? [], next_cursor: page.nextCursor };
@@ -460,19 +460,19 @@ class WebhooksResource {
 
   /**
    * Fetch the full message referenced by an `email.received` event. The event
-   * is a metadata-only notification; this resolves its (recipient, message_id)
+   * is a metadata-only notification; this resolves its (delivered_to, message_id)
    * fetch keys and returns the full {@link MessageView} (body, attachments,
    * signed headers). Throws if the event is not an `email.received` carrying
    * those keys.
    */
   fetchMessage(event: WebhookEvent): Promise<MessageView> {
     const d = event.data as EmailReceivedPayload | undefined;
-    if (event.type !== "email.received" || !d?.message_id || !d?.recipient) {
+    if (event.type !== "email.received" || !d?.message_id || !d?.delivered_to) {
       throw new Error(
-        "fetchMessage expects an email.received event with message_id and recipient",
+        "fetchMessage expects an email.received event with message_id and delivered_to",
       );
     }
-    return this.messages.get(d.recipient, d.message_id);
+    return this.messages.get(d.delivered_to, d.message_id);
   }
 
   list(params: { limit?: number } = {}): AutoPager<WebhookView> {

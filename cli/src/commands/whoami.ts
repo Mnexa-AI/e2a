@@ -19,8 +19,8 @@ export async function whoami(opts: WhoamiOptions): Promise<void> {
 
   process.stdout.write(`user:  ${account.user.email} (${account.user.id})\n`);
   process.stdout.write(`scope: ${account.scope}\n`);
-  if (account.agentAddress) {
-    process.stdout.write(`agent: ${account.agentAddress}\n`);
+  if (account.agentEmail) {
+    process.stdout.write(`agent: ${account.agentEmail}\n`);
   } else {
     // Account-scoped keys aren't bound to an inbox — show what send/reply
     // will actually use, so the preflight answers "which inbox am I?".

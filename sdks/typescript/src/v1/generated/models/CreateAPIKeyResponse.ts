@@ -16,7 +16,7 @@ export class CreateAPIKeyResponse {
     /**
     * Bound inbox email for agent-scoped keys; omitted for account scope.
     */
-    'agent'?: string;
+    'agentEmail'?: string;
     'createdAt': Date;
     'expiresAt'?: Date;
     'id': string;
@@ -41,8 +41,8 @@ export class CreateAPIKeyResponse {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agent",
-            "baseName": "agent",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

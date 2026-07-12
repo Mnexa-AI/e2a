@@ -10,7 +10,7 @@ import { writeReport, info } from "../harness/report.ts";
 // prod). So this suite ONLY makes sense against staging.
 //
 // Emission is proved for every event type across THREE correlated signals:
-//   1. listEvents (GET /v1/events, filtered type + agent_id + since) — THIS
+//   1. listEvents (GET /v1/events, filtered type + agent_email + since) — THIS
 //      message's event row landed in the outbox/log (correlated by message_id).
 //   2. the event's OWN delivery_status.matched_webhooks (GET /v1/events/{id}) —
 //      EVENT-scoped proof THIS event fanned out to >=1 subscriber.
@@ -26,12 +26,12 @@ import { writeReport, info } from "../harness/report.ts";
 // Shapes/status verified against api/openapi.yaml (the drift-gated SSOT) AND
 // curl-probed on live staging before these assertions were written (2026-07-10):
 //   EventJSON     required {id,type,schema_version,created_at,status,data};
-//                 optional agent_id, conversation_id, message_id, delivery_status.
+//                 optional agent_email, conversation_id, message_id, delivery_status.
 //   PageEventJSON {items, next_cursor:string|null}.
 //   RedeliverView required {event_id,status}; single-webhook replay also carries
 //                 top-level delivery_id + webhook_id (status "pending"); bulk
 //                 fan-out carries deliveries[] (status "scheduled").
-//   WebhookDeliveryView required {id,event_type,status,attempts,next_retry_at,created_at}.
+//   WebhookDeliveryView required {id,type,status,attempts,next_retry_at,created_at}.
 //
 // Event types covered (HTTP-triggerable, per internal/webhookpub/event.go):
 //   email.sent            — real send (no hold) to the SES simulator (SES 200).
@@ -89,11 +89,11 @@ const SIMULATOR = "success@simulator.amazonses.com";
 interface EventJSON {
   id: string;
   type: string;
-  schema_version: number;
+  schema_version: string;
   created_at: string;
   status: string;
   data: Record<string, unknown>;
-  agent_id?: string;
+  agent_email?: string;
   conversation_id?: string;
   message_id?: string;
   delivery_status?: { matched_webhooks?: number; delivered?: number; pending?: number; failed?: number };
@@ -104,7 +104,7 @@ interface PageEventJSON {
 }
 interface WebhookDeliveryView {
   id: string;
-  event_type: string;
+  type: string;
   status: string;
   attempts: number;
   next_retry_at: string;
@@ -175,7 +175,7 @@ async function delHook(id: string): Promise<void> {
   await client.delete(`/v1/webhooks/${encodeURIComponent(id)}`);
 }
 
-// pollEvent: poll listEvents (filtered type+agent_id+since) until an event
+// pollEvent: poll listEvents (filtered type+agent_email+since) until an event
 // matching `match` appears, or the bounded window elapses. Backoff 500ms→3s.
 async function pollEvent(
   params: { type: string; agentId: string; since: string },
@@ -186,7 +186,7 @@ async function pollEvent(
   let delay = 500;
   while (Date.now() < deadline) {
     const r = await client.get<PageEventJSON>("/v1/events", {
-      query: { type: params.type, agent_id: params.agentId, since: params.since, limit: 50 },
+      query: { type: params.type, agent_email: params.agentId, since: params.since, limit: 50 },
     });
     if (r.status === 200 && r.body?.items) {
       const found = r.body.items.find(match);
@@ -213,7 +213,7 @@ async function pollDelivery(
     const r = await client.get<PageWebhookDeliveryView>(`/v1/webhooks/${webhookId}/deliveries`);
     if (r.status === 200 && r.body?.items) {
       const found = r.body.items.find(
-        (d) => d.event_type === eventType && d.attempts >= 1 && (!opts.deliveryId || d.id === opts.deliveryId),
+        (d) => d.type === eventType && d.attempts >= 1 && (!opts.deliveryId || d.id === opts.deliveryId),
       );
       if (found) return found;
     }
@@ -255,12 +255,12 @@ function assertEventShape(e: EventJSON, expect: { type: string; agentId: string;
   // EventJSON required fields (openapi): id,type,schema_version,created_at,status,data.
   assert.ok(typeof e.id === "string" && e.id.startsWith("evt_"), `event id has evt_ prefix: ${e.id}`);
   assert.equal(e.type, expect.type, "event.type matches the triggered type");
-  assert.ok(typeof e.schema_version === "number" && e.schema_version >= 1, "schema_version is a positive integer");
+  assert.ok(typeof e.schema_version === "string" && e.schema_version.length > 0, "schema_version is a non-empty string label");
   assert.ok(typeof e.created_at === "string" && e.created_at.length > 0, "created_at present");
   assert.ok(typeof e.status === "string" && e.status.length > 0, "status present");
   assert.ok(e.data && typeof e.data === "object", "data object present");
-  // agent_id is optional in the schema but populated for these agent-scoped events.
-  assert.equal(e.agent_id, expect.agentId, "event.agent_id is the triggering inbox");
+  // agent_email is optional in the schema but populated for these agent-scoped events.
+  assert.equal(e.agent_email, expect.agentId, "event.agent_email is the triggering inbox");
   if (expect.messageId) {
     // Correlate to the triggering message: top-level message_id (populated on
     // staging) OR data.message_id (always present in the payload).
@@ -279,7 +279,7 @@ test("emit: email.sent — real send emits the event and attempts a delivery", {
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit sent"), body: "real send to SES simulator" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit sent"), text: "real send to SES simulator" },
     });
     assert.equal(send.status, 200, `real send expected 200 sent, got ${send.status}: ${send.raw.slice(0, 200)}`);
     assert.equal(send.body?.status, "sent", "no-hold agent sends immediately");
@@ -316,7 +316,7 @@ test("emit: email.pending_review — held send emits the event and attempts a de
   let heldId: string | null = null;
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit pending"), body: "held for review" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit pending"), text: "held for review" },
     });
     assert.equal(send.status, 202, `held send expected 202 pending_review, got ${send.status}: ${send.raw.slice(0, 200)}`);
     assert.equal(send.body?.status, "pending_review", "gated send is held");
@@ -352,7 +352,7 @@ test("emit: email.review_rejected — rejecting a hold emits the event and attem
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit reject"), body: "will be rejected" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit reject"), text: "will be rejected" },
     });
     assert.equal(send.status, 202, `held send expected 202, got ${send.status}: ${send.raw.slice(0, 200)}`);
     const heldId = send.body!.message_id!;
@@ -394,7 +394,7 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       // Addressed to the simulator so approve→send actually succeeds on staging's
       // SES sandbox (a non-simulator/blackhole recipient 500s the send leg).
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit approve"), body: "will be approved + sent" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit approve"), text: "will be approved + sent" },
     });
     assert.equal(send.status, 202, `held send expected 202, got ${send.status}: ${send.raw.slice(0, 200)}`);
     heldId = send.body!.message_id!;
@@ -428,13 +428,13 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
 });
 
 // ---- Events read API: listEvents envelope + filters ----
-test("events: listEvents returns PageEventJSON envelope and honors type/agent_id/since/limit filters", { skip }, async () => {
+test("events: listEvents returns PageEventJSON envelope and honors type/agent_email/since/limit filters", { skip }, async () => {
   const email = await createAgent("list");
   const hook = await createHook(["email.sent"]);
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit list"), body: "for listEvents" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit list"), text: "for listEvents" },
     });
     assert.equal(send.status, 200, `real send expected 200, got ${send.status}: ${send.raw.slice(0, 200)}`);
     const messageId = send.body!.message_id!;
@@ -456,25 +456,25 @@ test("events: listEvents returns PageEventJSON envelope and honors type/agent_id
 
     // type filter: every returned item is the requested type.
     const typed = await client.get<PageEventJSON>("/v1/events", {
-      query: { type: "email.sent", agent_id: email, since },
+      query: { type: "email.sent", agent_email: email, since },
     });
     assert.equal(typed.status, 200);
-    assert.ok(typed.body!.items.length >= 1, "type+agent_id+since filter returns the seeded event");
+    assert.ok(typed.body!.items.length >= 1, "type+agent_email+since filter returns the seeded event");
     for (const e of typed.body!.items) {
       assert.equal(e.type, "email.sent", "type filter is honored");
-      assert.equal(e.agent_id, email, "agent_id filter is honored");
+      assert.equal(e.agent_email, email, "agent_email filter is honored");
     }
 
-    // agent_id filter isolation: a bogus agent_id returns an empty page (not an error).
+    // agent_email filter isolation: a bogus agent_email returns an empty page (not an error).
     const other = await client.get<PageEventJSON>("/v1/events", {
-      query: { agent_id: `nonexistent-${Date.now()}@${client.env.sharedDomain}`, since },
+      query: { agent_email: `nonexistent-${Date.now()}@${client.env.sharedDomain}`, since },
     });
-    assert.equal(other.status, 200, "agent_id filter with no matches returns 200");
-    assert.equal(other.body!.items.length, 0, "unknown agent_id yields an empty page");
+    assert.equal(other.status, 200, "agent_email filter with no matches returns 200");
+    assert.equal(other.body!.items.length, 0, "unknown agent_email yields an empty page");
 
     // since filter: a future timestamp excludes everything.
     const future = new Date(Date.now() + 3_600_000).toISOString();
-    const none = await client.get<PageEventJSON>("/v1/events", { query: { agent_id: email, since: future } });
+    const none = await client.get<PageEventJSON>("/v1/events", { query: { agent_email: email, since: future } });
     assert.equal(none.status, 200);
     assert.equal(none.body!.items.length, 0, "since=future excludes all events");
   } finally {
@@ -490,7 +490,7 @@ test("events: getEvent returns the EventJSON by evt_ id; nonexistent → 404", {
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit get"), body: "for getEvent" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit get"), text: "for getEvent" },
     });
     assert.equal(send.status, 200);
     const messageId = send.body!.message_id!;
@@ -519,7 +519,7 @@ test("events: redeliverEvent re-queues a delivery for the event; a new attempt a
   const since = sinceNow();
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SIMULATOR], subject: uniqueSubject("emit redeliver"), body: "for redeliver" },
+      body: { to: [SIMULATOR], subject: uniqueSubject("emit redeliver"), text: "for redeliver" },
     });
     assert.equal(send.status, 200);
     const messageId = send.body!.message_id!;

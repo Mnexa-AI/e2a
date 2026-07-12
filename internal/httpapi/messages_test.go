@@ -34,8 +34,8 @@ func TestListMessagesPageEnvelopeAndCursor(t *testing.T) {
 		t.Fatalf("want 1 item, got %d (%v)", len(items), body)
 	}
 	first := items[0].(map[string]any)
-	if first["message_id"] != "msg_b" {
-		t.Fatalf("want newest msg_b first, got %v", first["message_id"])
+	if first["id"] != "msg_b" {
+		t.Fatalf("want newest msg_b first, got %v", first["id"])
 	}
 	cursor, ok := body["next_cursor"].(string)
 	if !ok || cursor == "" {
@@ -48,7 +48,7 @@ func TestListMessagesPageEnvelopeAndCursor(t *testing.T) {
 		t.Fatalf("page2 status %d body %v", code, body)
 	}
 	items, _ = body["items"].([]any)
-	if len(items) != 1 || items[0].(map[string]any)["message_id"] != "msg_a" {
+	if len(items) != 1 || items[0].(map[string]any)["id"] != "msg_a" {
 		t.Fatalf("unexpected page 2: %v", body)
 	}
 	if body["next_cursor"] != nil {

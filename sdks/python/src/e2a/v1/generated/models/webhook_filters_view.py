@@ -26,10 +26,10 @@ class WebhookFiltersView(BaseModel):
     """
     WebhookFiltersView
     """ # noqa: E501
-    agent_ids: Optional[List[StrictStr]] = None
+    agent_emails: Optional[List[StrictStr]] = None
     conversation_ids: Optional[List[StrictStr]] = None
     labels: Optional[List[StrictStr]] = None
-    __properties: ClassVar[List[str]] = ["agent_ids", "conversation_ids", "labels"]
+    __properties: ClassVar[List[str]] = ["agent_emails", "conversation_ids", "labels"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -82,7 +82,7 @@ class WebhookFiltersView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_ids": obj.get("agent_ids"),
+            "agent_emails": obj.get("agent_emails"),
             "conversation_ids": obj.get("conversation_ids"),
             "labels": obj.get("labels")
         })

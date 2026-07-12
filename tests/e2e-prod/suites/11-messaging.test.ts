@@ -33,12 +33,12 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
   const queued: string[] = [];
   for (let i = 0; i < 5; i++) {
     const s = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      body: { to: [SINK_EMAIL], subject: uniqueSubject(`pag ${i}`), body: "x" },
+      body: { to: [SINK_EMAIL], subject: uniqueSubject(`pag ${i}`), text: "x" },
     });
     if (s.body?.message_id) queued.push(s.body.message_id);
   }
 
-  const page1 = await client.get<{ items: Array<{ message_id: string }>; next_cursor?: string | null }>(
+  const page1 = await client.get<{ items: Array<{ id: string }>; next_cursor?: string | null }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
     { query: { limit: 3, direction: "all" } },
   );
@@ -50,15 +50,16 @@ test("messaging: pagination roundtrip — limit=3 then follow cursor; no duplica
     for (const id of queued) await client.post(`/v1/agents/${encodeURIComponent(email)}/messages/${id}/reject`, { body: { reason: "e2e pagination cleanup" } });
     return;
   }
-  const page2 = await client.get<{ items: Array<{ message_id: string }>; next_cursor?: string | null }>(
+  const page2 = await client.get<{ items: Array<{ id: string }>; next_cursor?: string | null }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
     { query: { limit: 3, cursor: page1.body.next_cursor, direction: "all" } },
   );
   assert.equal(page2.status, 200, `page2 status ${page2.status}: ${page2.raw.slice(0, 200)}`);
-  // MessageSummaryView identifies items by `message_id` (not `id`) — mapping the
-  // wrong field made every id undefined and produced a phantom cross-page overlap.
-  const ids1 = new Set((page1.body!.items ?? []).map((m) => m.message_id));
-  const ids2 = new Set((page2.body!.items ?? []).map((m) => m.message_id));
+  // MessageSummaryView identifies items by `id` (its own primary key; a
+  // referenced OTHER resource would be `<noun>_id`). Mapping the wrong field
+  // made every id undefined and produced a phantom cross-page overlap.
+  const ids1 = new Set((page1.body!.items ?? []).map((m) => m.id));
+  const ids2 = new Set((page2.body!.items ?? []).map((m) => m.id));
   const overlap = [...ids1].filter((id) => ids2.has(id));
   if (overlap.length > 0) {
     fail(SUITE, "pagination-duplicate-ids", `${overlap.length} ids appear on both pages: ${overlap.slice(0, 5).join(",")}`);
@@ -74,7 +75,7 @@ test("messaging: Idempotency-Key replay — same key+body returns same message_i
   const email = await createHitlAgent("idem");
   const idemKey = uniqueIdempotencyKey();
   const sendPath = `/v1/agents/${encodeURIComponent(email)}/messages`;
-  const body = { to: [SINK_EMAIL], subject: uniqueSubject("idem"), body: "idempotency test" };
+  const body = { to: [SINK_EMAIL], subject: uniqueSubject("idem"), text: "idempotency test" };
 
   const r1 = await client.post<{ message_id: string; status: string }>(sendPath, {
     body,
@@ -146,7 +147,7 @@ test("messaging: /agents/{email}/test on HITL agent returns 202 with message_id 
 test("messaging: HITL approve flow — send queues, approve sends, status→sent", async () => {
   const email = await createHitlAgent("appr");
   const s = await client.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-    body: { to: [SINK_EMAIL], subject: uniqueSubject("approve"), body: "approve me" },
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("approve"), text: "approve me" },
   });
   if (s.status !== 202) {
     info(SUITE, "approve-no-202", `expected 202 from HITL send, got ${s.status}: ${s.raw.slice(0, 200)}`);
@@ -176,7 +177,7 @@ test("messaging: HITL approve flow — send queues, approve sends, status→sent
 test("messaging: reject of a sent message returns 409 (state guard)", async () => {
   const email = await createHitlAgent("rej");
   const s = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-    body: { to: [SINK_EMAIL], subject: uniqueSubject("reject after send"), body: "x" },
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("reject after send"), text: "x" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "rej-after-send-skipped", `setup HITL send returned ${s.status}: ${s.raw.slice(0, 200)}`);
@@ -199,7 +200,7 @@ test("messaging: reject of a sent message returns 409 (state guard)", async () =
 test("messaging: approve with field overrides applies them before send", async () => {
   const email = await createHitlAgent("appov");
   const s = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-    body: { to: [SINK_EMAIL], subject: uniqueSubject("original"), body: "original body" },
+    body: { to: [SINK_EMAIL], subject: uniqueSubject("original"), text: "original body" },
   });
   if (s.status !== 202 || !s.body?.message_id) {
     info(SUITE, "approve-override-skipped", `setup send returned ${s.status}`);
@@ -207,11 +208,11 @@ test("messaging: approve with field overrides applies them before send", async (
   }
   const id = s.body.message_id;
   // Override subject + body on approve. Per ApproveRequest schema, the overridable
-  // subset is subject/body/html_body/to/cc/bcc/attachments (plain-text field is `body`,
-  // not `body_text` — the latter is rejected 422 as an unexpected property).
+  // subset is subject/text/html/to/cc/bcc/attachments (plain-text field is `text`,
+  // not `body`/`body_text` — the latter are rejected 422 as an unexpected property).
   const ap = await client.post<{ message_id: string; status: string }>(
     `/v1/agents/${encodeURIComponent(email)}/messages/${id}/approve`,
-    { body: { subject: "overridden subject (approve-time)", body: "overridden body" } },
+    { body: { subject: "overridden subject (approve-time)", text: "overridden body" } },
   );
   if (ap.status !== 200) {
     info(SUITE, "approve-override-non-200", `override approve returned ${ap.status}: ${ap.raw.slice(0, 200)}`);
@@ -232,7 +233,7 @@ test("messaging: reply to bogus message ID returns 404", async () => {
   const email = client.env.primaryAgentEmail;
   const r = await client.post(
     `/v1/agents/${encodeURIComponent(email)}/messages/msg_does_not_exist_${Date.now()}/reply`,
-    { body: { body: "won't be delivered" } },
+    { body: { text: "won't be delivered" } },
   );
   assert.ok(r.status === 404 || (r.status >= 400 && r.status < 500), `expected 4xx (404), got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
@@ -313,7 +314,7 @@ test("messaging: send with reply_to (header round-trip) is accepted", async () =
     body: {
       to: [SINK_EMAIL],
       subject: uniqueSubject("with reply_to"),
-      body: "x",
+      text: "x",
       // reply_to is a single RFC 5322 address STRING (Sets Reply-To header),
       // not an array — an array is rejected 422 as an unexpected property.
       reply_to: "specific-reply@example.com",

@@ -18,6 +18,10 @@ export class MessageSummaryView {
     'cc'?: Array<string>;
     'conversationId'?: string;
     'createdAt': Date;
+    /**
+    * The envelope Delivered-To address — this delivery\'s per-agent target (the mailbox that actually received this row), distinct from the To header (the to array).
+    */
+    'deliveredTo': string;
     'deliveryDetail'?: string;
     /**
     * Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy \'queued\' is superseded by \'accepted\'.)
@@ -27,10 +31,9 @@ export class MessageSummaryView {
     'flagReason'?: string;
     'flagged'?: boolean;
     '_from': string;
+    'id': string;
     'labels': Array<string>;
-    'messageId': string;
     'readStatus': string;
-    'recipient': string;
     /**
     * The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here).
     */
@@ -79,6 +82,12 @@ export class MessageSummaryView {
             "format": "date-time"
         },
         {
+            "name": "deliveredTo",
+            "baseName": "delivered_to",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "deliveryDetail",
             "baseName": "delivery_detail",
             "type": "string",
@@ -115,26 +124,20 @@ export class MessageSummaryView {
             "format": ""
         },
         {
+            "name": "id",
+            "baseName": "id",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "labels",
             "baseName": "labels",
             "type": "Array<string>",
             "format": ""
         },
         {
-            "name": "messageId",
-            "baseName": "message_id",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "readStatus",
             "baseName": "read_status",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "recipient",
-            "baseName": "recipient",
             "type": "string",
             "format": ""
         },

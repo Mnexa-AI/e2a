@@ -9,7 +9,7 @@ import "testing"
 func TestSendRejectsBadBase64Attachment(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"r@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"r@x.com"}, "subject": "Hi", "text": "hello",
 		"attachments": []map[string]any{
 			{"filename": "bad.bin", "content_type": "application/octet-stream", "data": "!!!not-base64!!!"},
 		},
@@ -24,7 +24,7 @@ func TestSendRejectsBadBase64Attachment(t *testing.T) {
 func TestSendAcceptsValidBase64Attachment(t *testing.T) {
 	srv := testServer(t)
 	code, _ := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"r@x.com"}, "subject": "Hi", "body": "hello",
+		"to": []string{"r@x.com"}, "subject": "Hi", "text": "hello",
 		"attachments": []map[string]any{
 			{"filename": "ok.txt", "content_type": "text/plain", "data": "aGVsbG8K\n"},
 		},
@@ -38,7 +38,7 @@ func TestSendAcceptsValidBase64Attachment(t *testing.T) {
 func TestReplyRejectsBadBase64Attachment(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_in1/reply", "good", map[string]any{
-		"body": "re",
+		"text": "re",
 		"attachments": []map[string]any{
 			{"filename": "bad.bin", "content_type": "application/octet-stream", "data": "@@notbase64@@"},
 		},

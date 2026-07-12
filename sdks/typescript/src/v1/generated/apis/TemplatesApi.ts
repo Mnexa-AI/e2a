@@ -24,7 +24,7 @@ import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js'
 export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest 
      */
@@ -230,7 +230,7 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param limit Maximum number of items to return (1-100).
@@ -274,7 +274,7 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
      * @param id 
      * @param updateTemplateRequest 

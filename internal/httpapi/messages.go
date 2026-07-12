@@ -20,12 +20,12 @@ import (
 // read-state is exposed as `read_status` (MSG-1); the four status axes are
 // read_status / hitl_status / delivery_status / webhook_status.
 type MessageView struct {
-	MessageID      string   `json:"message_id"`
+	ID             string   `json:"id"`
 	From           string   `json:"from"`
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc" nullable:"false"`
 	ReplyTo        []string `json:"reply_to" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here)."`
-	Recipient      string   `json:"recipient"`
+	Recipient      string   `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id"`
 	// Direction (inbound|outbound) — mirrors MessageSummaryView so a client
@@ -128,7 +128,7 @@ type MessageBodyView struct {
 
 func messageViewFromIdentity(m *identity.Message) MessageView {
 	v := MessageView{
-		MessageID:      m.ID,
+		ID:             m.ID,
 		From:           m.Sender,
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
@@ -217,13 +217,13 @@ type messageOutput struct {
 // dependency on the surface it replaces; it moves home when legacy is
 // deleted at the 1Z cutover.
 type MessageSummaryView struct {
-	ID             string   `json:"message_id"`
+	ID             string   `json:"id"`
 	Direction      string   `json:"direction" enum:"inbound,outbound"`
 	From           string   `json:"from"`
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc,omitempty" nullable:"false"`
 	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
-	Recipient      string   `json:"recipient"`
+	Recipient      string   `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).

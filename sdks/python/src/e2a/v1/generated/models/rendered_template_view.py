@@ -26,10 +26,10 @@ class RenderedTemplateView(BaseModel):
     """
     RenderedTemplateView
     """ # noqa: E501
-    body: StrictStr
-    html_body: Optional[StrictStr] = None
+    html: Optional[StrictStr] = None
     subject: StrictStr
-    __properties: ClassVar[List[str]] = ["body", "html_body", "subject"]
+    text: StrictStr
+    __properties: ClassVar[List[str]] = ["html", "subject", "text"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -82,9 +82,9 @@ class RenderedTemplateView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "body": obj.get("body"),
-            "html_body": obj.get("html_body"),
-            "subject": obj.get("subject")
+            "html": obj.get("html"),
+            "subject": obj.get("subject"),
+            "text": obj.get("text")
         })
         return _obj
 

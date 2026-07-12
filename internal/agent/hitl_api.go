@@ -16,12 +16,12 @@ import (
 // field is optional; any field present overrides the stored value before
 // the message is sent. Using pointer types distinguishes "field not
 // provided" (nil) from "explicitly empty" (non-nil pointer to zero value).
-// The body field names match send/reply: the wire names are `body` and
-// `html_body` (Go fields stay BodyText/BodyHTML).
+// The body field names match send/reply: the wire names are `text` and
+// `html` (Go fields stay BodyText/BodyHTML).
 type approveRequest struct {
 	Subject     *string                `json:"subject,omitempty"`
-	BodyText    *string                `json:"body,omitempty"`
-	BodyHTML    *string                `json:"html_body,omitempty"`
+	BodyText    *string                `json:"text,omitempty"`
+	BodyHTML    *string                `json:"html,omitempty"`
 	To          *[]string              `json:"to,omitempty" nullable:"false"`
 	CC          *[]string              `json:"cc,omitempty" nullable:"false"`
 	BCC         *[]string              `json:"bcc,omitempty" nullable:"false"`

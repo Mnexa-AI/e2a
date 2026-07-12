@@ -284,7 +284,8 @@ func paginatedAgentsServer(t *testing.T, n int) *httptest.Server {
 
 func TestAgents_KeysetPaginationWalksFullSet(t *testing.T) {
 	srv := paginatedAgentsServer(t, 6)
-	ids := walkPages(t, srv, "/v1/agents?limit=2", "id")
+	// #436 dropped AgentView.id (id == email); the agent list keys on email.
+	ids := walkPages(t, srv, "/v1/agents?limit=2", "email")
 	assertNoDupes(t, ids, 6)
 }
 

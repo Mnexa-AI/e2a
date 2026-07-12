@@ -20,7 +20,7 @@ test("postfix #4: GET nonexistent path returns 404 with text/plain body", async 
   const ct = r.headers["content-type"] ?? "";
   assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
   assert.ok(r.raw.trim().length > 0, "body should be non-empty");
-  info(SUITE, "404-shape", `Content-Type: "${ct}", body: "${r.raw.trim()}"`);
+  info(SUITE, "404-shape", `Content-Type: "${ct}", text: "${r.raw.trim()}"`);
 });
 
 test("postfix #4: wrong-method on /info returns 404 with text/plain body (was empty)", async () => {
@@ -35,7 +35,7 @@ test("postfix #4: wrong-method on /info returns 404 with text/plain body (was em
   const ct = r.headers["content-type"] ?? "";
   assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
   assert.ok(r.raw.trim().length > 0, "body should be non-empty");
-  info(SUITE, "wrong-method-shape", `Content-Type: "${ct}", body: "${r.raw.trim()}"`);
+  info(SUITE, "wrong-method-shape", `Content-Type: "${ct}", text: "${r.raw.trim()}"`);
 });
 
 test("postfix #4: wrong-method on /messages returns 404 with body", async () => {
@@ -76,12 +76,12 @@ test("postfix #7: /send with CRLF in subject is rejected at the API (400)", asyn
     body: {
       to: ["blackhole@e2a.dev"],
       subject: "Hello\r\nBcc: attacker@evil.com",
-      body: "x",
+      text: "x",
     },
   });
   assert.equal(r.status, 400, `expected 400 (CRLF rejected), got ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.ok(/CR|LF|\\r|\\n|newline|line/i.test(r.raw), `expected error mentioning CR/LF, got: ${r.raw.slice(0, 200)}`);
-  info(SUITE, "crlf-rejected", `body: "${r.raw.trim()}"`);
+  info(SUITE, "crlf-rejected", `text: "${r.raw.trim()}"`);
 });
 
 test("postfix #7: bare LF in subject is also rejected (no carriage return)", async () => {
@@ -89,7 +89,7 @@ test("postfix #7: bare LF in subject is also rejected (no carriage return)", asy
     body: {
       to: ["blackhole@e2a.dev"],
       subject: "Hello\nX-Smuggled: yes",
-      body: "x",
+      text: "x",
     },
   });
   assert.equal(r.status, 400, `expected 400 for bare LF, got ${r.status}: ${r.raw.slice(0, 200)}`);

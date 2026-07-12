@@ -221,7 +221,7 @@ The durable, queryable log of every event e2a emits to webhook subscribers
 [events.md](events.md) for the event taxonomy, reconciliation pattern, and replay
 semantics.
 
-- `GET /v1/events` — filter by `type`/`agent_id`/`conversation_id`/`message_id`
+- `GET /v1/events` — filter by `type`/`agent_email`/`conversation_id`/`message_id`
   and time range; cursor pagination.
 - `GET /v1/events/{id}` — one event (returns `410 Gone` past retention).
 - `POST /v1/events/{id}/redeliver` — re-enqueue delivery for an event (to one
@@ -242,7 +242,7 @@ content via `GET /v1/agents/{email}/messages/{id}`:
   "message_id": "msg_abc123",
   "conversation_id": "conv_xyz",
   "from": "alice@example.com",
-  "recipient": "bot@your-domain.com",
+  "delivered_to": "bot@your-domain.com",
   "subject": "Meeting tomorrow",
   "received_at": "2026-04-24T10:00:00Z"
 }

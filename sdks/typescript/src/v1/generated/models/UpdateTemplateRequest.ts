@@ -17,13 +17,13 @@ export class UpdateTemplateRequest {
     * Set to \"\" to clear the alias.
     */
     'alias'?: string;
-    'body'?: string;
     /**
     * Set to \"\" to remove the HTML part.
     */
-    'htmlBody'?: string;
+    'html'?: string;
     'name'?: string;
     'subject'?: string;
+    'text'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -37,14 +37,8 @@ export class UpdateTemplateRequest {
             "format": ""
         },
         {
-            "name": "body",
-            "baseName": "body",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "htmlBody",
-            "baseName": "html_body",
+            "name": "html",
+            "baseName": "html",
             "type": "string",
             "format": ""
         },
@@ -57,6 +51,12 @@ export class UpdateTemplateRequest {
         {
             "name": "subject",
             "baseName": "subject",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "text",
+            "baseName": "text",
             "type": "string",
             "format": ""
         }    ];

@@ -29,13 +29,13 @@ class ForwardRequest(BaseModel):
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = Field(default=None, description="Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically.")
     bcc: Optional[List[StrictStr]] = None
-    body: StrictStr
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
-    html_body: Optional[StrictStr] = None
+    html: Optional[StrictStr] = None
     reply_to: Optional[StrictStr] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.")
+    text: StrictStr
     to: List[StrictStr]
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "conversation_id", "html_body", "reply_to", "to"]
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_to", "text", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -97,11 +97,11 @@ class ForwardRequest(BaseModel):
         _obj = cls.model_validate({
             "attachments": [Attachment.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
             "bcc": obj.get("bcc"),
-            "body": obj.get("body"),
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
-            "html_body": obj.get("html_body"),
+            "html": obj.get("html"),
             "reply_to": obj.get("reply_to"),
+            "text": obj.get("text"),
             "to": obj.get("to")
         })
         return _obj

@@ -27,12 +27,12 @@ class CreateTemplateRequest(BaseModel):
     CreateTemplateRequest
     """ # noqa: E501
     alias: Optional[StrictStr] = Field(default=None, description="Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send.")
-    body: Optional[StrictStr] = Field(default=None, description="Plain-text body template source (no HTML escaping). Required unless from_starter is set.")
-    from_starter: Optional[StrictStr] = Field(default=None, description="Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.")
-    html_body: Optional[StrictStr] = Field(default=None, description="Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).")
+    from_starter: Optional[StrictStr] = Field(default=None, description="Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, text and html — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable.")
+    html: Optional[StrictStr] = Field(default=None, description="Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw).")
     name: Optional[StrictStr] = Field(default=None, description="Human-readable template name. Required unless from_starter supplies the default.")
     subject: Optional[StrictStr] = Field(default=None, description="Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set.")
-    __properties: ClassVar[List[str]] = ["alias", "body", "from_starter", "html_body", "name", "subject"]
+    text: Optional[StrictStr] = Field(default=None, description="Plain-text body template source (no HTML escaping). Required unless from_starter is set.")
+    __properties: ClassVar[List[str]] = ["alias", "from_starter", "html", "name", "subject", "text"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -86,11 +86,11 @@ class CreateTemplateRequest(BaseModel):
 
         _obj = cls.model_validate({
             "alias": obj.get("alias"),
-            "body": obj.get("body"),
             "from_starter": obj.get("from_starter"),
-            "html_body": obj.get("html_body"),
+            "html": obj.get("html"),
             "name": obj.get("name"),
-            "subject": obj.get("subject")
+            "subject": obj.get("subject"),
+            "text": obj.get("text")
         })
         return _obj
 

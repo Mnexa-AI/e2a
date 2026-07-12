@@ -226,7 +226,7 @@ export default function DashboardPage() {
               </p>
             ) : (
               visibleAgents.map((agent) => (
-                <AgentCard key={agent.id} agent={agent} />
+                <AgentCard key={agent.email} agent={agent} />
               ))
             )}
           </div>

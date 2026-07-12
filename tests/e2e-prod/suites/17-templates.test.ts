@@ -31,8 +31,8 @@ interface StarterTemplateView {
   variables: StarterTemplateVariable[];
 }
 interface StarterTemplateDetailView extends StarterTemplateView {
-  body: string;
-  html_body: string;
+  text: string;
+  html: string;
 }
 interface Page<T> {
   items: T[];
@@ -47,15 +47,15 @@ interface TemplateSummaryView {
   updated_at: string;
 }
 interface TemplateView extends TemplateSummaryView {
-  body: string;
-  html_body?: string;
+  text: string;
+  html?: string;
   from_starter_alias?: string;
   from_starter_version?: string;
 }
 interface ValidateTemplateResponse {
   valid: boolean;
   errors: Array<{ part: string; message: string }>;
-  rendered?: { subject: string; body: string; html_body?: string };
+  rendered?: { subject: string; text: string; html?: string };
   suggested_data?: Record<string, unknown>;
 }
 interface ErrEnv {
@@ -90,7 +90,7 @@ test("listStarterTemplates: 200 with {items, next_cursor} envelope", async () =>
   }
 });
 
-test("getStarterTemplate: 200 detail view (body + html_body) for an alias from the list", async () => {
+test("getStarterTemplate: 200 detail view (body + html) for an alias from the list", async () => {
   const list = await client.get<Page<StarterTemplateView>>("/v1/starter-templates");
   assert.equal(list.status, 200);
   const alias = list.body!.items[0]?.alias;
@@ -102,8 +102,8 @@ test("getStarterTemplate: 200 detail view (body + html_body) for an alias from t
   assert.equal(r.status, 200, `expected 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.equal(r.body?.alias, alias, "detail alias matches request");
   // The detail view adds the full body sources over the list (summary) view.
-  assert.equal(typeof r.body?.body, "string", "detail carries plain-text body source");
-  assert.equal(typeof r.body?.html_body, "string", "detail carries html_body source");
+  assert.equal(typeof r.body?.text, "string", "detail carries plain-text body source");
+  assert.equal(typeof r.body?.html, "string", "detail carries html source");
   assert.equal(typeof r.body?.subject, "string", "detail carries subject source");
   assert.ok(Array.isArray(r.body?.variables), "detail carries variables[]");
   for (const v of r.body!.variables) {
@@ -129,7 +129,7 @@ test("createTemplate + getTemplate + listTemplates + deleteTemplate lifecycle", 
       body: {
         name: `e2e ${alias}`,
         subject: "Hi {{name}}",
-        body: "Hello {{name}}, welcome to {{company}}.",
+        text: "Hello {{name}}, welcome to {{company}}.",
         alias,
       },
     });
@@ -138,7 +138,7 @@ test("createTemplate + getTemplate + listTemplates + deleteTemplate lifecycle", 
     assert.ok(id?.startsWith("tmpl_"), `id has tmpl_ prefix: ${id}`);
     assert.equal(create.body?.name, `e2e ${alias}`);
     assert.equal(create.body?.subject, "Hi {{name}}");
-    assert.equal(create.body?.body, "Hello {{name}}, welcome to {{company}}.");
+    assert.equal(create.body?.text, "Hello {{name}}, welcome to {{company}}.");
     assert.equal(create.body?.alias, alias, "alias echoed back");
     assert.ok(create.body?.created_at, "created_at present");
     assert.ok(create.body?.updated_at, "updated_at present");
@@ -146,7 +146,7 @@ test("createTemplate + getTemplate + listTemplates + deleteTemplate lifecycle", 
     const got = await client.get<TemplateView>(`/v1/templates/${id}`);
     assert.equal(got.status, 200, `getTemplate → 200, got ${got.status}`);
     assert.equal(got.body?.id, id);
-    assert.equal(got.body?.body, "Hello {{name}}, welcome to {{company}}.", "get returns full body source");
+    assert.equal(got.body?.text, "Hello {{name}}, welcome to {{company}}.", "get returns full body source");
 
     const list = await client.get<Page<TemplateSummaryView>>("/v1/templates");
     assert.equal(list.status, 200);
@@ -173,7 +173,7 @@ test("updateTemplate (PATCH): partial update mutates name and bumps updated_at",
   let id: string | null = null;
   try {
     const create = await client.post<TemplateView>("/v1/templates", {
-      body: { name: "before", subject: "S {{x}}", body: "B {{x}}", alias },
+      body: { name: "before", subject: "S {{x}}", text: "B {{x}}", alias },
     });
     assert.equal(create.status, 201, `create → 201, got ${create.status}: ${create.raw.slice(0, 200)}`);
     id = create.body!.id;
@@ -184,7 +184,7 @@ test("updateTemplate (PATCH): partial update mutates name and bumps updated_at",
     assert.equal(patch.status, 200, `PATCH → 200, got ${patch.status}: ${patch.raw.slice(0, 200)}`);
     assert.equal(patch.body?.name, "after", "name updated");
     assert.equal(patch.body?.subject, "S2 {{x}}", "subject updated");
-    assert.equal(patch.body?.body, "B {{x}}", "unchanged part preserved");
+    assert.equal(patch.body?.text, "B {{x}}", "unchanged part preserved");
     assert.equal(patch.body?.alias, alias, "alias preserved when not in patch");
 
     const got = await client.get<TemplateView>(`/v1/templates/${id}`);
@@ -209,7 +209,7 @@ test("createTemplate: from_starter copies a starter verbatim (201, carries prove
     assert.ok(id?.startsWith("tmpl_"));
     assert.equal(create.body?.from_starter_alias, starterAlias, "from_starter_alias records provenance");
     assert.ok(create.body?.from_starter_version, "from_starter_version records catalog version at copy time");
-    assert.ok(create.body?.body, "copied body source is populated");
+    assert.ok(create.body?.text, "copied body source is populated");
   } finally {
     if (id) await delTemplate(id);
   }
@@ -221,7 +221,7 @@ test("validateTemplate: valid source → 200 valid:true with rendered preview + 
   const r = await client.post<ValidateTemplateResponse>("/v1/templates/validate", {
     body: {
       subject: "Hi {{name}}",
-      body: "Welcome {{name}} to {{company}}",
+      text: "Welcome {{name}} to {{company}}",
       test_data: { name: "Ada", company: "Acme" },
     },
   });
@@ -229,7 +229,7 @@ test("validateTemplate: valid source → 200 valid:true with rendered preview + 
   assert.equal(r.body?.valid, true, "valid source reports valid:true");
   assert.deepEqual(r.body?.errors, [], "no errors for valid source");
   assert.equal(r.body?.rendered?.subject, "Hi Ada", "subject rendered against test_data");
-  assert.equal(r.body?.rendered?.body, "Welcome Ada to Acme", "body rendered against test_data");
+  assert.equal(r.body?.rendered?.text, "Welcome Ada to Acme", "body rendered against test_data");
   assert.ok(r.body?.suggested_data, "suggested_data present (placeholder per referenced variable)");
   assert.ok(
     "name" in (r.body!.suggested_data as object) && "company" in (r.body!.suggested_data as object),
@@ -243,7 +243,7 @@ test("validateTemplate: invalid source → HTTP 200 with valid:false + per-part 
   // and ValidateTemplateResponse.valid is a boolean, so the parse verdict rides
   // in the body. (Verified against live server.)
   const r = await client.post<ValidateTemplateResponse>("/v1/templates/validate", {
-    body: { subject: "Hi {{name", body: "ok" },
+    body: { subject: "Hi {{name", text: "ok" },
   });
   assert.equal(r.status, 200, `invalid template still returns 200, got ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.equal(r.body?.valid, false, "unparseable source reports valid:false");
@@ -285,13 +285,13 @@ test("createTemplate: duplicate alias returns 409 alias_taken", async () => {
   let id: string | null = null;
   try {
     const first = await client.post<TemplateView>("/v1/templates", {
-      body: { name: "first", subject: "S {{x}}", body: "B {{x}}", alias },
+      body: { name: "first", subject: "S {{x}}", text: "B {{x}}", alias },
     });
     assert.equal(first.status, 201, `first create → 201, got ${first.status}: ${first.raw.slice(0, 200)}`);
     id = first.body!.id;
 
     const second = await client.post<ErrEnv>("/v1/templates", {
-      body: { name: "second", subject: "S {{x}}", body: "B {{x}}", alias },
+      body: { name: "second", subject: "S {{x}}", text: "B {{x}}", alias },
     });
     assert.equal(second.status, 409, `dup alias → 409, got ${second.status}: ${second.raw.slice(0, 200)}`);
     assert.equal(second.body?.error?.code, "alias_taken");

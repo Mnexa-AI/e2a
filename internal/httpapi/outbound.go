@@ -98,19 +98,19 @@ func recipientCountError(groups ...[]string) *ErrorEnvelope {
 
 // SendEmailRequest is the new-thread send body. `to` is required (RFC 5321
 // requires ≥1 recipient; From/Date are server-set). Content comes in one of
-// two mutually exclusive shapes: literal subject + body (+ optional
-// html_body) — both required at the handler for a usable new email (MSG-3) —
+// two mutually exclusive shapes: literal subject + text (+ optional
+// html) — both required at the handler for a usable new email (MSG-3) —
 // or a template reference (template_id XOR template_alias, + template_data),
-// which the server renders into subject/body/html_body before any further
-// processing. subject/body moved from schema-required to handler-enforced so
+// which the server renders into subject/text/html before any further
+// processing. subject/text moved from schema-required to handler-enforced so
 // the template shape can omit them.
 type SendEmailRequest struct {
 	To             []string              `json:"to" nullable:"false"`
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
 	Subject        string                `json:"subject,omitempty" doc:"Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
-	Body           string                `json:"body,omitempty" doc:"Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
-	HTMLBody       string                `json:"html_body,omitempty" doc:"Literal HTML body. Mutually exclusive with template_id/template_alias."`
+	Body           string                `json:"text,omitempty" doc:"Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
+	HTMLBody       string                `json:"html,omitempty" doc:"Literal HTML body. Mutually exclusive with template_id/template_alias."`
 	TemplateID     string                `json:"template_id,omitempty" doc:"Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
 	TemplateAlias  string                `json:"template_alias,omitempty" doc:"Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
 	TemplateData   TemplateData          `json:"template_data,omitempty" doc:"Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."`
@@ -215,8 +215,8 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 
 // ReplyRequest mirrors the legacy reply body.
 type ReplyRequest struct {
-	Body           string                `json:"body"` // required (MSG-3); to/subject derived from the original
-	HTMLBody       string                `json:"html_body,omitempty"`
+	Body           string                `json:"text"` // required (MSG-3); to/subject derived from the original
+	HTMLBody       string                `json:"html,omitempty"`
 	ReplyAll       bool                  `json:"reply_all,omitempty"`
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
@@ -263,7 +263,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 	}
 	b := in.Body
 	if b.Body == "" {
-		return nil, NewError(http.StatusBadRequest, "invalid_request", "body is required")
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "text is required")
 	}
 	// Validate only the user-supplied CC/BCC; the implicit To comes from the
 	// (already-validated) referenced message — mirrors the legacy handler.
@@ -354,8 +354,8 @@ type ForwardRequest struct {
 	To             []string              `json:"to" nullable:"false"` // required (MSG-3)
 	CC             []string              `json:"cc,omitempty" nullable:"false"`
 	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
-	Body           string                `json:"body"` // required (MSG-3); subject derived as "Fwd:"
-	HTMLBody       string                `json:"html_body,omitempty"`
+	Body           string                `json:"text"` // required (MSG-3); subject derived as "Fwd:"
+	HTMLBody       string                `json:"html,omitempty"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically."`
@@ -416,7 +416,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 // validateOutboundBody runs the shared pre-send validation.
 func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string, conversationID string) *ErrorEnvelope {
 	if subject == "" || body == "" {
-		return NewError(http.StatusBadRequest, "invalid_request", "subject and body are required")
+		return NewError(http.StatusBadRequest, "invalid_request", "subject and text are required")
 	}
 	if strings.ContainsAny(subject, "\r\n") {
 		return NewError(http.StatusBadRequest, "invalid_request", "subject must not contain CR or LF characters")

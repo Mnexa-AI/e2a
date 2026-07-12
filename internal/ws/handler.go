@@ -186,7 +186,7 @@ type Notification struct {
 	MessageID      string    `json:"message_id"`
 	ConversationID string    `json:"conversation_id,omitempty"`
 	From           string    `json:"from"`
-	Recipient      string    `json:"recipient"`
+	Recipient      string    `json:"delivered_to"`
 	Subject        string    `json:"subject"`
 	ReceivedAt     time.Time `json:"received_at"`
 }

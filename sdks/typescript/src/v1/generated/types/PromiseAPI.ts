@@ -218,7 +218,7 @@ export class PromiseAccountApi {
     }
 
     /**
-     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * The authenticated principal\'s identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
      * Get account: identity + plan limits + usage (whoami)
      */
     public getAccountWithHttpInfo(_options?: PromiseConfigurationOptions): Promise<HttpInfo<AccountView>> {
@@ -228,7 +228,7 @@ export class PromiseAccountApi {
     }
 
     /**
-     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * The authenticated principal\'s identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
      * Get account: identity + plan limits + usage (whoami)
      */
     public getAccount(_options?: PromiseConfigurationOptions): Promise<AccountView> {
@@ -731,7 +731,7 @@ export class PromiseEventsApi {
      * The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
      * List events
      * @param [type]
-     * @param [agentId]
+     * @param [agentEmail]
      * @param [conversationId]
      * @param [messageId]
      * @param [since] RFC3339.
@@ -739,9 +739,9 @@ export class PromiseEventsApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listEventsWithHttpInfo(type?: string, agentId?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageEventJSON>> {
+    public listEventsWithHttpInfo(type?: string, agentEmail?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageEventJSON>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listEventsWithHttpInfo(type, agentId, conversationId, messageId, since, until, cursor, limit, observableOptions);
+        const result = this.api.listEventsWithHttpInfo(type, agentEmail, conversationId, messageId, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -749,7 +749,7 @@ export class PromiseEventsApi {
      * The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
      * List events
      * @param [type]
-     * @param [agentId]
+     * @param [agentEmail]
      * @param [conversationId]
      * @param [messageId]
      * @param [since] RFC3339.
@@ -757,9 +757,9 @@ export class PromiseEventsApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listEvents(type?: string, agentId?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageEventJSON> {
+    public listEvents(type?: string, agentEmail?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageEventJSON> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listEvents(type, agentId, conversationId, messageId, since, until, cursor, limit, observableOptions);
+        const result = this.api.listEvents(type, agentEmail, conversationId, messageId, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -1244,7 +1244,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1255,7 +1255,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1356,7 +1356,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
@@ -1368,7 +1368,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
@@ -1380,7 +1380,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
      * @param id
      * @param updateTemplateRequest
@@ -1392,7 +1392,7 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
      * @param id
      * @param updateTemplateRequest

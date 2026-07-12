@@ -28,6 +28,7 @@ export class AgentIdentity {
     'inboundScanSensitivity': string;
     'lastDeliveryAt'?: Date;
     'name': string;
+    'onExpiry': string;
     'outbound7d': number;
     'outboundAllowlist'?: Array<string> | null;
     'outboundPolicy': string;
@@ -38,8 +39,7 @@ export class AgentIdentity {
     'outboundScanSensitivity': string;
     'pendingCount': number;
     '_public': boolean;
-    'reviewExpirationAction': string;
-    'reviewTtlSeconds': number;
+    'ttlSeconds': number;
     'userId': string;
     'webhookHealthy': boolean;
 
@@ -139,6 +139,12 @@ export class AgentIdentity {
             "format": ""
         },
         {
+            "name": "onExpiry",
+            "baseName": "on_expiry",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "outbound7d",
             "baseName": "outbound_7d",
             "type": "number",
@@ -199,14 +205,8 @@ export class AgentIdentity {
             "format": ""
         },
         {
-            "name": "reviewExpirationAction",
-            "baseName": "review_expiration_action",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "reviewTtlSeconds",
-            "baseName": "review_ttl_seconds",
+            "name": "ttlSeconds",
+            "baseName": "ttl_seconds",
             "type": "number",
             "format": "int64"
         },

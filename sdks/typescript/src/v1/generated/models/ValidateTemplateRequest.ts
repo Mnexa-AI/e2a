@@ -13,13 +13,13 @@
 import { HttpFile } from '../http/http.js';
 
 export class ValidateTemplateRequest {
-    'body'?: string;
-    'htmlBody'?: string;
+    'html'?: string;
     'subject'?: string;
     /**
     * Sample template_data to render the preview with. Missing variables render as empty strings.
     */
     'testData'?: any;
+    'text'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -27,14 +27,8 @@ export class ValidateTemplateRequest {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "body",
-            "baseName": "body",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "htmlBody",
-            "baseName": "html_body",
+            "name": "html",
+            "baseName": "html",
             "type": "string",
             "format": ""
         },
@@ -48,6 +42,12 @@ export class ValidateTemplateRequest {
             "name": "testData",
             "baseName": "test_data",
             "type": "any",
+            "format": ""
+        },
+        {
+            "name": "text",
+            "baseName": "text",
+            "type": "string",
             "format": ""
         }    ];
 

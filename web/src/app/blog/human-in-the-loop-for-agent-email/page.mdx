@@ -83,7 +83,7 @@ held = await client.reviews.list().to_list()
 await client.reviews.approve("msg_abc123")
 
 # approve with edits — pass field overrides
-await client.reviews.approve("msg_abc123", {"body": "Revised copy."})
+await client.reviews.approve("msg_abc123", {"text": "Revised copy."})
 
 # reject with a reason
 await client.reviews.reject("msg_def456", {"reason": "wrong tone"})
@@ -149,7 +149,7 @@ async with E2AClient(api_key="e2a_...") as client:
     # protection is on → this send comes back held, not sent
     result = await client.messages.send(
         "my-agent@agents.e2a.dev",
-        {"to": ["you@yourdomain.com"], "subject": "test", "body": "anyone home?"},
+        {"to": ["you@yourdomain.com"], "subject": "test", "text": "anyone home?"},
     )
     # result.status == "pending_review", e.g. msg_abc123
 ```

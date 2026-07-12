@@ -46,9 +46,9 @@ export function diffApproveEdits(
   const out: ApprovePayload = {};
   if (draft.subject !== (current.subject ?? "")) out.subject = draft.subject;
   if (draft.bodyText !== (current.body_text ?? ""))
-    out.body = draft.bodyText;
+    out.text = draft.bodyText;
   if (draft.bodyHTML !== (current.body_html ?? ""))
-    out.html_body = draft.bodyHTML;
+    out.html = draft.bodyHTML;
 
   const toDraft = parseCSV(draft.to);
   if (JSON.stringify(toDraft) !== JSON.stringify(current.to ?? []))

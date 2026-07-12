@@ -81,8 +81,8 @@ export function ThreadBubble({
   // Fetch this message's body. Keyed per (agent, id, direction) so each
   // message caches independently and shares with the focus page's cache.
   const { data: detail, isLoading } = useSWR(
-    ["thread-msg-body", agentEmail, message.message_id, message.direction] as const,
-    () => getMessageDetail(agentEmail, message.message_id, message.direction),
+    ["thread-msg-body", agentEmail, message.id, message.direction] as const,
+    () => getMessageDetail(agentEmail, message.id, message.direction),
     {
       // After the read-flip, the thread list (bold rows) and the Inboxes
       // unread badge both hold stale unread state. Revalidate them so the
@@ -123,7 +123,7 @@ export function ThreadBubble({
   return (
     <div
       data-testid="thread-bubble"
-      data-message-id={message.message_id}
+      data-message-id={message.id}
       className="flex"
       style={{ gap: 12, marginBottom: 20, alignItems: "flex-start" }}
     >

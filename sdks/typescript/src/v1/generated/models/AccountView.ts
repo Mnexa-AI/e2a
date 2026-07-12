@@ -16,7 +16,7 @@ import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { HttpFile } from '../http/http.js';
 
 export class AccountView {
-    'agentAddress'?: string;
+    'agentEmail'?: string;
     'limits': LimitsCapsView;
     'planCode': string;
     'scope': AccountViewScopeEnum;
@@ -30,8 +30,8 @@ export class AccountView {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agentAddress",
-            "baseName": "agent_address",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

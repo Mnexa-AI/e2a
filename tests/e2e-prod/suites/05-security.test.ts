@@ -59,7 +59,7 @@ test("security: extremely long subject is bounded (no 500)", async () => {
 
   const subject = "A".repeat(10_000);
   const r = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages`, {
-    body: { to: ["blackhole@e2a.dev"], subject, body: "x" },
+    body: { to: ["blackhole@e2a.dev"], subject, text: "x" },
   });
   if (r.status >= 500) {
     fail(SUITE, "long-subject-500", `10k-char subject caused ${r.status}: ${r.raw.slice(0, 200)}`);
@@ -84,7 +84,7 @@ test("security: CRLF injection in subject rejected or sanitized (no header smugg
     body: {
       to: ["blackhole@e2a.dev"],
       subject: "Hello\r\nBcc: attacker@evil.com\r\nX-Smuggled: yes",
-      body: "x",
+      text: "x",
     },
   });
   if (r.status >= 500) {
@@ -124,7 +124,7 @@ test("security: case-insensitive email path doesn't bypass ownership", async () 
   }
 });
 
-test("security: send body with HTML — html_body distinct from body", async () => {
+test("security: send body with HTML — html distinct from text", async () => {
   const slug = uniqueSlug("html");
   const c = await client.post<{ email: string }>("/v1/agents", {
     body: { email: `${slug}@${client.env.sharedDomain}`, name: "html" },
@@ -137,8 +137,8 @@ test("security: send body with HTML — html_body distinct from body", async () 
     body: {
       to: ["blackhole@e2a.dev"],
       subject: "html test",
-      body: "plain text alt",
-      html_body: "<p>HTML content with <a href='https://evil.example.com'>link</a></p>",
+      text: "plain text alt",
+      html: "<p>HTML content with <a href='https://evil.example.com'>link</a></p>",
     },
   });
   assert.ok(r.status === 200 || r.status === 202, `expected 200/202, got ${r.status}: ${r.raw.slice(0, 200)}`);

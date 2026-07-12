@@ -114,8 +114,8 @@ export function StarterPreviewModal({
             </p>
             <TemplatePreview
               subject={substituteVars(detail.subject, vars)}
-              textBody={substituteVars(detail.body, vars)}
-              htmlBody={substituteVars(detail.html_body, vars, {
+              textBody={substituteVars(detail.text, vars)}
+              htmlBody={substituteVars(detail.html, vars, {
                 escape: true,
               })}
             />

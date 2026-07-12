@@ -37,7 +37,7 @@ const minutesAgo = (n: number) =>
   new Date(NOW.getTime() - n * 60_000).toISOString();
 
 const PENDING_REPLY: MessageSummary = {
-  message_id: "msg_pending",
+  id: "msg_pending",
   direction: "outbound",
   from: "support@acme.io",
   to: ["maya@stripe.com"],
@@ -51,7 +51,7 @@ const PENDING_REPLY: MessageSummary = {
 };
 
 const PARENT_INBOUND: MessageSummary = {
-  message_id: "msg_parent",
+  id: "msg_parent",
   direction: "inbound",
   from: "maya@stripe.com",
   to: ["support@acme.io"],
@@ -64,7 +64,7 @@ const PARENT_INBOUND: MessageSummary = {
 };
 
 const ORPHAN_INBOUND: MessageSummary = {
-  message_id: "msg_solo",
+  id: "msg_solo",
   direction: "inbound",
   from: "ci@github.com",
   to: ["support@acme.io"],

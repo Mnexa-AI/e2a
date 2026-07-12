@@ -53,8 +53,8 @@ type StarterTemplateView struct {
 // (flattened via embedding) plus the full body sources.
 type StarterTemplateDetailView struct {
 	StarterTemplateView
-	Body     string `json:"body" doc:"The plain-text part's template source."`
-	HTMLBody string `json:"html_body" doc:"The HTML part's template source."`
+	Body     string `json:"text" doc:"The plain-text part's template source."`
+	HTMLBody string `json:"html" doc:"The HTML part's template source."`
 }
 
 func starterTemplateView(m startertemplates.Master) StarterTemplateView {

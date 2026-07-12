@@ -468,7 +468,7 @@ class TemplatesResource:
 
     def list(self) -> AutoPager[TemplateSummaryView]:
         """List the account's stored templates, newest first. Summary rows only
-        (no body/html_body sources) — ``get(id)`` returns the full sources."""
+        (no text/html sources) — ``get(id)`` returns the full sources."""
 
         async def fetch(_cursor: Optional[str]) -> Page:
             resp = await self._c._read(lambda h: self._api.list_templates(_headers=h))
@@ -492,7 +492,7 @@ class TemplatesResource:
 
     async def update(self, template_id: str, patch: Body) -> TemplateView:
         """Partial update; omitted fields are left unchanged. Changed parts are
-        re-parsed. Set alias or html_body to "" to clear them. PATCH is
+        re-parsed. Set alias or html to "" to clear them. PATCH is
         idempotent → safe to retry."""
         req = _coerce(UpdateTemplateRequest, patch)
         return await self._c._write_idempotent(
@@ -596,7 +596,7 @@ class EventsResource:
         self,
         *,
         type: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_email: Optional[str] = None,
         conversation_id: Optional[str] = None,
         message_id: Optional[str] = None,
         since: Optional[str] = None,
@@ -607,7 +607,7 @@ class EventsResource:
             resp = await self._c._read(
                 lambda h: self._api.list_events(
                     type=type,
-                    agent_id=agent_id,
+                    agent_email=agent_email,
                     conversation_id=conversation_id,
                     message_id=message_id,
                     since=since,
@@ -640,19 +640,19 @@ class WebhooksResource:
         """Fetch the full message referenced by an ``email.received`` event.
 
         The event is a metadata-only notification; this resolves its
-        ``(recipient, message_id)`` fetch keys and returns the full
+        ``(delivered_to, message_id)`` fetch keys and returns the full
         :class:`MessageView` (body, attachments, signed headers). Raises
         ``ValueError`` if the event is not an ``email.received`` carrying those
         keys.
         """
         data = event.data if isinstance(event.data, dict) else {}
         message_id = data.get("message_id")
-        recipient = data.get("recipient")
-        if event.type != "email.received" or not message_id or not recipient:
+        delivered_to = data.get("delivered_to")
+        if event.type != "email.received" or not message_id or not delivered_to:
             raise ValueError(
-                "fetch_message expects an email.received event with message_id and recipient"
+                "fetch_message expects an email.received event with message_id and delivered_to"
             )
-        return await self._c.messages.get(recipient, message_id)
+        return await self._c.messages.get(delivered_to, message_id)
 
     def list(self, *, limit: Optional[int] = None) -> AutoPager[WebhookView]:
         # Cursor-paginated: the AutoPager walks next_cursor to completion.

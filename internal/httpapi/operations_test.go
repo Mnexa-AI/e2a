@@ -743,12 +743,12 @@ func TestGetMessageOwned(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"message_id", "from", "to", "cc", "reply_to", "recipient", "subject", "conversation_id", "read_status", "labels", "created_at", "auth_headers", "raw_message"} {
+	for _, k := range []string{"id", "from", "to", "cc", "reply_to", "delivered_to", "subject", "conversation_id", "read_status", "labels", "created_at", "auth_headers", "raw_message"} {
 		if _, ok := m[k]; !ok {
 			t.Errorf("missing key %q in message view", k)
 		}
 	}
-	if m["message_id"] != "msg_1" || m["read_status"] != "unread" {
+	if m["id"] != "msg_1" || m["read_status"] != "unread" {
 		t.Fatalf("unexpected message: %+v", m)
 	}
 	// raw_message is []byte -> base64 string ("raw" -> "cmF3").

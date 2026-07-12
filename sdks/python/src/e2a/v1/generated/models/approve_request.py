@@ -29,12 +29,12 @@ class ApproveRequest(BaseModel):
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = None
     bcc: Optional[List[StrictStr]] = None
-    body: Optional[StrictStr] = None
     cc: Optional[List[StrictStr]] = None
-    html_body: Optional[StrictStr] = None
+    html: Optional[StrictStr] = None
     subject: Optional[StrictStr] = None
+    text: Optional[StrictStr] = None
     to: Optional[List[StrictStr]] = None
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "body", "cc", "html_body", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "html", "subject", "text", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -96,10 +96,10 @@ class ApproveRequest(BaseModel):
         _obj = cls.model_validate({
             "attachments": [Attachment.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
             "bcc": obj.get("bcc"),
-            "body": obj.get("body"),
             "cc": obj.get("cc"),
-            "html_body": obj.get("html_body"),
+            "html": obj.get("html"),
             "subject": obj.get("subject"),
+            "text": obj.get("text"),
             "to": obj.get("to")
         })
         return _obj

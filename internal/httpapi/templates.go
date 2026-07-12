@@ -37,13 +37,13 @@ const (
 type templatePart struct {
 	name     string
 	escape   emailtemplate.EscapeMode
-	optional bool // the part may be absent (html_body)
+	optional bool // the part may be absent (html)
 }
 
 var templateParts = [...]templatePart{
 	{name: "subject", escape: emailtemplate.EscapeNone},
-	{name: "body", escape: emailtemplate.EscapeNone},
-	{name: "html_body", escape: emailtemplate.EscapeHTML, optional: true},
+	{name: "text", escape: emailtemplate.EscapeNone},
+	{name: "html", escape: emailtemplate.EscapeHTML, optional: true},
 }
 
 // templateAliasRe is the alias charset: a letter, then up to 127 of
@@ -76,8 +76,8 @@ type TemplateView struct {
 	Name     string `json:"name"`
 	Alias    string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
 	Subject  string `json:"subject"`
-	Body     string `json:"body" doc:"The plain-text part's template source."`
-	HTMLBody string `json:"html_body,omitempty" doc:"The optional HTML part's template source."`
+	Body     string `json:"text" doc:"The plain-text part's template source."`
+	HTMLBody string `json:"html,omitempty" doc:"The optional HTML part's template source."`
 	// Read-only starter provenance, set only on from_starter creates.
 	FromStarterAlias   string `json:"from_starter_alias,omitempty" doc:"The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
 	FromStarterVersion string `json:"from_starter_version,omitempty" doc:"The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
@@ -129,30 +129,30 @@ type listTemplatesOutput struct {
 	Body Page[TemplateSummaryView]
 }
 
-// CreateTemplateRequest — either literal source (name, subject and body
-// required; alias and html_body optional) or from_starter (a starter alias
+// CreateTemplateRequest — either literal source (name, subject and text
+// required; alias and html optional) or from_starter (a starter alias
 // copied verbatim; name/alias default to the starter's). All template parts
-// must parse. The required-ness of name/subject/body is enforced in the
+// must parse. The required-ness of name/subject/text is enforced in the
 // handler (validateTemplateFields), not the schema, because from_starter
 // supplies them.
 type CreateTemplateRequest struct {
 	Name        string `json:"name,omitempty" doc:"Human-readable template name. Required unless from_starter supplies the default."`
 	Alias       string `json:"alias,omitempty" doc:"Optional per-user unique handle ([A-Za-z][A-Za-z0-9._-]{0,127}) usable as template_alias on send."`
 	Subject     string `json:"subject,omitempty" doc:"Subject template source ({{variable}} interpolation, no HTML escaping). Required unless from_starter is set."`
-	Body        string `json:"body,omitempty" doc:"Plain-text body template source (no HTML escaping). Required unless from_starter is set."`
-	HTMLBody    string `json:"html_body,omitempty" doc:"Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw)."`
-	FromStarter string `json:"from_starter,omitempty" doc:"Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, body and html_body — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable."`
+	Body        string `json:"text,omitempty" doc:"Plain-text body template source (no HTML escaping). Required unless from_starter is set."`
+	HTMLBody    string `json:"html,omitempty" doc:"Optional HTML body template source ({{x}} is HTML-escaped, {{{x}}} is raw)."`
+	FromStarter string `json:"from_starter,omitempty" doc:"Copy a starter template (by alias, see GET /v1/starter-templates) verbatim into your library. Mutually exclusive with subject, text and html — the copy is verbatim; edit the created template afterwards. name and alias default to the starter's and may be overridden. Beta: templates are unstable — their shape may change before they are declared stable."`
 }
 type createTemplateInput struct{ Body CreateTemplateRequest }
 
 // UpdateTemplateRequest is the PATCH body — pointer fields so absent != zero.
-// Setting alias or html_body to "" clears it. Changed parts are re-parsed.
+// Setting alias or html to "" clears it. Changed parts are re-parsed.
 type UpdateTemplateRequest struct {
 	Name     *string `json:"name,omitempty"`
 	Alias    *string `json:"alias,omitempty" doc:"Set to \"\" to clear the alias."`
 	Subject  *string `json:"subject,omitempty"`
-	Body     *string `json:"body,omitempty"`
-	HTMLBody *string `json:"html_body,omitempty" doc:"Set to \"\" to remove the HTML part."`
+	Body     *string `json:"text,omitempty"`
+	HTMLBody *string `json:"html,omitempty" doc:"Set to \"\" to remove the HTML part."`
 }
 type updateTemplateInput struct {
 	ID   string `path:"id"`
@@ -168,14 +168,14 @@ func (s *Server) registerTemplates() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "createTemplate", Method: http.MethodPost, Path: "/v1/templates",
 		Summary: "Create a template (beta)", Tags: []string{"templates"},
-		Description: "Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. " + templatesBetaDoc,
+		Description: "Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
 	}, s.handleCreateTemplate)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "listTemplates", Method: http.MethodGet, Path: "/v1/templates",
 		Summary: "List templates (beta)", Tags: []string{"templates"},
-		Description: "List the account's templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. " + templatesBetaDoc,
+		Description: "List the account's templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleListTemplates)
 
@@ -189,7 +189,7 @@ func (s *Server) registerTemplates() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "updateTemplate", Method: http.MethodPatch, Path: "/v1/templates/{id}",
 		Summary: "Update a template (beta)", Tags: []string{"templates"},
-		Description: "Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. " + templatesBetaDoc,
+		Description: "Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleUpdateTemplate)
 
@@ -231,7 +231,7 @@ func validateTemplateFields(name, alias, subject, body, htmlBody string) *ErrorE
 		return NewError(http.StatusBadRequest, "invalid_request", "alias must match [A-Za-z][A-Za-z0-9._-]{0,127}")
 	}
 	if subject == "" || body == "" {
-		return NewError(http.StatusBadRequest, "invalid_request", "subject and body are required")
+		return NewError(http.StatusBadRequest, "invalid_request", "subject and text are required")
 	}
 	srcs := [...]string{subject, body, htmlBody}
 	for i, p := range templateParts {
@@ -262,7 +262,7 @@ func (s *Server) handleCreateTemplate(ctx context.Context, in *createTemplateInp
 		// than merged; the caller edits the created template afterwards.
 		if b.Subject != "" || b.Body != "" || b.HTMLBody != "" {
 			return nil, NewError(http.StatusBadRequest, "invalid_request",
-				"from_starter is mutually exclusive with subject, body and html_body — the starter is copied verbatim; edit the template after creating it")
+				"from_starter is mutually exclusive with subject, text and html — the starter is copied verbatim; edit the template after creating it")
 		}
 		m, ok := startertemplates.Get(b.FromStarter)
 		if !ok {
@@ -439,7 +439,7 @@ func (s *Server) handleDeleteTemplate(ctx context.Context, in *TemplateIDParam) 
 // Rules (each → 400 invalid_request):
 //   - template_id and template_alias are mutually exclusive;
 //   - a template reference is mutually exclusive with literal
-//     subject/body/html_body;
+//     subject/text/html;
 //   - template_data requires a template reference.
 func validateSendTemplateShape(b *SendEmailRequest) *ErrorEnvelope {
 	if b.TemplateID == "" && b.TemplateAlias == "" {
@@ -452,7 +452,7 @@ func validateSendTemplateShape(b *SendEmailRequest) *ErrorEnvelope {
 		return NewError(http.StatusBadRequest, "invalid_request", "template_id and template_alias are mutually exclusive")
 	}
 	if b.Subject != "" || b.Body != "" || b.HTMLBody != "" {
-		return NewError(http.StatusBadRequest, "invalid_request", "a template reference is mutually exclusive with subject, body and html_body")
+		return NewError(http.StatusBadRequest, "invalid_request", "a template reference is mutually exclusive with subject, text and html")
 	}
 	return nil
 }
@@ -535,12 +535,12 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 		}
 		*outs[i] = out
 	}
-	// A subject or body that rendered EMPTY is a guaranteed dead-end: the
+	// A subject or text part that rendered EMPTY is a guaranteed dead-end: the
 	// generic outbound validation would reject it with a bare
-	// "subject and body are required", which reads as nonsense to a caller
+	// "subject and text are required", which reads as nonsense to a caller
 	// who did reference a template. Fail here with the empty part and the
 	// variables it references (almost always missing template_data).
-	for _, check := range []struct{ part, out string }{{"subject", b.Subject}, {"body", b.Body}} {
+	for _, check := range []struct{ part, out string }{{"subject", b.Subject}, {"text", b.Body}} {
 		if check.out != "" {
 			continue
 		}
@@ -562,23 +562,23 @@ func (s *Server) resolveSendTemplate(ctx context.Context, userID string, b *Send
 // empty (an empty part parses trivially and renders empty).
 type ValidateTemplateRequest struct {
 	Subject  string       `json:"subject,omitempty"`
-	Body     string       `json:"body,omitempty"`
-	HTMLBody string       `json:"html_body,omitempty"`
+	Body     string       `json:"text,omitempty"`
+	HTMLBody string       `json:"html,omitempty"`
 	TestData TemplateData `json:"test_data,omitempty" doc:"Sample template_data to render the preview with. Missing variables render as empty strings."`
 }
 type validateTemplateInput struct{ Body ValidateTemplateRequest }
 
 // TemplatePartError is one per-part validation failure.
 type TemplatePartError struct {
-	Part    string `json:"part" doc:"Which part failed. Known values: subject, body, html_body."`
+	Part    string `json:"part" doc:"Which part failed. Known values: subject, text, html."`
 	Message string `json:"message"`
 }
 
 // RenderedTemplateView is the rendered preview (present only when valid).
 type RenderedTemplateView struct {
 	Subject  string `json:"subject"`
-	Body     string `json:"body"`
-	HTMLBody string `json:"html_body,omitempty"`
+	Body     string `json:"text"`
+	HTMLBody string `json:"html,omitempty"`
 }
 
 // ValidateTemplateResponse is the dry-run report.

@@ -27,11 +27,11 @@ class CreateAPIKeyRequest(BaseModel):
     """
     CreateAPIKeyRequest
     """ # noqa: E501
-    agent: Optional[StrictStr] = Field(default=None, description="Inbox email to bind the key to; required when scope=agent.")
+    agent_email: Optional[StrictStr] = Field(default=None, description="Inbox email to bind the key to; required when scope=agent.")
     expires_at: Optional[datetime] = Field(default=None, description="Optional hard expiry (RFC 3339, must be in the future). Omit for a never-expiring key.")
     name: Optional[StrictStr] = Field(default=None, description="Human label for the key.")
     scope: Optional[StrictStr] = Field(default=None, description="account = workspace admin (default); agent = bound to a single inbox.")
-    __properties: ClassVar[List[str]] = ["agent", "expires_at", "name", "scope"]
+    __properties: ClassVar[List[str]] = ["agent_email", "expires_at", "name", "scope"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -84,7 +84,7 @@ class CreateAPIKeyRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent": obj.get("agent"),
+            "agent_email": obj.get("agent_email"),
             "expires_at": obj.get("expires_at"),
             "name": obj.get("name"),
             "scope": obj.get("scope")

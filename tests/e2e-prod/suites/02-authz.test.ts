@@ -76,7 +76,7 @@ test("authz: send as an unowned agent returns 4xx (cannot impersonate)", async (
       body: {
         to: ["blackhole@e2a.dev"],
         subject: "spoof attempt",
-        body: "this should be rejected",
+        text: "this should be rejected",
       },
     },
   );

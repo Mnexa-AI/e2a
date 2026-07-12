@@ -32,12 +32,12 @@ const client = new E2AClient({ apiKey: process.env.E2A_API_KEY });
 await client.messages.send("bot@agents.e2a.dev", {
   to: ["person@example.com"],
   subject: "Hello from my agent",
-  body: "This was sent by an AI agent via e2a.",
+  text: "This was sent by an AI agent via e2a.",
 });
 
 // Reply in-thread to an inbound message
 await client.messages.reply("bot@agents.e2a.dev", messageId, {
-  body: "Thanks — handled.",
+  text: "Thanks — handled.",
 });
 ```
 
@@ -50,11 +50,11 @@ async with E2AClient(api_key=os.environ["E2A_API_KEY"]) as client:
     await client.messages.send("bot@agents.e2a.dev", {
         "to": ["person@example.com"],
         "subject": "Hello from my agent",
-        "body": "This was sent by an AI agent via e2a.",
+        "text": "This was sent by an AI agent via e2a.",
     })
 
     await client.messages.reply("bot@agents.e2a.dev", message_id, {
-        "body": "Thanks — handled.",
+        "text": "Thanks — handled.",
     })
 ```
 
@@ -72,10 +72,10 @@ import { constructEvent, E2AClient } from "@e2a/sdk";
 // in your HTTP handler, with the RAW request body:
 const event = constructEvent(rawBody, req.headers["x-e2a-signature"], WEBHOOK_SECRET);
 if (event.type === "email.received") {
-  const { recipient, message_id } = event.data as { recipient: string; message_id: string };
-  const msg = await client.messages.get(recipient, message_id); // typed: from, subject, parsed.text, attachments
+  const { delivered_to, message_id } = event.data as { delivered_to: string; message_id: string };
+  const msg = await client.messages.get(delivered_to, message_id); // typed: from, subject, parsed.text, attachments
   // …decide a reply…
-  await client.messages.reply(recipient, message_id, { body: "On it." });
+  await client.messages.reply(delivered_to, message_id, { text: "On it." });
 }
 ```
 
@@ -91,9 +91,9 @@ except E2AWebhookSignatureError:
 
 if event.type == "email.received":
     data = event.data
-    inbound = await client.messages.get(data["recipient"], data["message_id"])
+    inbound = await client.messages.get(data["delivered_to"], data["message_id"])
     # inbound.var_from, inbound.subject, inbound.parsed.text
-    await client.messages.reply(data["recipient"], data["message_id"], {"body": "On it."})
+    await client.messages.reply(data["delivered_to"], data["message_id"], {"text": "On it."})
 ```
 
 A full, runnable example (FastAPI + Google ADK agent, webhook → agent turn →
@@ -123,13 +123,13 @@ Open a notification stream instead of hosting a webhook:
 
 ```ts
 for await (const n of client.listen("bot@agents.e2a.dev")) {
-  const msg = await client.messages.get(n.recipient, n.message_id);
+  const msg = await client.messages.get(n.delivered_to, n.message_id);
 }
 ```
 
 ```python
 async for n in client.listen("bot@agents.e2a.dev"):
-    msg = await client.messages.get(n.recipient, n.message_id)
+    msg = await client.messages.get(n.delivered_to, n.message_id)
 ```
 
 ## Raw REST (without an SDK)

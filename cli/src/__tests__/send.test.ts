@@ -43,7 +43,7 @@ describe("send/reply commands", () => {
 
     expect(mockSend).toHaveBeenCalledWith(
       "bot@agents.e2a.dev",
-      { to: ["you@example.com"], subject: "hi", body: "hello" },
+      { to: ["you@example.com"], subject: "hi", text: "hello" },
       undefined,
     );
     expect(mockStdout).toHaveBeenCalledWith("msg_abc\n");
@@ -94,8 +94,8 @@ describe("send/reply commands", () => {
     await send({ to: ["you@example.com"], subject: "s", htmlFile: "/tmp/u.html" });
 
     const call = mockSend.mock.calls[0][1];
-    expect(call.htmlBody).toBe("<p>Status: <b>green</b></p>");
-    expect(call.body).toBe("Status: green");
+    expect(call.html).toBe("<p>Status: <b>green</b></p>");
+    expect(call.text).toBe("Status: green");
   });
 
   it("passes conversation id through", async () => {
@@ -143,7 +143,7 @@ describe("send/reply commands", () => {
     expect(mockReply).toHaveBeenCalledWith(
       "bot@agents.e2a.dev",
       "msg_orig",
-      { body: "answer" },
+      { text: "answer" },
       undefined,
     );
     expect(process.exitCode).toBe(3);
@@ -156,8 +156,8 @@ describe("send/reply commands", () => {
     await send({ to: ["you@example.com"], subject: "s", htmlFile: "/tmp/banner.html" });
 
     const call = mockSend.mock.calls[0][1];
-    expect(call.body).toBe("");
-    expect(call.htmlBody).toContain("<img");
+    expect(call.text).toBe("");
+    expect(call.html).toContain("<img");
     expect(mockExit).not.toHaveBeenCalled();
   });
 

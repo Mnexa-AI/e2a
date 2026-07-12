@@ -453,7 +453,7 @@ func TestHandler_DrainUnreadOnConnect(t *testing.T) {
 			MessageID      string `json:"message_id"`
 			ConversationID string `json:"conversation_id,omitempty"`
 			From           string `json:"from"`
-			Recipient      string `json:"recipient"`
+			Recipient      string `json:"delivered_to"`
 			Subject        string `json:"subject"`
 		}
 		if err := json.Unmarshal(data, &notif); err != nil {
@@ -587,8 +587,8 @@ func TestBuildNotification(t *testing.T) {
 	if notif["from"] != "alice@example.com" {
 		t.Fatalf("expected alice@example.com, got %v", notif["from"])
 	}
-	if notif["recipient"] != "bot@agents.e2a.dev" {
-		t.Fatalf("expected bot@agents.e2a.dev, got %v", notif["recipient"])
+	if notif["delivered_to"] != "bot@agents.e2a.dev" {
+		t.Fatalf("expected bot@agents.e2a.dev, got %v", notif["delivered_to"])
 	}
 	// Notification stays lightweight — full To/Cc lists are fetched via REST.
 	if _, hasTo := notif["to"]; hasTo {

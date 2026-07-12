@@ -13,7 +13,7 @@
 import { HttpFile } from '../http/http.js';
 
 export class WebhookFiltersView {
-    'agentIds'?: Array<string>;
+    'agentEmails'?: Array<string>;
     'conversationIds'?: Array<string>;
     'labels'?: Array<string>;
 
@@ -23,8 +23,8 @@ export class WebhookFiltersView {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agentIds",
-            "baseName": "agent_ids",
+            "name": "agentEmails",
+            "baseName": "agent_emails",
             "type": "Array<string>",
             "format": ""
         },

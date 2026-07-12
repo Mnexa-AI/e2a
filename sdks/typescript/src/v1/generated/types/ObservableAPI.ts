@@ -282,7 +282,7 @@ export class ObservableAccountApi {
     }
 
     /**
-     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * The authenticated principal\'s identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
      * Get account: identity + plan limits + usage (whoami)
      */
     public getAccountWithHttpInfo(_options?: ConfigurationOptions): Observable<HttpInfo<AccountView>> {
@@ -306,7 +306,7 @@ export class ObservableAccountApi {
     }
 
     /**
-     * The authenticated principal\'s identity (user + scope; agent_address for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
+     * The authenticated principal\'s identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)
      * Get account: identity + plan limits + usage (whoami)
      */
     public getAccount(_options?: ConfigurationOptions): Observable<AccountView> {
@@ -1019,7 +1019,7 @@ export class ObservableEventsApi {
      * The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
      * List events
      * @param [type]
-     * @param [agentId]
+     * @param [agentEmail]
      * @param [conversationId]
      * @param [messageId]
      * @param [since] RFC3339.
@@ -1027,10 +1027,10 @@ export class ObservableEventsApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listEventsWithHttpInfo(type?: string, agentId?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageEventJSON>> {
+    public listEventsWithHttpInfo(type?: string, agentEmail?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageEventJSON>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listEvents(type, agentId, conversationId, messageId, since, until, cursor, limit, _config);
+        const requestContextPromise = this.requestFactory.listEvents(type, agentEmail, conversationId, messageId, since, until, cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1051,7 +1051,7 @@ export class ObservableEventsApi {
      * The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
      * List events
      * @param [type]
-     * @param [agentId]
+     * @param [agentEmail]
      * @param [conversationId]
      * @param [messageId]
      * @param [since] RFC3339.
@@ -1059,8 +1059,8 @@ export class ObservableEventsApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listEvents(type?: string, agentId?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageEventJSON> {
-        return this.listEventsWithHttpInfo(type, agentId, conversationId, messageId, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageEventJSON>) => apiResponse.data));
+    public listEvents(type?: string, agentEmail?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageEventJSON> {
+        return this.listEventsWithHttpInfo(type, agentEmail, conversationId, messageId, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageEventJSON>) => apiResponse.data));
     }
 
     /**
@@ -1720,7 +1720,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1745,7 +1745,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Create a reusable email template. subject and body (and html_body when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable.
      * Create a template (beta)
      * @param createTemplateRequest
      */
@@ -1892,7 +1892,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
@@ -1918,7 +1918,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * List the account\'s templates, newest first. Returns metadata only (no body/html_body); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
+     * List the account\'s templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable.
      * List templates (beta)
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
@@ -1928,7 +1928,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
      * @param id
      * @param updateTemplateRequest
@@ -1954,7 +1954,7 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Partial update. Changed template parts are re-parsed; set alias or html_body to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable.
      * Update a template (beta)
      * @param id
      * @param updateTemplateRequest

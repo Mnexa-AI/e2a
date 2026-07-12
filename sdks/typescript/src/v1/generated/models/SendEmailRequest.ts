@@ -16,16 +16,12 @@ import { HttpFile } from '../http/http.js';
 export class SendEmailRequest {
     'attachments'?: Array<Attachment>;
     'bcc'?: Array<string>;
-    /**
-    * Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
-    */
-    'body'?: string;
     'cc'?: Array<string>;
     'conversationId'?: string;
     /**
     * Literal HTML body. Mutually exclusive with template_id/template_alias.
     */
-    'htmlBody'?: string;
+    'html'?: string;
     /**
     * Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent\'s own address.
     */
@@ -46,6 +42,10 @@ export class SendEmailRequest {
     * Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.
     */
     'templateId'?: string;
+    /**
+    * Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
+    */
+    'text'?: string;
     'to': Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
@@ -66,12 +66,6 @@ export class SendEmailRequest {
             "format": ""
         },
         {
-            "name": "body",
-            "baseName": "body",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "cc",
             "baseName": "cc",
             "type": "Array<string>",
@@ -84,8 +78,8 @@ export class SendEmailRequest {
             "format": ""
         },
         {
-            "name": "htmlBody",
-            "baseName": "html_body",
+            "name": "html",
+            "baseName": "html",
             "type": "string",
             "format": ""
         },
@@ -116,6 +110,12 @@ export class SendEmailRequest {
         {
             "name": "templateId",
             "baseName": "template_id",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "text",
+            "baseName": "text",
             "type": "string",
             "format": ""
         },

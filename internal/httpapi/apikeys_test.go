@@ -47,12 +47,12 @@ func TestCreateAccountAPIKey(t *testing.T) {
 func TestCreateAgentScopedAPIKey(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/account/api-keys", "good", map[string]any{
-		"name": "inbox-bot", "scope": "agent", "agent": "support@acme.com",
+		"name": "inbox-bot", "scope": "agent", "agent_email": "support@acme.com",
 	})
 	if code != 201 {
 		t.Fatalf("status %d body %v", code, body)
 	}
-	if body["scope"] != "agent" || body["agent"] != "support@acme.com" {
+	if body["scope"] != "agent" || body["agent_email"] != "support@acme.com" {
 		t.Fatalf("want agent scope bound to support@acme.com, got %v", body)
 	}
 	if body["key"] != "e2a_agent_secret" {
@@ -73,7 +73,7 @@ func TestCreateAgentScopedAPIKeyUnknownAgent(t *testing.T) {
 	// resolveOwnedAgent reports an agent the caller doesn't own as 404 not_found
 	// (indistinguishable from a nonexistent one — anti-enumeration).
 	code, _ := postJSON(t, srv.URL+"/v1/account/api-keys", "good", map[string]any{
-		"scope": "agent", "agent": "stranger@evil.com",
+		"scope": "agent", "agent_email": "stranger@evil.com",
 	})
 	if code != 404 {
 		t.Fatalf("want 404 for an unowned agent, got %d", code)
