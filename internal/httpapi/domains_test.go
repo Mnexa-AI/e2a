@@ -109,9 +109,11 @@ func TestDeleteDomain(t *testing.T) {
 
 func TestDeleteDomainRequiresConfirm(t *testing.T) {
 	srv := testServer(t)
+	// confirm is now a required enum:[DELETE] query param — Huma rejects a
+	// missing/wrong value with 422 before the handler runs.
 	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/domains/acme.com", "good", nil)
-	if code != 400 || errCode(body) != "confirmation_required" {
-		t.Fatalf("want 400 confirmation_required, got %d %v", code, body)
+	if code != 422 || errCode(body) != "unprocessable_entity" {
+		t.Fatalf("want 422 unprocessable_entity, got %d %v", code, body)
 	}
 }
 

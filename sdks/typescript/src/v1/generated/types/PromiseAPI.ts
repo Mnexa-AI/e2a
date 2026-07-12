@@ -134,9 +134,9 @@ export class PromiseAccountApi {
     /**
      * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
      * Delete your account + all data (irreversible)
-     * @param [confirm] Must be DELETE — this is irreversible.
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteAccountWithHttpInfo(confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteUserDataResult>> {
+    public deleteAccountWithHttpInfo(confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteUserDataResult>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteAccountWithHttpInfo(confirm, observableOptions);
         return result.toPromise();
@@ -145,55 +145,59 @@ export class PromiseAccountApi {
     /**
      * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
      * Delete your account + all data (irreversible)
-     * @param [confirm] Must be DELETE — this is irreversible.
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteAccount(confirm?: string, _options?: PromiseConfigurationOptions): Promise<DeleteUserDataResult> {
+    public deleteAccount(confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<DeleteUserDataResult> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteAccount(confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
      * Revoke an API key
      * @param id
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteApiKeyWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteApiKeyWithHttpInfo(id: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteApiKeyWithHttpInfo(id, observableOptions);
+        const result = this.api.deleteApiKeyWithHttpInfo(id, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
      * Revoke an API key
      * @param id
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteApiKey(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteApiKey(id: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteApiKey(id, observableOptions);
+        const result = this.api.deleteApiKey(id, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
      * Remove an address from the suppression list
      * @param address
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteSuppressionWithHttpInfo(address: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteSuppressionWithHttpInfo(address: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteSuppressionWithHttpInfo(address, observableOptions);
+        const result = this.api.deleteSuppressionWithHttpInfo(address, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed).
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
      * Remove an address from the suppression list
      * @param address
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteSuppression(address: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteSuppression(address: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteSuppression(address, observableOptions);
+        const result = this.api.deleteSuppression(address, confirm, observableOptions);
         return result.toPromise();
     }
 
@@ -327,24 +331,24 @@ export class PromiseAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns.
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
      * Delete an agent
      * @param email
-     * @param [confirm] Must be DELETE — this is irreversible.
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteAgentWithHttpInfo(email: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteAgentWithHttpInfo(email, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Delete an agent the caller owns.
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
      * Delete an agent
      * @param email
-     * @param [confirm] Must be DELETE — this is irreversible.
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteAgent(email: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteAgent(email: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteAgent(email, confirm, observableOptions);
         return result.toPromise();
@@ -581,22 +585,24 @@ export class PromiseDomainsApi {
     }
 
     /**
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
      * Delete a domain
      * @param domain
-     * @param [confirm] Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteDomainWithHttpInfo(domain: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteDomainWithHttpInfo(domain: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteDomainWithHttpInfo(domain, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
      * Delete a domain
      * @param domain
-     * @param [confirm] Must be DELETE — this is irreversible (deprovisions the domain\&#39;s sending identity).
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteDomain(domain: string, confirm?: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteDomain(domain: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteDomain(domain, confirm, observableOptions);
         return result.toPromise();
@@ -1266,24 +1272,26 @@ export class PromiseTemplatesApi {
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param id
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteTemplateWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteTemplateWithHttpInfo(id: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteTemplateWithHttpInfo(id, observableOptions);
+        const result = this.api.deleteTemplateWithHttpInfo(id, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param id
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteTemplate(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteTemplate(id: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteTemplate(id, observableOptions);
+        const result = this.api.deleteTemplate(id, confirm, observableOptions);
         return result.toPromise();
     }
 
@@ -1465,22 +1473,26 @@ export class PromiseWebhooksApi {
     }
 
     /**
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
      * Delete a webhook
      * @param id
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteWebhookWithHttpInfo(id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteWebhookWithHttpInfo(id: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteWebhookWithHttpInfo(id, observableOptions);
+        const result = this.api.deleteWebhookWithHttpInfo(id, confirm, observableOptions);
         return result.toPromise();
     }
 
     /**
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
      * Delete a webhook
      * @param id
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteWebhook(id: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteWebhook(id: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<void> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteWebhook(id, observableOptions);
+        const result = this.api.deleteWebhook(id, confirm, observableOptions);
         return result.toPromise();
     }
 

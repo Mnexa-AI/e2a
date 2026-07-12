@@ -16,7 +16,7 @@ from pydantic import validate_call, Field, StrictFloat, StrictStr, StrictInt
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
-from pydantic import Field, StrictStr
+from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.domain_view import DomainView
@@ -46,7 +46,7 @@ class DomainsApi:
     async def delete_domain(
         self,
         domain: StrictStr,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible (deprovisions the domain's sending identity).")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -62,10 +62,11 @@ class DomainsApi:
     ) -> None:
         """Delete a domain
 
+        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
 
         :param domain: (required)
         :type domain: str
-        :param confirm: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -116,7 +117,7 @@ class DomainsApi:
     async def delete_domain_with_http_info(
         self,
         domain: StrictStr,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible (deprovisions the domain's sending identity).")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -132,10 +133,11 @@ class DomainsApi:
     ) -> ApiResponse[None]:
         """Delete a domain
 
+        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
 
         :param domain: (required)
         :type domain: str
-        :param confirm: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -186,7 +188,7 @@ class DomainsApi:
     async def delete_domain_without_preload_content(
         self,
         domain: StrictStr,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible (deprovisions the domain's sending identity).")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -202,10 +204,11 @@ class DomainsApi:
     ) -> RESTResponseType:
         """Delete a domain
 
+        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
 
         :param domain: (required)
         :type domain: str
-        :param confirm: Must be DELETE — this is irreversible (deprovisions the domain's sending identity).
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

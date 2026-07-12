@@ -92,12 +92,16 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   all owned data; returns per-table row counts (GDPR Art. 17). Irreversible.
 - `GET /v1/account/export` — JSON dump of every record the account owns (GDPR
   Art. 15). Omits internal identifiers; see [data-handling.md](data-handling.md).
-- `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{id}` — mint
-  (plaintext shown once), list (metadata only), and revoke API keys. Account
-  scope only.
-- `GET /v1/account/suppressions`, `DELETE /v1/account/suppressions/{address}` —
-  the recipient suppression list (auto-added on hard bounce/complaint; sends to a
-  suppressed address fail with `recipient_suppressed`). Delete to un-suppress.
+- `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{id}?confirm=DELETE`
+  — mint (plaintext shown once), list (metadata only), and revoke API keys.
+  Account scope only.
+- `GET /v1/account/suppressions`, `DELETE /v1/account/suppressions/{address}?confirm=DELETE`
+  — the recipient suppression list (auto-added on hard bounce/complaint; sends to
+  a suppressed address fail with `recipient_suppressed`). Delete to un-suppress.
+
+Every `DELETE` endpoint requires the `?confirm=DELETE` query param (a required
+`enum: [DELETE]`); a missing or wrong value is rejected before the delete runs.
+The SDKs and CLI supply it automatically for their typed `delete(...)` calls.
 
 ### Domains (`/v1/domains`)
 
@@ -105,7 +109,8 @@ Custom sending/receiving domains and their DNS verification.
 
 - `GET /v1/domains`, `POST /v1/domains` — list / register (returns required MX +
   TXT records and the DKIM selector/key).
-- `GET/DELETE /v1/domains/{domain}` — fetch / delete.
+- `GET /v1/domains/{domain}`, `DELETE /v1/domains/{domain}?confirm=DELETE` —
+  fetch / delete (delete deprovisions the sending identity; irreversible).
 - `POST /v1/domains/{domain}/verify` — verify ownership via the TXT record.
 
 ### Agents (`/v1/agents`)
@@ -195,8 +200,9 @@ own **per-webhook signing secret** that signs the payloads sent to it.
 
 - `GET /v1/webhooks`, `POST /v1/webhooks` — list / create (the secret is returned
   once, at creation).
-- `GET/PATCH/DELETE /v1/webhooks/{id}` — fetch / partial-update
-  (`url`/`events`/`filters` are full-replace when present) / delete.
+- `GET/PATCH /v1/webhooks/{id}`, `DELETE /v1/webhooks/{id}?confirm=DELETE` —
+  fetch / partial-update (`url`/`events`/`filters` are full-replace when present)
+  / delete.
 - `POST /v1/webhooks/{id}/rotate-secret` — mint a new secret; the previous one
   stays valid for a 24h grace window.
 - `GET /v1/webhooks/{id}/deliveries` — the per-webhook delivery log (debug view).

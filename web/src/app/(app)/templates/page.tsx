@@ -266,7 +266,7 @@ function TemplateRow({
     setError("");
     try {
       const res = await fetch(
-        `/v1/templates/${encodeURIComponent(template.id)}`,
+        `/v1/templates/${encodeURIComponent(template.id)}?confirm=DELETE`,
         { method: "DELETE", credentials: "include" },
       );
       if (!res.ok) {

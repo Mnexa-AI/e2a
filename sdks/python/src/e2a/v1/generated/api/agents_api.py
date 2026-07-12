@@ -16,7 +16,7 @@ from pydantic import validate_call, Field, StrictFloat, StrictStr, StrictInt
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
-from pydantic import Field, StrictStr
+from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.agent_view import AgentView
@@ -322,7 +322,7 @@ class AgentsApi:
     async def delete_agent(
         self,
         email: StrictStr,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -338,11 +338,11 @@ class AgentsApi:
     ) -> None:
         """Delete an agent
 
-        Delete an agent the caller owns.
+        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
 
         :param email: (required)
         :type email: str
-        :param confirm: Must be DELETE — this is irreversible.
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -393,7 +393,7 @@ class AgentsApi:
     async def delete_agent_with_http_info(
         self,
         email: StrictStr,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -409,11 +409,11 @@ class AgentsApi:
     ) -> ApiResponse[None]:
         """Delete an agent
 
-        Delete an agent the caller owns.
+        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
 
         :param email: (required)
         :type email: str
-        :param confirm: Must be DELETE — this is irreversible.
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -464,7 +464,7 @@ class AgentsApi:
     async def delete_agent_without_preload_content(
         self,
         email: StrictStr,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be DELETE — this is irreversible.")] = None,
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -480,11 +480,11 @@ class AgentsApi:
     ) -> RESTResponseType:
         """Delete an agent
 
-        Delete an agent the caller owns.
+        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
 
         :param email: (required)
         :type email: str
-        :param confirm: Must be DELETE — this is irreversible.
+        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

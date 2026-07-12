@@ -145,7 +145,7 @@ test("createApiKey → list shows it → deleteApiKey (new key only) → gone", 
       !client.env.apiKey.startsWith(created.key_prefix),
       "sanity: new key_prefix does not match the auth key before delete",
     );
-    const del = await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.id)}`);
+    const del = await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.id)}?confirm=DELETE`);
     assert.equal(del.status, 204, `deleteApiKey expected 204 No Content, got ${del.status}: ${del.raw.slice(0, 200)}`);
     deleted = true;
 
@@ -155,12 +155,12 @@ test("createApiKey → list shows it → deleteApiKey (new key only) → gone", 
     assert.ok(!after.body!.items.some((k) => k.id === created.id), "deleted key is gone from listApiKeys");
   } finally {
     // Self-clean: if an assertion aborted before the delete, revoke the throwaway.
-    if (!deleted) await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.id)}`);
+    if (!deleted) await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.id)}?confirm=DELETE`);
   }
 });
 
 test("deleteApiKey: unknown id returns 404 not_found", async () => {
-  const r = await client.delete<ErrorEnvelope>("/v1/account/api-keys/apk_conf19doesnotexist000000000000");
+  const r = await client.delete<ErrorEnvelope>("/v1/account/api-keys/apk_conf19doesnotexist000000000000?confirm=DELETE");
   assert.equal(r.status, 404, `unknown key delete → 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.equal(r.body?.error?.code, "not_found", "error envelope code=not_found");
 });
@@ -227,7 +227,7 @@ test("listSuppressions: PageSuppression envelope {items, next_cursor}", async ()
 
 test("deleteSuppression: unknown address returns 404 not_found", async () => {
   const addr = `conf19-nonexistent-${Date.now()}@example.com`;
-  const r = await client.delete<ErrorEnvelope>(`/v1/account/suppressions/${encodeURIComponent(addr)}`);
+  const r = await client.delete<ErrorEnvelope>(`/v1/account/suppressions/${encodeURIComponent(addr)}?confirm=DELETE`);
   assert.equal(r.status, 404, `un-suppressing an unknown address → 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.equal(r.body?.error?.code, "not_found", "error envelope code=not_found");
 });
@@ -255,12 +255,15 @@ test("unauth: every account op rejects an unauthenticated caller with 401", asyn
     { label: "GET /v1/account/export", run: () => client.get("/v1/account/export", noAuth) },
     { label: "GET /v1/account/suppressions", run: () => client.get("/v1/account/suppressions", noAuth) },
     {
+      // confirm=DELETE clears the required-param validation (which, like the
+      // body-before-auth quirk above, runs before the auth gate) so the
+      // response is a clean 401 rather than a 422.
       label: "DELETE /v1/account/api-keys/{id}",
-      run: () => client.delete("/v1/account/api-keys/apk_unauth", noAuth),
+      run: () => client.delete("/v1/account/api-keys/apk_unauth?confirm=DELETE", noAuth),
     },
     {
       label: "DELETE /v1/account/suppressions/{address}",
-      run: () => client.delete("/v1/account/suppressions/unauth%40example.com", noAuth),
+      run: () => client.delete("/v1/account/suppressions/unauth%40example.com?confirm=DELETE", noAuth),
     },
   ];
 

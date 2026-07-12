@@ -70,12 +70,12 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete an agent the caller owns.
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
      * Delete an agent
      * @param email 
-     * @param confirm Must be DELETE — this is irreversible.
+     * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public async deleteAgent(email: string, confirm?: string, _options?: Configuration): Promise<RequestContext> {
+    public async deleteAgent(email: string, confirm: 'DELETE', _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -83,6 +83,11 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
             throw new RequiredError("AgentsApi", "deleteAgent", "email");
         }
 
+
+        // verify required parameter 'confirm' is not null or undefined
+        if (confirm === null || confirm === undefined) {
+            throw new RequiredError("AgentsApi", "deleteAgent", "confirm");
+        }
 
 
         // Path Params
@@ -95,7 +100,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
 
         // Query Params
         if (confirm !== undefined) {
-            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "string", ""));
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
         }
 
 

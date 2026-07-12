@@ -280,7 +280,7 @@ test("agent messages: invalid since timestamp handled (400 or graceful 200)", as
 // coverage is the DELETE path below plus registration in suite 04.
 
 test("domains: DELETE nonexistent domain → 404 or 403", async () => {
-  const r = await client.delete(`/v1/domains/nonexistent-${Date.now()}.example.com`);
+  const r = await client.delete(`/v1/domains/nonexistent-${Date.now()}.example.com?confirm=DELETE`);
   assert.ok(r.status === 404 || r.status === 403, `expected 404/403, got ${r.status}`);
 });
 
