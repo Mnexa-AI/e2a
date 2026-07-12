@@ -57,11 +57,16 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionRequest } from '../models/ProtectionDirectionRequest.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
+import { ProtectionGateRequest } from '../models/ProtectionGateRequest.js';
 import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsRequest } from '../models/ProtectionHoldsRequest.js';
 import { ProtectionHoldsView } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanRequest } from '../models/ProtectionScanRequest.js';
 import { ProtectionScanView } from '../models/ProtectionScanView.js';
 import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
 import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
@@ -102,6 +107,7 @@ import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js'
 import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
+import { WebhookFiltersRequest } from '../models/WebhookFiltersRequest.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
 
@@ -436,10 +442,10 @@ export interface AgentsApiPutAgentProtectionRequest {
     email: string
     /**
      * 
-     * @type ProtectionConfigView
+     * @type ProtectionConfigRequest
      * @memberof AgentsApiputAgentProtection
      */
-    protectionConfigView: ProtectionConfigView
+    protectionConfigRequest: ProtectionConfigRequest
 }
 
 export interface AgentsApiTestAgentRequest {
@@ -571,7 +577,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public putAgentProtectionWithHttpInfo(param: AgentsApiPutAgentProtectionRequest, options?: ConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
-        return this.api.putAgentProtectionWithHttpInfo(param.email, param.protectionConfigView,  options).toPromise();
+        return this.api.putAgentProtectionWithHttpInfo(param.email, param.protectionConfigRequest,  options).toPromise();
     }
 
     /**
@@ -580,7 +586,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public putAgentProtection(param: AgentsApiPutAgentProtectionRequest, options?: ConfigurationOptions): Promise<ProtectionConfigView> {
-        return this.api.putAgentProtection(param.email, param.protectionConfigView,  options).toPromise();
+        return this.api.putAgentProtection(param.email, param.protectionConfigRequest,  options).toPromise();
     }
 
     /**

@@ -27,6 +27,7 @@ import type {
   CreateAgentRequest,
   UpdateAgentRequest,
   ProtectionConfigView,
+  ProtectionConfigRequest,
   MessageView,
   AttachmentView,
   MessageSummaryView,
@@ -226,7 +227,7 @@ class AgentsResource {
    * Replace an agent's protection config wholesale (all three top-level keys
    * required). Beta; account scope only.
    */
-  replaceProtection(email: string, config: ProtectionConfigView): Promise<ProtectionConfigView> {
+  replaceProtection(email: string, config: ProtectionConfigRequest): Promise<ProtectionConfigView> {
     return call(() => this.api.putAgentProtection(email, config));
   }
   async delete(email: string): Promise<void> {

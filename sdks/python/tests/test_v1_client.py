@@ -5,6 +5,8 @@ stack: namespaced resource -> generated *Api -> bearer auth -> retry layer ->
 httpx -> envelope unwrap -> typed-error mapping.
 """
 
+import json
+
 import httpx
 import pytest
 
@@ -793,3 +795,37 @@ async def test_invalid_request_body_raises_typed_validation_error():
     async with _client() as c:
         with pytest.raises(E2AValidationError):
             await c.agents.create([1, 2, 3])
+
+
+# --- protection read-modify-write (request/response schema-split regression) ---
+
+_PROTECTION_JSON = {
+    "holds": {"ttl_seconds": 3600, "on_expiry": "approve"},
+    "inbound": {
+        "gate": {"policy": "allowlist", "allowlist": ["partner@acme.com"], "action": "review"},
+        "scan": {"sensitivity": "high"},
+    },
+    "outbound": {
+        "gate": {"policy": "domain", "allowlist": ["acme.com"], "action": "block"},
+        "scan": {"sensitivity": "off"},
+    },
+}
+
+
+@pytest.mark.anyio
+async def test_protection_read_modify_write_accepts_view(httpx_mock):
+    """get_protection() returns a ProtectionConfigView; feeding it (mutated)
+    straight back into replace_protection() must coerce to the Request twin —
+    the natural RMW loop broke when the request/response schemas split."""
+    httpx_mock.add_response(json=_PROTECTION_JSON)  # GET
+    httpx_mock.add_response(json=_PROTECTION_JSON)  # PUT echo
+    async with _client() as c:
+        cfg = await c.agents.get_protection("bot@test.dev")
+        cfg.holds.on_expiry = "reject"
+        out = await c.agents.replace_protection("bot@test.dev", cfg)
+    assert out.holds.ttl_seconds == 3600
+    put = httpx_mock.get_requests()[-1]
+    assert put.method == "PUT"
+    body = json.loads(put.content)
+    assert body["holds"]["on_expiry"] == "reject"  # the mutation survived coercion
+    assert body["inbound"]["gate"]["allowlist"] == ["partner@acme.com"]

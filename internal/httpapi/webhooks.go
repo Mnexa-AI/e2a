@@ -26,8 +26,22 @@ const (
 	webhookMaxDescriptionLen  = 200
 )
 
-// WebhookFiltersView mirrors identity.WebhookFilters.
+// WebhookFiltersView mirrors identity.WebhookFilters (response side).
 type WebhookFiltersView struct {
+	AgentIDs        []string `json:"agent_emails,omitempty" nullable:"false"`
+	ConversationIDs []string `json:"conversation_ids,omitempty" nullable:"false"`
+	Labels          []string `json:"labels,omitempty" nullable:"false"`
+}
+
+// WebhookFiltersRequest is WebhookFiltersView's request-side twin (create/
+// update bodies). Dedicated input type because the spec's forward-compat
+// stance is asymmetric: request schemas stay `additionalProperties: false`
+// (an unknown filter key is a 422, not a silently ignored no-op filter) while
+// response schemas are open so clients tolerate additive fields; one shared
+// schema cannot carry both (stability.go panics if one tries). Keep the fields
+// in lockstep with the View. Convertible via WebhookFiltersView(f) — the
+// compiler enforces the mirror.
+type WebhookFiltersRequest struct {
 	AgentIDs        []string `json:"agent_emails,omitempty" nullable:"false"`
 	ConversationIDs []string `json:"conversation_ids,omitempty" nullable:"false"`
 	Labels          []string `json:"labels,omitempty" nullable:"false"`
@@ -182,10 +196,10 @@ type listWebhooksOutput struct {
 // constrained to the canonical vocabulary (WH-2; keep in sync with
 // webhookpub.AllEventTypes).
 type CreateWebhookRequest struct {
-	URL         string              `json:"url"`
-	Events      []string            `json:"events" nullable:"false" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
-	Filters     *WebhookFiltersView `json:"filters,omitempty"`
-	Description string              `json:"description,omitempty"`
+	URL         string                 `json:"url"`
+	Events      []string               `json:"events" nullable:"false" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
+	Filters     *WebhookFiltersRequest `json:"filters,omitempty"`
+	Description string                 `json:"description,omitempty"`
 }
 type createWebhookInput struct{ Body CreateWebhookRequest }
 
@@ -432,11 +446,11 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDelive
 // UpdateWebhookRequest mirrors the legacy PATCH body — pointer fields so
 // absent != zero; url/events/filters are full-replace when present.
 type UpdateWebhookRequest struct {
-	URL         *string             `json:"url,omitempty"`
-	Events      *[]string           `json:"events,omitempty" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
-	Filters     *WebhookFiltersView `json:"filters,omitempty"`
-	Description *string             `json:"description,omitempty"`
-	Enabled     *bool               `json:"enabled,omitempty"`
+	URL         *string                `json:"url,omitempty"`
+	Events      *[]string              `json:"events,omitempty" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
+	Filters     *WebhookFiltersRequest `json:"filters,omitempty"`
+	Description *string                `json:"description,omitempty"`
+	Enabled     *bool                  `json:"enabled,omitempty"`
 }
 type updateWebhookInput struct {
 	ID   string `path:"id"`
@@ -472,7 +486,7 @@ func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput
 	}
 	effFilters := WebhookFiltersView{AgentIDs: current.Filters.AgentIDs, ConversationIDs: current.Filters.ConversationIDs, Labels: current.Filters.Labels}
 	if req.Filters != nil {
-		effFilters = *req.Filters
+		effFilters = WebhookFiltersView(*req.Filters)
 	}
 	effDesc := current.Description
 	if req.Description != nil {
@@ -553,7 +567,7 @@ func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput
 	}
 	var filters WebhookFiltersView
 	if in.Body.Filters != nil {
-		filters = *in.Body.Filters
+		filters = WebhookFiltersView(*in.Body.Filters)
 	}
 	if env := s.validateWebhookFields(ctx, user.ID, in.Body.URL, in.Body.Events, filters, in.Body.Description); env != nil {
 		return nil, env

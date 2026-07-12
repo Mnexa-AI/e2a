@@ -13,6 +13,7 @@ import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { PageAgentView } from '../models/PageAgentView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -245,9 +246,9 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
      * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
      * Replace an agent\'s protection config (beta)
      * @param email The agent\&#39;s full email address.
-     * @param protectionConfigView 
+     * @param protectionConfigRequest 
      */
-    public async putAgentProtection(email: string, protectionConfigView: ProtectionConfigView, _options?: Configuration): Promise<RequestContext> {
+    public async putAgentProtection(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -256,9 +257,9 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         }
 
 
-        // verify required parameter 'protectionConfigView' is not null or undefined
-        if (protectionConfigView === null || protectionConfigView === undefined) {
-            throw new RequiredError("AgentsApi", "putAgentProtection", "protectionConfigView");
+        // verify required parameter 'protectionConfigRequest' is not null or undefined
+        if (protectionConfigRequest === null || protectionConfigRequest === undefined) {
+            throw new RequiredError("AgentsApi", "putAgentProtection", "protectionConfigRequest");
         }
 
 
@@ -277,7 +278,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         ]);
         requestContext.setHeaderParam("Content-Type", contentType);
         const serializedBody = ObjectSerializer.stringify(
-            ObjectSerializer.serialize(protectionConfigView, "ProtectionConfigView", ""),
+            ObjectSerializer.serialize(protectionConfigRequest, "ProtectionConfigRequest", ""),
             contentType
         );
         requestContext.setBody(serializedBody);

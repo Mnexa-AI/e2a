@@ -93,7 +93,23 @@ Our commitment, and what you can rely on:
   two would run side by side during a published migration window.
 - **Additive changes can happen anytime** and are *not* breaking: new endpoints,
   new optional request fields, and **new response fields**. Clients must ignore
-  fields they don't recognize.
+  fields they don't recognize. This is machine-readable in the spec: every
+  **response** schema declares `additionalProperties: true` (a client generated
+  from the spec tolerates additive fields), while every **request** schema stays
+  strict (`additionalProperties: false`) — an unknown request field is rejected
+  with a 422, which is intentional input validation (it catches typos like
+  `body` vs `text`), not a stability concern.
+- **Experimental surfaces are marked `x-stability: experimental`** in the spec
+  (operations, schemas, and individual fields — e.g. the `template_*` fields on
+  send) and `(beta)` in prose — today: templates, starter templates, and the
+  agent protection config. They are **exempt from the
+  freeze**: they may change or be removed without a major version. Where only
+  specific *values* of a stable field are experimental (the screening +
+  review-hold event types `email.flagged`, `email.blocked`,
+  `email.pending_review`, `email.review_approved`, `email.review_rejected`),
+  the field carries `x-experimental-values` listing exactly those values —
+  their payloads may still change; all other event types are stable. Anything
+  not marked experimental is stable surface.
 - **Enums in responses are open.** Treat any `type` / `*_status` / `event_type`
   value as an open string set: we may introduce new values (e.g. a new event
   type or delivery state) without a major bump, so a client **must not crash on

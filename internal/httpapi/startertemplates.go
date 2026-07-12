@@ -91,6 +91,7 @@ func (s *Server) registerStarterTemplates() {
 		Summary: "List starter templates (beta)", Tags: []string{"templates"},
 		Description: "List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
 	}, s.handleListStarterTemplates)
 
 	huma.Register(s.API, huma.Operation{
@@ -98,6 +99,7 @@ func (s *Server) registerStarterTemplates() {
 		Summary: "Get a starter template (beta)", Tags: []string{"templates"},
 		Description: "Fetch one starter template by alias, including its full plain-text and HTML body sources. " + templatesBetaDoc,
 		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
 	}, s.handleGetStarterTemplate)
 }
 

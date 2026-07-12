@@ -1,4 +1,8 @@
-import type { ProtectionConfigView, ProtectionDirectionView } from "@e2a/sdk/v1";
+import type {
+  ProtectionConfigView,
+  ProtectionConfigRequest,
+  ProtectionDirectionView,
+} from "@e2a/sdk/v1";
 import { createClient } from "../sdk.js";
 import { EXIT, fail } from "../exit.js";
 
@@ -80,6 +84,13 @@ export async function protectionSet(
   if (opts.outboundReview) applyReview(config.outbound, opts.outboundReview as "on" | "off");
   if (opts.inboundReview) applyReview(config.inbound, opts.inboundReview as "on" | "off");
 
-  const updated = await client.agents.replaceProtection(email, config);
+  // ProtectionConfigRequest is the View's field-for-field request twin (the
+  // spec splits them only so responses can be additive-open while requests
+  // stay strict), but the generated enum types are nominal, so the
+  // shape-identical view needs an explicit cast to PUT back.
+  const updated = await client.agents.replaceProtection(
+    email,
+    config as unknown as ProtectionConfigRequest,
+  );
   process.stdout.write(opts.json ? JSON.stringify(updated) + "\n" : summarize(updated));
 }

@@ -67,6 +67,7 @@ from .generated.models import (
     TestWebhookResponse,
     TestWebhookRequest,
     ProtectionConfigView,
+    ProtectionConfigRequest,
     CreateTemplateRequest,
     UpdateAgentRequest,
     UpdateMessageRequest,
@@ -102,6 +103,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         return model_cls()  # type: ignore[call-arg]
     if isinstance(body, model_cls):
         return body
+    # A DIFFERENT generated model — e.g. the View returned by a GET fed back
+    # into a write whose body type is the Request twin (protection's
+    # read-modify-write flow after the request/response schema split). Convert
+    # via its dict form so the natural get -> modify -> replace loop keeps
+    # working; pydantic then validates against the Request schema as usual.
+    if hasattr(body, "to_dict"):
+        body = body.to_dict()  # type: ignore[union-attr]
     try:
         return model_cls.model_validate(body)  # type: ignore[attr-defined]
     except ValidationError as e:
@@ -279,7 +287,7 @@ class AgentsResource:
     async def replace_protection(self, email: str, config: Body) -> ProtectionConfigView:
         """Replace an agent's protection config wholesale (all three top-level
         keys required). Beta; account scope only. PUT is idempotent."""
-        req = _coerce(ProtectionConfigView, config)
+        req = _coerce(ProtectionConfigRequest, config)
         return await self._c._write_idempotent(
             lambda h: self._api.put_agent_protection(email, req, _headers=h)
         )

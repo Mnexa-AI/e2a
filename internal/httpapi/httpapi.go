@@ -336,7 +336,24 @@ func New(deps Deps) *Server {
 	// request-id stamper.
 	config.CreateHooks = nil
 	config.Transformers = []huma.Transformer{stampRequestID}
-	config.Info.Description = "e2a — authenticated email gateway for AI agents. v1 contract."
+	// The stability policy below is the contract's constitution — the
+	// machine-readable markers it refers to (`additionalProperties`,
+	// `x-stability`, `x-experimental-values`) are stamped onto the document by
+	// applyEvolutionStance (stability.go). Keep the three in sync.
+	config.Info.Description = "e2a — authenticated email gateway for AI agents. v1 contract.\n\n" +
+		"## Stability policy\n\n" +
+		"The v1 surface is stable and evolves **additively only**: new endpoints, new optional request " +
+		"fields, new response fields, and new values in open string sets (event types, statuses) may " +
+		"appear at any time without a version bump. Clients MUST tolerate unknown response fields and " +
+		"unknown values in open string sets. This is machine-readable in the schemas: response schemas " +
+		"declare `additionalProperties: true`; request schemas stay strict (`additionalProperties: false` " +
+		"— an unknown request field is rejected with 422).\n\n" +
+		"Operations and schemas marked `x-stability: experimental` are exempt from this freeze and may " +
+		"change or be removed without a major version. A field marked `x-experimental-values` is itself " +
+		"stable, but the listed values (and their event payloads) are experimental. Everything not marked " +
+		"experimental is stable.\n\n" +
+		"Removing or changing stable surface only happens on a new major version path (/v2); deprecations " +
+		"are announced ahead of time via `deprecated: true` in this document and keep working within v1."
 	// Canonical production host (api-v1-redesign §1: "Canonical base URL
 	// https://api.e2a.dev/v1"). Operations already carry the /v1 prefix, so the
 	// server URL stops at the host — otherwise clients would double it. Without a
@@ -363,7 +380,14 @@ func New(deps Deps) *Server {
 	// handler. Registered once; applies to every operation.
 	api.UseMiddleware(s.rateLimit)
 	s.registerOperations()
+	// Post-registration document passes, in order: drop the phantom
+	// octet-stream request-body variants first (a Huma RawBody artifact), then
+	// stamp the forward-compat stance onto the cleaned document — response
+	// schemas open (additionalProperties: true), request schemas strict,
+	// x-stability markers derived from the experimental operations. See
+	// stability.go.
 	s.suppressRawBodyOctetStream()
+	s.applyEvolutionStance()
 
 	// WebSocket transport — registered directly on chi (not Huma; it's a raw
 	// upgrade, not a JSON operation). First-class /v1 inbound transport.

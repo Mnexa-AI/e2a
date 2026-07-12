@@ -57,11 +57,16 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionRequest } from '../models/ProtectionDirectionRequest.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
+import { ProtectionGateRequest } from '../models/ProtectionGateRequest.js';
 import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsRequest } from '../models/ProtectionHoldsRequest.js';
 import { ProtectionHoldsView } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanRequest } from '../models/ProtectionScanRequest.js';
 import { ProtectionScanView } from '../models/ProtectionScanView.js';
 import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
 import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
@@ -102,6 +107,7 @@ import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js'
 import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
+import { WebhookFiltersRequest } from '../models/WebhookFiltersRequest.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
 import { ObservableAccountApi } from './ObservableAPI.js';
@@ -435,11 +441,11 @@ export class PromiseAgentsApi {
      * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
      * Replace an agent\'s protection config (beta)
      * @param email The agent\&#39;s full email address.
-     * @param protectionConfigView
+     * @param protectionConfigRequest
      */
-    public putAgentProtectionWithHttpInfo(email: string, protectionConfigView: ProtectionConfigView, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
+    public putAgentProtectionWithHttpInfo(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.putAgentProtectionWithHttpInfo(email, protectionConfigView, observableOptions);
+        const result = this.api.putAgentProtectionWithHttpInfo(email, protectionConfigRequest, observableOptions);
         return result.toPromise();
     }
 
@@ -447,11 +453,11 @@ export class PromiseAgentsApi {
      * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
      * Replace an agent\'s protection config (beta)
      * @param email The agent\&#39;s full email address.
-     * @param protectionConfigView
+     * @param protectionConfigRequest
      */
-    public putAgentProtection(email: string, protectionConfigView: ProtectionConfigView, _options?: PromiseConfigurationOptions): Promise<ProtectionConfigView> {
+    public putAgentProtection(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: PromiseConfigurationOptions): Promise<ProtectionConfigView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.putAgentProtection(email, protectionConfigView, observableOptions);
+        const result = this.api.putAgentProtection(email, protectionConfigRequest, observableOptions);
         return result.toPromise();
     }
 

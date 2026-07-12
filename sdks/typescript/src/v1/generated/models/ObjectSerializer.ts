@@ -53,11 +53,16 @@ export * from '../models/PageSuppression.js';
 export * from '../models/PageTemplateSummaryView.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
+export * from '../models/ProtectionConfigRequest.js';
 export * from '../models/ProtectionConfigView.js';
+export * from '../models/ProtectionDirectionRequest.js';
 export * from '../models/ProtectionDirectionView.js';
 export * from '../models/ProtectionEventExportEntry.js';
+export * from '../models/ProtectionGateRequest.js';
 export * from '../models/ProtectionGateView.js';
+export * from '../models/ProtectionHoldsRequest.js';
 export * from '../models/ProtectionHoldsView.js';
+export * from '../models/ProtectionScanRequest.js';
 export * from '../models/ProtectionScanView.js';
 export * from '../models/RateLimitedDetails.js';
 export * from '../models/RateLimitedEnvelope.js';
@@ -98,6 +103,7 @@ export * from '../models/ValidateTemplateResponse.js';
 export * from '../models/ValidationErrorDetails.js';
 export * from '../models/VerifyDomainView.js';
 export * from '../models/WebhookDeliveryView.js';
+export * from '../models/WebhookFiltersRequest.js';
 export * from '../models/WebhookFiltersView.js';
 export * from '../models/WebhookView.js';
 
@@ -156,11 +162,16 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionRequest } from '../models/ProtectionDirectionRequest.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
+import { ProtectionGateRequest, ProtectionGateRequestActionEnum   , ProtectionGateRequestPolicyEnum   } from '../models/ProtectionGateRequest.js';
 import { ProtectionGateView, ProtectionGateViewActionEnum   , ProtectionGateViewPolicyEnum   } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsRequest, ProtectionHoldsRequestOnExpiryEnum    } from '../models/ProtectionHoldsRequest.js';
 import { ProtectionHoldsView, ProtectionHoldsViewOnExpiryEnum    } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanRequest, ProtectionScanRequestSensitivityEnum   } from '../models/ProtectionScanRequest.js';
 import { ProtectionScanView, ProtectionScanViewSensitivityEnum   } from '../models/ProtectionScanView.js';
 import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
 import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
@@ -201,6 +212,7 @@ import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js'
 import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
+import { WebhookFiltersRequest } from '../models/WebhookFiltersRequest.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
 
@@ -226,9 +238,13 @@ let enumsMap: Set<string> = new Set<string>([
     "LimitExceededErrorBodyCodeEnum",
     "MessageSummaryViewDirectionEnum",
     "MessageViewDirectionEnum",
+    "ProtectionGateRequestActionEnum",
+    "ProtectionGateRequestPolicyEnum",
     "ProtectionGateViewActionEnum",
     "ProtectionGateViewPolicyEnum",
+    "ProtectionHoldsRequestOnExpiryEnum",
     "ProtectionHoldsViewOnExpiryEnum",
+    "ProtectionScanRequestSensitivityEnum",
     "ProtectionScanViewSensitivityEnum",
     "RateLimitedErrorBodyCodeEnum",
     "ReviewViewDirectionEnum",
@@ -292,11 +308,16 @@ let typeMap: {[index: string]: any} = {
     "PageTemplateSummaryView": PageTemplateSummaryView,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
+    "ProtectionConfigRequest": ProtectionConfigRequest,
     "ProtectionConfigView": ProtectionConfigView,
+    "ProtectionDirectionRequest": ProtectionDirectionRequest,
     "ProtectionDirectionView": ProtectionDirectionView,
     "ProtectionEventExportEntry": ProtectionEventExportEntry,
+    "ProtectionGateRequest": ProtectionGateRequest,
     "ProtectionGateView": ProtectionGateView,
+    "ProtectionHoldsRequest": ProtectionHoldsRequest,
     "ProtectionHoldsView": ProtectionHoldsView,
+    "ProtectionScanRequest": ProtectionScanRequest,
     "ProtectionScanView": ProtectionScanView,
     "RateLimitedDetails": RateLimitedDetails,
     "RateLimitedEnvelope": RateLimitedEnvelope,
@@ -337,6 +358,7 @@ let typeMap: {[index: string]: any} = {
     "ValidationErrorDetails": ValidationErrorDetails,
     "VerifyDomainView": VerifyDomainView,
     "WebhookDeliveryView": WebhookDeliveryView,
+    "WebhookFiltersRequest": WebhookFiltersRequest,
     "WebhookFiltersView": WebhookFiltersView,
     "WebhookView": WebhookView,
 }
