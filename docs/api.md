@@ -272,24 +272,42 @@ the `Authorization: Bearer <api_key>` handshake header (the credential never
 appears in the URL). Not part of the OpenAPI document (it is not an HTTP
 request/response operation).
 
-The server pushes lightweight JSON notifications (metadata only); fetch full
+The server pushes the SAME versioned event envelope a webhook delivery
+carries — `{type, id, schema_version, created_at, data}` with the
+`email.received` payload (`EmailReceivedData`; see
+[events.md](events.md#envelope-and-typed-payloads)) — so one parser serves
+both channels, and the event `id` (identical across channels for the same
+event) lets a consumer dedup WS-vs-webhook. Tolerate unknown `type` values:
+future WS event kinds arrive in the same envelope. Metadata only; fetch full
 content via `GET /v1/agents/{email}/messages/{id}`:
 
 ```json
 {
-  "message_id": "msg_abc123",
-  "conversation_id": "conv_xyz",
-  "from": "alice@example.com",
-  "delivered_to": "bot@your-domain.com",
-  "subject": "Meeting tomorrow",
-  "received_at": "2026-04-24T10:00:00Z"
+  "type": "email.received",
+  "id": "evt_62eb7644b075459043c358bc6448d754",
+  "schema_version": "1",
+  "created_at": "2026-04-24T10:00:00.123456789Z",
+  "data": {
+    "message_id": "msg_abc123",
+    "agent_email": "bot@your-domain.com",
+    "direction": "inbound",
+    "conversation_id": "conv_xyz",
+    "from": "alice@example.com",
+    "authenticated_from": "alice@example.com",
+    "to": ["bot@your-domain.com"],
+    "delivered_to": "bot@your-domain.com",
+    "subject": "Meeting tomorrow",
+    "auth_headers": {},
+    "received_at": "2026-04-24T10:00:00.123456789Z"
+  }
 }
 ```
 
-On connect, all unread messages are drained as notifications automatically. The
-full message payload (fetched separately) includes the parsed `to`, `cc`, and
-`reply_to` header lists; the lightweight notification omits them since the agent
-fetches the body anyway.
+On connect, all unread messages are drained as `email.received` events
+automatically. Live events are byte-identical to the webhook payload; the
+drain-on-reconnect rebuild emits `authenticated_from`/`auth_headers` as
+present-but-empty and omits `attachments` (not stored on the drained row) —
+the full message (fetched separately) always has everything.
 
 ## HITL magic links
 

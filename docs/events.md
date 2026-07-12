@@ -72,7 +72,41 @@ for e in client.events.list(type="email.received", limit=20):
 
 The review-hold + screening events (`email.flagged`, `email.blocked`, `email.review_requested`, `email.review_approved`, `email.review_rejected`) are **beta** — their payloads may change before they are declared stable.
 
-Every event payload is **metadata only** — it carries identifiers, routing fields, and verdicts, never message content. In particular `email.received` is a notification: it carries `message_id` + `delivered_to` (plus `agent_email`, `from`, `subject`, and the signed `auth_headers` attestation) but **not** the body. Fetch the full message — body + attachments — with `client.webhooks.fetch_message(event)` / `webhooks.fetchMessage(event)` (which resolves to `GET /v1/agents/{delivered_to}/messages/{message_id}`). This keeps the fan-out payload bounded and makes the REST resource the single source of truth for content.
+## Envelope and typed payloads
+
+Every event — on the webhook channel, in this event log, and on the WebSocket — is the same versioned envelope:
+
+```json
+{
+  "type": "email.received",
+  "id": "evt_62eb7644b075459043c358bc6448d754",
+  "schema_version": "1",
+  "created_at": "2026-07-01T10:30:00.123456789Z",
+  "data": { }
+}
+```
+
+`data` is deliberately **open at the envelope level** (no discriminator): unknown or beta event types must still parse, so always branch on `type` and tolerate values you don't recognize. The **stable** event types carry frozen `data` shapes, published as named component schemas in the OpenAPI document and mirrored 1:1 by the SDK payload types (`isEmailBounced(event)` in TypeScript, `is_email_bounced(event)` in Python narrow `event.data`):
+
+| Event type | `data` schema | Required fields | Optional fields |
+|---|---|---|---|
+| `email.received` | `EmailReceivedData` | `message_id`, `agent_email`, `direction` (`inbound`), `from` (display/Reply-To sender), `authenticated_from` (the SPF/DKIM/DMARC-verified identity — gate on THIS), `to[]`, `delivered_to` (scalar — the one per-agent copy; the fetch key), `subject`, `auth_headers{}`, `received_at` | `conversation_id`, `cc[]`, `reply_to[]`, `attachments[]` (metadata only: `filename`, `content_type`, `size_bytes`, `index`) |
+| `email.sent` | `EmailSentData` | `message_id`, `agent_email`, `direction` (`outbound`), `provider_message_id`, `method`, `from`, `to[]`, `subject`, `message_type` | `conversation_id`, `cc[]`, `bcc[]` |
+| `email.failed` | `EmailFailedData` | `message_id`, `agent_email`, `direction`, `method`, `from`, `to[]`, `subject`, `message_type`, `reason` | `conversation_id`, `cc[]`, `bcc[]`, `reason_code`, `retryable` (present only when genuinely known) |
+| `email.delivered` | `EmailDeliveredData` | `message_id`, `agent_email`, `direction`, `delivered_to` (the one recipient this outcome is about) | `subject`, `smtp_detail` |
+| `email.bounced` | `EmailBouncedData` | `EmailDeliveredData` fields + `bounce_type` (`permanent` \| `transient` \| `undetermined`, from the SES bounce classification) | `subject`, `smtp_detail`, `bounce_sub_type` (raw SES sub-type, e.g. `General`) |
+| `email.complained` | `EmailComplainedData` | `message_id`, `agent_email`, `direction`, `delivered_to` | `subject`, `smtp_detail` |
+| `domain.sending_verified` | `DomainSendingVerifiedData` | `domain`, `sending_status` | — |
+| `domain.sending_failed` | `DomainSendingFailedData` | `domain`, `sending_status` | `reason` |
+| `domain.suppression_added` | `DomainSuppressionAddedData` | `address`, `source` (`bounce` \| `complaint`) | `reason`, `message_id` |
+
+Notes:
+
+- The delivery-outcome events (`email.delivered`/`bounced`/`complained`) carry **no `status` field** — the event type IS the outcome.
+- `delivered_to` is always a **scalar**: on `email.received` it's the one per-agent copy (the relay emits one event per delivery); on the delivery-outcome events it's the one recipient the outcome is about. The peer `to`/`cc` lists are the message's parsed headers.
+- These shapes are locked by committed golden fixtures (`internal/eventpayload/testdata/`) that the server builders AND both SDKs test against — a payload change is a conscious, reviewed fixture regeneration.
+
+Every event payload is **metadata only** — it carries identifiers, routing fields, and verdicts, never message content. In particular `email.received` is a notification: it carries the fetch keys plus attachment *metadata* but **not** the body. Fetch the full message — body + attachment bytes — with `client.webhooks.fetch_message(event)` / `webhooks.fetchMessage(event)` (which resolves to `GET /v1/agents/{delivered_to}/messages/{message_id}`). This keeps the fan-out payload bounded and makes the REST resource the single source of truth for content.
 
 "At-least-once" means the event is written to the durable outbox in the same database transaction as the business state, so a process crash between the trigger and webhook fan-out cannot drop the event. "Best-effort" means the outbox write is attempted but a failure logs and continues — used for post-side-effect triggers where the underlying action (SES delivery) has already happened and rolling back would orphan it. See the [design doc](design/2026-06-01-stripe-tier-webhooks.md) §4.2 for the full taxonomy.
 

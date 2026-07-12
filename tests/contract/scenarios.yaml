@@ -360,9 +360,11 @@ scenarios:
 
   - name: ws_notification_shape
     description: >
-      WebSocket drain-on-reconnect delivers notifications matching the
-      documented shape. Notification-only protocol: server sends
-      notifications, client never sends application frames.
+      WebSocket drain-on-reconnect delivers frames in the versioned event
+      envelope — {type, id, schema_version, created_at, data} — carrying the
+      email.received data payload (the same shape as a webhook delivery).
+      Notification-only protocol: server sends events, client never sends
+      application frames.
     setup:
       - register_domain: ws.test.dev
       - verify_domain: ws.test.dev
@@ -387,20 +389,28 @@ scenarios:
         action: ws_read
         expect:
           fields_present:
-            - message_id
-            - from
-            - recipient
-            - subject
-            - received_at
+            - type
+            - id
+            - schema_version
+            - created_at
+            - data.message_id
+            - data.from
+            - data.delivered_to
+            - data.agent_email
+            - data.direction
+            - data.subject
+            - data.received_at
           fields_absent:
-            - body
-            - raw_message
-            - to
-            - cc
+            - data.body
+            - data.raw_message
           field_match:
-            from: alice@example.com
-            recipient: "{agent_email}"
-            subject: WS test
+            type: email.received
+            schema_version: "1"
+            data.from: alice@example.com
+            data.delivered_to: "{agent_email}"
+            data.agent_email: "{agent_email}"
+            data.direction: inbound
+            data.subject: WS test
 
   - name: health_check
     description: Health endpoint is available without auth
