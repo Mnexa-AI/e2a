@@ -608,7 +608,9 @@ func (ua *UserAuth) HandleDashboardAgents(w http.ResponseWriter, r *http.Request
 	writeJSON(w, map[string][]identity.AgentIdentity{"agents": agents})
 }
 
-// HandleDeleteAgent deletes an agent owned by the authenticated user.
+// HandleDeleteAgent moves an agent owned by the authenticated user to the
+// trash (soft delete — restorable for identity.TrashRetention, then purged by
+// the janitor). Kept in lockstep with the /v1 deleteAgent default semantics.
 func (ua *UserAuth) HandleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	user := ua.AuthenticateRequest(r)
 	if user == nil {
@@ -631,7 +633,7 @@ func (ua *UserAuth) HandleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := ua.store.DeleteAgent(r.Context(), agent.ID, user.ID); err != nil {
+	if err := ua.store.SoftDeleteAgent(r.Context(), agent.ID, user.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}

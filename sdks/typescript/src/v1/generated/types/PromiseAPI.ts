@@ -362,26 +362,28 @@ export class PromiseAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
      * @param confirm Must be the literal DELETE — this action is irreversible.
+     * @param [permanent] Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
      */
-    public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteAgentResult>> {
+    public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', permanent?: boolean, _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteAgentResult>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteAgentWithHttpInfo(email, confirm, observableOptions);
+        const result = this.api.deleteAgentWithHttpInfo(email, confirm, permanent, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
      * @param confirm Must be the literal DELETE — this action is irreversible.
+     * @param [permanent] Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
      */
-    public deleteAgent(email: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<DeleteAgentResult> {
+    public deleteAgent(email: string, confirm: 'DELETE', permanent?: boolean, _options?: PromiseConfigurationOptions): Promise<DeleteAgentResult> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.deleteAgent(email, confirm, observableOptions);
+        const result = this.api.deleteAgent(email, confirm, permanent, observableOptions);
         return result.toPromise();
     }
 
@@ -430,26 +432,28 @@ export class PromiseAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account, newest first, with cursor pagination.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
+     * @param [deleted] List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
      */
-    public listAgentsWithHttpInfo(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAgentView>> {
+    public listAgentsWithHttpInfo(cursor?: string, limit?: number, deleted?: boolean, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAgentView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listAgentsWithHttpInfo(cursor, limit, observableOptions);
+        const result = this.api.listAgentsWithHttpInfo(cursor, limit, deleted, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * List the agents owned by the authenticated account, newest first, with cursor pagination.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
+     * @param [deleted] List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
      */
-    public listAgents(cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageAgentView> {
+    public listAgents(cursor?: string, limit?: number, deleted?: boolean, _options?: PromiseConfigurationOptions): Promise<PageAgentView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listAgents(cursor, limit, observableOptions);
+        const result = this.api.listAgents(cursor, limit, deleted, observableOptions);
         return result.toPromise();
     }
 
@@ -474,6 +478,28 @@ export class PromiseAgentsApi {
     public putAgentProtection(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: PromiseConfigurationOptions): Promise<ProtectionConfigView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.putAgentProtection(email, protectionConfigRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Restore an agent from the trash
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
+     */
+    public restoreAgentWithHttpInfo(email: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AgentView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.restoreAgentWithHttpInfo(email, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Restore an agent from the trash
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
+     */
+    public restoreAgent(email: string, _options?: PromiseConfigurationOptions): Promise<AgentView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.restoreAgent(email, observableOptions);
         return result.toPromise();
     }
 
@@ -844,6 +870,34 @@ export class PromiseMessagesApi {
     }
 
     /**
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Delete a message (move to trash)
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
+     */
+    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteMessageWithHttpInfo(email, id, permanent, confirm, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Delete a message (move to trash)
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
+     */
+    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: 'DELETE', _options?: PromiseConfigurationOptions): Promise<void> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteMessage(email, id, permanent, confirm, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
      * Forward a message
      * @param email
@@ -926,7 +980,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
      * List messages
      * @param email
      * @param [direction] Defaults to inbound.
@@ -940,15 +994,16 @@ export class PromiseMessagesApi {
      * @param [until] RFC3339; created_at &lt; until.
      * @param [cursor]
      * @param [limit]
+     * @param [deleted] List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
      */
-    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
+    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, deleted?: boolean, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listMessagesWithHttpInfo(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
+        const result = this.api.listMessagesWithHttpInfo(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, deleted, observableOptions);
         return result.toPromise();
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
      * List messages
      * @param email
      * @param [direction] Defaults to inbound.
@@ -962,10 +1017,11 @@ export class PromiseMessagesApi {
      * @param [until] RFC3339; created_at &lt; until.
      * @param [cursor]
      * @param [limit]
+     * @param [deleted] List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
      */
-    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageMessageSummaryView> {
+    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, deleted?: boolean, _options?: PromiseConfigurationOptions): Promise<PageMessageSummaryView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listMessages(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
+        const result = this.api.listMessages(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, deleted, observableOptions);
         return result.toPromise();
     }
 
@@ -996,6 +1052,30 @@ export class PromiseMessagesApi {
     public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: PromiseConfigurationOptions): Promise<SendResultView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.replyToMessage(email, id, replyRequest, idempotencyKey, wait, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Restore a message from the trash
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     */
+    public restoreMessageWithHttpInfo(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<MessageView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.restoreMessageWithHttpInfo(email, id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Restore a message from the trash
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     */
+    public restoreMessage(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.restoreMessage(email, id, observableOptions);
         return result.toPromise();
     }
 

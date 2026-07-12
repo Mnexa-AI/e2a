@@ -18,6 +18,7 @@ import (
 // records that it was called and returns a configurable error.
 type fakePruner struct {
 	messagesCalled     int
+	agentsCalled       int
 	sessionsCalled     int
 	deliveriesCalled   int
 	subscribersCalled  int
@@ -27,6 +28,7 @@ type fakePruner struct {
 
 	// per-method error injection
 	messagesErr     error
+	agentsErr       error
 	sessionsErr     error
 	deliveriesErr   error
 	subscribersErr  error
@@ -38,6 +40,11 @@ type fakePruner struct {
 func (f *fakePruner) DeleteExpiredMessages(context.Context) (int64, error) {
 	f.messagesCalled++
 	return 3, f.messagesErr // distinct count so the metric test can map count→label
+}
+
+func (f *fakePruner) PurgeDeletedAgents(context.Context) (int64, error) {
+	f.agentsCalled++
+	return 2, f.agentsErr // distinct count for the metric test
 }
 
 func (f *fakePruner) DeleteExpiredUserSessions(context.Context) (int64, error) {
@@ -110,6 +117,7 @@ func TestSweep_CallsEveryPruneOnce(t *testing.T) {
 		got  int
 	}{
 		{"DeleteExpiredMessages", f.messagesCalled},
+		{"PurgeDeletedAgents", f.agentsCalled},
 		{"DeleteExpiredUserSessions", f.sessionsCalled},
 		{"DeleteExpiredDeliveries", f.deliveriesCalled},
 		{"DeleteExpiredSubscriberDeliveries", f.subscribersCalled},
@@ -137,6 +145,7 @@ func TestSweep_EmitsMetricsForCorrectTables(t *testing.T) {
 	}
 	want := []metricCall{
 		{"messages", 3},
+		{"agent_identities", 2},
 		{"webhook_subscriber_deliveries", 5},
 		{"webhook_events", 7},
 	}
@@ -171,7 +180,7 @@ func TestSweep_ContinuesPastErrors(t *testing.T) {
 	}
 
 	// Every later prune still ran despite the first prune erroring.
-	if f.sessionsCalled != 1 || f.deliveriesCalled != 1 || f.subscribersCalled != 1 ||
+	if f.agentsCalled != 1 || f.sessionsCalled != 1 || f.deliveriesCalled != 1 || f.subscribersCalled != 1 ||
 		f.webhookEventCalled != 1 || f.oauthCalled != 1 || f.idempotencyCalled != 1 {
 		t.Errorf("a prune was skipped after an earlier error: %+v", f)
 	}

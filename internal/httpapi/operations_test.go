@@ -611,11 +611,11 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 		UpdateAgentProtection: func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error {
 			return nil
 		},
-		DeleteAgent: func(ctx context.Context, agentID, userID string) (int64, error) {
+		DeleteAgent: func(ctx context.Context, agentID, userID string) error {
 			if userID != "u_1" {
-				return 0, errors.New("unexpected user")
+				return errors.New("unexpected user")
 			}
-			return 3, nil
+			return nil
 		},
 		SharedDomain: "agents.e2a.dev",
 		PublicURL:    "https://api.e2a.dev",

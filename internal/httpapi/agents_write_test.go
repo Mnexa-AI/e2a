@@ -72,9 +72,9 @@ func TestDeleteAgent(t *testing.T) {
 	if body["email"] != "support@acme.com" {
 		t.Fatalf("want email echo, got %v", body)
 	}
-	// The fake deps report 3 cascaded messages (operations_test.go).
-	if body["messages_deleted"] != float64(3) {
-		t.Fatalf("want messages_deleted:3, got %v", body)
+	// Soft delete preserves messages in trash, so no rows are removed.
+	if body["messages_deleted"] != float64(0) {
+		t.Fatalf("want messages_deleted:0, got %v", body)
 	}
 }
 

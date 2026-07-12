@@ -64,6 +64,11 @@ type AgentView struct {
 	Name           string    `json:"name"`
 	DomainVerified bool      `json:"domain_verified"`
 	CreatedAt      time.Time `json:"created_at"`
+	// DeletedAt marks an agent in the trash (soft-deleted): set when the row
+	// was moved there, omitted on live agents. Trashed agents appear only via
+	// GET /v1/agents?deleted=true and restore/permanent-delete operations; they
+	// are purged ~30 days after deletion (docs/design/trash-soft-delete.md).
+	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the agent was moved to the trash. Omitted for live agents."`
 }
 
 // agentViewFromIdentity maps the storage record to the public view.
@@ -74,6 +79,7 @@ func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 		Name:           ag.Name,
 		DomainVerified: ag.DomainVerified,
 		CreatedAt:      ag.CreatedAt,
+		DeletedAt:      ag.DeletedAt,
 	}
 }
 
@@ -84,9 +90,11 @@ type listAgentsOutput struct {
 	Body Page[AgentView]
 }
 
-// listAgentsInput carries the standard cursor/limit (PageParams).
+// listAgentsInput carries the standard cursor/limit (PageParams) plus the
+// trash-view flag.
 type listAgentsInput struct {
 	PageParams
+	Deleted bool `query:"deleted" doc:"List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only)."`
 }
 
 // AddressParam is the shared path input for per-agent operations. The
@@ -106,7 +114,7 @@ func (s *Server) registerAgents() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents",
 		Summary:     "List agents",
-		Description: "List the agents owned by the authenticated account, newest first, with cursor pagination.",
+		Description: "List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).",
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleListAgents)
@@ -138,8 +146,16 @@ func (s *Server) handleListAgents(ctx context.Context, in *listAgentsInput) (*li
 		return nil, err
 	}
 	limit := effectiveLimit(in.Limit)
-	// Fetch limit+1 to detect a further page.
-	agents, err := s.deps.ListAgents(ctx, user.ID, limit+1, afterCreatedAt, afterID)
+	// Live list vs trash view (deleted=true). Fetch limit+1 to detect a
+	// further page.
+	lister := s.deps.ListAgents
+	if in.Deleted {
+		lister = s.deps.ListDeletedAgents
+	}
+	if lister == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "agent listing unavailable")
+	}
+	agents, err := lister(ctx, user.ID, limit+1, afterCreatedAt, afterID)
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to list agents")
 	}
@@ -189,6 +205,31 @@ func (s *Server) resolveOwnedAgent(ctx context.Context, address string) (*identi
 	if p.Scope == identity.ScopeAgent && p.AgentID != ag.ID {
 		return nil, NewError(http.StatusForbidden, "forbidden",
 			"this agent-scoped credential is bound to a different agent")
+	}
+	return ag, nil
+}
+
+// resolveOwnedAgentAnyState is resolveOwnedAgent for the trash surfaces
+// (restore / permanent delete): it resolves via GetAgentAnyState so a trashed
+// agent — invisible to every live lookup — can still be acted on by its
+// owner. Same 404-conflation and account-scope semantics; agent-scoped
+// credentials are rejected outright (trash management is account
+// administration, and a trashed agent's own credential must be inert).
+func (s *Server) resolveOwnedAgentAnyState(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+	p, err := s.requirePrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if p.Scope == identity.ScopeAgent {
+		return nil, NewError(http.StatusForbidden, "forbidden",
+			"agent-scoped credentials cannot manage the agent trash")
+	}
+	if s.deps.GetAgentAnyState == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "agent lookup unavailable")
+	}
+	ag, err := s.deps.GetAgentAnyState(ctx, identity.NormalizeEmail(address))
+	if err != nil || ag == nil || ag.UserID != p.User.ID {
+		return nil, NewError(http.StatusNotFound, "not_found", "agent not found")
 	}
 	return ag, nil
 }

@@ -14,7 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class DeleteAgentResult {
     /**
-    * Always true — the agent no longer exists. A failed delete is an error envelope, never deleted:false.
+    * Always true — the agent is no longer active. A failed delete is an error envelope, never deleted:false.
     */
     'deleted': boolean;
     /**
@@ -22,7 +22,7 @@ export class DeleteAgentResult {
     */
     'email': string;
     /**
-    * Number of messages removed by the cascade (webhook-delivery records cascade from these).
+    * Number of messages permanently removed by the cascade; zero when the agent is moved to trash.
     */
     'messagesDeleted': number;
 

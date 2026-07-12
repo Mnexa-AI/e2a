@@ -25,6 +25,10 @@ export class MessageView {
     'conversationId': string;
     'createdAt': Date;
     /**
+    * When the message was moved to the trash. Omitted for live messages.
+    */
+    'deletedAt'?: Date;
+    /**
     * The envelope Delivered-To address — this delivery\'s per-agent target (the mailbox that actually received this row), distinct from the To header (the to array).
     */
     'deliveredTo': string;
@@ -107,6 +111,12 @@ export class MessageView {
         {
             "name": "createdAt",
             "baseName": "created_at",
+            "type": "Date",
+            "format": "date-time"
+        },
+        {
+            "name": "deletedAt",
+            "baseName": "deleted_at",
             "type": "Date",
             "format": "date-time"
         },

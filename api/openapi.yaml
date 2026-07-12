@@ -104,6 +104,9 @@ components:
         created_at:
           format: date-time
           type: string
+        deleted_at:
+          format: date-time
+          type: string
         domain:
           type: string
         domain_verified:
@@ -206,6 +209,10 @@ components:
       additionalProperties: true
       properties:
         created_at:
+          format: date-time
+          type: string
+        deleted_at:
+          description: When the agent was moved to the trash. Omitted for live agents.
           format: date-time
           type: string
         domain:
@@ -659,13 +666,13 @@ components:
       additionalProperties: true
       properties:
         deleted:
-          description: Always true — the agent no longer exists. A failed delete is an error envelope, never deleted:false.
+          description: Always true — the agent is no longer active. A failed delete is an error envelope, never deleted:false.
           type: boolean
         email:
           description: Email address of the deleted agent.
           type: string
         messages_deleted:
-          description: Number of messages removed by the cascade (webhook-delivery records cascade from these).
+          description: Number of messages permanently removed by the cascade; zero when the agent is moved to trash.
           format: int64
           type: integer
       required:
@@ -1440,6 +1447,9 @@ components:
         created_at:
           format: date-time
           type: string
+        deleted_at:
+          format: date-time
+          type: string
         delivered_to:
           type: string
         delivery_detail:
@@ -1574,6 +1584,10 @@ components:
         created_at:
           format: date-time
           type: string
+        deleted_at:
+          description: When the message was moved to the trash. Omitted for live messages.
+          format: date-time
+          type: string
         delivered_to:
           description: The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array).
           type: string
@@ -1659,6 +1673,10 @@ components:
         conversation_id:
           type: string
         created_at:
+          format: date-time
+          type: string
+        deleted_at:
+          description: When the message was moved to the trash. Omitted for live messages.
           format: date-time
           type: string
         delivered_to:
@@ -3330,7 +3348,7 @@ paths:
         - account
   /v1/agents:
     get:
-      description: List the agents owned by the authenticated account, newest first, with cursor pagination.
+      description: List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
       operationId: listAgents
       parameters:
         - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
@@ -3351,6 +3369,13 @@ paths:
             maximum: 100
             minimum: 1
             type: integer
+        - description: "List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only)."
+          explode: false
+          in: query
+          name: deleted
+          schema:
+            description: "List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only)."
+            type: boolean
       responses:
         "200":
           content:
@@ -3410,7 +3435,7 @@ paths:
         - agents
   /v1/agents/{email}:
     delete:
-      description: Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
+      description: Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
       operationId: deleteAgent
       parameters:
         - in: path
@@ -3428,6 +3453,13 @@ paths:
             enum:
               - DELETE
             type: string
+        - description: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
+          explode: false
+          in: query
+          name: permanent
+          schema:
+            description: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
+            type: boolean
       responses:
         "200":
           content:
@@ -3601,7 +3633,7 @@ paths:
         - conversations
   /v1/agents/{email}/messages:
     get:
-      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
       operationId: listMessages
       parameters:
         - in: path
@@ -3699,6 +3731,13 @@ paths:
             maximum: 100
             minimum: 1
             type: integer
+        - description: "List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only)."
+          explode: false
+          in: query
+          name: deleted
+          schema:
+            description: "List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only)."
+            type: boolean
       responses:
         "200":
           content:
@@ -3806,6 +3845,55 @@ paths:
       tags:
         - messages
   /v1/agents/{email}/messages/{id}:
+    delete:
+      description: Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash ("delete forever"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+      operationId: deleteMessage
+      parameters:
+        - description: The agent's full email address.
+          in: path
+          name: email
+          required: true
+          schema:
+            description: The agent's full email address.
+            type: string
+        - description: The message id, e.g. msg_abc123.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: The message id, e.g. msg_abc123.
+            type: string
+        - description: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+          explode: false
+          in: query
+          name: permanent
+          schema:
+            description: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+            type: boolean
+        - description: Must be the literal DELETE when permanent=true.
+          explode: false
+          in: query
+          name: confirm
+          schema:
+            description: Must be the literal DELETE when permanent=true.
+            enum:
+              - DELETE
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Delete a message (move to trash)
+      tags:
+        - messages
+      x-stability: experimental
     get:
       description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
       operationId: getMessage
@@ -4121,6 +4209,44 @@ paths:
       summary: Reply to a message
       tags:
         - messages
+  /v1/agents/{email}/messages/{id}/restore:
+    post:
+      description: Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+      operationId: restoreMessage
+      parameters:
+        - description: The agent's full email address.
+          in: path
+          name: email
+          required: true
+          schema:
+            description: The agent's full email address.
+            type: string
+        - description: The message id, e.g. msg_abc123.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: The message id, e.g. msg_abc123.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Restore a message from the trash
+      tags:
+        - messages
+      x-stability: experimental
   /v1/agents/{email}/protection:
     get:
       description: "Read the agent's protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable."
@@ -4185,6 +4311,37 @@ paths:
       security:
         - bearer: []
       summary: Replace an agent's protection config (beta)
+      tags:
+        - agents
+      x-stability: experimental
+  /v1/agents/{email}/restore:
+    post:
+      description: Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+      operationId: restoreAgent
+      parameters:
+        - description: The agent's full email address, e.g. support@acme.com.
+          in: path
+          name: email
+          required: true
+          schema:
+            description: The agent's full email address, e.g. support@acme.com.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentView"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+      security:
+        - bearer: []
+      summary: Restore an agent from the trash
       tags:
         - agents
       x-stability: experimental

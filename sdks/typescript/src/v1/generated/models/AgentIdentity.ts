@@ -14,6 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class AgentIdentity {
     'createdAt': Date;
+    'deletedAt'?: Date;
     'domain': string;
     'domainVerified': boolean;
     'email': string;
@@ -53,6 +54,12 @@ export class AgentIdentity {
         {
             "name": "createdAt",
             "baseName": "created_at",
+            "type": "Date",
+            "format": "date-time"
+        },
+        {
+            "name": "deletedAt",
+            "baseName": "deleted_at",
             "type": "Date",
             "format": "date-time"
         },

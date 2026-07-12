@@ -31,11 +31,14 @@ const janitorInterval = 1 * time.Hour
 // method(s)) so the sweep is unit-testable with a single fake and never
 // depends on a concrete store. Signatures match the real store methods.
 
-// MessagePruner prunes expired messages and expired user sessions (both live
-// on *identity.Store today).
+// MessagePruner prunes expired messages, expired user sessions, and trashed
+// agents past their retention window (all live on *identity.Store today).
+// DeleteExpiredMessages covers both message arms: live rows past their
+// natural expiry AND trashed rows past TrashRetention.
 type MessagePruner interface {
 	DeleteExpiredMessages(ctx context.Context) (int64, error)
 	DeleteExpiredUserSessions(ctx context.Context) (int64, error)
+	PurgeDeletedAgents(ctx context.Context) (int64, error)
 }
 
 // DeliveryPruner prunes expired webhook delivery records (*webhook.DeliveryStore).
@@ -120,6 +123,17 @@ func (j *Janitor) Sweep(ctx context.Context) error {
 	} else if deleted > 0 {
 		log.Printf("Cleaned up %d expired message(s)", deleted)
 		j.metrics.JanitorRowsDeleted("messages", int(deleted))
+	}
+
+	// Trashed agents past TrashRetention: hard delete, cascading to their
+	// messages (docs/design/trash-soft-delete.md). After the messages pass so
+	// a first-deploy backlog drains the cheap per-row deletes first.
+	if deleted, err := j.messages.PurgeDeletedAgents(ctx); err != nil {
+		log.Printf("Failed to purge trashed agents: %v", err)
+		errs = append(errs, err)
+	} else if deleted > 0 {
+		log.Printf("Purged %d trashed agent(s) past retention", deleted)
+		j.metrics.JanitorRowsDeleted("agent_identities", int(deleted))
 	}
 
 	if deleted, err := j.messages.DeleteExpiredUserSessions(ctx); err != nil {

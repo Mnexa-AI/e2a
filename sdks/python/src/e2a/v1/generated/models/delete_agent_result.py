@@ -26,9 +26,9 @@ class DeleteAgentResult(BaseModel):
     """
     DeleteAgentResult
     """ # noqa: E501
-    deleted: StrictBool = Field(description="Always true — the agent no longer exists. A failed delete is an error envelope, never deleted:false.")
+    deleted: StrictBool = Field(description="Always true — the agent is no longer active. A failed delete is an error envelope, never deleted:false.")
     email: StrictStr = Field(description="Email address of the deleted agent.")
-    messages_deleted: StrictInt = Field(description="Number of messages removed by the cascade (webhook-delivery records cascade from these).")
+    messages_deleted: StrictInt = Field(description="Number of messages permanently removed by the cascade; zero when the agent is moved to trash.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["deleted", "email", "messages_deleted"]
 

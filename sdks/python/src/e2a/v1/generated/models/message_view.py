@@ -38,6 +38,7 @@ class MessageView(BaseModel):
     cc: List[StrictStr]
     conversation_id: StrictStr
     created_at: datetime
+    deleted_at: Optional[datetime] = Field(default=None, description="When the message was moved to the trash. Omitted for live messages.")
     delivered_to: StrictStr = Field(description="The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array).")
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)")
@@ -59,7 +60,7 @@ class MessageView(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "id", "labels", "parsed", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "id", "labels", "parsed", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -142,6 +143,7 @@ class MessageView(BaseModel):
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
+            "deleted_at": obj.get("deleted_at"),
             "delivered_to": obj.get("delivered_to"),
             "delivery_detail": obj.get("delivery_detail"),
             "delivery_status": obj.get("delivery_status"),

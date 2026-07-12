@@ -110,7 +110,16 @@ func BuildDeps(p Params) httpapi.Deps {
 		EnforceAgentCreate:    p.Enforcer.CheckAgentCreate,
 		UpdateAgentName:       p.Store.UpdateAgentName,
 		UpdateAgentProtection: p.Store.UpdateAgentProtection,
-		DeleteAgent:           p.Store.DeleteAgent,
+		// Trash semantics (docs/design/trash-soft-delete.md): the default
+		// delete is soft; the hard delete sits behind ?permanent=true.
+		DeleteAgent:          p.Store.SoftDeleteAgent,
+		PermanentDeleteAgent: p.Store.DeleteAgent,
+		RestoreAgent:         p.Store.RestoreAgent,
+		GetAgentAnyState:     p.Store.GetAgentByIDAnyState,
+		ListDeletedAgents:    p.Store.ListDeletedAgentsByUser,
+		DeleteMessage:        p.Store.SoftDeleteMessage,
+		RestoreMessage:       p.Store.RestoreMessage,
+		PurgeMessage:         p.Store.PurgeMessage,
 
 		ListDomains:          p.Store.ListDomainsByUser,
 		ClaimDomain:          p.Store.ClaimOrCreateDomain,

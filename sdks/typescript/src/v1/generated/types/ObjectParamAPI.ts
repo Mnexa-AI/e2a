@@ -407,6 +407,13 @@ export interface AgentsApiDeleteAgentRequest {
      * @memberof AgentsApideleteAgent
      */
     confirm: 'DELETE'
+    /**
+     * Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AgentsApideleteAgent
+     */
+    permanent?: boolean
 }
 
 export interface AgentsApiGetAgentRequest {
@@ -446,6 +453,13 @@ export interface AgentsApiListAgentsRequest {
      * @memberof AgentsApilistAgents
      */
     limit?: number
+    /**
+     * List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AgentsApilistAgents
+     */
+    deleted?: boolean
 }
 
 export interface AgentsApiPutAgentProtectionRequest {
@@ -462,6 +476,16 @@ export interface AgentsApiPutAgentProtectionRequest {
      * @memberof AgentsApiputAgentProtection
      */
     protectionConfigRequest: ProtectionConfigRequest
+}
+
+export interface AgentsApiRestoreAgentRequest {
+    /**
+     * The agent\&#39;s full email address, e.g. support@acme.com.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApirestoreAgent
+     */
+    email: string
 }
 
 export interface AgentsApiTestAgentRequest {
@@ -516,21 +540,21 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param param the request object
      */
     public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteAgentResult>> {
-        return this.api.deleteAgentWithHttpInfo(param.email, param.confirm,  options).toPromise();
+        return this.api.deleteAgentWithHttpInfo(param.email, param.confirm, param.permanent,  options).toPromise();
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param param the request object
      */
     public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<DeleteAgentResult> {
-        return this.api.deleteAgent(param.email, param.confirm,  options).toPromise();
+        return this.api.deleteAgent(param.email, param.confirm, param.permanent,  options).toPromise();
     }
 
     /**
@@ -570,21 +594,21 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account, newest first, with cursor pagination.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
      * List agents
      * @param param the request object
      */
     public listAgentsWithHttpInfo(param: AgentsApiListAgentsRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageAgentView>> {
-        return this.api.listAgentsWithHttpInfo(param.cursor, param.limit,  options).toPromise();
+        return this.api.listAgentsWithHttpInfo(param.cursor, param.limit, param.deleted,  options).toPromise();
     }
 
     /**
-     * List the agents owned by the authenticated account, newest first, with cursor pagination.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
      * List agents
      * @param param the request object
      */
     public listAgents(param: AgentsApiListAgentsRequest = {}, options?: ConfigurationOptions): Promise<PageAgentView> {
-        return this.api.listAgents(param.cursor, param.limit,  options).toPromise();
+        return this.api.listAgents(param.cursor, param.limit, param.deleted,  options).toPromise();
     }
 
     /**
@@ -603,6 +627,24 @@ export class ObjectAgentsApi {
      */
     public putAgentProtection(param: AgentsApiPutAgentProtectionRequest, options?: ConfigurationOptions): Promise<ProtectionConfigView> {
         return this.api.putAgentProtection(param.email, param.protectionConfigRequest,  options).toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Restore an agent from the trash
+     * @param param the request object
+     */
+    public restoreAgentWithHttpInfo(param: AgentsApiRestoreAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<AgentView>> {
+        return this.api.restoreAgentWithHttpInfo(param.email,  options).toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Restore an agent from the trash
+     * @param param the request object
+     */
+    public restoreAgent(param: AgentsApiRestoreAgentRequest, options?: ConfigurationOptions): Promise<AgentView> {
+        return this.api.restoreAgent(param.email,  options).toPromise();
     }
 
     /**
@@ -1065,6 +1107,37 @@ export class ObjectEventsApi {
 import { ObservableMessagesApi } from "./ObservableAPI.js";
 import { MessagesApiRequestFactory, MessagesApiResponseProcessor} from "../apis/MessagesApi.js";
 
+export interface MessagesApiDeleteMessageRequest {
+    /**
+     * The agent\&#39;s full email address.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApideleteMessage
+     */
+    email: string
+    /**
+     * The message id, e.g. msg_abc123.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApideleteMessage
+     */
+    id: string
+    /**
+     * Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof MessagesApideleteMessage
+     */
+    permanent?: boolean
+    /**
+     * Must be the literal DELETE when permanent&#x3D;true.
+     * Defaults to: undefined
+     * @type &#39;DELETE&#39;
+     * @memberof MessagesApideleteMessage
+     */
+    confirm?: 'DELETE'
+}
+
 export interface MessagesApiForwardMessageRequest {
     /**
      * 
@@ -1238,6 +1311,13 @@ export interface MessagesApiListMessagesRequest {
      * @memberof MessagesApilistMessages
      */
     limit?: number
+    /**
+     * List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof MessagesApilistMessages
+     */
+    deleted?: boolean
 }
 
 export interface MessagesApiReplyToMessageRequest {
@@ -1275,6 +1355,23 @@ export interface MessagesApiReplyToMessageRequest {
      * @memberof MessagesApireplyToMessage
      */
     wait?: string
+}
+
+export interface MessagesApiRestoreMessageRequest {
+    /**
+     * The agent\&#39;s full email address.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApirestoreMessage
+     */
+    email: string
+    /**
+     * The message id, e.g. msg_abc123.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApirestoreMessage
+     */
+    id: string
 }
 
 export interface MessagesApiSendMessageRequest {
@@ -1338,6 +1435,24 @@ export class ObjectMessagesApi {
     }
 
     /**
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Delete a message (move to trash)
+     * @param param the request object
+     */
+    public deleteMessageWithHttpInfo(param: MessagesApiDeleteMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+        return this.api.deleteMessageWithHttpInfo(param.email, param.id, param.permanent, param.confirm,  options).toPromise();
+    }
+
+    /**
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Delete a message (move to trash)
+     * @param param the request object
+     */
+    public deleteMessage(param: MessagesApiDeleteMessageRequest, options?: ConfigurationOptions): Promise<void> {
+        return this.api.deleteMessage(param.email, param.id, param.permanent, param.confirm,  options).toPromise();
+    }
+
+    /**
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
      * Forward a message
      * @param param the request object
@@ -1392,21 +1507,21 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
      * List messages
      * @param param the request object
      */
     public listMessagesWithHttpInfo(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
-        return this.api.listMessagesWithHttpInfo(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listMessagesWithHttpInfo(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit, param.deleted,  options).toPromise();
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
      * List messages
      * @param param the request object
      */
     public listMessages(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<PageMessageSummaryView> {
-        return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit, param.deleted,  options).toPromise();
     }
 
     /**
@@ -1425,6 +1540,24 @@ export class ObjectMessagesApi {
      */
     public replyToMessage(param: MessagesApiReplyToMessageRequest, options?: ConfigurationOptions): Promise<SendResultView> {
         return this.api.replyToMessage(param.email, param.id, param.replyRequest, param.idempotencyKey, param.wait,  options).toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Restore a message from the trash
+     * @param param the request object
+     */
+    public restoreMessageWithHttpInfo(param: MessagesApiRestoreMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<MessageView>> {
+        return this.api.restoreMessageWithHttpInfo(param.email, param.id,  options).toPromise();
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Restore a message from the trash
+     * @param param the request object
+     */
+    public restoreMessage(param: MessagesApiRestoreMessageRequest, options?: ConfigurationOptions): Promise<MessageView> {
+        return this.api.restoreMessage(param.email, param.id,  options).toPromise();
     }
 
     /**

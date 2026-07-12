@@ -78,7 +78,15 @@ type (
 	// AgentDeleter deletes an agent, returning the number of message rows
 	// removed by the cascade (surfaced in the DeleteAgentResult receipt).
 	AgentDeleter func(ctx context.Context, agentID, userID string) (messagesDeleted int64, err error)
+	// AgentTrashOp moves an agent into or out of trash without deleting messages.
+	AgentTrashOp func(ctx context.Context, agentID, userID string) error
 )
+
+// MessageTrashOp mirrors the store's per-message trash mutations
+// (SoftDeleteMessage / RestoreMessage / PurgeMessage): scoped to
+// (messageID, agentID), returning the sentinel errors ErrMessageHeld /
+// ErrNotInTrash / ErrMessageNotFound for the handler to map.
+type MessageTrashOp func(ctx context.Context, messageID, agentID string) error
 
 // Deps are the collaborators the v1 layer needs. Everything is injected so
 // the package has no hidden globals and is straightforward to test.
@@ -113,7 +121,26 @@ type Deps struct {
 	// Returns a validation error for an invalid posture, which the handler maps
 	// to 400 invalid_request.
 	UpdateAgentProtection func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error
-	DeleteAgent           AgentDeleter
+	// DeleteAgent is the DEFAULT delete: soft (move to trash, restorable for
+	// identity.TrashRetention, docs/design/trash-soft-delete.md).
+	// PermanentDeleteAgent is the irreversible hard delete behind
+	// ?permanent=true; RestoreAgent brings a trashed agent back.
+	DeleteAgent          AgentTrashOp
+	PermanentDeleteAgent AgentDeleter
+	RestoreAgent         AgentTrashOp
+	// GetAgentAnyState loads an agent regardless of trash state (DeletedAt set
+	// when trashed) — the resolution path for restore / permanent delete, which
+	// must find agents the live GetAgent treats as nonexistent.
+	GetAgentAnyState AgentGetter
+	// ListDeletedAgents is the account's agent trash (GET /v1/agents?deleted=true).
+	ListDeletedAgents AgentLister
+
+	// Message trash ops (DELETE / POST restore on
+	// /v1/agents/{email}/messages/{id}): soft delete, restore, and the
+	// trash-only permanent purge.
+	DeleteMessage  MessageTrashOp
+	RestoreMessage MessageTrashOp
+	PurgeMessage   MessageTrashOp
 
 	// domains. ListDomains is keyset-paginated on (created_at, domain): the
 	// handler passes limit+1 to detect a further page (limit<=0 = all), and the

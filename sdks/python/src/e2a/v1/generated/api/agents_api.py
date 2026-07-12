@@ -16,7 +16,7 @@ from pydantic import validate_call, Field, StrictFloat, StrictStr, StrictInt
 from typing import Any, Dict, List, Optional, Tuple, Union
 from typing_extensions import Annotated
 
-from pydantic import Field, StrictStr, field_validator
+from pydantic import Field, StrictBool, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.agent_view import AgentView
@@ -331,6 +331,7 @@ class AgentsApi:
         self,
         email: StrictStr,
         confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
+        permanent: Annotated[Optional[StrictBool], Field(description="Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -346,12 +347,14 @@ class AgentsApi:
     ) -> DeleteAgentResult:
         """Delete an agent
 
-        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
+        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
 
         :param email: (required)
         :type email: str
         :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
+        :param permanent: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
+        :type permanent: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -377,6 +380,7 @@ class AgentsApi:
         _param = self._delete_agent_serialize(
             email=email,
             confirm=confirm,
+            permanent=permanent,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -402,6 +406,7 @@ class AgentsApi:
         self,
         email: StrictStr,
         confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
+        permanent: Annotated[Optional[StrictBool], Field(description="Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -417,12 +422,14 @@ class AgentsApi:
     ) -> ApiResponse[DeleteAgentResult]:
         """Delete an agent
 
-        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
+        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
 
         :param email: (required)
         :type email: str
         :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
+        :param permanent: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
+        :type permanent: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -448,6 +455,7 @@ class AgentsApi:
         _param = self._delete_agent_serialize(
             email=email,
             confirm=confirm,
+            permanent=permanent,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -473,6 +481,7 @@ class AgentsApi:
         self,
         email: StrictStr,
         confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
+        permanent: Annotated[Optional[StrictBool], Field(description="Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -488,12 +497,14 @@ class AgentsApi:
     ) -> RESTResponseType:
         """Delete an agent
 
-        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
+        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
 
         :param email: (required)
         :type email: str
         :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
+        :param permanent: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
+        :type permanent: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -519,6 +530,7 @@ class AgentsApi:
         _param = self._delete_agent_serialize(
             email=email,
             confirm=confirm,
+            permanent=permanent,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -539,6 +551,7 @@ class AgentsApi:
         self,
         email,
         confirm,
+        permanent,
         _request_auth,
         _content_type,
         _headers,
@@ -566,6 +579,10 @@ class AgentsApi:
         if confirm is not None:
             
             _query_params.append(('confirm', confirm))
+            
+        if permanent is not None:
+            
+            _query_params.append(('permanent', permanent))
             
         # process the header parameters
         # process the form parameters
@@ -1131,6 +1148,7 @@ class AgentsApi:
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
         limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1146,12 +1164,14 @@ class AgentsApi:
     ) -> PageAgentView:
         """List agents
 
-        List the agents owned by the authenticated account, newest first, with cursor pagination.
+        List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
         :param limit: Maximum number of items to return (1-100).
         :type limit: int
+        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
+        :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1177,6 +1197,7 @@ class AgentsApi:
         _param = self._list_agents_serialize(
             cursor=cursor,
             limit=limit,
+            deleted=deleted,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1202,6 +1223,7 @@ class AgentsApi:
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
         limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1217,12 +1239,14 @@ class AgentsApi:
     ) -> ApiResponse[PageAgentView]:
         """List agents
 
-        List the agents owned by the authenticated account, newest first, with cursor pagination.
+        List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
         :param limit: Maximum number of items to return (1-100).
         :type limit: int
+        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
+        :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1248,6 +1272,7 @@ class AgentsApi:
         _param = self._list_agents_serialize(
             cursor=cursor,
             limit=limit,
+            deleted=deleted,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1273,6 +1298,7 @@ class AgentsApi:
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
         limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1288,12 +1314,14 @@ class AgentsApi:
     ) -> RESTResponseType:
         """List agents
 
-        List the agents owned by the authenticated account, newest first, with cursor pagination.
+        List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
 
         :param cursor: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
         :type cursor: str
         :param limit: Maximum number of items to return (1-100).
         :type limit: int
+        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
+        :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1319,6 +1347,7 @@ class AgentsApi:
         _param = self._list_agents_serialize(
             cursor=cursor,
             limit=limit,
+            deleted=deleted,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1339,6 +1368,7 @@ class AgentsApi:
         self,
         cursor,
         limit,
+        deleted,
         _request_auth,
         _content_type,
         _headers,
@@ -1368,6 +1398,10 @@ class AgentsApi:
         if limit is not None:
             
             _query_params.append(('limit', limit))
+            
+        if deleted is not None:
+            
+            _query_params.append(('deleted', deleted))
             
         # process the header parameters
         # process the form parameters
@@ -1680,6 +1714,267 @@ class AgentsApi:
         return self.api_client.param_serialize(
             method='PUT',
             resource_path='/v1/agents/{email}/protection',
+            path_params=_path_params,
+            query_params=_query_params,
+            header_params=_header_params,
+            body=_body_params,
+            post_params=_form_params,
+            files=_files,
+            auth_settings=_auth_settings,
+            collection_formats=_collection_formats,
+            _host=_host,
+            _request_auth=_request_auth
+        )
+
+
+
+
+    @validate_call
+    async def restore_agent(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> AgentView:
+        """Restore an agent from the trash
+
+        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._restore_agent_serialize(
+            email=email,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "AgentView",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        ).data
+
+
+    @validate_call
+    async def restore_agent_with_http_info(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> ApiResponse[AgentView]:
+        """Restore an agent from the trash
+
+        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._restore_agent_serialize(
+            email=email,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "AgentView",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        )
+
+
+    @validate_call
+    async def restore_agent_without_preload_content(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address, e.g. support@acme.com.")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> RESTResponseType:
+        """Restore an agent from the trash
+
+        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+
+        :param email: The agent's full email address, e.g. support@acme.com. (required)
+        :type email: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._restore_agent_serialize(
+            email=email,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "AgentView",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        return response_data.response
+
+
+    def _restore_agent_serialize(
+        self,
+        email,
+        _request_auth,
+        _content_type,
+        _headers,
+        _host_index,
+    ) -> RequestSerialized:
+
+        _host = None
+
+        _collection_formats: Dict[str, str] = {
+        }
+
+        _path_params: Dict[str, str] = {}
+        _query_params: List[Tuple[str, str]] = []
+        _header_params: Dict[str, Optional[str]] = _headers or {}
+        _form_params: List[Tuple[str, str]] = []
+        _files: Dict[
+            str, Union[str, bytes, List[str], List[bytes], List[Tuple[str, bytes]]]
+        ] = {}
+        _body_params: Optional[bytes] = None
+
+        # process the path parameters
+        if email is not None:
+            _path_params['email'] = email
+        # process the query parameters
+        # process the header parameters
+        # process the form parameters
+        # process the body parameter
+
+
+        # set the HTTP header `Accept`
+        if 'Accept' not in _header_params:
+            _header_params['Accept'] = self.api_client.select_header_accept(
+                [
+                    'application/json'
+                ]
+            )
+
+
+        # authentication setting
+        _auth_settings: List[str] = [
+            'bearer'
+        ]
+
+        return self.api_client.param_serialize(
+            method='POST',
+            resource_path='/v1/agents/{email}/restore',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

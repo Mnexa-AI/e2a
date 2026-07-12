@@ -1,0 +1,359 @@
+package httpapi
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/Mnexa-AI/e2a/internal/identity"
+)
+
+var errUnauthorizedTest = errors.New("unauthorized")
+
+// trashCalls records which trash dep a request landed on, so tests can assert
+// the soft/permanent routing.
+type trashCalls struct {
+	softMsg, purgeMsg, restoreMsg     int
+	softAgent, hardAgent, restoreAg   int
+	lastMessageID, lastMessageAgent   string
+	lastAgentID                       string
+	lastListDeleted, lastListDeleted2 bool
+}
+
+// withTrashDeps wires happy-path fakes for every trash dep, recording calls.
+func withTrashDeps(c *trashCalls) func(*Deps) {
+	return func(d *Deps) {
+		d.DeleteMessage = func(ctx context.Context, messageID, agentID string) error {
+			c.softMsg++
+			c.lastMessageID, c.lastMessageAgent = messageID, agentID
+			return nil
+		}
+		d.PurgeMessage = func(ctx context.Context, messageID, agentID string) error {
+			c.purgeMsg++
+			c.lastMessageID, c.lastMessageAgent = messageID, agentID
+			return nil
+		}
+		d.RestoreMessage = func(ctx context.Context, messageID, agentID string) error {
+			c.restoreMsg++
+			return nil
+		}
+		d.DeleteAgent = func(ctx context.Context, agentID, userID string) error {
+			c.softAgent++
+			c.lastAgentID = agentID
+			return nil
+		}
+		d.PermanentDeleteAgent = func(ctx context.Context, agentID, userID string) (int64, error) {
+			c.hardAgent++
+			c.lastAgentID = agentID
+			return 4, nil
+		}
+		d.RestoreAgent = func(ctx context.Context, agentID, userID string) error {
+			c.restoreAg++
+			return nil
+		}
+	}
+}
+
+// trashedSampleAgent is sampleAgent moved to the trash.
+func trashedSampleAgent() identity.AgentIdentity {
+	a := sampleAgent()
+	dt := time.Unix(1700001000, 0).UTC()
+	a.DeletedAt = &dt
+	return a
+}
+
+func TestDeleteMessageMovesToTrash(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c))
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1", "good", nil)
+	if code != 204 {
+		t.Fatalf("want 204, got %d %v", code, body)
+	}
+	if c.softMsg != 1 || c.purgeMsg != 0 {
+		t.Fatalf("soft=%d purge=%d, want soft delete only", c.softMsg, c.purgeMsg)
+	}
+	if c.lastMessageID != "msg_1" || c.lastMessageAgent != "support@acme.com" {
+		t.Fatalf("dep got (%q, %q)", c.lastMessageID, c.lastMessageAgent)
+	}
+}
+
+func TestDeleteMessageHeldConflict(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.DeleteMessage = func(ctx context.Context, messageID, agentID string) error {
+			return identity.ErrMessageHeld
+		}
+	})
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_held", "good", nil)
+	if code != 409 || errCode(body) != "message_held" {
+		t.Fatalf("want 409 message_held, got %d %v", code, body)
+	}
+}
+
+func TestDeleteMessageNotFound(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.DeleteMessage = func(ctx context.Context, messageID, agentID string) error {
+			return identity.ErrMessageNotFound
+		}
+	})
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_gone", "good", nil)
+	if code != 404 || errCode(body) != "not_found" {
+		t.Fatalf("want 404 not_found, got %d %v", code, body)
+	}
+}
+
+func TestDeleteMessagePermanentRequiresConfirm(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c))
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1?permanent=true", "good", nil)
+	if code != 400 || errCode(body) != "confirmation_required" {
+		t.Fatalf("want 400 confirmation_required, got %d %v", code, body)
+	}
+	if c.purgeMsg != 0 && c.softMsg != 0 {
+		t.Fatal("no dep should be reached without confirm")
+	}
+}
+
+func TestDeleteMessagePermanent(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c))
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1?permanent=true&confirm=DELETE", "good", nil)
+	if code != 204 {
+		t.Fatalf("want 204, got %d %v", code, body)
+	}
+	if c.purgeMsg != 1 || c.softMsg != 0 {
+		t.Fatalf("soft=%d purge=%d, want purge only", c.softMsg, c.purgeMsg)
+	}
+}
+
+func TestDeleteMessagePermanentNotInTrash(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.PurgeMessage = func(ctx context.Context, messageID, agentID string) error {
+			return identity.ErrNotInTrash
+		}
+	})
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_live?permanent=true&confirm=DELETE", "good", nil)
+	if code != 409 || errCode(body) != "not_in_trash" {
+		t.Fatalf("want 409 not_in_trash, got %d %v", code, body)
+	}
+}
+
+func TestRestoreMessage(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c), func(d *Deps) {
+		d.GetMessage = func(ctx context.Context, messageID, agentID string) (*identity.Message, error) {
+			return &identity.Message{
+				ID: messageID, AgentID: agentID, Direction: "inbound",
+				Sender: "alice@gmail.com", Subject: "restored",
+				CreatedAt: time.Unix(1700000000, 0).UTC(),
+			}, nil
+		}
+	})
+	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1/restore", "good", nil)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if c.restoreMsg != 1 {
+		t.Fatalf("restore called %d times", c.restoreMsg)
+	}
+	if body["id"] != "msg_1" || body["subject"] != "restored" {
+		t.Fatalf("unexpected restored view %v", body)
+	}
+	if _, present := body["deleted_at"]; present {
+		t.Fatalf("restored view must omit deleted_at, got %v", body["deleted_at"])
+	}
+}
+
+func TestRestoreMessageNotInTrash(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.RestoreMessage = func(ctx context.Context, messageID, agentID string) error {
+			return identity.ErrNotInTrash
+		}
+	})
+	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents/support%40acme.com/messages/msg_live/restore", "good", nil)
+	if code != 409 || errCode(body) != "not_in_trash" {
+		t.Fatalf("want 409 not_in_trash, got %d %v", code, body)
+	}
+}
+
+// TestDeleteAgentDefaultIsSoft pins the routing: a plain confirmed delete
+// lands on the SOFT dep, never the permanent one.
+func TestDeleteAgentDefaultIsSoft(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c))
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com?confirm=DELETE", "good", nil)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if body["messages_deleted"] != float64(0) {
+		t.Fatalf("want messages_deleted:0, got %v", body)
+	}
+	if c.softAgent != 1 || c.hardAgent != 0 {
+		t.Fatalf("soft=%d hard=%d, want soft only", c.softAgent, c.hardAgent)
+	}
+}
+
+// TestDeleteAgentPermanentFromTrash: permanent=true resolves via the
+// any-state getter, so an agent already in the trash can be purged.
+func TestDeleteAgentPermanentFromTrash(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c), func(d *Deps) {
+		// The live getter no longer sees the agent…
+		d.GetAgent = func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			return nil, identity.ErrMessageNotFound
+		}
+		// …but the any-state getter does.
+		d.GetAgentAnyState = func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			if address == "support@acme.com" {
+				a := trashedSampleAgent()
+				return &a, nil
+			}
+			return nil, identity.ErrMessageNotFound
+		}
+	})
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com?confirm=DELETE&permanent=true", "good", nil)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if body["messages_deleted"] != float64(4) {
+		t.Fatalf("want messages_deleted:4, got %v", body)
+	}
+	if c.hardAgent != 1 || c.softAgent != 0 {
+		t.Fatalf("soft=%d hard=%d, want hard only", c.softAgent, c.hardAgent)
+	}
+}
+
+func TestRestoreAgent(t *testing.T) {
+	var c trashCalls
+	srv := testServer(t, withTrashDeps(&c), func(d *Deps) {
+		d.GetAgentAnyState = func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			a := trashedSampleAgent()
+			return &a, nil
+		}
+	})
+	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents/support%40acme.com/restore", "good", nil)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if c.restoreAg != 1 {
+		t.Fatalf("restore called %d times", c.restoreAg)
+	}
+	// The response is the LIVE re-read (sampleAgent), so no deleted_at.
+	if body["email"] != "support@acme.com" {
+		t.Fatalf("unexpected restored agent %v", body)
+	}
+	if _, present := body["deleted_at"]; present {
+		t.Fatalf("restored agent must omit deleted_at, got %v", body)
+	}
+}
+
+func TestRestoreAgentNotInTrash(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.RestoreAgent = func(ctx context.Context, agentID, userID string) error { return nil }
+		d.GetAgentAnyState = func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			a := sampleAgent() // live — DeletedAt nil
+			return &a, nil
+		}
+	})
+	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents/support%40acme.com/restore", "good", nil)
+	if code != 409 || errCode(body) != "not_in_trash" {
+		t.Fatalf("want 409 not_in_trash, got %d %v", code, body)
+	}
+}
+
+// TestListAgentsDeletedView: ?deleted=true routes to the trash lister and the
+// rows carry deleted_at.
+func TestListAgentsDeletedView(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.ListDeletedAgents = func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.AgentIdentity, error) {
+			return []identity.AgentIdentity{trashedSampleAgent()}, nil
+		}
+	})
+	code, body := sendJSON(t, "GET", srv.URL+"/v1/agents?deleted=true", "good", nil)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %v, want the one trashed agent", body)
+	}
+	row, _ := items[0].(map[string]any)
+	if row["deleted_at"] == nil || row["deleted_at"] == "" {
+		t.Fatalf("trash row missing deleted_at: %v", row)
+	}
+	// And the live list still routes to ListAgents (no deleted_at rows).
+	code, body = sendJSON(t, "GET", srv.URL+"/v1/agents", "good", nil)
+	if code != 200 {
+		t.Fatalf("live list: want 200, got %d %v", code, body)
+	}
+	items, _ = body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("live items = %v", body)
+	}
+	row, _ = items[0].(map[string]any)
+	if _, present := row["deleted_at"]; present {
+		t.Fatalf("live row must omit deleted_at: %v", row)
+	}
+}
+
+// TestListMessagesDeletedView: deleted=true reaches the store filter with
+// Deleted=true and trash-view defaults (direction=all, status=all).
+func TestListMessagesDeletedView(t *testing.T) {
+	var got identity.MessageListFilter
+	srv := testServer(t, func(d *Deps) {
+		d.ListMessages = func(ctx context.Context, f identity.MessageListFilter) ([]identity.Message, error) {
+			got = f
+			dt := time.Unix(1700001000, 0).UTC()
+			return []identity.Message{{
+				ID: "msg_t", AgentID: f.AgentID, Direction: "inbound",
+				Sender: "alice@gmail.com", Subject: "trashed",
+				CreatedAt: time.Unix(1700000000, 0).UTC(), DeletedAt: &dt,
+			}}, nil
+		}
+	})
+	code, body := sendJSON(t, "GET", srv.URL+"/v1/agents/support%40acme.com/messages?deleted=true", "good", nil)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if !got.Deleted {
+		t.Error("filter.Deleted not set")
+	}
+	if got.Direction != "all" || got.Status != "all" {
+		t.Errorf("trash-view defaults = (%q, %q), want (all, all)", got.Direction, got.Status)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %v", body)
+	}
+	row, _ := items[0].(map[string]any)
+	if row["deleted_at"] == nil {
+		t.Fatalf("trash row missing deleted_at: %v", row)
+	}
+}
+
+// TestAgentScopedCannotManageAgentTrash: the hard scope ceiling — an
+// agent-scoped credential must not restore (or permanently delete) even its
+// own agent.
+func TestAgentScopedCannotManageAgentTrash(t *testing.T) {
+	srv := testServer(t, withTrashDeps(&trashCalls{}), func(d *Deps) {
+		d.PrincipalAuthenticator = func(r *http.Request) (*identity.Principal, error) {
+			if r.Header.Get("Authorization") == "Bearer agentkey" {
+				return &identity.Principal{
+					User:    &identity.User{ID: "u_1", Email: "owner@acme.com"},
+					Scope:   identity.ScopeAgent,
+					AgentID: "support@acme.com",
+				}, nil
+			}
+			return nil, errUnauthorizedTest
+		}
+	})
+	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents/support%40acme.com/restore", "agentkey", nil)
+	if code != 403 {
+		t.Fatalf("restore by agent-scoped key: want 403, got %d %v", code, body)
+	}
+	code, body = sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com?confirm=DELETE&permanent=true", "agentkey", nil)
+	if code != 403 {
+		t.Fatalf("permanent delete by agent-scoped key: want 403, got %d %v", code, body)
+	}
+}

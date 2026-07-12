@@ -18,8 +18,8 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -28,12 +28,13 @@ class AgentView(BaseModel):
     AgentView
     """ # noqa: E501
     created_at: datetime
+    deleted_at: Optional[datetime] = Field(default=None, description="When the agent was moved to the trash. Omitted for live agents.")
     domain: StrictStr
     domain_verified: StrictBool
     email: StrictStr
     name: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "name"]
+    __properties: ClassVar[List[str]] = ["created_at", "deleted_at", "domain", "domain_verified", "email", "name"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -94,6 +95,7 @@ class AgentView(BaseModel):
 
         _obj = cls.model_validate({
             "created_at": obj.get("created_at"),
+            "deleted_at": obj.get("deleted_at"),
             "domain": obj.get("domain"),
             "domain_verified": obj.get("domain_verified"),
             "email": obj.get("email"),

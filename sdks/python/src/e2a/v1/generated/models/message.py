@@ -38,6 +38,7 @@ class Message(BaseModel):
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
+    deleted_at: Optional[datetime] = None
     delivered_to: StrictStr
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = None
@@ -74,7 +75,7 @@ class Message(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "auth", "auth_headers", "bcc", "cc", "conversation_id", "created_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "webhook_attempts", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "auth", "auth_headers", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "webhook_attempts", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -183,6 +184,7 @@ class Message(BaseModel):
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
+            "deleted_at": obj.get("deleted_at"),
             "delivered_to": obj.get("delivered_to"),
             "delivery_detail": obj.get("delivery_detail"),
             "delivery_status": obj.get("delivery_status"),

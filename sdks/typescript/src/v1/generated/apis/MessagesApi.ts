@@ -27,6 +27,66 @@ import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
 export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Delete a message (move to trash)
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     * @param permanent Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * @param confirm Must be the literal DELETE when permanent&#x3D;true.
+     */
+    public async deleteMessage(email: string, id: string, permanent?: boolean, confirm?: 'DELETE', _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("MessagesApi", "deleteMessage", "email");
+        }
+
+
+        // verify required parameter 'id' is not null or undefined
+        if (id === null || id === undefined) {
+            throw new RequiredError("MessagesApi", "deleteMessage", "id");
+        }
+
+
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{email}/messages/{id}'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
+            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.DELETE);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (permanent !== undefined) {
+            requestContext.setQueryParam("permanent", ObjectSerializer.serialize(permanent, "boolean", ""));
+        }
+
+        // Query Params
+        if (confirm !== undefined) {
+            requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
+        }
+
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
      * Forward a message
      * @param email 
@@ -210,7 +270,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
      * List messages
      * @param email 
      * @param direction Defaults to inbound.
@@ -224,14 +284,16 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param until RFC3339; created_at &lt; until.
      * @param cursor 
      * @param limit 
+     * @param deleted List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
      */
-    public async listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
+    public async listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, deleted?: boolean, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
         if (email === null || email === undefined) {
             throw new RequiredError("MessagesApi", "listMessages", "email");
         }
+
 
 
 
@@ -306,6 +368,11 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         // Query Params
         if (limit !== undefined) {
             requestContext.setQueryParam("limit", ObjectSerializer.serialize(limit, "number", "int64"));
+        }
+
+        // Query Params
+        if (deleted !== undefined) {
+            requestContext.setQueryParam("deleted", ObjectSerializer.serialize(deleted, "boolean", ""));
         }
 
 
@@ -384,6 +451,52 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
             contentType
         );
         requestContext.setBody(serializedBody);
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Restore a message from the trash
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     */
+    public async restoreMessage(email: string, id: string, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("MessagesApi", "restoreMessage", "email");
+        }
+
+
+        // verify required parameter 'id' is not null or undefined
+        if (id === null || id === undefined) {
+            throw new RequiredError("MessagesApi", "restoreMessage", "id");
+        }
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{email}/messages/{id}/restore'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
+            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
 
         let authMethod: SecurityAuthentication | undefined;
         // Apply auth methods
@@ -535,6 +648,38 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 }
 
 export class MessagesApiResponseProcessor {
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to deleteMessage
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async deleteMessageWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("204", response.httpStatusCode)) {
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: void = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "void", ""
+            ) as void;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
 
     /**
      * Unwraps the actual response sent by the server from the response context and deserializes the response content
@@ -815,6 +960,42 @@ export class MessagesApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "SendResultView", ""
             ) as SendResultView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to restoreMessage
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async restoreMessageWithHttpInfo(response: ResponseContext): Promise<HttpInfo<MessageView >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: MessageView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "MessageView", ""
+            ) as MessageView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: MessageView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "MessageView", ""
+            ) as MessageView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

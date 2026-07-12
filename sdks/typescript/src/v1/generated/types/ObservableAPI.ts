@@ -473,15 +473,16 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
      * @param confirm Must be the literal DELETE — this action is irreversible.
+     * @param [permanent] Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
      */
-    public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteAgentResult>> {
+    public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', permanent?: boolean, _options?: ConfigurationOptions): Observable<HttpInfo<DeleteAgentResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.deleteAgent(email, confirm, _config);
+        const requestContextPromise = this.requestFactory.deleteAgent(email, confirm, permanent, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -499,13 +500,14 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
      * @param confirm Must be the literal DELETE — this action is irreversible.
+     * @param [permanent] Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
      */
-    public deleteAgent(email: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteAgentResult> {
-        return this.deleteAgentWithHttpInfo(email, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteAgentResult>) => apiResponse.data));
+    public deleteAgent(email: string, confirm: 'DELETE', permanent?: boolean, _options?: ConfigurationOptions): Observable<DeleteAgentResult> {
+        return this.deleteAgentWithHttpInfo(email, confirm, permanent, _options).pipe(map((apiResponse: HttpInfo<DeleteAgentResult>) => apiResponse.data));
     }
 
     /**
@@ -577,15 +579,16 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account, newest first, with cursor pagination.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
+     * @param [deleted] List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
      */
-    public listAgentsWithHttpInfo(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageAgentView>> {
+    public listAgentsWithHttpInfo(cursor?: string, limit?: number, deleted?: boolean, _options?: ConfigurationOptions): Observable<HttpInfo<PageAgentView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listAgents(cursor, limit, _config);
+        const requestContextPromise = this.requestFactory.listAgents(cursor, limit, deleted, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -603,13 +606,14 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * List the agents owned by the authenticated account, newest first, with cursor pagination.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
      * List agents
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param [limit] Maximum number of items to return (1-100).
+     * @param [deleted] List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
      */
-    public listAgents(cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageAgentView> {
-        return this.listAgentsWithHttpInfo(cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageAgentView>) => apiResponse.data));
+    public listAgents(cursor?: string, limit?: number, deleted?: boolean, _options?: ConfigurationOptions): Observable<PageAgentView> {
+        return this.listAgentsWithHttpInfo(cursor, limit, deleted, _options).pipe(map((apiResponse: HttpInfo<PageAgentView>) => apiResponse.data));
     }
 
     /**
@@ -646,6 +650,40 @@ export class ObservableAgentsApi {
      */
     public putAgentProtection(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: ConfigurationOptions): Observable<ProtectionConfigView> {
         return this.putAgentProtectionWithHttpInfo(email, protectionConfigRequest, _options).pipe(map((apiResponse: HttpInfo<ProtectionConfigView>) => apiResponse.data));
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Restore an agent from the trash
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
+     */
+    public restoreAgentWithHttpInfo(email: string, _options?: ConfigurationOptions): Observable<HttpInfo<AgentView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.restoreAgent(email, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.restoreAgentWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Restore an agent from the trash
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
+     */
+    public restoreAgent(email: string, _options?: ConfigurationOptions): Observable<AgentView> {
+        return this.restoreAgentWithHttpInfo(email, _options).pipe(map((apiResponse: HttpInfo<AgentView>) => apiResponse.data));
     }
 
     /**
@@ -1155,6 +1193,46 @@ export class ObservableMessagesApi {
     }
 
     /**
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Delete a message (move to trash)
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
+     */
+    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.deleteMessage(email, id, permanent, confirm, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.deleteMessageWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Delete a message (move to trash)
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE.
+     * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
+     */
+    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
+        return this.deleteMessageWithHttpInfo(email, id, permanent, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    }
+
+    /**
      * Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
      * Forward a message
      * @param email
@@ -1273,7 +1351,7 @@ export class ObservableMessagesApi {
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
      * List messages
      * @param email
      * @param [direction] Defaults to inbound.
@@ -1287,11 +1365,12 @@ export class ObservableMessagesApi {
      * @param [until] RFC3339; created_at &lt; until.
      * @param [cursor]
      * @param [limit]
+     * @param [deleted] List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
      */
-    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageMessageSummaryView>> {
+    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, deleted?: boolean, _options?: ConfigurationOptions): Observable<HttpInfo<PageMessageSummaryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listMessages(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, _config);
+        const requestContextPromise = this.requestFactory.listMessages(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, deleted, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1309,7 +1388,7 @@ export class ObservableMessagesApi {
     }
 
     /**
-     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+     * List an agent\'s messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
      * List messages
      * @param email
      * @param [direction] Defaults to inbound.
@@ -1323,9 +1402,10 @@ export class ObservableMessagesApi {
      * @param [until] RFC3339; created_at &lt; until.
      * @param [cursor]
      * @param [limit]
+     * @param [deleted] List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
      */
-    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageMessageSummaryView> {
-        return this.listMessagesWithHttpInfo(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageMessageSummaryView>) => apiResponse.data));
+    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, deleted?: boolean, _options?: ConfigurationOptions): Observable<PageMessageSummaryView> {
+        return this.listMessagesWithHttpInfo(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, deleted, _options).pipe(map((apiResponse: HttpInfo<PageMessageSummaryView>) => apiResponse.data));
     }
 
     /**
@@ -1368,6 +1448,42 @@ export class ObservableMessagesApi {
      */
     public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
         return this.replyToMessageWithHttpInfo(email, id, replyRequest, idempotencyKey, wait, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Restore a message from the trash
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     */
+    public restoreMessageWithHttpInfo(email: string, id: string, _options?: ConfigurationOptions): Observable<HttpInfo<MessageView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.restoreMessage(email, id, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.restoreMessageWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Restore a message from the trash
+     * @param email The agent\&#39;s full email address.
+     * @param id The message id, e.g. msg_abc123.
+     */
+    public restoreMessage(email: string, id: string, _options?: ConfigurationOptions): Observable<MessageView> {
+        return this.restoreMessageWithHttpInfo(email, id, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
     }
 
     /**

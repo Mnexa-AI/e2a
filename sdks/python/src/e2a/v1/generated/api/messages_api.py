@@ -48,6 +48,316 @@ class MessagesApi:
 
 
     @validate_call
+    async def delete_message(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.")] = None,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> None:
+        """Delete a message (move to trash)
+
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+
+        :param email: The agent's full email address. (required)
+        :type email: str
+        :param id: The message id, e.g. msg_abc123. (required)
+        :type id: str
+        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+        :type permanent: bool
+        :param confirm: Must be the literal DELETE when permanent=true.
+        :type confirm: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._delete_message_serialize(
+            email=email,
+            id=id,
+            permanent=permanent,
+            confirm=confirm,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '204': None,
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        ).data
+
+
+    @validate_call
+    async def delete_message_with_http_info(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.")] = None,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> ApiResponse[None]:
+        """Delete a message (move to trash)
+
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+
+        :param email: The agent's full email address. (required)
+        :type email: str
+        :param id: The message id, e.g. msg_abc123. (required)
+        :type id: str
+        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+        :type permanent: bool
+        :param confirm: Must be the literal DELETE when permanent=true.
+        :type confirm: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._delete_message_serialize(
+            email=email,
+            id=id,
+            permanent=permanent,
+            confirm=confirm,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '204': None,
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        )
+
+
+    @validate_call
+    async def delete_message_without_preload_content(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.")] = None,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> RESTResponseType:
+        """Delete a message (move to trash)
+
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+
+        :param email: The agent's full email address. (required)
+        :type email: str
+        :param id: The message id, e.g. msg_abc123. (required)
+        :type id: str
+        :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE.
+        :type permanent: bool
+        :param confirm: Must be the literal DELETE when permanent=true.
+        :type confirm: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._delete_message_serialize(
+            email=email,
+            id=id,
+            permanent=permanent,
+            confirm=confirm,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '204': None,
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        return response_data.response
+
+
+    def _delete_message_serialize(
+        self,
+        email,
+        id,
+        permanent,
+        confirm,
+        _request_auth,
+        _content_type,
+        _headers,
+        _host_index,
+    ) -> RequestSerialized:
+
+        _host = None
+
+        _collection_formats: Dict[str, str] = {
+        }
+
+        _path_params: Dict[str, str] = {}
+        _query_params: List[Tuple[str, str]] = []
+        _header_params: Dict[str, Optional[str]] = _headers or {}
+        _form_params: List[Tuple[str, str]] = []
+        _files: Dict[
+            str, Union[str, bytes, List[str], List[bytes], List[Tuple[str, bytes]]]
+        ] = {}
+        _body_params: Optional[bytes] = None
+
+        # process the path parameters
+        if email is not None:
+            _path_params['email'] = email
+        if id is not None:
+            _path_params['id'] = id
+        # process the query parameters
+        if permanent is not None:
+            
+            _query_params.append(('permanent', permanent))
+            
+        if confirm is not None:
+            
+            _query_params.append(('confirm', confirm))
+            
+        # process the header parameters
+        # process the form parameters
+        # process the body parameter
+
+
+        # set the HTTP header `Accept`
+        if 'Accept' not in _header_params:
+            _header_params['Accept'] = self.api_client.select_header_accept(
+                [
+                    'application/json'
+                ]
+            )
+
+
+        # authentication setting
+        _auth_settings: List[str] = [
+            'bearer'
+        ]
+
+        return self.api_client.param_serialize(
+            method='DELETE',
+            resource_path='/v1/agents/{email}/messages/{id}',
+            path_params=_path_params,
+            query_params=_query_params,
+            header_params=_header_params,
+            body=_body_params,
+            post_params=_form_params,
+            files=_files,
+            auth_settings=_auth_settings,
+            collection_formats=_collection_formats,
+            _host=_host,
+            _request_auth=_request_auth
+        )
+
+
+
+
+    @validate_call
     async def forward_message(
         self,
         email: StrictStr,
@@ -1006,6 +1316,7 @@ class MessagesApi:
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1021,7 +1332,7 @@ class MessagesApi:
     ) -> PageMessageSummaryView:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
 
         :param email: (required)
         :type email: str
@@ -1047,6 +1358,8 @@ class MessagesApi:
         :type cursor: str
         :param limit:
         :type limit: int
+        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
+        :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1082,6 +1395,7 @@ class MessagesApi:
             until=until,
             cursor=cursor,
             limit=limit,
+            deleted=deleted,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1117,6 +1431,7 @@ class MessagesApi:
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1132,7 +1447,7 @@ class MessagesApi:
     ) -> ApiResponse[PageMessageSummaryView]:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
 
         :param email: (required)
         :type email: str
@@ -1158,6 +1473,8 @@ class MessagesApi:
         :type cursor: str
         :param limit:
         :type limit: int
+        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
+        :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1193,6 +1510,7 @@ class MessagesApi:
             until=until,
             cursor=cursor,
             limit=limit,
+            deleted=deleted,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1228,6 +1546,7 @@ class MessagesApi:
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1243,7 +1562,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
 
         :param email: (required)
         :type email: str
@@ -1269,6 +1588,8 @@ class MessagesApi:
         :type cursor: str
         :param limit:
         :type limit: int
+        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
+        :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -1304,6 +1625,7 @@ class MessagesApi:
             until=until,
             cursor=cursor,
             limit=limit,
+            deleted=deleted,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -1334,6 +1656,7 @@ class MessagesApi:
         until,
         cursor,
         limit,
+        deleted,
         _request_auth,
         _content_type,
         _headers,
@@ -1402,6 +1725,10 @@ class MessagesApi:
         if limit is not None:
             
             _query_params.append(('limit', limit))
+            
+        if deleted is not None:
+            
+            _query_params.append(('deleted', deleted))
             
         # process the header parameters
         # process the form parameters
@@ -1782,6 +2109,282 @@ class MessagesApi:
         return self.api_client.param_serialize(
             method='POST',
             resource_path='/v1/agents/{email}/messages/{id}/reply',
+            path_params=_path_params,
+            query_params=_query_params,
+            header_params=_header_params,
+            body=_body_params,
+            post_params=_form_params,
+            files=_files,
+            auth_settings=_auth_settings,
+            collection_formats=_collection_formats,
+            _host=_host,
+            _request_auth=_request_auth
+        )
+
+
+
+
+    @validate_call
+    async def restore_message(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> MessageView:
+        """Restore a message from the trash
+
+        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+
+        :param email: The agent's full email address. (required)
+        :type email: str
+        :param id: The message id, e.g. msg_abc123. (required)
+        :type id: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._restore_message_serialize(
+            email=email,
+            id=id,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "MessageView",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        ).data
+
+
+    @validate_call
+    async def restore_message_with_http_info(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> ApiResponse[MessageView]:
+        """Restore a message from the trash
+
+        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+
+        :param email: The agent's full email address. (required)
+        :type email: str
+        :param id: The message id, e.g. msg_abc123. (required)
+        :type id: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._restore_message_serialize(
+            email=email,
+            id=id,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "MessageView",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        await response_data.read()
+        return self.api_client.response_deserialize(
+            response_data=response_data,
+            response_types_map=_response_types_map,
+        )
+
+
+    @validate_call
+    async def restore_message_without_preload_content(
+        self,
+        email: Annotated[StrictStr, Field(description="The agent's full email address.")],
+        id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
+        _request_timeout: Union[
+            None,
+            Annotated[StrictFloat, Field(gt=0)],
+            Tuple[
+                Annotated[StrictFloat, Field(gt=0)],
+                Annotated[StrictFloat, Field(gt=0)]
+            ]
+        ] = None,
+        _request_auth: Optional[Dict[StrictStr, Any]] = None,
+        _content_type: Optional[StrictStr] = None,
+        _headers: Optional[Dict[StrictStr, Any]] = None,
+        _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
+    ) -> RESTResponseType:
+        """Restore a message from the trash
+
+        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+
+        :param email: The agent's full email address. (required)
+        :type email: str
+        :param id: The message id, e.g. msg_abc123. (required)
+        :type id: str
+        :param _request_timeout: timeout setting for this request. If one
+                                 number provided, it will be total request
+                                 timeout. It can also be a pair (tuple) of
+                                 (connection, read) timeouts.
+        :type _request_timeout: int, tuple(int, int), optional
+        :param _request_auth: set to override the auth_settings for an a single
+                              request; this effectively ignores the
+                              authentication in the spec for a single request.
+        :type _request_auth: dict, optional
+        :param _content_type: force content-type for the request.
+        :type _content_type: str, Optional
+        :param _headers: set to override the headers for a single
+                         request; this effectively ignores the headers
+                         in the spec for a single request.
+        :type _headers: dict, optional
+        :param _host_index: set to override the host_index for a single
+                            request; this effectively ignores the host_index
+                            in the spec for a single request.
+        :type _host_index: int, optional
+        :return: Returns the result object.
+        """ # noqa: E501
+
+        _param = self._restore_message_serialize(
+            email=email,
+            id=id,
+            _request_auth=_request_auth,
+            _content_type=_content_type,
+            _headers=_headers,
+            _host_index=_host_index
+        )
+
+        _response_types_map: Dict[str, Optional[str]] = {
+            '200': "MessageView",
+        }
+        response_data = await self.api_client.call_api(
+            *_param,
+            _request_timeout=_request_timeout
+        )
+        return response_data.response
+
+
+    def _restore_message_serialize(
+        self,
+        email,
+        id,
+        _request_auth,
+        _content_type,
+        _headers,
+        _host_index,
+    ) -> RequestSerialized:
+
+        _host = None
+
+        _collection_formats: Dict[str, str] = {
+        }
+
+        _path_params: Dict[str, str] = {}
+        _query_params: List[Tuple[str, str]] = []
+        _header_params: Dict[str, Optional[str]] = _headers or {}
+        _form_params: List[Tuple[str, str]] = []
+        _files: Dict[
+            str, Union[str, bytes, List[str], List[bytes], List[Tuple[str, bytes]]]
+        ] = {}
+        _body_params: Optional[bytes] = None
+
+        # process the path parameters
+        if email is not None:
+            _path_params['email'] = email
+        if id is not None:
+            _path_params['id'] = id
+        # process the query parameters
+        # process the header parameters
+        # process the form parameters
+        # process the body parameter
+
+
+        # set the HTTP header `Accept`
+        if 'Accept' not in _header_params:
+            _header_params['Accept'] = self.api_client.select_header_accept(
+                [
+                    'application/json'
+                ]
+            )
+
+
+        # authentication setting
+        _auth_settings: List[str] = [
+            'bearer'
+        ]
+
+        return self.api_client.param_serialize(
+            method='POST',
+            resource_path='/v1/agents/{email}/messages/{id}/restore',
             path_params=_path_params,
             query_params=_query_params,
             header_params=_header_params,

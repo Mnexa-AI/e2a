@@ -41,7 +41,8 @@ func (s *Store) ListReviews(ctx context.Context, userID string, limit int, after
 	        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
 	   FROM messages m
 	   JOIN agent_identities a ON a.id = m.agent_id
-	  WHERE a.user_id = $1 AND m.status = 'pending_review' AND m.expires_at > now()`
+	  WHERE a.user_id = $1 AND a.deleted_at IS NULL
+	    AND m.status = 'pending_review' AND m.expires_at > now()`
 	args := []interface{}{userID}
 	if !afterCreatedAt.IsZero() {
 		i := len(args) + 1
@@ -88,7 +89,7 @@ func (s *Store) GetReviewWithContent(ctx context.Context, userID, messageID stri
 		   FROM messages m
 		   JOIN agent_identities a ON a.id = m.agent_id
 		   LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
-		  WHERE m.id = $1 AND a.user_id = $2 AND m.expires_at > now()`,
+		  WHERE m.id = $1 AND a.user_id = $2 AND a.deleted_at IS NULL AND m.expires_at > now()`,
 		messageID, userID,
 	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
 	if err != nil {
@@ -180,6 +181,7 @@ func (s *Store) ListExpiredReviews(ctx context.Context, limit int) ([]Expiration
 		 JOIN agent_identities a ON a.id = m.agent_id
 		 WHERE m.status = 'pending_review' AND m.direction = 'inbound'
 		   AND m.approval_expires_at < now()
+		   AND a.deleted_at IS NULL
 		 ORDER BY m.approval_expires_at ASC
 		 LIMIT $1`, limit,
 	)

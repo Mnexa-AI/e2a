@@ -77,6 +77,11 @@ type MessageView struct {
 	// two messages in the same second would otherwise be indistinguishable on the
 	// wire even though the cursor orders them at finer granularity.
 	CreatedAt time.Time `json:"created_at" format:"date-time"`
+	// DeletedAt marks a message in the trash (soft-deleted): set when it was
+	// moved there, omitted on live messages. Trashed messages appear only in
+	// the deleted=true list view and this single-message get; they are purged
+	// ~30 days after deletion (docs/design/trash-soft-delete.md).
+	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages."`
 	// AuthHeaders is the raw X-E2A-Auth-* blob — a convenience copy, optional
 	// (MSG-12): omitted on outbound, where there is no inbound verdict. `auth`
 	// (AuthVerdict) is the primary, structured verdict.
@@ -159,6 +164,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		Status:      m.InboxStatus,
 		Labels:      orEmptyStrings(m.Labels),
 		CreatedAt:   m.CreatedAt.UTC(),
+		DeletedAt:   utcTimePtr(m.DeletedAt),
 		AuthHeaders: m.AuthHeaders,
 		Auth:        authVerdict(m.Auth),
 		RawMessage:  m.RawMessage,
@@ -263,9 +269,22 @@ type MessageSummaryView struct {
 	// CreatedAt is the keyset pagination ordering key, emitted at full RFC3339Nano
 	// precision (time.Time) so sub-second ordering is visible on the wire.
 	CreatedAt time.Time `json:"created_at" format:"date-time"`
+	// DeletedAt marks a message in the trash — set on rows of the deleted=true
+	// list view, omitted on live messages. See MessageView.DeletedAt.
+	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages."`
 	// Auth is the structured inbound authentication verdict (migration 032).
 	// Inbound-only; omitted on outbound rows.
 	Auth *AuthVerdict `json:"auth,omitempty"`
+}
+
+// utcTimePtr normalizes an optional timestamp to UTC (nil-safe), mirroring
+// the .UTC() every non-pointer timestamp on the surface gets.
+func utcTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 // AuthVerdict is the wire schema for the structured inbound auth verdict
@@ -310,6 +329,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		SizeBytes:      m.SizeBytes,
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC(),
+		DeletedAt:      utcTimePtr(m.DeletedAt),
 		Auth:           authVerdict(m.Auth),
 		Flagged:        m.Flagged,
 		FlagReason:     m.FlagReason,
@@ -344,6 +364,7 @@ type ListMessagesInput struct {
 	Until           string   `query:"until" doc:"RFC3339; created_at < until."`
 	Cursor          string   `query:"cursor"`
 	Limit           int      `query:"limit" minimum:"1" maximum:"100" default:"100"`
+	Deleted         bool     `query:"deleted" doc:"List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only)."`
 }
 
 type listMessagesOutput struct {
@@ -366,6 +387,7 @@ type messagesCursor struct {
 	Since           string    `json:"sn,omitempty"`
 	Until           string    `json:"un,omitempty"`
 	Labels          []string  `json:"lb,omitempty"`
+	Deleted         bool      `json:"dl,omitempty"`
 }
 
 func (s *Server) registerMessages() {
@@ -374,10 +396,33 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages",
 		Summary:     "List messages",
-		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review.",
+		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleListMessages)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID:   "deleteMessage",
+		Method:        http.MethodDelete,
+		Path:          "/v1/agents/{email}/messages/{id}",
+		Summary:       "Delete a message (move to trash)",
+		Description:   "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
+		Tags:          []string{"messages"},
+		Security:      []map[string][]string{{"bearer": {}}},
+		DefaultStatus: http.StatusNoContent,
+		Extensions:    experimental(),
+	}, s.handleDeleteMessage)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "restoreMessage",
+		Method:      http.MethodPost,
+		Path:        "/v1/agents/{email}/messages/{id}/restore",
+		Summary:     "Restore a message from the trash",
+		Description: "Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.",
+		Tags:        []string{"messages"},
+		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
+	}, s.handleRestoreMessage)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getMessage",
@@ -476,6 +521,85 @@ func (s *Server) handleUpdateMessage(ctx context.Context, in *updateMessageInput
 	return &updateMessageOutput{Body: UpdateMessageResultView{MessageID: in.ID, Labels: orEmptyStrings(final)}}, nil
 }
 
+// deleteMessageInput is the DELETE …/messages/{id} input. The default delete
+// is SOFT (trash, reversible) so it needs no confirmation; the trash-only
+// permanent purge requires both permanent=true and the uniform confirm=DELETE
+// literal (validated in the handler — confirm can't be schema-required here
+// because the default path doesn't take it).
+type deleteMessageInput struct {
+	MessageIDParam
+	Permanent bool   `query:"permanent" doc:"Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE."`
+	Confirm   string `query:"confirm" enum:"DELETE" doc:"Must be the literal DELETE when permanent=true."`
+}
+
+type deleteMessageOutput struct{}
+
+// mapTrashErr converts the store's trash sentinel errors to the wire envelope.
+func mapTrashErr(err error, resource string) error {
+	switch {
+	case errors.Is(err, identity.ErrMessageNotFound):
+		return NewError(http.StatusNotFound, "not_found", resource+" not found")
+	case errors.Is(err, identity.ErrMessageHeld):
+		return NewError(http.StatusConflict, "message_held",
+			"message is held for review — approve or reject it in the review queue first")
+	case errors.Is(err, identity.ErrNotInTrash):
+		return NewError(http.StatusConflict, "not_in_trash", resource+" is not in the trash")
+	default:
+		return NewError(http.StatusInternalServerError, "internal_error", "operation failed")
+	}
+}
+
+// handleDeleteMessage moves a message to the trash (default), or permanently
+// purges an already-trashed one (permanent=true&confirm=DELETE). Per-agent
+// operation like labels: an agent-scoped credential may manage its own
+// messages' trash (resolveOwnedAgent pins it to its bound agent).
+func (s *Server) handleDeleteMessage(ctx context.Context, in *deleteMessageInput) (*deleteMessageOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	if in.Permanent {
+		if in.Confirm != "DELETE" {
+			return nil, NewError(http.StatusBadRequest, "confirmation_required",
+				"permanent deletion is irreversible — pass confirm=DELETE")
+		}
+		if s.deps.PurgeMessage == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
+		}
+		if err := s.deps.PurgeMessage(ctx, in.MessageID, ag.ID); err != nil {
+			return nil, mapTrashErr(err, "message")
+		}
+		return &deleteMessageOutput{}, nil
+	}
+	if s.deps.DeleteMessage == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
+	}
+	if err := s.deps.DeleteMessage(ctx, in.MessageID, ag.ID); err != nil {
+		return nil, mapTrashErr(err, "message")
+	}
+	return &deleteMessageOutput{}, nil
+}
+
+// handleRestoreMessage brings a trashed message back to the inbox and returns
+// the restored message view. Per-agent operation, like delete.
+func (s *Server) handleRestoreMessage(ctx context.Context, in *MessageIDParam) (*messageOutput, error) {
+	ag, err := s.resolveOwnedAgent(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.RestoreMessage == nil || s.deps.GetMessage == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "restore unavailable")
+	}
+	if err := s.deps.RestoreMessage(ctx, in.MessageID, ag.ID); err != nil {
+		return nil, mapTrashErr(err, "message")
+	}
+	msg, err := s.deps.GetMessage(ctx, in.MessageID, ag.ID)
+	if err != nil || msg == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to reload message")
+	}
+	return &messageOutput{Body: messageViewFromIdentity(msg)}, nil
+}
+
 // handleListMessages ports the legacy list handler: same filter semantics
 // and defaults, but the standardized cursor envelope. Validation failures
 // return the machine-branchable error envelope.
@@ -488,16 +612,22 @@ func (s *Server) handleListMessages(ctx context.Context, in *ListMessagesInput) 
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "message list unavailable")
 	}
 
-	// Direction (default inbound for SDK back-compat).
+	// Direction (default inbound for SDK back-compat; the trash view defaults
+	// to all — a trash shows everything you deleted, either direction).
 	direction := in.Direction
 	if direction == "" {
-		direction = "inbound"
+		if in.Deleted {
+			direction = "all"
+		} else {
+			direction = "inbound"
+		}
 	}
 
-	// Status default depends on direction; only meaningful for inbound.
+	// Status default depends on direction; only meaningful for inbound. The
+	// trash view defaults to all — read state is irrelevant to a trash listing.
 	status := in.Status
 	if status == "" {
-		if direction == "inbound" {
+		if direction == "inbound" && !in.Deleted {
 			status = "unread"
 		} else {
 			status = "all"
@@ -560,6 +690,7 @@ func (s *Server) handleListMessages(ctx context.Context, in *ListMessagesInput) 
 			cur.From != in.From || cur.SubjectContains != in.SubjectContains ||
 			cur.ConversationID != in.ConversationID ||
 			cur.Since != rfc3339OrEmpty(since) || cur.Until != rfc3339OrEmpty(until) ||
+			cur.Deleted != in.Deleted ||
 			!stringSlicesEqual(cur.Labels, labelsFilter) {
 			return nil, NewError(http.StatusBadRequest, "invalid_cursor",
 				"cursor was created with different filters — start a new query without a cursor")
@@ -588,6 +719,7 @@ func (s *Server) handleListMessages(ctx context.Context, in *ListMessagesInput) 
 		Since:           since,
 		Until:           until,
 		Labels:          labelsFilter,
+		Deleted:         in.Deleted,
 	})
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to fetch messages")
@@ -610,6 +742,7 @@ func (s *Server) handleListMessages(ctx context.Context, in *ListMessagesInput) 
 			Status: status, Direction: direction, AgentID: ag.ID, Sort: sort,
 			From: in.From, SubjectContains: in.SubjectContains, ConversationID: in.ConversationID,
 			Since: rfc3339OrEmpty(since), Until: rfc3339OrEmpty(until), Labels: labelsFilter,
+			Deleted: in.Deleted,
 		})
 		if err != nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")

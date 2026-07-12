@@ -56,7 +56,7 @@ func scopeTestServer(t *testing.T) *httptest.Server {
 		UpdateAgentProtection: func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error {
 			return nil
 		},
-		DeleteAgent: func(ctx context.Context, agentID, userID string) (int64, error) { return 0, nil },
+		DeleteAgent: func(ctx context.Context, agentID, userID string) error { return nil },
 		Legacy:      http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }),
 	}
 	srv := httptest.NewServer(New(deps))

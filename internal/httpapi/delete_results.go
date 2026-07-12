@@ -23,13 +23,14 @@ package httpapi
 // STRING enum (`True = 'true'`), so the always-true contract lives in the
 // field docs instead.)
 
-// DeleteAgentResult confirms an agent delete. Carries the cascade receipt:
-// messages_deleted is the number of message rows removed with the agent
-// (webhook-delivery rows cascade from those and are not counted separately).
+// DeleteAgentResult confirms an agent delete. For a soft delete the agent is
+// inactive in trash and messages_deleted is zero. For a permanent delete it
+// is the number of message rows removed with the agent (webhook-delivery rows
+// cascade from those and are not counted separately).
 type DeleteAgentResult struct {
-	Deleted         bool   `json:"deleted" doc:"Always true — the agent no longer exists. A failed delete is an error envelope, never deleted:false."`
+	Deleted         bool   `json:"deleted" doc:"Always true — the agent is no longer active. A failed delete is an error envelope, never deleted:false."`
 	Email           string `json:"email" doc:"Email address of the deleted agent."`
-	MessagesDeleted int64  `json:"messages_deleted" doc:"Number of messages removed by the cascade (webhook-delivery records cascade from these)."`
+	MessagesDeleted int64  `json:"messages_deleted" doc:"Number of messages permanently removed by the cascade; zero when the agent is moved to trash."`
 } // @name DeleteAgentResult
 
 // DeleteDomainResult confirms a domain delete.

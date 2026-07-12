@@ -74,12 +74,13 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email 
      * @param confirm Must be the literal DELETE — this action is irreversible.
+     * @param permanent Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
      */
-    public async deleteAgent(email: string, confirm: 'DELETE', _options?: Configuration): Promise<RequestContext> {
+    public async deleteAgent(email: string, confirm: 'DELETE', permanent?: boolean, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -94,6 +95,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         }
 
 
+
         // Path Params
         const localVarPath = '/v1/agents/{email}'
             .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
@@ -105,6 +107,11 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         // Query Params
         if (confirm !== undefined) {
             requestContext.setQueryParam("confirm", ObjectSerializer.serialize(confirm, "'DELETE'", ""));
+        }
+
+        // Query Params
+        if (permanent !== undefined) {
+            requestContext.setQueryParam("permanent", ObjectSerializer.serialize(permanent, "boolean", ""));
         }
 
 
@@ -200,13 +207,15 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * List the agents owned by the authenticated account, newest first, with cursor pagination.
+     * List the agents owned by the authenticated account, newest first, with cursor pagination. Pass deleted=true for the trash (soft-deleted agents, restorable until purged).
      * List agents
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param limit Maximum number of items to return (1-100).
+     * @param deleted List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
      */
-    public async listAgents(cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
+    public async listAgents(cursor?: string, limit?: number, deleted?: boolean, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
+
 
 
 
@@ -225,6 +234,11 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         // Query Params
         if (limit !== undefined) {
             requestContext.setQueryParam("limit", ObjectSerializer.serialize(limit, "number", "int64"));
+        }
+
+        // Query Params
+        if (deleted !== undefined) {
+            requestContext.setQueryParam("deleted", ObjectSerializer.serialize(deleted, "boolean", ""));
         }
 
 
@@ -283,6 +297,44 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
             contentType
         );
         requestContext.setBody(serializedBody);
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Restore an agent from the trash
+     * @param email The agent\&#39;s full email address, e.g. support@acme.com.
+     */
+    public async restoreAgent(email: string, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("AgentsApi", "restoreAgent", "email");
+        }
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{email}/restore'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.POST);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
 
         let authMethod: SecurityAuthentication | undefined;
         // Apply auth methods
@@ -621,6 +673,42 @@ export class AgentsApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ProtectionConfigView", ""
             ) as ProtectionConfigView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to restoreAgent
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async restoreAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<AgentView >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: AgentView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "AgentView", ""
+            ) as AgentView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: AgentView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "AgentView", ""
+            ) as AgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

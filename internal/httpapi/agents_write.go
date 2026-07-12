@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -101,10 +102,21 @@ func (s *Server) registerAgentWrites() {
 		Method:      http.MethodDelete,
 		Path:        "/v1/agents/{email}",
 		Summary:     "Delete an agent",
-		Description: "Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.",
+		Description: "Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.",
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteAgent)
+
+	huma.Register(s.API, huma.Operation{
+		OperationID: "restoreAgent",
+		Method:      http.MethodPost,
+		Path:        "/v1/agents/{email}/restore",
+		Summary:     "Restore an agent from the trash",
+		Description: "Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.",
+		Tags:        []string{"agents"},
+		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
+	}, s.handleRestoreAgent)
 }
 
 // UpdateAgentRequest is the /v1 agent PATCH body. The per-agent screening/HITL
@@ -153,11 +165,15 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 type deleteAgentOutput struct{ Body DeleteAgentResult }
 
 // deleteAgentInput adds the confirmation guard (AG-6). Deleting an agent
-// discards held drafts and revokes its credentials, so it requires
-// ?confirm=DELETE — uniform with every other delete op (see DeleteConfirm).
+// takes it out of service immediately (held drafts leave the review queue,
+// its credentials stop resolving), so it requires ?confirm=DELETE — uniform
+// with every other delete op (see DeleteConfirm). The default delete is SOFT
+// (trash, restorable for 30 days); permanent=true is the irreversible hard
+// delete and also accepts an agent already in the trash ("delete forever").
 type deleteAgentInput struct {
 	Address string `path:"email"`
 	DeleteConfirm
+	Permanent bool `query:"permanent" doc:"Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents."`
 }
 
 func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*deleteAgentOutput, error) {
@@ -166,25 +182,75 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 	if _, err := s.requireAccountScope(ctx); err != nil {
 		return nil, err
 	}
+	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
+	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
+	if in.Permanent {
+		// Delete forever: resolve across trash state so an agent can be purged
+		// from the trash view.
+		ag, err := s.resolveOwnedAgentAnyState(ctx, in.Address)
+		if err != nil {
+			return nil, err
+		}
+		if s.deps.PermanentDeleteAgent == nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
+		}
+		messagesDeleted, err := s.deps.PermanentDeleteAgent(ctx, ag.ID, ag.UserID)
+		if err != nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
+		}
+		return &deleteAgentOutput{Body: DeleteAgentResult{
+			Deleted:         true,
+			Email:           ag.ID,
+			MessagesDeleted: messagesDeleted,
+		}}, nil
+	}
 	ag, err := s.resolveOwnedAgent(ctx, in.Address)
 	if err != nil {
 		return nil, err
 	}
-	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
-	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
 	if s.deps.DeleteAgent == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
 	}
-	messagesDeleted, err := s.deps.DeleteAgent(ctx, ag.ID, ag.UserID)
-	if err != nil {
+	if err := s.deps.DeleteAgent(ctx, ag.ID, ag.UserID); err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
 	}
 	// ag.ID is the agent's email (canonical form) — echo it as the identity key.
 	return &deleteAgentOutput{Body: DeleteAgentResult{
 		Deleted:         true,
 		Email:           ag.ID,
-		MessagesDeleted: messagesDeleted,
+		MessagesDeleted: 0,
 	}}, nil
+}
+
+// handleRestoreAgent brings a trashed agent back (POST
+// /v1/agents/{email}/restore). Account administration, like delete.
+func (s *Server) handleRestoreAgent(ctx context.Context, in *AddressParam) (*agentOutput, error) {
+	if _, err := s.requireAccountScope(ctx); err != nil {
+		return nil, err
+	}
+	if s.deps.RestoreAgent == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "restore unavailable")
+	}
+	ag, err := s.resolveOwnedAgentAnyState(ctx, in.Address)
+	if err != nil {
+		return nil, err
+	}
+	if ag.DeletedAt == nil {
+		return nil, NewError(http.StatusConflict, "not_in_trash", "agent is not in the trash")
+	}
+	if err := s.deps.RestoreAgent(ctx, ag.ID, ag.UserID); err != nil {
+		if errors.Is(err, identity.ErrNotInTrash) {
+			return nil, NewError(http.StatusConflict, "not_in_trash", "agent is not in the trash")
+		}
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to restore agent")
+	}
+	// Re-read via the LIVE getter for the authoritative post-restore state
+	// (ag.ID is the email); it also proves the agent is visible again.
+	restored, err := s.deps.GetAgent(ctx, ag.ID)
+	if err != nil || restored == nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to reload agent")
+	}
+	return &agentOutput{Body: agentViewFromIdentity(restored)}, nil
 }
 
 func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*createAgentOutput, error) {

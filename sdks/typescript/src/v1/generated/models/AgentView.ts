@@ -14,6 +14,10 @@ import { HttpFile } from '../http/http.js';
 
 export class AgentView {
     'createdAt': Date;
+    /**
+    * When the agent was moved to the trash. Omitted for live agents.
+    */
+    'deletedAt'?: Date;
     'domain': string;
     'domainVerified': boolean;
     'email': string;
@@ -27,6 +31,12 @@ export class AgentView {
         {
             "name": "createdAt",
             "baseName": "created_at",
+            "type": "Date",
+            "format": "date-time"
+        },
+        {
+            "name": "deletedAt",
+            "baseName": "deleted_at",
             "type": "Date",
             "format": "date-time"
         },

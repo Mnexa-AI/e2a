@@ -24,6 +24,7 @@ export class Message {
     'cc'?: Array<string> | null;
     'conversationId'?: string;
     'createdAt': Date;
+    'deletedAt'?: Date;
     'deliveredTo': string;
     'deliveryDetail'?: string;
     'deliveryStatus'?: string;
@@ -119,6 +120,12 @@ export class Message {
         {
             "name": "createdAt",
             "baseName": "created_at",
+            "type": "Date",
+            "format": "date-time"
+        },
+        {
+            "name": "deletedAt",
+            "baseName": "deleted_at",
             "type": "Date",
             "format": "date-time"
         },
