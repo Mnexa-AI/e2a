@@ -110,8 +110,6 @@ components:
           type: boolean
         email:
           type: string
-        id:
-          type: string
         inbound_7d:
           format: int64
           type: integer
@@ -178,7 +176,6 @@ components:
         webhook_healthy:
           type: boolean
       required:
-        - id
         - domain
         - email
         - name
