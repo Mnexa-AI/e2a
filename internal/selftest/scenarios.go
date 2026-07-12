@@ -244,10 +244,13 @@ func scenarioAgentLifecycle(ctx context.Context, p *Probe) Result {
 	}
 	// Safety net: ensure the ephemeral agent is removed even on an early return
 	// below. Best-effort, fresh context so it runs even if ctx is done.
+	// permanent=true: the default delete is now a soft delete into the trash
+	// (30-day retention), and a synthetic probe agent must not pile up there
+	// on every battery run.
 	defer func() {
 		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _, _ = p.do(cctx, http.MethodDelete, agentURL+"?confirm=DELETE", nil)
+		_, _, _ = p.do(cctx, http.MethodDelete, agentURL+"?confirm=DELETE&permanent=true", nil)
 	}()
 
 	// GET → 200.
@@ -265,8 +268,9 @@ func scenarioAgentLifecycle(ctx context.Context, p *Probe) Result {
 		return fail("update agent: HTTP %d, want 200", st)
 	}
 
-	// DELETE (confirmed) → 200 + deletion object {deleted:true, email, ...}.
-	if st, body, err := p.do(ctx, http.MethodDelete, agentURL+"?confirm=DELETE", nil); err != nil {
+	// DELETE (confirmed, permanent) → 200 + deletion object. Ephemeral probe
+	// agents skip the trash so repeated battery runs cannot accumulate them.
+	if st, body, err := p.do(ctx, http.MethodDelete, agentURL+"?confirm=DELETE&permanent=true", nil); err != nil {
 		return fail("delete agent: %v", err)
 	} else if st != http.StatusOK {
 		return fail("delete agent: HTTP %d, want 200", st)
