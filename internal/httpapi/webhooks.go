@@ -42,9 +42,9 @@ type WebhookView struct {
 	Events          []string           `json:"events" nullable:"false" doc:"The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."`
 	Filters         WebhookFiltersView `json:"filters"`
 	Enabled         bool               `json:"enabled"`
-	AutoDisabledAt  string             `json:"auto_disabled_at,omitempty" format:"date-time"`
-	CreatedAt       string             `json:"created_at" format:"date-time"`
-	LastDeliveredAt string             `json:"last_delivered_at,omitempty" format:"date-time"`
+	AutoDisabledAt  *time.Time         `json:"auto_disabled_at,omitempty" format:"date-time"`
+	CreatedAt       time.Time          `json:"created_at" format:"date-time"`
+	LastDeliveredAt *time.Time         `json:"last_delivered_at,omitempty" format:"date-time"`
 }
 
 // CreateWebhookResponse is WebhookView plus the one-time signing secret (WH-3),
@@ -67,14 +67,10 @@ func webhookView(wh *identity.Webhook) WebhookView {
 			Labels:          wh.Filters.Labels,
 		},
 		Enabled:   wh.Enabled,
-		CreatedAt: wh.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt: wh.CreatedAt.UTC(),
 	}
-	if wh.AutoDisabledAt != nil {
-		v.AutoDisabledAt = wh.AutoDisabledAt.UTC().Format(time.RFC3339)
-	}
-	if wh.LastDeliveredAt != nil {
-		v.LastDeliveredAt = wh.LastDeliveredAt.UTC().Format(time.RFC3339)
-	}
+	v.AutoDisabledAt = utcPtr(wh.AutoDisabledAt)
+	v.LastDeliveredAt = utcPtr(wh.LastDeliveredAt)
 	return v
 }
 
@@ -321,15 +317,15 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 
 // WebhookDeliveryView mirrors the legacy per-delivery wire shape.
 type WebhookDeliveryView struct {
-	ID             string `json:"id"`
-	EventType      string `json:"type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."`
-	Status         string `json:"status" doc:"Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."`
-	Attempts       int    `json:"attempts"`
-	LastError      string `json:"last_error,omitempty"`
-	LastStatusCode *int   `json:"last_status_code,omitempty"`
-	LastAttemptAt  string `json:"last_attempt_at,omitempty" format:"date-time"`
-	NextRetryAt    string `json:"next_retry_at" format:"date-time"`
-	CreatedAt      string `json:"created_at" format:"date-time"`
+	ID             string     `json:"id"`
+	EventType      string     `json:"type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."`
+	Status         string     `json:"status" doc:"Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."`
+	Attempts       int        `json:"attempts"`
+	LastError      string     `json:"last_error,omitempty"`
+	LastStatusCode *int       `json:"last_status_code,omitempty"`
+	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty" format:"date-time"`
+	NextRetryAt    time.Time  `json:"next_retry_at" format:"date-time"`
+	CreatedAt      time.Time  `json:"created_at" format:"date-time"`
 }
 
 // ListDeliveriesInput — the per-webhook delivery log, keyset-paginated on
@@ -395,12 +391,10 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDelive
 		v := WebhookDeliveryView{
 			ID: d.ID, EventType: d.EventType, Status: d.Status, Attempts: d.Attempts,
 			LastError: d.LastError, LastStatusCode: d.LastStatusCode,
-			NextRetryAt: d.NextRetryAt.UTC().Format(time.RFC3339),
-			CreatedAt:   d.CreatedAt.UTC().Format(time.RFC3339),
+			NextRetryAt: d.NextRetryAt.UTC(),
+			CreatedAt:   d.CreatedAt.UTC(),
 		}
-		if d.LastAttemptAt != nil {
-			v.LastAttemptAt = d.LastAttemptAt.UTC().Format(time.RFC3339)
-		}
+		v.LastAttemptAt = utcPtr(d.LastAttemptAt)
 		items = append(items, v)
 	}
 	var nextCursor string
@@ -489,8 +483,8 @@ func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput
 }
 
 type rotateSecretResponse struct {
-	SigningSecret           string `json:"signing_secret"`
-	PreviousSecretExpiresAt string `json:"previous_secret_expires_at" format:"date-time"`
+	SigningSecret           string    `json:"signing_secret"`
+	PreviousSecretExpiresAt time.Time `json:"previous_secret_expires_at" format:"date-time"`
 }
 
 type rotateSecretOutput struct {
@@ -524,7 +518,7 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *rotateSecret
 			}
 			return http.StatusOK, rotateSecretResponse{
 				SigningSecret:           secret,
-				PreviousSecretExpiresAt: prevExpires.UTC().Format(time.RFC3339),
+				PreviousSecretExpiresAt: prevExpires.UTC(),
 			}, nil
 		})
 	if err != nil {

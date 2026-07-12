@@ -62,10 +62,15 @@ type MessageView struct {
 	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
 	// Slice 7): true when the agent's inbound_policy gate flagged this message
 	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
-	Flagged     bool              `json:"flagged,omitempty"`
-	FlagReason  string            `json:"flag_reason,omitempty"`
-	Labels      []string          `json:"labels" nullable:"false"`
-	CreatedAt   string            `json:"created_at" format:"date-time"`
+	Flagged    bool     `json:"flagged,omitempty"`
+	FlagReason string   `json:"flag_reason,omitempty"`
+	Labels     []string `json:"labels" nullable:"false"`
+	// CreatedAt is emitted as a full-precision RFC3339Nano date-time (time.Time),
+	// consistent with every other timestamp in the surface. This is the keyset
+	// pagination ORDERING key, so it must NOT be truncated to whole seconds —
+	// two messages in the same second would otherwise be indistinguishable on the
+	// wire even though the cursor orders them at finer granularity.
+	CreatedAt time.Time `json:"created_at" format:"date-time"`
 	// AuthHeaders is the raw X-E2A-Auth-* blob — a convenience copy, optional
 	// (MSG-12): omitted on outbound, where there is no inbound verdict. `auth`
 	// (AuthVerdict) is the primary, structured verdict.
@@ -144,7 +149,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		// view must read InboxStatus to agree with the summary.)
 		Status:      m.InboxStatus,
 		Labels:      orEmptyStrings(m.Labels),
-		CreatedAt:   m.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt:   m.CreatedAt.UTC(),
 		AuthHeaders: m.AuthHeaders,
 		Auth:        authVerdict(m.Auth),
 		RawMessage:  m.RawMessage,
@@ -227,10 +232,10 @@ type MessageSummaryView struct {
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
-	Status string `json:"read_status"`
-	HITLStatus     string   `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected."`
-	WebhookStatus  string   `json:"webhook_status,omitempty"`
-	WebhookError   string   `json:"webhook_error,omitempty"`
+	Status        string `json:"read_status"`
+	HITLStatus    string `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected."`
+	WebhookStatus string `json:"webhook_status,omitempty"`
+	WebhookError  string `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery
 	// rollup (migration 031). Outbound-only; omitted on inbound rows.
 	DeliveryStatus string `json:"delivery_status,omitempty" doc:"Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)"`
@@ -243,7 +248,9 @@ type MessageSummaryView struct {
 	FlagReason string   `json:"flag_reason,omitempty"`
 	SizeBytes  int      `json:"size_bytes,omitempty"`
 	Labels     []string `json:"labels" nullable:"false"`
-	CreatedAt  string   `json:"created_at" format:"date-time"`
+	// CreatedAt is the keyset pagination ordering key, emitted at full RFC3339Nano
+	// precision (time.Time) so sub-second ordering is visible on the wire.
+	CreatedAt time.Time `json:"created_at" format:"date-time"`
 	// Auth is the structured inbound authentication verdict (migration 032).
 	// Inbound-only; omitted on outbound rows.
 	Auth *AuthVerdict `json:"auth,omitempty"`
@@ -290,7 +297,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		Status:         m.InboxStatus,
 		SizeBytes:      m.SizeBytes,
 		Labels:         orEmptyStrings(m.Labels),
-		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt:      m.CreatedAt.UTC(),
 		Auth:           authVerdict(m.Auth),
 		Flagged:        m.Flagged,
 		FlagReason:     m.FlagReason,
@@ -704,6 +711,17 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// utcPtr normalizes a nullable timestamp to UTC while preserving nil (absent)
+// semantics — so a nil *time.Time stays omitted rather than becoming a zero
+// time. Emitted as a full-precision RFC3339Nano date-time when present.
+func utcPtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 // orEmptyStrings normalizes a nil slice to a non-nil empty slice so the

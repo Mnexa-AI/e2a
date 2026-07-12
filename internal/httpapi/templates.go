@@ -79,10 +79,10 @@ type TemplateView struct {
 	Body     string `json:"text" doc:"The plain-text part's template source."`
 	HTMLBody string `json:"html,omitempty" doc:"The optional HTML part's template source."`
 	// Read-only starter provenance, set only on from_starter creates.
-	FromStarterAlias   string `json:"from_starter_alias,omitempty" doc:"The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
-	FromStarterVersion string `json:"from_starter_version,omitempty" doc:"The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
-	CreatedAt          string `json:"created_at" format:"date-time"`
-	UpdatedAt          string `json:"updated_at" format:"date-time"`
+	FromStarterAlias   string    `json:"from_starter_alias,omitempty" doc:"The starter template this was copied from (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
+	FromStarterVersion string    `json:"from_starter_version,omitempty" doc:"The starter catalog version at copy time (read-only, set by from_starter creates). Beta: templates are unstable — their shape may change before they are declared stable."`
+	CreatedAt          time.Time `json:"created_at" format:"date-time"`
+	UpdatedAt          time.Time `json:"updated_at" format:"date-time"`
 }
 
 func templateView(tp *identity.Template) TemplateView {
@@ -95,8 +95,8 @@ func templateView(tp *identity.Template) TemplateView {
 		HTMLBody:           tp.HTMLBody,
 		FromStarterAlias:   tp.FromStarterAlias,
 		FromStarterVersion: tp.FromStarterVersion,
-		CreatedAt:          tp.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:          tp.UpdatedAt.UTC().Format(time.RFC3339),
+		CreatedAt:          tp.CreatedAt.UTC(),
+		UpdatedAt:          tp.UpdatedAt.UTC(),
 	}
 }
 
@@ -105,12 +105,12 @@ func templateView(tp *identity.Template) TemplateView {
 // megabytes per list call; every list consumer needs metadata). Fetch one by
 // id for the sources — same split as the starter-templates list/detail.
 type TemplateSummaryView struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Alias     string `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
-	Subject   string `json:"subject"`
-	CreatedAt string `json:"created_at" format:"date-time"`
-	UpdatedAt string `json:"updated_at" format:"date-time"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Alias     string    `json:"alias,omitempty" doc:"Optional per-user unique handle usable as template_alias on send."`
+	Subject   string    `json:"subject"`
+	CreatedAt time.Time `json:"created_at" format:"date-time"`
+	UpdatedAt time.Time `json:"updated_at" format:"date-time"`
 }
 
 func templateSummaryView(tp *identity.TemplateSummary) TemplateSummaryView {
@@ -119,8 +119,8 @@ func templateSummaryView(tp *identity.TemplateSummary) TemplateSummaryView {
 		Name:      tp.Name,
 		Alias:     tp.Alias,
 		Subject:   tp.Subject,
-		CreatedAt: tp.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: tp.UpdatedAt.UTC().Format(time.RFC3339),
+		CreatedAt: tp.CreatedAt.UTC(),
+		UpdatedAt: tp.UpdatedAt.UTC(),
 	}
 }
 
