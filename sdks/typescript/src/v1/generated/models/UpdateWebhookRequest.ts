@@ -1,6 +1,6 @@
 /**
  * e2a API
- * e2a — authenticated email gateway for AI agents. v1 contract.
+ * e2a — authenticated email gateway for AI agents. v1 contract.  ## Stability policy  The v1 surface is stable and evolves **additively only**: new endpoints, new optional request fields, new response fields, and new values in open string sets (event types, statuses) may appear at any time without a version bump. Clients MUST tolerate unknown response fields and unknown values in open string sets. This is machine-readable in the schemas: response schemas declare `additionalProperties: true`; request schemas stay strict (`additionalProperties: false` — an unknown request field is rejected with 422).  Operations and schemas marked `x-stability: experimental` are exempt from this freeze and may change or be removed without a major version. A field marked `x-experimental-values` is itself stable, but the listed values (and their event payloads) are experimental. Everything not marked experimental is stable.  Removing or changing stable surface only happens on a new major version path (/v2); deprecations are announced ahead of time via `deprecated: true` in this document and keep working within v1.
  *
  * OpenAPI spec version: 1.0.0
  * 
@@ -10,7 +10,7 @@
  * Do not edit the class manually.
  */
 
-import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
+import { WebhookFiltersRequest } from '../models/WebhookFiltersRequest.js';
 import { HttpFile } from '../http/http.js';
 
 export class UpdateWebhookRequest {
@@ -20,7 +20,7 @@ export class UpdateWebhookRequest {
     * Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable.
     */
     'events'?: Array<UpdateWebhookRequestEventsEnum>;
-    'filters'?: WebhookFiltersView;
+    'filters'?: WebhookFiltersRequest;
     'url'?: string;
 
     static readonly discriminator: string | undefined = undefined;
@@ -49,7 +49,7 @@ export class UpdateWebhookRequest {
         {
             "name": "filters",
             "baseName": "filters",
-            "type": "WebhookFiltersView",
+            "type": "WebhookFiltersRequest",
             "format": ""
         },
         {

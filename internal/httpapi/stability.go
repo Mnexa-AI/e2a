@@ -1,0 +1,274 @@
+package httpapi
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/Mnexa-AI/e2a/internal/webhookpub"
+	"github.com/danielgtaylor/huma/v2"
+)
+
+// Forward-compatibility stance of the /v1 contract (GA review #22/#23).
+//
+// The stance, stamped machine-readably onto the generated OpenAPI document:
+//
+//   - RESPONSE schemas carry `additionalProperties: true`: the server may add
+//     response fields at any time (additive evolution), so a strict client
+//     generated from the spec must tolerate unknown fields instead of turning
+//     every additive release into a breaking change.
+//   - REQUEST schemas keep `additionalProperties: false`: strict input
+//     validation is intentional (e.g. an unknown field in a send body is a
+//     422, which catches client-side typos like `body` vs `text`).
+//   - Surfaces exempt from the v1 freeze carry `x-stability: experimental`
+//     (operations declare it at registration; their schemas inherit it here).
+//   - Event-type fields whose VALUE SET contains beta members carry
+//     `x-experimental-values` listing exactly those members
+//     (webhookpub.ExperimentalEventTypes).
+//
+// Because the two halves of the stance are incompatible on a single schema, a
+// component schema must never be reachable from both a request body and a
+// response body — applyEvolutionStance panics if one is, forcing the Go type
+// to be split into a *Request input type and a *View output type (as was done
+// for ProtectionConfig* and WebhookFilters*).
+
+const (
+	extStability          = "x-stability"
+	stabilityExperimental = "experimental"
+	extExperimentalValues = "x-experimental-values"
+)
+
+// experimental is the operation extension marking a surface as exempt from the
+// v1 freeze (may change without a major version). Returns a fresh map so no
+// two operations share mutable state.
+func experimental() map[string]any {
+	return map[string]any{extStability: stabilityExperimental}
+}
+
+// applyEvolutionStance walks the generated OpenAPI document once, after every
+// operation has been registered, and stamps the stance above onto it. It
+// mutates only response-reachable schemas' additionalProperties and adds
+// x-* extension fields — request validation behavior is untouched.
+func (s *Server) applyEvolutionStance() {
+	oapi := s.API.OpenAPI()
+	registry := oapi.Components.Schemas
+	schemas := registry.Map()
+
+	// Reachability roots, per stance axis.
+	requestRoots := map[string]bool{}  // referenced from a request body
+	responseRoots := map[string]bool{} // referenced from a response body
+	experimentalRoots := map[string]bool{}
+	stableRoots := map[string]bool{}
+
+	// Inline (non-$ref) object schemas embedded directly in a response body
+	// also need opening; collect them while walking.
+	var inlineResponseSchemas []*huma.Schema
+
+	forEachOperation(oapi, func(op *huma.Operation) {
+		isExperimental := op.Extensions[extStability] == stabilityExperimental
+		opRoots := map[string]bool{}
+		if op.RequestBody != nil {
+			for _, mt := range op.RequestBody.Content {
+				if mt == nil || mt.Schema == nil {
+					continue
+				}
+				collectRefs(mt.Schema, requestRoots)
+				collectRefs(mt.Schema, opRoots)
+			}
+		}
+		for _, resp := range op.Responses {
+			if resp == nil {
+				continue
+			}
+			for _, mt := range resp.Content {
+				if mt == nil || mt.Schema == nil {
+					continue
+				}
+				collectRefs(mt.Schema, responseRoots)
+				collectRefs(mt.Schema, opRoots)
+				inlineResponseSchemas = append(inlineResponseSchemas, mt.Schema)
+			}
+		}
+		dst := stableRoots
+		if isExperimental {
+			dst = experimentalRoots
+		}
+		for name := range opRoots {
+			dst[name] = true
+		}
+	})
+
+	requestSet := refClosure(schemas, requestRoots)
+	responseSet := refClosure(schemas, responseRoots)
+
+	// The invariant that makes the request/response split total: no schema may
+	// serve both masters. If this fires, split the Go type (input *Request vs
+	// output *View) instead of weakening either half of the stance.
+	for name := range responseSet {
+		if requestSet[name] {
+			panic(fmt.Sprintf("httpapi: schema %q is reachable from both a request body and a response body; "+
+				"split the Go type into a *Request (strict) and a *View (open) so the forward-compat stance stays total", name))
+		}
+	}
+
+	// Responses: open every object node so generated clients tolerate the
+	// additive fields the stability policy reserves the right to add.
+	for name := range responseSet {
+		openObjectSchemas(schemas[name])
+	}
+	for _, sc := range inlineResponseSchemas {
+		openObjectSchemas(sc)
+	}
+
+	// Schemas used exclusively by experimental operations inherit the marker
+	// automatically, so a new beta resource can't leave invisible holes in the
+	// freeze. Schemas shared with stable operations (error envelopes, pages of
+	// stable views, …) stay unmarked.
+	experimentalSet := refClosure(schemas, experimentalRoots)
+	stableSet := refClosure(schemas, stableRoots)
+	for name := range experimentalSet {
+		if stableSet[name] {
+			continue
+		}
+		sc := schemas[name]
+		if sc.Extensions == nil {
+			sc.Extensions = map[string]any{}
+		}
+		sc.Extensions[extStability] = stabilityExperimental
+	}
+
+	// Field-level markers on otherwise-stable schemas.
+	//
+	// The template hooks on send are beta (templates are beta) even though
+	// sendMessage itself is stable.
+	for _, prop := range []string{"template_alias", "template_id", "template_data"} {
+		markProperty(schemas, "SendEmailRequest", prop, extStability, stabilityExperimental)
+	}
+	// The event-type vocabulary is stable EXCEPT the screening + review-hold
+	// members (their payloads may still change). The field is stable; the beta
+	// subset of its value set is machine-readable via x-experimental-values.
+	for _, schema := range []string{"CreateWebhookRequest", "UpdateWebhookRequest", "WebhookView", "CreateWebhookResponse"} {
+		markProperty(schemas, schema, "events", extExperimentalValues, webhookpub.ExperimentalEventTypes)
+	}
+}
+
+// forEachOperation visits every operation in the document.
+func forEachOperation(oapi *huma.OpenAPI, visit func(op *huma.Operation)) {
+	for _, item := range oapi.Paths {
+		if item == nil {
+			continue
+		}
+		for _, op := range []*huma.Operation{item.Get, item.Put, item.Post, item.Delete, item.Options, item.Head, item.Patch, item.Trace} {
+			if op != nil {
+				visit(op)
+			}
+		}
+	}
+}
+
+// collectRefs walks an inline schema tree and records the component-schema
+// names it references (stopping at each $ref — the closure follows them).
+func collectRefs(sc *huma.Schema, out map[string]bool) {
+	if sc == nil {
+		return
+	}
+	if sc.Ref != "" {
+		if i := strings.LastIndex(sc.Ref, "/"); i >= 0 {
+			out[sc.Ref[i+1:]] = true
+		}
+		return
+	}
+	for _, p := range sc.Properties {
+		collectRefs(p, out)
+	}
+	collectRefs(sc.Items, out)
+	if ap, ok := sc.AdditionalProperties.(*huma.Schema); ok {
+		collectRefs(ap, out)
+	}
+	for _, sub := range sc.OneOf {
+		collectRefs(sub, out)
+	}
+	for _, sub := range sc.AnyOf {
+		collectRefs(sub, out)
+	}
+	for _, sub := range sc.AllOf {
+		collectRefs(sub, out)
+	}
+	collectRefs(sc.Not, out)
+}
+
+// refClosure expands root component names to everything transitively
+// referenced through the registry.
+func refClosure(schemas map[string]*huma.Schema, roots map[string]bool) map[string]bool {
+	seen := map[string]bool{}
+	stack := make([]string, 0, len(roots))
+	for name := range roots {
+		stack = append(stack, name)
+	}
+	for len(stack) > 0 {
+		name := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		sc, ok := schemas[name]
+		if !ok {
+			panic(fmt.Sprintf("httpapi: schema %q referenced by an operation is missing from the registry", name))
+		}
+		next := map[string]bool{}
+		collectRefs(sc, next)
+		for n := range next {
+			if !seen[n] {
+				stack = append(stack, n)
+			}
+		}
+	}
+	return seen
+}
+
+// openObjectSchemas flips additionalProperties from the strict default (false)
+// to true on every inline object node of a response schema tree. Map-typed
+// nodes (whose additionalProperties is itself a schema) are left alone.
+func openObjectSchemas(sc *huma.Schema) {
+	if sc == nil || sc.Ref != "" {
+		return
+	}
+	if v, ok := sc.AdditionalProperties.(bool); ok && !v {
+		sc.AdditionalProperties = true
+	}
+	for _, p := range sc.Properties {
+		openObjectSchemas(p)
+	}
+	openObjectSchemas(sc.Items)
+	if ap, ok := sc.AdditionalProperties.(*huma.Schema); ok {
+		openObjectSchemas(ap)
+	}
+	for _, sub := range sc.OneOf {
+		openObjectSchemas(sub)
+	}
+	for _, sub := range sc.AnyOf {
+		openObjectSchemas(sub)
+	}
+	for _, sub := range sc.AllOf {
+		openObjectSchemas(sub)
+	}
+	openObjectSchemas(sc.Not)
+}
+
+// markProperty stamps an extension on a named property of a named component
+// schema, panicking on a dangling name so a rename can't silently drop a
+// stability marker.
+func markProperty(schemas map[string]*huma.Schema, schema, property, ext string, value any) {
+	sc, ok := schemas[schema]
+	if !ok {
+		panic(fmt.Sprintf("httpapi: stability marker targets unknown schema %q", schema))
+	}
+	p, ok := sc.Properties[property]
+	if !ok {
+		panic(fmt.Sprintf("httpapi: stability marker targets unknown property %s.%s", schema, property))
+	}
+	if p.Extensions == nil {
+		p.Extensions = map[string]any{}
+	}
+	p.Extensions[ext] = value
+}

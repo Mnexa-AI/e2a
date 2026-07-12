@@ -67,6 +67,7 @@ from .generated.models import (
     TestWebhookResponse,
     TestWebhookRequest,
     ProtectionConfigView,
+    ProtectionConfigRequest,
     CreateTemplateRequest,
     UpdateAgentRequest,
     UpdateMessageRequest,
@@ -279,7 +280,7 @@ class AgentsResource:
     async def replace_protection(self, email: str, config: Body) -> ProtectionConfigView:
         """Replace an agent's protection config wholesale (all three top-level
         keys required). Beta; account scope only. PUT is idempotent."""
-        req = _coerce(ProtectionConfigView, config)
+        req = _coerce(ProtectionConfigRequest, config)
         return await self._c._write_idempotent(
             lambda h: self._api.put_agent_protection(email, req, _headers=h)
         )

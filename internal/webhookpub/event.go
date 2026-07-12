@@ -107,6 +107,20 @@ var AllEventTypes = []string{
 	EventEmailPendingReview,
 }
 
+// ExperimentalEventTypes is the canonical list of screening + review-hold
+// event types that are still Beta: their payloads may change before they are
+// declared stable. The OpenAPI spec surfaces this list machine-readably as
+// `x-experimental-values` on every field that enumerates event types (see
+// httpapi's stability pass). Graduating an event to stable = removing it here;
+// the spec markers and prose follow automatically.
+var ExperimentalEventTypes = []string{
+	EventEmailFlagged,
+	EventEmailBlocked,
+	EventEmailPendingReview,
+	EventEmailReviewApproved,
+	EventEmailReviewRejected,
+}
+
 // IsValidEventType reports whether name is one of the catalog
 // event types. Convenience wrapper for the handler-layer validator.
 func IsValidEventType(name string) bool {
