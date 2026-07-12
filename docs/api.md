@@ -135,8 +135,10 @@ single message.
   `read_status`, `sort`, `from`, `subject_contains`, `conversation_id`, `labels`,
   `since`, `until`) and cursor pagination. Held outbound drafts appear with
   `status=pending_review`.
-- `POST …/messages` — send a new email (a new thread). `202` + `pending_review`
-  when the agent's protection policy holds it for review. The send result
+- `POST …/messages` — send a new email (a new thread). Returns `202 Accepted` for
+  every non-terminal outcome — `pending_review` when the agent's protection policy
+  holds it for review, or `accepted` when the async pipeline durably queues it —
+  and `200 OK` for the terminal-synchronous `sent`. The send result
   `status` is an open set — known values `accepted | sent | pending_review |
   review_approved | failed`. **Always branch on `status`, not the HTTP code.**
   `accepted` (async pipeline) means the message is durably persisted and queued;
@@ -225,7 +227,10 @@ semantics.
   and time range; cursor pagination.
 - `GET /v1/events/{id}` — one event (returns `410 Gone` past retention).
 - `POST /v1/events/{id}/redeliver` — re-enqueue delivery for an event (to one
-  webhook or all originally-matched). Receivers must dedup on event id.
+  webhook or all originally-matched). Returns `202 Accepted`: the redelivery is
+  durably enqueued for async submission (per-delivery `status: pending`, or
+  `scheduled` for the fan-out), not delivered synchronously. Receivers must dedup
+  on event id.
 
 ## Real-time delivery (WebSocket)
 
