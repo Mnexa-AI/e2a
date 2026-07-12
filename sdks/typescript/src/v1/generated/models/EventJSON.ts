@@ -14,7 +14,7 @@ import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { HttpFile } from '../http/http.js';
 
 export class EventJSON {
-    'agentId'?: string;
+    'agentEmail'?: string;
     'conversationId'?: string;
     'createdAt': Date;
     'data': any;
@@ -40,8 +40,8 @@ export class EventJSON {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agentId",
-            "baseName": "agent_id",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

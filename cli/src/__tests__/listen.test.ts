@@ -19,7 +19,7 @@ function makeNotification(overrides: Partial<WSNotification> = {}): WSNotificati
   return {
     message_id: "msg_123",
     from: "alice@example.com",
-    recipient: "bot@agents.e2a.dev",
+    delivered_to: "bot@agents.e2a.dev",
     subject: "Hello",
     received_at: "2025-01-15T10:30:00Z",
     ...overrides,
@@ -157,7 +157,7 @@ describe("listen notification handling", () => {
     const full = {
       id: "msg_123",
       _from: "alice@example.com",
-      recipient: "bot@agents.e2a.dev",
+      delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
     };
@@ -180,7 +180,7 @@ describe("listen notification handling", () => {
     const full = {
       id: "msg_123",
       _from: "alice@example.com",
-      recipient: "bot@agents.e2a.dev",
+      delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
     };
@@ -227,7 +227,7 @@ describe("listen notification handling", () => {
     const full = {
       id: "msg_123",
       _from: "alice@example.com",
-      recipient: "bot@agents.e2a.dev",
+      delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       body: { text: "", html: "" },
       parsed: { text: "", truncated: false },

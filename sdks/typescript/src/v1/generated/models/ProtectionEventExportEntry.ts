@@ -14,7 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class ProtectionEventExportEntry {
     'action': string;
-    'agentId': string;
+    'agentEmail': string;
     'createdAt': Date;
     'detector'?: string;
     'direction': string;
@@ -37,8 +37,8 @@ export class ProtectionEventExportEntry {
             "format": ""
         },
         {
-            "name": "agentId",
-            "baseName": "agent_id",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

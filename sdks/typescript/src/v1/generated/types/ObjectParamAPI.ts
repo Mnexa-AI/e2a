@@ -841,7 +841,7 @@ export interface EventsApiListEventsRequest {
      * @type string
      * @memberof EventsApilistEvents
      */
-    agentId?: string
+    agentEmail?: string
     /**
      * 
      * Defaults to: undefined
@@ -933,7 +933,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public listEventsWithHttpInfo(param: EventsApiListEventsRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageEventJSON>> {
-        return this.api.listEventsWithHttpInfo(param.type, param.agentId, param.conversationId, param.messageId, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listEventsWithHttpInfo(param.type, param.agentEmail, param.conversationId, param.messageId, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -942,7 +942,7 @@ export class ObjectEventsApi {
      * @param param the request object
      */
     public listEvents(param: EventsApiListEventsRequest = {}, options?: ConfigurationOptions): Promise<PageEventJSON> {
-        return this.api.listEvents(param.type, param.agentId, param.conversationId, param.messageId, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listEvents(param.type, param.agentEmail, param.conversationId, param.messageId, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
     /**

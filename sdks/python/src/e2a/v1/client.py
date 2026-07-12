@@ -598,7 +598,7 @@ class EventsResource:
         self,
         *,
         type: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_email: Optional[str] = None,
         conversation_id: Optional[str] = None,
         message_id: Optional[str] = None,
         since: Optional[str] = None,
@@ -609,7 +609,7 @@ class EventsResource:
             resp = await self._c._read(
                 lambda h: self._api.list_events(
                     type=type,
-                    agent_id=agent_id,
+                    agent_email=agent_email,
                     conversation_id=conversation_id,
                     message_id=message_id,
                     since=since,
@@ -642,19 +642,19 @@ class WebhooksResource:
         """Fetch the full message referenced by an ``email.received`` event.
 
         The event is a metadata-only notification; this resolves its
-        ``(recipient, message_id)`` fetch keys and returns the full
+        ``(delivered_to, message_id)`` fetch keys and returns the full
         :class:`MessageView` (body, attachments, signed headers). Raises
         ``ValueError`` if the event is not an ``email.received`` carrying those
         keys.
         """
         data = event.data if isinstance(event.data, dict) else {}
         message_id = data.get("message_id")
-        recipient = data.get("recipient")
-        if event.type != "email.received" or not message_id or not recipient:
+        delivered_to = data.get("delivered_to")
+        if event.type != "email.received" or not message_id or not delivered_to:
             raise ValueError(
-                "fetch_message expects an email.received event with message_id and recipient"
+                "fetch_message expects an email.received event with message_id and delivered_to"
             )
-        return await self._c.messages.get(recipient, message_id)
+        return await self._c.messages.get(delivered_to, message_id)
 
     def list(self) -> AutoPager[WebhookView]:
         async def fetch(_cursor: Optional[str]) -> Page:

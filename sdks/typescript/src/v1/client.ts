@@ -412,7 +412,7 @@ class DomainsResource {
 
 export interface ListEventsParams {
   type?: string;
-  agentId?: string;
+  agentEmail?: string;
   conversationId?: string;
   messageId?: string;
   since?: string;
@@ -425,7 +425,7 @@ class EventsResource {
   list(params: ListEventsParams = {}): AutoPager<EventJSON> {
     return new AutoPager(async (cursor) => {
       const page = await call(() =>
-        this.api.listEvents(params.type, params.agentId, params.conversationId, params.messageId,
+        this.api.listEvents(params.type, params.agentEmail, params.conversationId, params.messageId,
           params.since, params.until, cursor, params.limit),
       );
       return { items: page.items ?? [], next_cursor: page.nextCursor };
@@ -447,19 +447,19 @@ class WebhooksResource {
 
   /**
    * Fetch the full message referenced by an `email.received` event. The event
-   * is a metadata-only notification; this resolves its (recipient, message_id)
+   * is a metadata-only notification; this resolves its (delivered_to, message_id)
    * fetch keys and returns the full {@link MessageView} (body, attachments,
    * signed headers). Throws if the event is not an `email.received` carrying
    * those keys.
    */
   fetchMessage(event: WebhookEvent): Promise<MessageView> {
     const d = event.data as EmailReceivedPayload | undefined;
-    if (event.type !== "email.received" || !d?.message_id || !d?.recipient) {
+    if (event.type !== "email.received" || !d?.message_id || !d?.delivered_to) {
       throw new Error(
-        "fetchMessage expects an email.received event with message_id and recipient",
+        "fetchMessage expects an email.received event with message_id and delivered_to",
       );
     }
-    return this.messages.get(d.recipient, d.message_id);
+    return this.messages.get(d.delivered_to, d.message_id);
   }
 
   list(): AutoPager<WebhookView> {

@@ -14,7 +14,7 @@ import { Result } from '../models/Result.js';
 import { HttpFile } from '../http/http.js';
 
 export class Message {
-    'agentId': string;
+    'agentEmail': string;
     'approvalExpiresAt'?: Date;
     'attachments'?: any | null;
     'auth'?: Result;
@@ -65,8 +65,8 @@ export class Message {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agentId",
-            "baseName": "agent_id",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

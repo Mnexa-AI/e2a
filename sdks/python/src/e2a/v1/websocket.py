@@ -8,7 +8,7 @@ The notification carries metadata (message_id, sender, subject, …). Fetch the
 full body via REST when you want it::
 
     async for notif in client.listen("bot@agents.e2a.dev"):
-        email = await client.messages.get(notif.recipient, notif.message_id)
+        email = await client.messages.get(notif.delivered_to, notif.message_id)
 
 Requires ``websockets`` (``pip install e2a[ws]``).
 """
@@ -98,7 +98,7 @@ class WSNotification:
 
     message_id: str
     from_: str
-    recipient: str
+    delivered_to: str
     subject: str
     received_at: str
     conversation_id: Optional[str] = None
@@ -108,7 +108,7 @@ class WSNotification:
         return cls(
             message_id=payload.get("message_id", ""),
             from_=payload.get("from", ""),
-            recipient=payload.get("recipient") or payload.get("to") or "",
+            delivered_to=payload.get("delivered_to") or payload.get("to") or "",
             subject=payload.get("subject", ""),
             received_at=payload.get("received_at", ""),
             conversation_id=payload.get("conversation_id"),

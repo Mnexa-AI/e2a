@@ -13,11 +13,11 @@ describe("WSNotification interface", () => {
     const n: WSNotification = {
       message_id: "msg_1",
       from: "alice@example.com",
-      recipient: "bot@agents.e2a.dev",
+      delivered_to: "bot@agents.e2a.dev",
       subject: "Hi",
       received_at: "2026-04-27T10:00:00Z",
     };
-    expect(n.recipient).toBe("bot@agents.e2a.dev");
+    expect(n.delivered_to).toBe("bot@agents.e2a.dev");
 
     const withConv: WSNotification = {
       ...n,
@@ -28,7 +28,7 @@ describe("WSNotification interface", () => {
 
   it("does not have the legacy `to` field", () => {
     // @ts-expect-error — `to` was removed in TS 1.7 to match the
-    // server's wire shape (post-PR #48 the server emits `recipient`).
+    // server's wire shape (the server emits `delivered_to`).
     const _bad: WSNotification = {
       message_id: "msg_1",
       from: "a@b.c",

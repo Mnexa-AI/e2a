@@ -717,7 +717,7 @@ export class PromiseEventsApi {
      * The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
      * List events
      * @param [type]
-     * @param [agentId]
+     * @param [agentEmail]
      * @param [conversationId]
      * @param [messageId]
      * @param [since] RFC3339.
@@ -725,9 +725,9 @@ export class PromiseEventsApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listEventsWithHttpInfo(type?: string, agentId?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageEventJSON>> {
+    public listEventsWithHttpInfo(type?: string, agentEmail?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageEventJSON>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listEventsWithHttpInfo(type, agentId, conversationId, messageId, since, until, cursor, limit, observableOptions);
+        const result = this.api.listEventsWithHttpInfo(type, agentEmail, conversationId, messageId, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -735,7 +735,7 @@ export class PromiseEventsApi {
      * The webhook-event delivery log, filterable by type/agent/conversation/message and time range, with cursor pagination.
      * List events
      * @param [type]
-     * @param [agentId]
+     * @param [agentEmail]
      * @param [conversationId]
      * @param [messageId]
      * @param [since] RFC3339.
@@ -743,9 +743,9 @@ export class PromiseEventsApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listEvents(type?: string, agentId?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageEventJSON> {
+    public listEvents(type?: string, agentEmail?: string, conversationId?: string, messageId?: string, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageEventJSON> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listEvents(type, agentId, conversationId, messageId, since, until, cursor, limit, observableOptions);
+        const result = this.api.listEvents(type, agentEmail, conversationId, messageId, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 

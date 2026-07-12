@@ -52,21 +52,21 @@ def test_ws_notification_from_payload():
     n = WSNotification.from_payload({
         "message_id": "msg_1",
         "from": "alice@example.com",
-        "recipient": "bot@agents.e2a.dev",
+        "delivered_to": "bot@agents.e2a.dev",
         "subject": "Hi",
         "received_at": "2026-04-27T10:00:00Z",
         "conversation_id": "conv_xyz",
     })
     assert n.message_id == "msg_1"
     assert n.from_ == "alice@example.com"
-    assert n.recipient == "bot@agents.e2a.dev"
+    assert n.delivered_to == "bot@agents.e2a.dev"
     assert n.subject == "Hi"
     assert n.received_at == "2026-04-27T10:00:00Z"
     assert n.conversation_id == "conv_xyz"
 
 
 def test_ws_notification_from_payload_legacy_to_field():
-    """Older payloads used `to` instead of `recipient` — tolerate it."""
+    """Older payloads used `to` instead of `delivered_to` — tolerate it."""
     n = WSNotification.from_payload({
         "message_id": "msg_legacy",
         "from": "alice@example.com",
@@ -74,7 +74,7 @@ def test_ws_notification_from_payload_legacy_to_field():
         "subject": "",
         "received_at": "",
     })
-    assert n.recipient == "bot@agents.e2a.dev"
+    assert n.delivered_to == "bot@agents.e2a.dev"
     assert n.conversation_id is None
 
 
@@ -118,7 +118,7 @@ async def test_connect_and_stream_yields_notifications_no_fetch():
     payload = json.dumps({
         "message_id": "msg_123",
         "from": "alice@example.com",
-        "recipient": "bot@agents.e2a.dev",
+        "delivered_to": "bot@agents.e2a.dev",
         "subject": "Hi",
         "received_at": "2026-04-27T10:00:00Z",
         "conversation_id": "conv_xyz",
@@ -135,14 +135,14 @@ async def test_connect_and_stream_yields_notifications_no_fetch():
     assert isinstance(n, WSNotification)
     assert n.message_id == "msg_123"
     assert n.from_ == "alice@example.com"
-    assert n.recipient == "bot@agents.e2a.dev"
+    assert n.delivered_to == "bot@agents.e2a.dev"
     assert n.subject == "Hi"
     assert n.conversation_id == "conv_xyz"
 
 
 @pytest.mark.anyio
 async def test_connect_and_stream_tolerates_legacy_to_field():
-    """Older payloads used `to: string` instead of `recipient`."""
+    """Older payloads used `to: string` instead of `delivered_to`."""
     from e2a.v1.websocket import _connect_and_stream
 
     payload = json.dumps({
@@ -156,7 +156,7 @@ async def test_connect_and_stream_tolerates_legacy_to_field():
 
     with _patch_websockets_connect(fake_ws):
         async for notif in _connect_and_stream("wss://e2a.dev/ws", "k", "bot@agents.e2a.dev"):
-            assert notif.recipient == "bot@agents.e2a.dev"
+            assert notif.delivered_to == "bot@agents.e2a.dev"
 
 
 @pytest.mark.anyio
@@ -164,7 +164,7 @@ async def test_connect_and_stream_no_ack_sent():
     """The WS client must NEVER send any frames (no ACK)."""
     from e2a.v1.websocket import _connect_and_stream
 
-    payload = json.dumps({"message_id": "msg_123", "from": "a@b.c", "recipient": "bot@agents.e2a.dev", "subject": "", "received_at": ""})
+    payload = json.dumps({"message_id": "msg_123", "from": "a@b.c", "delivered_to": "bot@agents.e2a.dev", "subject": "", "received_at": ""})
     fake_ws = FakeWebSocket([payload])
 
     with _patch_websockets_connect(fake_ws):
@@ -181,7 +181,7 @@ async def test_connect_and_stream_skips_malformed():
 
     messages_in = [
         json.dumps({"from": "alice@example.com"}),  # no message_id — drop
-        json.dumps({"message_id": "msg_456", "from": "bob@example.com", "recipient": "bot@agents.e2a.dev", "subject": "", "received_at": ""}),
+        json.dumps({"message_id": "msg_456", "from": "bob@example.com", "delivered_to": "bot@agents.e2a.dev", "subject": "", "received_at": ""}),
     ]
     fake_ws = FakeWebSocket(messages_in)
 
@@ -213,7 +213,7 @@ async def test_ws_connect_sends_authorization_header():
     from e2a.v1.websocket import _connect_and_stream
 
     fake_ws = FakeWebSocket([
-        json.dumps({"message_id": "m1", "from": "a@b.c", "recipient": "bot@x.dev", "subject": "", "received_at": ""})
+        json.dumps({"message_id": "m1", "from": "a@b.c", "delivered_to": "bot@x.dev", "subject": "", "received_at": ""})
     ])
     mock_module = MagicMock()
     mock_module.connect = MagicMock(return_value=fake_ws)
@@ -248,7 +248,7 @@ async def test_wsstream_no_reconnect_exits():
     fake_notif = WSNotification(
         message_id="msg_1",
         from_="alice@example.com",
-        recipient="bot@agents.e2a.dev",
+        delivered_to="bot@agents.e2a.dev",
         subject="Hi",
         received_at="2026-04-27T10:00:00Z",
     )

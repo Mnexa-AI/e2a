@@ -10,7 +10,7 @@ import { writeReport, info } from "../harness/report.ts";
 // prod). So this suite ONLY makes sense against staging.
 //
 // Emission is proved for every event type across THREE correlated signals:
-//   1. listEvents (GET /v1/events, filtered type + agent_id + since) — THIS
+//   1. listEvents (GET /v1/events, filtered type + agent_email + since) — THIS
 //      message's event row landed in the outbox/log (correlated by message_id).
 //   2. the event's OWN delivery_status.matched_webhooks (GET /v1/events/{id}) —
 //      EVENT-scoped proof THIS event fanned out to >=1 subscriber.
@@ -26,7 +26,7 @@ import { writeReport, info } from "../harness/report.ts";
 // Shapes/status verified against api/openapi.yaml (the drift-gated SSOT) AND
 // curl-probed on live staging before these assertions were written (2026-07-10):
 //   EventJSON     required {id,type,schema_version,created_at,status,data};
-//                 optional agent_id, conversation_id, message_id, delivery_status.
+//                 optional agent_email, conversation_id, message_id, delivery_status.
 //   PageEventJSON {items, next_cursor:string|null}.
 //   RedeliverView required {event_id,status}; single-webhook replay also carries
 //                 top-level delivery_id + webhook_id (status "pending"); bulk
@@ -93,7 +93,7 @@ interface EventJSON {
   created_at: string;
   status: string;
   data: Record<string, unknown>;
-  agent_id?: string;
+  agent_email?: string;
   conversation_id?: string;
   message_id?: string;
   delivery_status?: { matched_webhooks?: number; delivered?: number; pending?: number; failed?: number };
@@ -175,7 +175,7 @@ async function delHook(id: string): Promise<void> {
   await client.delete(`/v1/webhooks/${encodeURIComponent(id)}`);
 }
 
-// pollEvent: poll listEvents (filtered type+agent_id+since) until an event
+// pollEvent: poll listEvents (filtered type+agent_email+since) until an event
 // matching `match` appears, or the bounded window elapses. Backoff 500ms→3s.
 async function pollEvent(
   params: { type: string; agentId: string; since: string },
@@ -186,7 +186,7 @@ async function pollEvent(
   let delay = 500;
   while (Date.now() < deadline) {
     const r = await client.get<PageEventJSON>("/v1/events", {
-      query: { type: params.type, agent_id: params.agentId, since: params.since, limit: 50 },
+      query: { type: params.type, agent_email: params.agentId, since: params.since, limit: 50 },
     });
     if (r.status === 200 && r.body?.items) {
       const found = r.body.items.find(match);
@@ -259,8 +259,8 @@ function assertEventShape(e: EventJSON, expect: { type: string; agentId: string;
   assert.ok(typeof e.created_at === "string" && e.created_at.length > 0, "created_at present");
   assert.ok(typeof e.status === "string" && e.status.length > 0, "status present");
   assert.ok(e.data && typeof e.data === "object", "data object present");
-  // agent_id is optional in the schema but populated for these agent-scoped events.
-  assert.equal(e.agent_id, expect.agentId, "event.agent_id is the triggering inbox");
+  // agent_email is optional in the schema but populated for these agent-scoped events.
+  assert.equal(e.agent_email, expect.agentId, "event.agent_email is the triggering inbox");
   if (expect.messageId) {
     // Correlate to the triggering message: top-level message_id (populated on
     // staging) OR data.message_id (always present in the payload).
@@ -428,7 +428,7 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
 });
 
 // ---- Events read API: listEvents envelope + filters ----
-test("events: listEvents returns PageEventJSON envelope and honors type/agent_id/since/limit filters", { skip }, async () => {
+test("events: listEvents returns PageEventJSON envelope and honors type/agent_email/since/limit filters", { skip }, async () => {
   const email = await createAgent("list");
   const hook = await createHook(["email.sent"]);
   const since = sinceNow();
@@ -456,25 +456,25 @@ test("events: listEvents returns PageEventJSON envelope and honors type/agent_id
 
     // type filter: every returned item is the requested type.
     const typed = await client.get<PageEventJSON>("/v1/events", {
-      query: { type: "email.sent", agent_id: email, since },
+      query: { type: "email.sent", agent_email: email, since },
     });
     assert.equal(typed.status, 200);
-    assert.ok(typed.body!.items.length >= 1, "type+agent_id+since filter returns the seeded event");
+    assert.ok(typed.body!.items.length >= 1, "type+agent_email+since filter returns the seeded event");
     for (const e of typed.body!.items) {
       assert.equal(e.type, "email.sent", "type filter is honored");
-      assert.equal(e.agent_id, email, "agent_id filter is honored");
+      assert.equal(e.agent_email, email, "agent_email filter is honored");
     }
 
-    // agent_id filter isolation: a bogus agent_id returns an empty page (not an error).
+    // agent_email filter isolation: a bogus agent_email returns an empty page (not an error).
     const other = await client.get<PageEventJSON>("/v1/events", {
-      query: { agent_id: `nonexistent-${Date.now()}@${client.env.sharedDomain}`, since },
+      query: { agent_email: `nonexistent-${Date.now()}@${client.env.sharedDomain}`, since },
     });
-    assert.equal(other.status, 200, "agent_id filter with no matches returns 200");
-    assert.equal(other.body!.items.length, 0, "unknown agent_id yields an empty page");
+    assert.equal(other.status, 200, "agent_email filter with no matches returns 200");
+    assert.equal(other.body!.items.length, 0, "unknown agent_email yields an empty page");
 
     // since filter: a future timestamp excludes everything.
     const future = new Date(Date.now() + 3_600_000).toISOString();
-    const none = await client.get<PageEventJSON>("/v1/events", { query: { agent_id: email, since: future } });
+    const none = await client.get<PageEventJSON>("/v1/events", { query: { agent_email: email, since: future } });
     assert.equal(none.status, 200);
     assert.equal(none.body!.items.length, 0, "since=future excludes all events");
   } finally {

@@ -34,7 +34,6 @@ jest.mock("../../../components/onboarding/api", () => ({
 const mockUnread = getInboxUnread as jest.MockedFunction<typeof getInboxUnread>;
 
 const agent: DashboardAgent = {
-  id: "ag_billing",
   domain: "acme.dev",
   email: "billing@acme.dev",
   name: "billing",

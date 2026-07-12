@@ -20,12 +20,12 @@ import (
 //     the user and is omitted on purpose.
 //   - User session tokens are transient and excluded.
 type UserExport struct {
-	GeneratedAt      time.Time              `json:"generated_at"`
-	SchemaVersion    string                 `json:"schema_version"`
-	User             UserExportUser         `json:"user"`
-	Domains          []Domain               `json:"domains" nullable:"false"`
-	Agents           []AgentIdentity        `json:"agents" nullable:"false"`
-	APIKeys          []APIKeyExportEntry    `json:"api_keys" nullable:"false"`
+	GeneratedAt      time.Time                    `json:"generated_at"`
+	SchemaVersion    string                       `json:"schema_version"`
+	User             UserExportUser               `json:"user"`
+	Domains          []Domain                     `json:"domains" nullable:"false"`
+	Agents           []AgentIdentity              `json:"agents" nullable:"false"`
+	APIKeys          []APIKeyExportEntry          `json:"api_keys" nullable:"false"`
 	Messages         []Message                    `json:"messages" nullable:"false"`
 	Suppressions     []SuppressionExportEntry     `json:"suppressions" nullable:"false"`
 	ProtectionEvents []ProtectionEventExportEntry `json:"protection_events" nullable:"false"`
@@ -50,7 +50,7 @@ type SuppressionExportEntry struct {
 type ProtectionEventExportEntry struct {
 	ID          string    `json:"id"`
 	MessageID   string    `json:"message_id"`
-	AgentID     string    `json:"agent_id"`
+	AgentID     string    `json:"agent_email"`
 	Direction   string    `json:"direction"`
 	Source      string    `json:"source"`
 	Reason      string    `json:"reason"`
@@ -100,7 +100,7 @@ type APIKeyExportEntry struct {
 // UsageEventEntry is one row of the usage_events table for the user.
 type UsageEventEntry struct {
 	ID        string    `json:"id"`
-	AgentID   string    `json:"agent_id"`
+	AgentID   string    `json:"agent_email"`
 	Domain    string    `json:"domain"`
 	Direction string    `json:"direction"`
 	EventType string    `json:"type"`

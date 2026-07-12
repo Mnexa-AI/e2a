@@ -27,7 +27,7 @@ const (
 
 // WebhookFiltersView mirrors identity.WebhookFilters.
 type WebhookFiltersView struct {
-	AgentIDs        []string `json:"agent_ids,omitempty" nullable:"false"`
+	AgentIDs        []string `json:"agent_emails,omitempty" nullable:"false"`
 	ConversationIDs []string `json:"conversation_ids,omitempty" nullable:"false"`
 	Labels          []string `json:"labels,omitempty" nullable:"false"`
 }
@@ -107,7 +107,7 @@ func (s *Server) validateWebhookFields(ctx context.Context, userID, url string, 
 		return NewError(http.StatusBadRequest, "invalid_request", "description must not contain CR or LF")
 	}
 	if len(f.AgentIDs) > webhookMaxAgentIDs {
-		return NewError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("filters.agent_ids exceeds cap of %d", webhookMaxAgentIDs))
+		return NewError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("filters.agent_emails exceeds cap of %d", webhookMaxAgentIDs))
 	}
 	if len(f.ConversationIDs) > webhookMaxConversationIDs {
 		return NewError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("filters.conversation_ids exceeds cap of %d", webhookMaxConversationIDs))
@@ -117,7 +117,7 @@ func (s *Server) validateWebhookFields(ctx context.Context, userID, url string, 
 	}
 	for _, a := range f.AgentIDs {
 		if a == "" || len(a) > webhookMaxFilterValueLen {
-			return NewError(http.StatusBadRequest, "invalid_request", "filters.agent_ids contains empty entry or one over 200 chars")
+			return NewError(http.StatusBadRequest, "invalid_request", "filters.agent_emails contains empty entry or one over 200 chars")
 		}
 	}
 	// agent_ids must reference agents the caller owns.
@@ -164,7 +164,7 @@ func (s *Server) assertAgentsOwned(ctx context.Context, userID string, agentIDs 
 	}
 	for _, id := range agentIDs {
 		if _, ok := owned[identity.NormalizeEmail(id)]; !ok {
-			return NewError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("filters.agent_ids references an agent you don't own: %q", id))
+			return NewError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("filters.agent_emails references an agent you don't own: %q", id))
 		}
 	}
 	return nil
@@ -172,6 +172,7 @@ func (s *Server) assertAgentsOwned(ctx context.Context, userID string, agentIDs 
 
 type webhookOutput struct{ Body WebhookView }
 type webhookCreateOutput struct{ Body CreateWebhookResponse }
+
 // listWebhooksOutput uses the shared Page[T] envelope (items + next_cursor);
 // next_cursor is null at launch. See listAgentsOutput. (GA blocker #3.)
 type listWebhooksOutput struct {
@@ -257,6 +258,7 @@ type testWebhookInput struct {
 	ID   string `path:"id"`
 	Body TestWebhookRequest
 }
+
 // TestWebhookResponse is the test-delivery result (WH-6 naming).
 type TestWebhookResponse struct {
 	DeliveryID string `json:"delivery_id"`

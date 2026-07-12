@@ -65,7 +65,7 @@ test("events: list accepts all documented filter params without 400", async () =
   const r = await client.get("/v1/events", {
     query: {
       type: "email.received",
-      agent_id: "test-mcp@agents.e2a.dev",
+      agent_email: "test-mcp@agents.e2a.dev",
       since: "2026-01-01T00:00:00Z",
       until: "2026-12-31T23:59:59Z",
       limit: 10,

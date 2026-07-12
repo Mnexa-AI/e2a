@@ -28,7 +28,7 @@ class EventJSON(BaseModel):
     """
     EventJSON
     """ # noqa: E501
-    agent_id: Optional[StrictStr] = None
+    agent_email: Optional[StrictStr] = None
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
     data: Dict[str, Any]
@@ -39,7 +39,7 @@ class EventJSON(BaseModel):
     status: StrictStr = Field(description="Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match.")
     type: StrictStr = Field(description="Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_id", "conversation_id", "created_at", "data", "delivery_status", "id", "message_id", "schema_version", "status", "type"]
+    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "data", "delivery_status", "id", "message_id", "schema_version", "status", "type"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -102,7 +102,7 @@ class EventJSON(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_id": obj.get("agent_id"),
+            "agent_email": obj.get("agent_email"),
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
             "data": obj.get("data"),

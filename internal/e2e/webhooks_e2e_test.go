@@ -395,8 +395,8 @@ func TestWebhooksE2E_EmailReceived(t *testing.T) {
 	if _, present := data["raw_message"]; present {
 		t.Errorf("metadata-only email.received must not carry raw_message over the wire")
 	}
-	if data["recipient"] != agent.EmailAddress() {
-		t.Errorf("recipient (fetch key) = %v, want %s", data["recipient"], agent.EmailAddress())
+	if data["delivered_to"] != agent.EmailAddress() {
+		t.Errorf("delivered_to (fetch key) = %v, want %s", data["delivered_to"], agent.EmailAddress())
 	}
 	if _, ok := data["auth_headers"]; !ok {
 		t.Errorf("expected signed auth_headers attestation in data.auth_headers")

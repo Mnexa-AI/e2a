@@ -89,7 +89,7 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
     expect(msgs.length).toBeLessThanOrEqual(2);
     for (const m of msgs) {
       expect(m.id).toBeTruthy();
-      expect(m.recipient).toBeTruthy();
+      expect(m.deliveredTo).toBeTruthy();
     }
   });
 

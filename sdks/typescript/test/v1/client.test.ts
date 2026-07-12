@@ -137,13 +137,13 @@ describe("E2AClient", () => {
   });
 
   it("agents.create POSTs the body to /v1/agents", async () => {
-    globalThis.fetch = mockFetch(201, { id: "ag_new", email: "new@test.dev" });
+    globalThis.fetch = mockFetch(201, { email: "new@test.dev", domain: "test.dev" });
     const res = await client.agents.create({ email: "new@test.dev" });
     const { url, init } = lastCall();
     expect(init.method).toBe("POST");
     expect(url).toContain("/v1/agents");
     expect(JSON.parse(init.body as string)).toMatchObject({ email: "new@test.dev" });
-    expect(res.id).toBe("ag_new");
+    expect(res.email).toBe("new@test.dev");
   });
 
   it("agents.list returns an AutoPager over the agents array", async () => {
@@ -215,12 +215,12 @@ describe("E2AClient", () => {
   });
 
   // ── webhooks.fetchMessage: email.received is metadata-only ──────
-  it("webhooks.fetchMessage resolves (recipient, message_id) → GET the full message", async () => {
+  it("webhooks.fetchMessage resolves (delivered_to, message_id) → GET the full message", async () => {
     globalThis.fetch = mockFetch(200, { id: "msg_9", subject: "Hi", raw_message: "..." });
     const event = {
       id: "evt_1",
       type: "email.received",
-      data: { message_id: "msg_9", recipient: "bot@test.dev" },
+      data: { message_id: "msg_9", delivered_to: "bot@test.dev" },
     };
     const msg = await client.webhooks.fetchMessage(event);
     const { url, init } = lastCall();
@@ -233,11 +233,11 @@ describe("E2AClient", () => {
 
   it("webhooks.fetchMessage rejects a non-received event or missing fetch keys", async () => {
     expect(() =>
-      client.webhooks.fetchMessage({ type: "email.bounced", data: { message_id: "m", recipient: "r" } }),
+      client.webhooks.fetchMessage({ type: "email.bounced", data: { message_id: "m", delivered_to: "r" } }),
     ).toThrow(/email\.received/);
     expect(() =>
       client.webhooks.fetchMessage({ type: "email.received", data: { message_id: "m" } }),
-    ).toThrow(/recipient/);
+    ).toThrow(/delivered_to/);
   });
 
   // ── Reviews: account-scoped, id-addressed (no inbox email) ──────

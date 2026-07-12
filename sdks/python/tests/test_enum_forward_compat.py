@@ -25,7 +25,7 @@ def test_unknown_event_type_parses() -> None:
             "status": "delivered",
             "schema_version": "1",
             "created_at": "2026-06-18T00:00:00Z",
-            "agent_id": "a@x.com",
+            "agent_email": "a@x.com",
             "data": {},
         }
     )
@@ -41,7 +41,7 @@ def test_unknown_event_status_parses() -> None:
             "status": "future_status",
             "schema_version": "1",
             "created_at": "2026-06-18T00:00:00Z",
-            "agent_id": "a@x.com",
+            "agent_email": "a@x.com",
             "data": {},
         }
     )

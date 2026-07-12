@@ -31,9 +31,8 @@ class AgentView(BaseModel):
     domain: StrictStr
     domain_verified: StrictBool
     email: StrictStr
-    id: StrictStr
     name: StrictStr
-    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "id", "name"]
+    __properties: ClassVar[List[str]] = ["created_at", "domain", "domain_verified", "email", "name"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -90,7 +89,6 @@ class AgentView(BaseModel):
             "domain": obj.get("domain"),
             "domain_verified": obj.get("domain_verified"),
             "email": obj.get("email"),
-            "id": obj.get("id"),
             "name": obj.get("name")
         })
         return _obj

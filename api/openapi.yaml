@@ -217,12 +217,9 @@ components:
           type: boolean
         email:
           type: string
-        id:
-          type: string
         name:
           type: string
       required:
-        - id
         - domain
         - email
         - name
@@ -821,7 +818,7 @@ components:
     EventJSON:
       additionalProperties: false
       properties:
-        agent_id:
+        agent_email:
           type: string
         conversation_id:
           type: string
@@ -932,7 +929,7 @@ components:
     Message:
       additionalProperties: false
       properties:
-        agent_id:
+        agent_email:
           type: string
         approval_expires_at:
           format: date-time
@@ -1051,7 +1048,7 @@ components:
           type: string
       required:
         - id
-        - agent_id
+        - agent_email
         - direction
         - from
         - delivered_to
@@ -1489,7 +1486,7 @@ components:
       properties:
         action:
           type: string
-        agent_id:
+        agent_email:
           type: string
         created_at:
           format: date-time
@@ -1514,7 +1511,7 @@ components:
       required:
         - id
         - message_id
-        - agent_id
+        - agent_email
         - direction
         - source
         - reason
@@ -2141,7 +2138,7 @@ components:
     UsageEventEntry:
       additionalProperties: false
       properties:
-        agent_id:
+        agent_email:
           type: string
         created_at:
           format: date-time
@@ -2156,7 +2153,7 @@ components:
           type: string
       required:
         - id
-        - agent_id
+        - agent_email
         - domain
         - direction
         - type
@@ -2327,7 +2324,7 @@ components:
     WebhookFiltersView:
       additionalProperties: false
       properties:
-        agent_ids:
+        agent_emails:
           items:
             type: string
           type: array
@@ -3597,7 +3594,7 @@ paths:
             type: string
         - explode: false
           in: query
-          name: agent_id
+          name: agent_email
           schema:
             type: string
         - explode: false

@@ -565,13 +565,13 @@ export default function Home() {
                   &nbsp;&nbsp;<Tok c="keyword">async for</Tok> n <Tok c="keyword">in</Tok> client.<Tok c="fn">listen</Tok>(<Tok c="string">{`"my-agent@${exampleAgentDomain}"`}</Tok>):
                 </Line>
                 <Line>
-                  &nbsp;&nbsp;&nbsp;&nbsp;msg = <Tok c="keyword">await</Tok> client.messages.<Tok c="fn">get</Tok>(n.recipient, n.message_id)
+                  &nbsp;&nbsp;&nbsp;&nbsp;msg = <Tok c="keyword">await</Tok> client.messages.<Tok c="fn">get</Tok>(n.delivered_to, n.message_id)
                 </Line>
                 <Line>
                   &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="fn">print</Tok>(msg.subject, n.conversation_id)
                 </Line>
                 <Line>
-                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(n.recipient, n.message_id, {`{`}<Tok c="string">&quot;text&quot;</Tok>: <Tok c="string">&quot;Got it, on it.&quot;</Tok>{`}`})
+                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(n.delivered_to, n.message_id, {`{`}<Tok c="string">&quot;text&quot;</Tok>: <Tok c="string">&quot;Got it, on it.&quot;</Tok>{`}`})
                 </Line>
               </>
             )}

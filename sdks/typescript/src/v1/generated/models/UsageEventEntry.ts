@@ -13,7 +13,7 @@
 import { HttpFile } from '../http/http.js';
 
 export class UsageEventEntry {
-    'agentId': string;
+    'agentEmail': string;
     'createdAt': Date;
     'direction': string;
     'domain': string;
@@ -26,8 +26,8 @@ export class UsageEventEntry {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "agentId",
-            "baseName": "agent_id",
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

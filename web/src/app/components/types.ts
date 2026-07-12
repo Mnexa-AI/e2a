@@ -1,5 +1,4 @@
 export type AgentData = {
-  id: string;
   domain: string;
   email: string;
 };
@@ -12,7 +11,6 @@ export type UserInfo = {
 };
 
 export type DashboardAgent = {
-  id: string;
   domain: string;
   email: string;
   name: string;

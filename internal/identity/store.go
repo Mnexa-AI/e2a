@@ -211,7 +211,7 @@ type User struct {
 
 type Message struct {
 	ID                string            `json:"id"`
-	AgentID           string            `json:"agent_id"`
+	AgentID           string            `json:"agent_email"`
 	Direction         string            `json:"direction"`
 	Sender            string            `json:"from"`
 	Recipient         string            `json:"delivered_to"`

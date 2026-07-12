@@ -53,7 +53,7 @@ func TestCreateWebhookUnownedAgentFilter(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
 		"url": "https://example.com/hook", "events": []string{"email.received"},
-		"filters": map[string]any{"agent_ids": []string{"someone-else@x.com"}},
+		"filters": map[string]any{"agent_emails": []string{"someone-else@x.com"}},
 	})
 	if code != 400 {
 		t.Fatalf("want 400 for unowned agent filter, got %d %v", code, body)
@@ -64,7 +64,7 @@ func TestCreateWebhookOwnedAgentFilter(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
 		"url": "https://example.com/hook", "events": []string{"email.received"},
-		"filters": map[string]any{"agent_ids": []string{"support@acme.com"}},
+		"filters": map[string]any{"agent_emails": []string{"support@acme.com"}},
 	})
 	if code != 201 {
 		t.Fatalf("owned agent filter should be accepted, got %d %v", code, body)

@@ -20,24 +20,24 @@ import { runTool, strictInputSchema } from "./util.js";
 export function registerWebhookTools(server: McpServer, client: McpClient): void {
   const filtersSchema = z
     .object({
-      agent_ids: z.array(z.string()).optional(),
+      agent_emails: z.array(z.string()).optional(),
       conversation_ids: z.array(z.string()).optional(),
       labels: z.array(z.string()).optional(),
     })
     .strict()
     .describe(
-      "Optional scope filters. Empty / missing keys mean 'no constraint of that type'. agent_ids must reference agents owned by the caller; cross-user ids are rejected. conversation_ids / labels are exact-match.",
+      "Optional scope filters. Empty / missing keys mean 'no constraint of that type'. agent_emails must reference agents owned by the caller; cross-user addresses are rejected. conversation_ids / labels are exact-match.",
     );
 
   // Map the snake_case tool filter shape to the SDK's camelCase
   // WebhookFiltersView. Returns undefined for an absent filter so we
   // don't send an empty object.
   const mapFilters = (
-    f?: { agent_ids?: string[]; conversation_ids?: string[]; labels?: string[] },
-  ): { agentIds?: string[]; conversationIds?: string[]; labels?: string[] } | undefined => {
+    f?: { agent_emails?: string[]; conversation_ids?: string[]; labels?: string[] },
+  ): { agentEmails?: string[]; conversationIds?: string[]; labels?: string[] } | undefined => {
     if (!f) return undefined;
     return {
-      ...(f.agent_ids !== undefined ? { agentIds: f.agent_ids } : {}),
+      ...(f.agent_emails !== undefined ? { agentEmails: f.agent_emails } : {}),
       ...(f.conversation_ids !== undefined ? { conversationIds: f.conversation_ids } : {}),
       ...(f.labels !== undefined ? { labels: f.labels } : {}),
     };

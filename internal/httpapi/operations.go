@@ -55,9 +55,10 @@ func (s *Server) registerInfo() {
 // screening/HITL config moved to the account-scoped
 // /v1/agents/{email}/protection sub-resource (design 2026-06-22), so AgentView
 // is identity + status only — an agent-scoped credential reading its own agent
-// no longer learns its detection tuning (closes audit #13).
+// no longer learns its detection tuning (closes audit #13). The redundant `id`
+// field was dropped: an agent's id IS its email, so `email` is the sole identity
+// key (mirroring DomainView keyed on `domain` and Suppression on `address`).
 type AgentView struct {
-	ID             string    `json:"id"`
 	Domain         string    `json:"domain"`
 	Email          string    `json:"email"`
 	Name           string    `json:"name"`
@@ -68,7 +69,6 @@ type AgentView struct {
 // agentViewFromIdentity maps the storage record to the public view.
 func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 	return AgentView{
-		ID:             ag.ID,
 		Domain:         ag.Domain,
 		Email:          ag.EmailAddress(),
 		Name:           ag.Name,

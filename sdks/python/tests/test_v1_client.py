@@ -229,12 +229,12 @@ async def test_get_attachment_hits_endpoint_and_maps_view(httpx_mock):
 
 @pytest.mark.anyio
 async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
-    # email.received is metadata-only; fetch_message resolves (recipient,
+    # email.received is metadata-only; fetch_message resolves (delivered_to,
     # message_id) into the full-message GET.
     httpx_mock.add_response(json=_valid(MessageView, id="msg_9", subject="Hi"))
     event = WebhookEvent(
         type="email.received",
-        data={"message_id": "msg_9", "recipient": "bot@test.dev"},
+        data={"message_id": "msg_9", "delivered_to": "bot@test.dev"},
         id="evt_1",
     )
     async with _client() as c:
@@ -251,9 +251,9 @@ async def test_webhooks_fetch_message_rejects_bad_event():
     async with _client() as c:
         with pytest.raises(ValueError, match="email.received"):
             await c.webhooks.fetch_message(
-                WebhookEvent(type="email.bounced", data={"message_id": "m", "recipient": "r"})
+                WebhookEvent(type="email.bounced", data={"message_id": "m", "delivered_to": "r"})
             )
-        with pytest.raises(ValueError, match="recipient"):
+        with pytest.raises(ValueError, match="delivered_to"):
             await c.webhooks.fetch_message(
                 WebhookEvent(type="email.received", data={"message_id": "m"})
             )
@@ -277,10 +277,11 @@ async def test_send_error_surfaces_machine_code(httpx_mock):
 
 @pytest.mark.anyio
 async def test_create_agent_posts_body(httpx_mock):
-    httpx_mock.add_response(status_code=201, json=_valid(AgentView, id="ag_new", email="new@test.dev"))
+    httpx_mock.add_response(status_code=201, json=_valid(AgentView, email="new@test.dev"))
     async with _client() as c:
         res = await c.agents.create({"email": "new@test.dev"})
-    assert res.id == "ag_new"
+    assert res.email == "new@test.dev"
+    assert not hasattr(res, "id")
     req = httpx_mock.get_requests()[-1]
     assert req.method == "POST"
     assert str(req.url).endswith("/v1/agents")

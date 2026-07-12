@@ -37,8 +37,8 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 
 	// Metadata + fetch keys + the signed auth_headers attestation are present.
 	for _, key := range []string{
-		"message_id", "conversation_id", "agent",
-		"from", "authenticated_from", "to", "cc", "reply_to", "recipient",
+		"message_id", "conversation_id", "agent_email",
+		"from", "authenticated_from", "to", "cc", "reply_to", "delivered_to",
 		"subject", "auth_headers", "received_at",
 	} {
 		if _, ok := payload[key]; !ok {
@@ -51,9 +51,9 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 		t.Errorf("metadata-only payload must not carry %q", "raw_message")
 	}
 
-	// recipient is the fetch key (agent address) for messages.get(recipient, id).
-	if payload["recipient"] != "bot@example.com" {
-		t.Errorf("recipient = %v, want bot@example.com (fetch key)", payload["recipient"])
+	// delivered_to is the fetch key (agent address) for messages.get(delivered_to, id).
+	if payload["delivered_to"] != "bot@example.com" {
+		t.Errorf("delivered_to = %v, want bot@example.com (fetch key)", payload["delivered_to"])
 	}
 
 	if payload["message_id"] != "msg_123" {
@@ -67,14 +67,8 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 	if payload["authenticated_from"] != "alice@example.com" {
 		t.Errorf("authenticated_from = %v, want alice@example.com (From identity)", payload["authenticated_from"])
 	}
-	agentObj, ok := payload["agent"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("agent is not a map: %T", payload["agent"])
-	}
-	if agentObj["id"] != "bot@example.com" {
-		t.Errorf("agent.id = %v", agentObj["id"])
-	}
-	if agentObj["domain"] != "example.com" {
-		t.Errorf("agent.domain = %v", agentObj["domain"])
+	// agent_email is the single flat agent reference (an agent's id IS its email).
+	if payload["agent_email"] != "bot@example.com" {
+		t.Errorf("agent_email = %v, want bot@example.com", payload["agent_email"])
 	}
 }

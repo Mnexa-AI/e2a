@@ -301,7 +301,7 @@ func (a *API) auditRowless(ctx context.Context, agent *identity.AgentIdentity, m
 func (a *API) buildBlockedOutboundEvent(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) webhookpub.Event {
 	e := webhookpub.NewEvent(webhookpub.EventEmailBlocked, agent.UserID, map[string]interface{}{
 		"message_id":    messageID,
-		"agent":         map[string]interface{}{"id": agent.ID, "email": agent.EmailAddress(), "domain": agent.Domain},
+		"agent_email":   agent.EmailAddress(),
 		"direction":     "outbound",
 		"recipients":    allRecipients(req),
 		"subject":       req.Subject,

@@ -28,7 +28,7 @@ class ProtectionEventExportEntry(BaseModel):
     ProtectionEventExportEntry
     """ # noqa: E501
     action: StrictStr
-    agent_id: StrictStr
+    agent_email: StrictStr
     created_at: datetime
     detector: Optional[StrictStr] = None
     direction: StrictStr
@@ -38,7 +38,7 @@ class ProtectionEventExportEntry(BaseModel):
     reason: StrictStr
     scan_score: Optional[Union[StrictFloat, StrictInt]] = None
     source: StrictStr
-    __properties: ClassVar[List[str]] = ["action", "agent_id", "created_at", "detector", "direction", "id", "message_id", "peer_address", "reason", "scan_score", "source"]
+    __properties: ClassVar[List[str]] = ["action", "agent_email", "created_at", "detector", "direction", "id", "message_id", "peer_address", "reason", "scan_score", "source"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -92,7 +92,7 @@ class ProtectionEventExportEntry(BaseModel):
 
         _obj = cls.model_validate({
             "action": obj.get("action"),
-            "agent_id": obj.get("agent_id"),
+            "agent_email": obj.get("agent_email"),
             "created_at": obj.get("created_at"),
             "detector": obj.get("detector"),
             "direction": obj.get("direction"),
