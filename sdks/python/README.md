@@ -146,6 +146,18 @@ List methods return an `AutoPager` — async-iterate it, or use
 `await pager.to_list(limit=N)` (the limit is required, to bound memory) or
 `await pager.for_each(fn)` (return `False` to stop early).
 
+For manual, caller-driven pagination (e.g. checkpoint/resume from a queue), use
+`await pager.page(cursor)`: it fetches a SINGLE page and returns a `Page` of
+`items` + `next_cursor`. Omit the cursor for the first page and pass the
+previous page's `next_cursor` to resume; a `None` `next_cursor` means there are
+no more pages.
+
+```python
+page = await client.messages.list("bot@agents.e2a.dev", limit=100).page()
+process(page.items)
+checkpoint(page.next_cursor)  # resume later with .page(saved_cursor)
+```
+
 ## WebSocket (real-time delivery for local agents)
 
 ```python
