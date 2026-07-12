@@ -11,7 +11,7 @@ For what e2a stores, how long it lives, log handling, and the user/operator data
 
 ## Reporting a vulnerability
 
-Email **security@mnexa.ai** with:
+Email **josh@mnexa.ai** with:
 
 - A description of the issue
 - Steps to reproduce (or a proof-of-concept)
