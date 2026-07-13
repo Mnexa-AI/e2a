@@ -3,6 +3,7 @@ package outboundsend_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,44 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
+
+func TestTerminalReconcileIndex(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+
+	var (
+		valid      bool
+		keyColumns int
+		allColumns int
+		definition string
+		predicate  string
+	)
+	if err := pool.QueryRow(ctx,
+		`SELECT i.indisvalid, i.indnkeyatts, i.indnatts,
+		        pg_get_indexdef(i.indexrelid), pg_get_expr(i.indpred, i.indrelid)
+		   FROM pg_class c
+		   JOIN pg_index i ON i.indexrelid = c.oid
+		  WHERE c.relname = 'idx_messages_outbound_terminal_reconcile'`,
+	).Scan(&valid, &keyColumns, &allColumns, &definition, &predicate); err != nil {
+		t.Fatalf("read terminal reconcile index: %v", err)
+	}
+	if !valid {
+		t.Error("terminal reconcile index is invalid")
+	}
+	if keyColumns != 2 || allColumns != 3 {
+		t.Errorf("terminal reconcile index columns = (%d key, %d total), want (2 key, 3 total)", keyColumns, allColumns)
+	}
+	for _, want := range []string{"(created_at, id)", "INCLUDE (send_job_id)"} {
+		if !strings.Contains(definition, want) {
+			t.Errorf("terminal reconcile index definition %q missing %q", definition, want)
+		}
+	}
+	for _, want := range []string{"direction = 'outbound'", "delivery_status", "'accepted'", "'sending'", "send_job_id IS NOT NULL"} {
+		if !strings.Contains(predicate, want) {
+			t.Errorf("terminal reconcile index predicate %q missing %q", predicate, want)
+		}
+	}
+}
 
 // TestReconcilePending_EnqueuesStrandedAndStamps stands up a REAL River client and
 // asserts the slice-C startup cutover: an accepted message with send_job_id IS NULL
