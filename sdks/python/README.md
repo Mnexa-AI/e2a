@@ -239,7 +239,11 @@ async for event in client.listen("bot@agents.e2a.dev"):  # falls back to E2A_AGE
 
 `client.listen(address)` returns a `WSStream` (async-iterable of `WSEvent` —
 the same versioned `{type, id, schema_version, created_at, data}` envelope a
-webhook delivery carries) that reconnects with exponential backoff. Requires
+webhook delivery carries) that reconnects with exponential backoff on
+transient closes. The server keeps **one connection per agent**: if a newer
+connection for the same agent takes over, iteration raises
+`E2AConnectionReplacedError` (WS close code `4000 "replaced"`) instead of
+reconnecting — reconnecting would steal the socket back and loop. Requires
 the `[ws]` extra (`pip install "e2a[ws]"`).
 
 On the sync client, `client.listen(address)` returns a plain iterable instead:

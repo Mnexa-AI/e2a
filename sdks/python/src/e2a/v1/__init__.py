@@ -28,6 +28,7 @@ from e2a.v1.errors import (  # noqa: F401
     E2AAuthError,
     E2AConflictError,
     E2AConnectionError,
+    E2AConnectionReplacedError,
     E2AError,
     E2AIdempotencyError,
     E2ALimitExceededError,
@@ -74,7 +75,7 @@ from e2a.v1.webhook_signature import (  # noqa: F401
 )
 
 # Real-time WebSocket stream (frames are the same event envelope as webhooks).
-from e2a.v1.websocket import WSEvent, WSStream  # noqa: F401
+from e2a.v1.websocket import WS_CLOSE_REPLACED, WSEvent, WSStream  # noqa: F401
 
 __all__ = [
     "AsyncE2AClient",
@@ -93,6 +94,7 @@ __all__ = [
     "E2ARateLimitError",
     "E2AServerError",
     "E2AConnectionError",
+    "E2AConnectionReplacedError",
     "E2AWebhookSignatureError",
     # Pagination
     "AutoPager",
@@ -123,6 +125,7 @@ __all__ = [
     "is_domain_sending_failed",
     "is_domain_suppression_added",
     # WebSocket
+    "WS_CLOSE_REPLACED",
     "WSEvent",
     "WSStream",
     # Generated models namespace

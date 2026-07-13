@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -404,6 +405,60 @@ func TestHandler_SuccessfulConnect(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	waitConnected(t, hub, "agent_test")
+}
+
+// TestHandler_ReplacedConnection_Close4000 pins the GA close-code contract for
+// the one-connection-per-agent policy: when a NEWER connection for the same
+// agent arrives, the superseded connection is closed with the application
+// close code 4000 and the stable reason token "replaced" — NOT 1008 (policy
+// violation). 4000 tells the old client "your own replacement took over; do
+// not auto-reconnect", where 1008 would read as a genuine rejection (and,
+// pre-fix, made auto-reconnecting SDKs steal the socket back in a loop).
+func TestHandler_ReplacedConnection_Close4000(t *testing.T) {
+	hub := NewHub()
+	defer hub.Close()
+	store := &mockStore{
+		user:  newTestUser(),
+		agent: newTestAgent("user_1"),
+	}
+	handler := NewHandler(hub, store)
+	srv := startServer(t, handler)
+
+	first, _ := dialWS(t, srv, "bot@agents.e2a.dev", "valid_key")
+	if first == nil {
+		t.Fatal("expected first WS connection to open")
+	}
+	defer first.Close(websocket.StatusNormalClosure, "")
+	waitConnected(t, hub, "agent_test")
+
+	second, _ := dialWS(t, srv, "bot@agents.e2a.dev", "valid_key")
+	if second == nil {
+		t.Fatal("expected second WS connection to open (newer connection wins)")
+	}
+	defer second.Close(websocket.StatusNormalClosure, "")
+
+	// The first connection must now receive the server's close frame.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, _, err := first.Read(ctx)
+	if err == nil {
+		t.Fatal("expected the superseded connection to be closed")
+	}
+	if got := websocket.CloseStatus(err); got != StatusReplaced {
+		t.Fatalf("close code = %d, want %d (replaced) — err: %v", got, StatusReplaced, err)
+	}
+	var ce websocket.CloseError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a websocket.CloseError, got %v", err)
+	}
+	if ce.Reason != ReasonReplaced {
+		t.Fatalf("close reason = %q, want the stable token %q", ce.Reason, ReasonReplaced)
+	}
+
+	// The NEW connection stays registered and live.
+	if !hub.IsConnected("agent_test") {
+		t.Fatal("expected the newer connection to remain registered")
+	}
 }
 
 func TestHandler_DrainUnreadOnConnect(t *testing.T) {

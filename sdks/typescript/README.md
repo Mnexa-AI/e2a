@@ -194,8 +194,11 @@ created_at, data}` envelope a webhook delivery carries, so
 `client.webhooks.fetchMessage(event)` works on either channel. Use
 `.on("error" | "close", …)` for connection-level events and `.close()` to
 stop. Reconnects with exponential backoff (1s → 30s, configurable via
-`maxBackoffMs`). The lower-level `WSListener` is also exported for advanced
-use.
+`maxBackoffMs`) on transient closes. The server keeps **one connection per
+agent**: if a newer connection for the same agent takes over, the stream
+stops with `E2AConnectionReplacedError` (WS close code `4000 "replaced"`)
+instead of reconnecting — reconnecting would steal the socket back and loop.
+The lower-level `WSListener` is also exported for advanced use.
 
 ## Conversation threading
 

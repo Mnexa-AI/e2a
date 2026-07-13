@@ -125,10 +125,15 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 
 	log.Printf("[ws] connected: %s (user=%s)", email, principal.User.ID)
 
-	// Register connection; close old one if exists
+	// Register connection; close old one if exists. The superseded connection
+	// gets the application close code 4000 "replaced" — NOT 1008 (policy
+	// violation) — because this is the benign one-connection-per-agent
+	// takeover, not a rejection of the closed client. SDKs treat 4000 as
+	// terminal (no auto-reconnect): reconnecting would steal the socket back
+	// from the newer connection and loop. See closecodes.go for the table.
 	if old := h.hub.Register(agent.ID, conn); old != nil {
 		log.Printf("[ws] replacing existing connection for %s", email)
-		old.Close(websocket.StatusPolicyViolation, "replaced by new connection")
+		old.Close(StatusReplaced, ReasonReplaced)
 	}
 
 	// Drain unread messages as notifications
@@ -265,8 +270,11 @@ func (h *Handler) readLoop(conn *websocket.Conn, agent *identity.AgentIdentity) 
 				pingCancel()
 				if err != nil {
 					log.Printf("[ws] ping failed for %s: %v", agent.Email, err)
-					// Close the connection to unblock the Read below
-					conn.Close(websocket.StatusGoingAway, "ping timeout")
+					// Close the connection to unblock the Read below. 1001 +
+					// the stable "ping_timeout" token: a transient condition —
+					// clients reconnect with backoff (the peer is usually
+					// already gone and sees a 1006 abnormal close instead).
+					conn.Close(websocket.StatusGoingAway, ReasonPingTimeout)
 					return
 				}
 			}

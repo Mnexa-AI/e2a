@@ -362,6 +362,154 @@ async def test_wsstream_fatal_401_raises_typed_and_does_not_loop():
     assert attempts == 1
 
 
+# ── close-code contract (docs/api.md "Connection lifecycle & close codes") ──
+
+
+class _FakeCloseFrame:
+    def __init__(self, code, reason=""):
+        self.code = code
+        self.reason = reason
+
+
+class _FakeConnectionClosed(Exception):
+    """Mimics websockets.ConnectionClosed: received frame on .rcvd."""
+
+    def __init__(self, code, reason=""):
+        super().__init__(f"received {code} ({reason})")
+        self.rcvd = _FakeCloseFrame(code, reason)
+
+
+class _FakeLegacyConnectionClosed(Exception):
+    """Mimics the deprecated shape: .code / .reason attributes."""
+
+    def __init__(self, code, reason=""):
+        super().__init__(f"code = {code}")
+        self.code = code
+        self.reason = reason
+
+
+def test_close_code_and_reason_extracts_from_both_shapes():
+    from e2a.v1.websocket import _close_code_and_reason
+
+    assert _close_code_and_reason(_FakeConnectionClosed(4000, "replaced")) == (4000, "replaced")
+    assert _close_code_and_reason(_FakeLegacyConnectionClosed(1008, "nope")) == (1008, "nope")
+    assert _close_code_and_reason(OSError("connection refused")) == (None, "")
+
+
+def test_fatal_error_for_close_matrix():
+    from e2a.v1.errors import (
+        E2AConnectionReplacedError,
+        E2AError,
+        E2APermissionError,
+    )
+    from e2a.v1.websocket import WS_CLOSE_REPLACED, _fatal_error_for_close
+
+    # 4000 "replaced" — a newer connection took over: typed, terminal.
+    replaced = _fatal_error_for_close(WS_CLOSE_REPLACED, "replaced")
+    assert isinstance(replaced, E2AConnectionReplacedError)
+    assert replaced.code == "ws_replaced" and replaced.retryable is False
+
+    # 1008 — genuine policy rejection: terminal.
+    policy = _fatal_error_for_close(1008, "policy violation")
+    assert isinstance(policy, E2APermissionError)
+    assert policy.code == "ws_policy_violation" and policy.retryable is False
+
+    # Unknown 4xxx application codes are fatal by contract (forward-compat).
+    future = _fatal_error_for_close(4321, "future_condition")
+    assert isinstance(future, E2AError) and future.retryable is False
+
+    # Transient closes reconnect: shutdown/ping-timeout (1001), abnormal
+    # (1006), internal error (1011).
+    assert _fatal_error_for_close(1001, "shutting_down") is None
+    assert _fatal_error_for_close(1001, "ping_timeout") is None
+    assert _fatal_error_for_close(1006, "") is None
+    assert _fatal_error_for_close(1011, "") is None
+
+
+@pytest.mark.anyio
+async def test_wsstream_replaced_4000_raises_typed_and_does_not_reconnect():
+    """A 4000 "replaced" close must raise E2AConnectionReplacedError and STOP —
+    reconnecting would steal the socket back from our own replacement and loop
+    (the pre-contract bug, when the server sent 1008 for this)."""
+    from e2a.v1.errors import E2AConnectionReplacedError
+    from e2a.v1.websocket import WSStream
+
+    attempts = 0
+
+    async def fake_connect_and_stream(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise _FakeConnectionClosed(4000, "replaced")
+        yield  # pragma: no cover - makes this an async generator
+
+    # reconnect=True: the bug being fixed would loop (steal the socket back).
+    s = WSStream(
+        api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev",
+        reconnect=True,
+    )
+    with patch("e2a.v1.websocket._connect_and_stream", side_effect=fake_connect_and_stream), \
+         patch.dict(sys.modules, {"websockets": MagicMock()}):
+        with pytest.raises(E2AConnectionReplacedError) as ei:
+            async for _ in s:
+                pass
+
+    assert ei.value.code == "ws_replaced"
+    assert attempts == 1  # one connect, then stop — no takeover loop
+
+
+@pytest.mark.anyio
+async def test_wsstream_1008_policy_close_raises_typed_and_stops():
+    from e2a.v1.errors import E2APermissionError
+    from e2a.v1.websocket import WSStream
+
+    attempts = 0
+
+    async def fake_connect_and_stream(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise _FakeConnectionClosed(1008, "policy violation")
+        yield  # pragma: no cover
+
+    s = WSStream(
+        api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev",
+        reconnect=True,
+    )
+    with patch("e2a.v1.websocket._connect_and_stream", side_effect=fake_connect_and_stream), \
+         patch.dict(sys.modules, {"websockets": MagicMock()}):
+        with pytest.raises(E2APermissionError):
+            async for _ in s:
+                pass
+
+    assert attempts == 1
+
+
+@pytest.mark.anyio
+async def test_wsstream_transient_close_code_reconnects():
+    """A 1011 (internal error) close is transient — no raise, reconnect path."""
+    from e2a.v1.websocket import WSStream
+
+    attempts = 0
+
+    async def fake_connect_and_stream(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise _FakeConnectionClosed(1011, "")
+        yield  # pragma: no cover
+
+    # reconnect=False bounds the loop: the transient path returns cleanly
+    # after one failure instead of raising.
+    s = WSStream(
+        api_key="k", agent_email="bot@agents.e2a.dev", base_url="https://e2a.dev",
+        reconnect=False,
+    )
+    with patch("e2a.v1.websocket._connect_and_stream", side_effect=fake_connect_and_stream), \
+         patch.dict(sys.modules, {"websockets": MagicMock()}):
+        results = [notif async for notif in s]
+
+    assert results == []  # ended cleanly — no typed raise for a transient close
+    assert attempts == 1
+
+
 @pytest.mark.anyio
 async def test_wsstream_transient_failure_reconnects():
     """A network failure (no handshake status) reconnects rather than raising."""

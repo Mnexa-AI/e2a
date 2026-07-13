@@ -432,6 +432,47 @@ loaded by the drain query), and `created_at`/`received_at` are the message
 row's time rather than the original event's publish time — the full message
 (fetched separately) always has everything.
 
+### Connection lifecycle & close codes
+
+**One connection per agent.** The server holds at most one WebSocket per
+agent: when a newer connection for the same agent completes its handshake,
+it wins, and the older connection is closed with code **4000 `replaced`**.
+WS is an opportunistic push channel on top of the durable pollable inbox and
+webhook subscriptions — if you need fan-out to several consumers, use
+webhooks (or poll), not multiple sockets.
+
+Close codes are a frozen part of the API contract. Standard codes keep their
+standard semantics; e2a-specific conditions use application codes in the
+4000–4999 range:
+
+| Code | Reason token | Meaning | Client action |
+|---|---|---|---|
+| `1000` | *(empty)* | Normal closure. | None — expected after your own close. |
+| `1001` | `shutting_down` | Server shutdown/restart (e.g. a deploy). | Reconnect with backoff. |
+| `1001` | `ping_timeout` | The server dropped an unresponsive connection (missed keepalive pong). Usually observed as a `1006` abnormal close instead, since the peer is already gone. | Reconnect with backoff. |
+| `1006` | *(n/a — never sent; synthesized locally)* | Abnormal close / network drop. | Reconnect with backoff. |
+| `1008` | *(human-readable message)* | Genuine policy rejection of an **established** connection. Reserved: the server does not currently close established connections with 1008 — all credential/ownership rejections happen at the handshake as HTTP errors (below). | Do **not** reconnect — retrying the same connection cannot succeed. |
+| `1011` | *(human-readable message)* | Internal server error. | Reconnect with backoff. |
+| `4000` | `replaced` | A **newer connection for this agent** superseded this one (one-connection-per-agent). Benign — but the superseded client must stop: auto-reconnecting would steal the socket back from its replacement and loop. | Do **not** reconnect. Surface the condition (SDKs raise/emit `E2AConnectionReplacedError`). |
+| `4001`–`4999` | — | Reserved for future e2a-specific terminal conditions (e.g. agent deleted mid-connection). | Treat any unrecognized 4xxx as terminal: do **not** auto-reconnect. |
+
+Reason strings on e2a-specific closes are short stable `snake_case` tokens
+(`replaced`, `shutting_down`, `ping_timeout`) — safe to branch on, though
+clients should branch on the **code** first; reasons on standard codes may be
+human-readable text.
+
+Handshake rejections (missing/invalid key → `401`, agent-scoped key for a
+different agent → `403`, nonexistent or not-your agent → `404`) happen
+**before** the upgrade and return the canonical HTTP error envelope, never a
+close code. The SDKs treat those as fatal too (typed error, no retry loop).
+
+SDK behavior (TS `WSListener`/`WSStream`, Python `WSStream`, and the CLI
+`listen` command, which inherits from the TS SDK): transient closes reconnect
+with exponential backoff; `4000 replaced`, `1008`, unknown 4xxx, and fatal
+handshake rejections stop the stream with a typed error. The CLI prints a
+`listener replaced` explanation and exits `5` (permanent — retry wrappers
+must not rerun it).
+
 ## HITL magic links
 
 These accept a signed `t` query parameter (from notification emails) instead of an

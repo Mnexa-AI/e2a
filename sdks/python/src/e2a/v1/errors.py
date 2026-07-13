@@ -37,6 +37,7 @@ __all__ = [
     "E2ARateLimitError",
     "E2AServerError",
     "E2AConnectionError",
+    "E2AConnectionReplacedError",
     "E2AWebhookSignatureError",
     "is_retryable_status",
     "from_api_exception",
@@ -121,6 +122,16 @@ class E2AServerError(E2AError):
 
 class E2AConnectionError(E2AError):
     """No HTTP response (DNS, refused, reset, timeout)."""
+
+
+class E2AConnectionReplacedError(E2AError):
+    """WebSocket close code 4000 (``"replaced"``): a NEWER connection for the
+    same agent superseded this one — the server holds one connection per agent.
+
+    Terminal by contract: the SDK does NOT auto-reconnect, because reconnecting
+    would steal the socket back from the replacement and loop. If the takeover
+    was yours, it already succeeded on the other side; run one listener per
+    agent."""
 
 
 class E2AWebhookSignatureError(E2AError):
