@@ -350,6 +350,24 @@ describe("e2a MCP server", () => {
     );
   });
 
+  // The real backend status vocabulary (internal/httpapi/outbound.go
+  // SendResultView) includes "accepted" — the async-outbound success status
+  // that REPLACES "sent" when async mode is on. A model that doesn't know
+  // "accepted" is a terminal success can mistake it for an ambiguous/failed
+  // result and re-send without reusing idempotency_key, causing a real
+  // duplicate send. Guard that all three send-shaped tool descriptions
+  // document it as success and tell the model not to retry.
+  it("documents `accepted` as a terminal success status on send/reply/forward (no-retry guard)", async () => {
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    for (const name of ["send_message", "reply_to_message", "forward_message"]) {
+      const description = byName.get(name)?.description ?? "";
+      expect(description, `${name} description`).toContain("accepted");
+      expect(description, `${name} description`).toMatch(/do NOT re-send/i);
+      expect(description, `${name} description`).toMatch(/pending_review/);
+    }
+  });
+
   // ── §6a scope/tier gating ──────────────────────────────────────────
   // account scope sees the full surface; agent scope sees only the runtime tier.
 

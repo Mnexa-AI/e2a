@@ -1,12 +1,12 @@
 ---
 name: e2a
 description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments — OR when integrating e2a into your own software/service (the developer email-API use case: API keys, SDKs, webhooks). With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, programmatic integration, and common gotchas.
-version: 15
+version: 16
 ---
 
 # Using e2a
 
-<!-- version: 15 -->
+<!-- version: 16 -->
 
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), threads conversations, and optionally holds outbound mail for human review.
 
@@ -66,6 +66,7 @@ For attachment bytes, use `get_attachment` with a 0-based index. It returns the 
 1. `send_message` with `to`, `subject`, `body`.
 2. Check the response:
    - `status: sent` — done.
+   - `status: accepted` — also success, not a maybe. The send was durably persisted and queued for submission (async pipeline). Do NOT re-send. The terminal outcome (delivered or failed) arrives later via webhook events (`email.sent` / `email.failed`) or by polling `get_message`/`list_messages`.
    - `status: pending_review` — the agent's protection config held it for review; the message is queued. Tell the user it's awaiting review. They can review in the dashboard, via the magic link in their notification email, or with the pending/review tools.
 
 ### Templates (beta): recurring sends without free-writing
