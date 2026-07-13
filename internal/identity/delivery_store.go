@@ -299,10 +299,13 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, providerMessageID string) (*OutboundSentInfo, error) {
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent", ProviderMessageID: providerMessageID}
 	err := tx.QueryRow(ctx,
-		`UPDATE messages
+		`UPDATE messages m
 		    SET delivery_status = 'sent', provider_message_id = $2
-		  WHERE id = $1 AND direction = 'outbound'
-		 RETURNING agent_id, subject, message_type, method, conversation_id, sender, to_recipients, cc, bcc`,
+		   FROM agent_identities a
+		  WHERE m.id = $1 AND m.direction = 'outbound'
+		    AND m.agent_id = a.id
+		    AND m.deleted_at IS NULL AND a.deleted_at IS NULL
+		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender, m.to_recipients, m.cc, m.bcc`,
 		messageID, providerMessageID,
 	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -354,11 +357,14 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 func (s *Store) MarkOutboundFailedTx(ctx context.Context, tx pgx.Tx, messageID, detail string) (*OutboundSentInfo, error) {
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "failed", DeliveryDetail: detail}
 	err := tx.QueryRow(ctx,
-		`UPDATE messages
+		`UPDATE messages m
 		    SET delivery_status = 'failed', delivery_detail = $2
-		  WHERE id = $1 AND direction = 'outbound'
-		    AND delivery_status IN ('accepted', 'sending')
-		 RETURNING agent_id, subject, message_type, method, conversation_id, sender, to_recipients, cc, bcc`,
+		   FROM agent_identities a
+		  WHERE m.id = $1 AND m.direction = 'outbound'
+		    AND m.agent_id = a.id
+		    AND m.deleted_at IS NULL AND a.deleted_at IS NULL
+		    AND m.delivery_status IN ('accepted', 'sending')
+		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender, m.to_recipients, m.cc, m.bcc`,
 		messageID, nullIfEmpty(detail),
 	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC)
 	if errors.Is(err, pgx.ErrNoRows) {

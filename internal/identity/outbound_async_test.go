@@ -234,3 +234,157 @@ func TestMarkOutboundFailedTx(t *testing.T) {
 		t.Errorf("sent row delivery_detail = %q, want unchanged empty detail", detail)
 	}
 }
+
+func TestMarkOutboundSentTxSkipsTrashRace(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := trashTestSetup(t, store, "async-sent-race")
+
+	msg, err := store.CreateOutboundMessage(ctx, agentID,
+		[]string{"x@example.com"}, nil, nil, "queued", "send", "smtp", "", "", []byte("raw"))
+	if err != nil {
+		t.Fatalf("CreateOutboundMessage: %v", err)
+	}
+	if p, err := store.LoadOutboundForSend(ctx, msg.ID); err != nil || p == nil {
+		t.Fatalf("LoadOutboundForSend(live) = (%v, %v), want payload", p, err)
+	}
+	var wantDeliveryStatus, wantProviderID string
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(delivery_status,''), COALESCE(provider_message_id,'') FROM messages WHERE id=$1`, msg.ID,
+	).Scan(&wantDeliveryStatus, &wantProviderID); err != nil {
+		t.Fatalf("read baseline row: %v", err)
+	}
+
+	t.Run("trashed message", func(t *testing.T) {
+		if err := store.SoftDeleteMessage(ctx, msg.ID, agentID); err != nil {
+			t.Fatalf("SoftDeleteMessage: %v", err)
+		}
+		var info *identity.OutboundSentInfo
+		if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+			i, err := store.MarkOutboundSentTx(ctx, tx, msg.ID, "<ses-race@amazonses.com>")
+			info = i
+			return err
+		}); err != nil {
+			t.Fatalf("MarkOutboundSentTx: %v", err)
+		}
+		if info != nil {
+			t.Fatalf("MarkOutboundSentTx info = %+v, want nil for trashed message", info)
+		}
+		var deliveryStatus, providerID string
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(delivery_status,''), COALESCE(provider_message_id,'') FROM messages WHERE id=$1`, msg.ID,
+		).Scan(&deliveryStatus, &providerID); err != nil {
+			t.Fatalf("read row: %v", err)
+		}
+		if deliveryStatus != wantDeliveryStatus || providerID != wantProviderID {
+			t.Fatalf("after trashed-message race: delivery_status=%q provider_message_id=%q, want %q/%q", deliveryStatus, providerID, wantDeliveryStatus, wantProviderID)
+		}
+	})
+
+	if err := store.RestoreMessage(ctx, msg.ID, agentID); err != nil {
+		t.Fatalf("RestoreMessage: %v", err)
+	}
+	t.Run("trashed agent", func(t *testing.T) {
+		if err := store.SoftDeleteAgent(ctx, agentID, userID); err != nil {
+			t.Fatalf("SoftDeleteAgent: %v", err)
+		}
+		var info *identity.OutboundSentInfo
+		if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+			i, err := store.MarkOutboundSentTx(ctx, tx, msg.ID, "<ses-agent-race@amazonses.com>")
+			info = i
+			return err
+		}); err != nil {
+			t.Fatalf("MarkOutboundSentTx: %v", err)
+		}
+		if info != nil {
+			t.Fatalf("MarkOutboundSentTx info = %+v, want nil for trashed agent", info)
+		}
+		var deliveryStatus, providerID string
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(delivery_status,''), COALESCE(provider_message_id,'') FROM messages WHERE id=$1`, msg.ID,
+		).Scan(&deliveryStatus, &providerID); err != nil {
+			t.Fatalf("read row: %v", err)
+		}
+		if deliveryStatus != wantDeliveryStatus || providerID != wantProviderID {
+			t.Fatalf("after trashed-agent race: delivery_status=%q provider_message_id=%q, want %q/%q", deliveryStatus, providerID, wantDeliveryStatus, wantProviderID)
+		}
+	})
+}
+
+func TestMarkOutboundFailedTxSkipsTrashRace(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := trashTestSetup(t, store, "async-failed-race")
+
+	msg, err := store.CreateOutboundMessage(ctx, agentID,
+		[]string{"x@example.com"}, nil, nil, "queued", "send", "smtp", "", "", []byte("raw"))
+	if err != nil {
+		t.Fatalf("CreateOutboundMessage: %v", err)
+	}
+	if p, err := store.LoadOutboundForSend(ctx, msg.ID); err != nil || p == nil {
+		t.Fatalf("LoadOutboundForSend(live) = (%v, %v), want payload", p, err)
+	}
+	var wantDeliveryStatus, wantDetail string
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(delivery_status,''), COALESCE(delivery_detail,'') FROM messages WHERE id=$1`, msg.ID,
+	).Scan(&wantDeliveryStatus, &wantDetail); err != nil {
+		t.Fatalf("read baseline row: %v", err)
+	}
+
+	t.Run("trashed message", func(t *testing.T) {
+		if err := store.SoftDeleteMessage(ctx, msg.ID, agentID); err != nil {
+			t.Fatalf("SoftDeleteMessage: %v", err)
+		}
+		var info *identity.OutboundSentInfo
+		if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+			i, err := store.MarkOutboundFailedTx(ctx, tx, msg.ID, "550 after trash")
+			info = i
+			return err
+		}); err != nil {
+			t.Fatalf("MarkOutboundFailedTx: %v", err)
+		}
+		if info != nil {
+			t.Fatalf("MarkOutboundFailedTx info = %+v, want nil for trashed message", info)
+		}
+		var deliveryStatus, detail string
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(delivery_status,''), COALESCE(delivery_detail,'') FROM messages WHERE id=$1`, msg.ID,
+		).Scan(&deliveryStatus, &detail); err != nil {
+			t.Fatalf("read row: %v", err)
+		}
+		if deliveryStatus != wantDeliveryStatus || detail != wantDetail {
+			t.Fatalf("after trashed-message race: delivery_status=%q detail=%q, want %q/%q", deliveryStatus, detail, wantDeliveryStatus, wantDetail)
+		}
+	})
+
+	if err := store.RestoreMessage(ctx, msg.ID, agentID); err != nil {
+		t.Fatalf("RestoreMessage: %v", err)
+	}
+	t.Run("trashed agent", func(t *testing.T) {
+		if err := store.SoftDeleteAgent(ctx, agentID, userID); err != nil {
+			t.Fatalf("SoftDeleteAgent: %v", err)
+		}
+		var info *identity.OutboundSentInfo
+		if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+			i, err := store.MarkOutboundFailedTx(ctx, tx, msg.ID, "550 after agent trash")
+			info = i
+			return err
+		}); err != nil {
+			t.Fatalf("MarkOutboundFailedTx: %v", err)
+		}
+		if info != nil {
+			t.Fatalf("MarkOutboundFailedTx info = %+v, want nil for trashed agent", info)
+		}
+		var deliveryStatus, detail string
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(delivery_status,''), COALESCE(delivery_detail,'') FROM messages WHERE id=$1`, msg.ID,
+		).Scan(&deliveryStatus, &detail); err != nil {
+			t.Fatalf("read row: %v", err)
+		}
+		if deliveryStatus != wantDeliveryStatus || detail != wantDetail {
+			t.Fatalf("after trashed-agent race: delivery_status=%q detail=%q, want %q/%q", deliveryStatus, detail, wantDeliveryStatus, wantDetail)
+		}
+	})
+}
