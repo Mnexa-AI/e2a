@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@e2a/ui": "file:../design-system",
-    "dompurify": "^3.4.11",
+    "dompurify": "^3.4.12",
     "next": "^16.2.10",
     "react": "19.2.7",
     "react-dom": "19.2.7",
