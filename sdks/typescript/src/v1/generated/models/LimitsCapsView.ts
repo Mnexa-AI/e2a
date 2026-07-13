@@ -16,6 +16,9 @@ export class LimitsCapsView {
     'maxAgents': number;
     'maxDomains': number;
     'maxMessagesMonth': number;
+    /**
+    * Storage-quota cap in bytes, checked against usage.storage_bytes (see its doc for what is counted).
+    */
     'maxStorageBytes': number;
 
     static readonly discriminator: string | undefined = undefined;

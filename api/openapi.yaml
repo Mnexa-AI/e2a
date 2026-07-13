@@ -282,6 +282,7 @@ components:
           format: int64
           type: integer
         size_bytes:
+          description: DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME.
           format: int64
           type: integer
       required:
@@ -299,6 +300,7 @@ components:
           format: int64
           type: integer
         size_bytes:
+          description: DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME.
           format: int64
           type: integer
       required:
@@ -323,6 +325,7 @@ components:
           format: int64
           type: integer
         size_bytes:
+          description: DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — exactly what download_url serves and what the 256 KB inline cap is checked against; not the encoded size inside the raw MIME.
           format: int64
           type: integer
       required:
@@ -1369,6 +1372,7 @@ components:
           format: int64
           type: integer
         max_storage_bytes:
+          description: Storage-quota cap in bytes, checked against usage.storage_bytes (see its doc for what is counted).
           format: int64
           type: integer
       required:
@@ -1390,6 +1394,7 @@ components:
           format: int64
           type: integer
         storage_bytes:
+          description: "Bytes of stored message content counted against the storage quota: per message, the RAW MIME length (its size_bytes) plus any retained held-draft body/attachment columns (pending_review only; scrubbed on terminal transitions)."
           format: int64
           type: integer
       required:
@@ -1406,7 +1411,12 @@ components:
         approval_expires_at:
           format: date-time
           type: string
-        attachments: {}
+        attachments:
+          items:
+            $ref: "#/components/schemas/AttachmentMeta"
+          type:
+            - array
+            - "null"
         auth:
           $ref: "#/components/schemas/Result"
         auth_headers:
@@ -1495,6 +1505,7 @@ components:
         sent_as:
           type: string
         size_bytes:
+          description: RAW MIME byte length of the whole stored message (octet length of raw_message). Distinct from an attachment's size_bytes (DECODED payload size). Dominant term of storage-quota accounting (usage.storage_bytes).
           format: int64
           type: integer
         status:
@@ -1602,6 +1613,7 @@ components:
           description: "From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."
           type: string
         size_bytes:
+          description: RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from an attachment's size_bytes, which is its DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes).
           format: int64
           type: integer
         subject:
@@ -1693,6 +1705,7 @@ components:
           description: "From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."
           type: string
         size_bytes:
+          description: RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from attachments[].size_bytes, which is one attachment's DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes).
           format: int64
           type: integer
         subject:

@@ -11,10 +11,32 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 )
 
+// seedRawWithAttachment is a raw RFC 5322 multipart message carrying ONE
+// base64 attachment whose DECODED payload is "hello world" (11 bytes). The
+// export must surface it as typed AttachmentMeta with size_bytes = 11 (the
+// decoded size — not the 16-byte base64 wire size inside the MIME).
+const seedRawWithAttachment = "From: alice@gmail.com\r\n" +
+	"Subject: Hi\r\n" +
+	"MIME-Version: 1.0\r\n" +
+	"Content-Type: multipart/mixed; boundary=\"b\"\r\n" +
+	"\r\n" +
+	"--b\r\n" +
+	"Content-Type: text/plain\r\n" +
+	"\r\n" +
+	"body\r\n" +
+	"--b\r\n" +
+	"Content-Type: application/pdf; name=\"report.pdf\"\r\n" +
+	"Content-Disposition: attachment; filename=\"report.pdf\"\r\n" +
+	"Content-Transfer-Encoding: base64\r\n" +
+	"\r\n" +
+	"aGVsbG8gd29ybGQ=\r\n" + // "hello world"
+	"--b--\r\n"
+
 // seedUserData creates one user with: 1 verified domain, 2 agents (one
-// custom-domain, one shared-domain), 1 inbound + 1 outbound message,
-// 2 API keys, 1 user_session, and 2 usage_events. Returns the user so
-// the caller can drive Export/Delete against a known fixture.
+// custom-domain, one shared-domain), 1 inbound (with one MIME attachment) +
+// 1 outbound message + 1 held pending_review draft (with one staged
+// attachment), 2 API keys, 1 user_session, and 2 usage_events. Returns the
+// user so the caller can drive Export/Delete against a known fixture.
 func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, label string) *identity.User {
 	t.Helper()
 
@@ -44,7 +66,7 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 		"msg_in_"+label, customAgent.ID,
 		"alice@gmail.com", customAgent.EmailAddress(),
 		"<orig@gmail.com>", "Hi there", "", "delivered",
-		[]byte("From: alice@gmail.com\r\nSubject: Hi\r\n\r\nbody"),
+		[]byte(seedRawWithAttachment),
 		map[string]string{"X-E2A-Auth-Verified": "true"},
 		nil,
 		false, "",
@@ -58,6 +80,17 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 		[]string{"alice@gmail.com"}, nil, nil,
 		"Re: Hi", "reply", "smtp", "<sent@e2a.example>", "", nil); err != nil {
 		t.Fatalf("seed: CreateOutboundMessage: %v", err)
+	}
+
+	// Held pending_review draft with one staged attachment ("hello", 5 bytes
+	// decoded). Its internal storage blob carries inline base64 `data`; the
+	// export must surface typed AttachmentMeta and never that blob.
+	draftAtts := []byte(`[{"filename":"notes.txt","content_type":"text/plain","data":"aGVsbG8="}]`)
+	if _, err := store.CreatePendingOutboundMessage(ctx, customAgent.ID,
+		[]string{"alice@gmail.com"}, nil, nil,
+		"Draft subject", "draft body", "", draftAtts,
+		"send", "", "", "", 3600); err != nil {
+		t.Fatalf("seed: CreatePendingOutboundMessage: %v", err)
 	}
 
 	if _, err := store.CreateAPIKey(ctx, user.ID, "primary", nil); err != nil {
@@ -141,8 +174,8 @@ func TestExportUserData(t *testing.T) {
 	if len(dump.APIKeys) != 2 {
 		t.Errorf("api_keys: got %d, want 2", len(dump.APIKeys))
 	}
-	if len(dump.Messages) != 2 {
-		t.Errorf("messages: got %d, want 2 (1 inbound + 1 outbound)", len(dump.Messages))
+	if len(dump.Messages) != 3 {
+		t.Errorf("messages: got %d, want 3 (1 inbound + 1 outbound + 1 held draft)", len(dump.Messages))
 	}
 	if len(dump.Suppressions) != 1 || dump.Suppressions[0].Address != "blocked@spam.com" {
 		t.Errorf("suppressions: got %+v, want 1 (blocked@spam.com)", dump.Suppressions)
@@ -170,6 +203,46 @@ func TestExportUserData(t *testing.T) {
 		t.Errorf("inbound ReplyTo in export = %v, want %v", inbound.ReplyTo, wantReplyTo)
 	}
 
+	// size_bytes on an exported message is the RAW MIME length of the whole
+	// stored message (the storage-accounting basis), not an attachment size.
+	if inbound.SizeBytes != len(seedRawWithAttachment) {
+		t.Errorf("inbound SizeBytes = %d, want %d (raw MIME length)",
+			inbound.SizeBytes, len(seedRawWithAttachment))
+	}
+
+	// Typed attachments (one shape everywhere): the inbound message's
+	// attachments come parsed from raw_message as AttachmentMeta, with
+	// size_bytes = the DECODED payload (11, "hello world") — not the 16-byte
+	// base64 wire size.
+	if len(inbound.Attachments) != 1 {
+		t.Fatalf("inbound attachments in export = %d, want 1", len(inbound.Attachments))
+	}
+	if a := inbound.Attachments[0]; a.Filename != "report.pdf" ||
+		a.ContentType != "application/pdf" || a.SizeBytes != 11 || a.Index != 0 {
+		t.Errorf("inbound attachment meta = %+v, want {report.pdf application/pdf 11 0}", a)
+	}
+
+	// The held draft maps its internal attachments_json blob to the same
+	// AttachmentMeta shape (size_bytes = decoded base64 length, 5 for
+	// "hello") — the inline base64 bytes must NOT be exported.
+	var draft *identity.Message
+	for i := range dump.Messages {
+		if dump.Messages[i].Status == identity.MessageStatusPendingReview {
+			draft = &dump.Messages[i]
+			break
+		}
+	}
+	if draft == nil {
+		t.Fatal("no pending_review draft in export")
+	}
+	if len(draft.Attachments) != 1 {
+		t.Fatalf("draft attachments in export = %d, want 1", len(draft.Attachments))
+	}
+	if a := draft.Attachments[0]; a.Filename != "notes.txt" ||
+		a.ContentType != "text/plain" || a.SizeBytes != 5 || a.Index != 0 {
+		t.Errorf("draft attachment meta = %+v, want {notes.txt text/plain 5 0}", a)
+	}
+
 	// Confirm the export doesn't leak internal identifiers. We marshal
 	// to JSON because the most likely accidental leak path is a struct
 	// field with a `json:` tag we forgot.
@@ -182,6 +255,12 @@ func TestExportUserData(t *testing.T) {
 	}
 	if jsonContains(raw, "key_hash") {
 		t.Error("export leaks key_hash — that's a credential equivalent")
+	}
+	// The held draft's internal attachments_json blob carries inline base64
+	// under a `data` key; the export types attachments as AttachmentMeta and
+	// must not emit that internal storage shape.
+	if jsonContains(raw, "data") {
+		t.Error("export leaks `data` — the held-draft attachment blob's inline base64 must not be exported")
 	}
 	// Schema metadata should be present so consumers can detect format
 	// changes across versions.
@@ -218,8 +297,8 @@ func TestDeleteUserData(t *testing.T) {
 	if res.AgentsDeleted != 1 {
 		t.Errorf("AgentsDeleted = %d, want 1", res.AgentsDeleted)
 	}
-	if res.MessagesDeleted != 2 {
-		t.Errorf("MessagesDeleted = %d, want 2", res.MessagesDeleted)
+	if res.MessagesDeleted != 3 {
+		t.Errorf("MessagesDeleted = %d, want 3", res.MessagesDeleted)
 	}
 	if res.APIKeysDeleted != 2 {
 		t.Errorf("APIKeysDeleted = %d, want 2", res.APIKeysDeleted)
@@ -290,8 +369,8 @@ func TestDeleteUserData_DoesNotAffectOtherUsers(t *testing.T) {
 	if len(dump.Agents) != 1 {
 		t.Errorf("bystander agents: got %d, want 1 — cross-tenant cascade leaked", len(dump.Agents))
 	}
-	if len(dump.Messages) != 2 {
-		t.Errorf("bystander messages: got %d, want 2 — cross-tenant cascade leaked", len(dump.Messages))
+	if len(dump.Messages) != 3 {
+		t.Errorf("bystander messages: got %d, want 3 — cross-tenant cascade leaked", len(dump.Messages))
 	}
 }
 

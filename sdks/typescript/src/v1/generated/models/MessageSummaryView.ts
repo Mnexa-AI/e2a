@@ -46,6 +46,9 @@ export class MessageSummaryView {
     * From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay.
     */
     'sentAs'?: string;
+    /**
+    * RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from an attachment\'s size_bytes, which is its DECODED payload size. This value is the dominant term of the account\'s storage-quota accounting (usage.storage_bytes).
+    */
     'sizeBytes'?: number;
     'subject': string;
     'to': Array<string>;

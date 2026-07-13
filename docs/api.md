@@ -217,6 +217,12 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   all owned data; returns per-table row counts (GDPR Art. 17). Irreversible.
 - `GET /v1/account/export` — JSON dump of every record the account owns (GDPR
   Art. 15). Omits internal identifiers; see [data-handling.md](data-handling.md).
+  Each exported message carries `attachments` as the same typed
+  `AttachmentMeta` metadata (`{filename, content_type, size_bytes, index}`,
+  `size_bytes` = decoded payload) the live API uses; the attachment **bytes**
+  of sent/inbound messages are inside the exported `raw_message`. A held
+  draft's (`pending_review`) staged attachment bytes are internal transient
+  storage and are not inlined.
 - `GET/POST /v1/account/api-keys`, `DELETE /v1/account/api-keys/{id}?confirm=DELETE`
   — mint (plaintext shown once), list (metadata only), and revoke API keys.
   Account scope only.
@@ -310,6 +316,29 @@ an attachment or combined total over its size limit → `413 payload_too_large` 
 limit and offending size are in `error.details`). On `forward`, the limits apply to
 the **combined** set — the original message's carried-over attachments plus any you
 supply. These are conservative starting limits and may be raised over time.
+
+**Byte semantics** — the field name `size_bytes` appears at two levels with two
+different meanings:
+
+- **On a message** (`MessageView` / `MessageSummaryView` / the export's
+  `Message`): the **raw MIME byte length** of the whole stored message —
+  headers + bodies + attachments *as transported* (i.e. base64-encoded
+  attachment parts count at their encoded size). It is the octet length of
+  `raw_message`.
+- **On an attachment** (`attachments[]` on a message, the attachment endpoint,
+  and the `email.received` event's attachment metadata): the **decoded payload
+  size** — the byte count of the file after the Content-Transfer-Encoding is
+  undone; exactly what `download_url` serves, what the 256 KB `?inline` cap is
+  checked against, and what the outbound attachment limits above are enforced
+  on. Because base64 inflates by ~4/3, a message's `size_bytes` is expected to
+  exceed the sum of its attachments' `size_bytes` plus body text.
+- **Storage-quota accounting** (`usage.storage_bytes` vs
+  `limits.max_storage_bytes` on `GET /v1/account`): per stored message, the
+  raw MIME length (the message-level `size_bytes`) **plus** any retained
+  held-draft body/attachment columns (these exist only while a message is
+  `pending_review` and are scrubbed on terminal transitions) — so for
+  sent/inbound messages, storage usage is exactly the sum of their
+  `size_bytes`.
 
 > **Note:** approve/reject a held message via the account-scoped **Reviews**
 > queue below (`POST /v1/reviews/{id}/approve|reject`), which addresses holds by

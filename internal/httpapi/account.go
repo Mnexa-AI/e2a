@@ -36,15 +36,23 @@ type LimitsCapsView struct {
 	MaxAgents        int   `json:"max_agents"`
 	MaxDomains       int   `json:"max_domains"`
 	MaxMessagesMonth int   `json:"max_messages_month"`
-	MaxStorageBytes  int64 `json:"max_storage_bytes"`
+	MaxStorageBytes  int64 `json:"max_storage_bytes" doc:"Storage-quota cap in bytes, checked against usage.storage_bytes (see its doc for what is counted)."`
 }
 
 // LimitsUsageView is the current consumption snapshot.
+//
+// StorageBytes is the storage-quota accounting basis: per stored message it
+// sums the RAW MIME byte length (raw_message — the message-level size_bytes)
+// PLUS any retained held-draft body columns (body_text, body_html, and the
+// draft attachments blob, which exist only while a message is pending_review
+// and are scrubbed on terminal transitions). Maintained transactionally by a
+// DB trigger on the messages table (migrations 016/039), so for sent/inbound
+// messages it is exactly the sum of their size_bytes values.
 type LimitsUsageView struct {
 	Agents        int   `json:"agents"`
 	Domains       int   `json:"domains"`
 	MessagesMonth int   `json:"messages_month"`
-	StorageBytes  int64 `json:"storage_bytes"`
+	StorageBytes  int64 `json:"storage_bytes" doc:"Bytes of stored message content counted against the storage quota: per message, the RAW MIME length (its size_bytes) plus any retained held-draft body/attachment columns (pending_review only; scrubbed on terminal transitions)."`
 }
 
 type accountOutput struct{ Body AccountView }

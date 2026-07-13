@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -33,7 +33,7 @@ class AttachmentView(BaseModel):
     expires_at: datetime
     filename: Optional[StrictStr] = None
     index: StrictInt
-    size_bytes: StrictInt
+    size_bytes: StrictInt = Field(description="DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — exactly what download_url serves and what the 256 KB inline cap is checked against; not the encoded size inside the raw MIME.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["content_type", "data", "download_url", "expires_at", "filename", "index", "size_bytes"]
 

@@ -197,6 +197,12 @@ func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
 	// (they are documentation/codegen components, not operation bodies), and
 	// therefore be covered by the loop above — a rename or a future "attach
 	// them to an operation" refactor must consciously revisit this test.
+	//
+	// Conscious exception: AttachmentMeta. Since the user-data export's Message
+	// schema typed its `attachments` as []AttachmentMeta (one shape everywhere),
+	// AttachmentMeta IS response-reachable (GET /v1/account/export → UserExport
+	// → Message → AttachmentMeta) and is opened by the normal response pass in
+	// applyEvolutionStance. It must still never become request-reachable.
 	for _, name := range eventPayloadComponentNames {
 		if _, ok := schemas[name]; !ok {
 			t.Errorf("event payload component %s missing from the rendered spec", name)
@@ -204,6 +210,12 @@ func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
 		}
 		if request[name] {
 			t.Errorf("event payload component %s became request-reachable — it would now be forced strict, breaking additive payload evolution", name)
+		}
+		if name == "AttachmentMeta" {
+			if !response[name] {
+				t.Error("AttachmentMeta expected response-reachable via the export's Message.attachments — if that changed, revisit this exception")
+			}
+			continue
 		}
 		if !unreachable[name] {
 			t.Errorf("event payload component %s expected to be operation-unreachable (got reachable) — update this test's assumptions consciously", name)

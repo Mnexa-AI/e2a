@@ -20,6 +20,7 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional, Union
+from e2a.v1.generated.models.attachment_meta import AttachmentMeta
 from e2a.v1.generated.models.result import Result
 from typing import Optional, Set
 from typing_extensions import Self
@@ -30,7 +31,7 @@ class Message(BaseModel):
     """ # noqa: E501
     agent_email: StrictStr
     approval_expires_at: Optional[datetime] = None
-    attachments: Optional[Any] = None
+    attachments: Optional[List[AttachmentMeta]] = None
     auth: Optional[Result] = None
     auth_headers: Optional[Dict[str, StrictStr]] = None
     bcc: Optional[List[StrictStr]] = None
@@ -63,7 +64,7 @@ class Message(BaseModel):
     scan_action: Optional[StrictStr] = None
     scan_score: Optional[Union[StrictFloat, StrictInt]] = None
     sent_as: Optional[StrictStr] = None
-    size_bytes: Optional[StrictInt] = None
+    size_bytes: Optional[StrictInt] = Field(default=None, description="RAW MIME byte length of the whole stored message (octet length of raw_message). Distinct from an attachment's size_bytes (DECODED payload size). Dominant term of storage-quota accounting (usage.storage_bytes).")
     status: Optional[StrictStr] = None
     subject: StrictStr
     text: Optional[StrictStr] = None
@@ -116,6 +117,13 @@ class Message(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in attachments (list)
+        _items = []
+        if self.attachments:
+            for _item_attachments in self.attachments:
+                if _item_attachments:
+                    _items.append(_item_attachments.to_dict())
+            _dict['attachments'] = _items
         # override the default output from pydantic by calling `to_dict()` of auth
         if self.auth:
             _dict['auth'] = self.auth.to_dict()
@@ -168,7 +176,7 @@ class Message(BaseModel):
         _obj = cls.model_validate({
             "agent_email": obj.get("agent_email"),
             "approval_expires_at": obj.get("approval_expires_at"),
-            "attachments": obj.get("attachments"),
+            "attachments": [AttachmentMeta.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
             "auth": Result.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
             "auth_headers": obj.get("auth_headers"),
             "bcc": obj.get("bcc"),

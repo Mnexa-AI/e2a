@@ -15,6 +15,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/dkim"
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/Mnexa-AI/e2a/internal/inboundpolicy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -324,10 +325,18 @@ type Message struct {
 	WebhookStatus   string    `json:"webhook_status,omitempty"`
 	WebhookError    string    `json:"webhook_error,omitempty"`
 	WebhookAttempts int       `json:"webhook_attempts,omitempty"`
-	// SizeBytes is the byte length of raw_message. Populated by load paths
-	// that compute it (e.g. GetMessagesByAgent for the dashboard inbox).
-	// Zero on load paths that don't — the inbox renders "—" in that case.
-	SizeBytes int `json:"size_bytes,omitempty"`
+	// SizeBytes is the RAW MIME byte length of the whole stored message —
+	// the octet length of raw_message (headers + bodies + encoded attachments
+	// as transported). NOT a decoded-attachment size: the per-attachment
+	// size_bytes (eventpayload.AttachmentMeta / httpapi.AttachmentMetaView)
+	// is the DECODED payload of one attachment. This raw length is also the
+	// dominant term of storage-quota accounting — the messages storage
+	// trigger (migrations 016/039) sums octet_length(raw_message) plus the
+	// held-draft body columns into account_usage.storage_bytes.
+	// Populated by load paths that compute it (e.g. GetMessagesByAgent for
+	// the dashboard inbox). Zero on load paths that don't — the inbox
+	// renders "—" in that case.
+	SizeBytes int `json:"size_bytes,omitempty" doc:"RAW MIME byte length of the whole stored message (octet length of raw_message). Distinct from an attachment's size_bytes (DECODED payload size). Dominant term of storage-quota accounting (usage.storage_bytes)."`
 	// InboxStatus mirrors messages.inbox_status ('unread' | 'read') for
 	// inbound rows. Kept separate from DeliveryStatus (which currently
 	// carries the same value under a confusing JSON key — see line 161)
@@ -375,11 +384,26 @@ type Message struct {
 	// endpoints leave this empty to avoid a join-per-row cost — the
 	// pending-detail page is where reviewer attribution matters.
 	ReviewedByName  *string         `json:"reviewed_by_name,omitempty"`
-	RejectionReason string          `json:"rejection_reason,omitempty"`
-	Edited          bool            `json:"edited,omitempty"`
-	BodyText        string          `json:"text,omitempty"`
-	BodyHTML        string          `json:"html,omitempty"`
-	AttachmentsJSON json.RawMessage `json:"attachments,omitempty"`
+	RejectionReason string `json:"rejection_reason,omitempty"`
+	Edited          bool   `json:"edited,omitempty"`
+	BodyText        string `json:"text,omitempty"`
+	BodyHTML        string `json:"html,omitempty"`
+	// AttachmentsJSON is the INTERNAL storage blob for a held draft's
+	// attachments (messages.attachments_json): the []outbound.Attachment
+	// shape {filename, content_type, data} with data as base64 bytes. It
+	// exists only while status=pending_review (scrubbed on terminal
+	// transitions) and is what the approve path recomposes the send from.
+	// Never serialized — the wire representation is Attachments below.
+	AttachmentsJSON json.RawMessage `json:"-"`
+	// Attachments is the typed per-attachment METADATA for the wire (the
+	// user-data export's Message schema) — the same AttachmentMeta shape
+	// {filename, content_type, size_bytes (DECODED), index} the live API
+	// (MessageView.attachments, email.received) uses. Populated at export
+	// time: parsed from raw_message when present (inbound + sent outbound),
+	// else mapped from the held-draft AttachmentsJSON blob. Bytes are never
+	// inlined — for sent/inbound messages they are inside the exported
+	// raw_message.
+	Attachments []eventpayload.AttachmentMeta `json:"attachments,omitempty"`
 
 	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
 	// Slice 7): true when the agent's inbound_policy gate flagged this message

@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -29,7 +29,7 @@ class AttachmentMetaView(BaseModel):
     content_type: Optional[StrictStr] = None
     filename: Optional[StrictStr] = None
     index: StrictInt
-    size_bytes: StrictInt
+    size_bytes: StrictInt = Field(description="DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["content_type", "filename", "index", "size_bytes"]
 

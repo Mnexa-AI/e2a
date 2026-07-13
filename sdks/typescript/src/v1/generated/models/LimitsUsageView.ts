@@ -16,6 +16,9 @@ export class LimitsUsageView {
     'agents': number;
     'domains': number;
     'messagesMonth': number;
+    /**
+    * Bytes of stored message content counted against the storage quota: per message, the RAW MIME length (its size_bytes) plus any retained held-draft body/attachment columns (pending_review only; scrubbed on terminal transitions).
+    */
     'storageBytes': number;
 
     static readonly discriminator: string | undefined = undefined;

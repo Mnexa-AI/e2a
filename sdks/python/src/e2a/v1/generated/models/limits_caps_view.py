@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
@@ -29,7 +29,7 @@ class LimitsCapsView(BaseModel):
     max_agents: StrictInt
     max_domains: StrictInt
     max_messages_month: StrictInt
-    max_storage_bytes: StrictInt
+    max_storage_bytes: StrictInt = Field(description="Storage-quota cap in bytes, checked against usage.storage_bytes (see its doc for what is counted).")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["max_agents", "max_domains", "max_messages_month", "max_storage_bytes"]
 

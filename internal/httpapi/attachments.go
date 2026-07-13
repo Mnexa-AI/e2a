@@ -141,11 +141,15 @@ type attachmentParam struct {
 
 // AttachmentView is the metadata + short-lived download for one attachment.
 // Bytes are NOT included unless inline was requested for a small file.
+// SizeBytes is the DECODED payload size (Content-Transfer-Encoding undone) —
+// exactly the byte count download_url serves and the count the inline cap is
+// checked against. NOT the encoded size inside the raw MIME, and NOT the
+// message-level size_bytes (raw MIME length of the whole message).
 type AttachmentView struct {
 	Index       int       `json:"index"`
 	Filename    string    `json:"filename,omitempty"`
 	ContentType string    `json:"content_type,omitempty"`
-	SizeBytes   int       `json:"size_bytes"`
+	SizeBytes   int       `json:"size_bytes" doc:"DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — exactly what download_url serves and what the 256 KB inline cap is checked against; not the encoded size inside the raw MIME."`
 	DownloadURL string    `json:"download_url"`
 	ExpiresAt   time.Time `json:"expires_at" format:"date-time"`
 	// Data is the base64 bytes, present ONLY when inline=true and the attachment

@@ -16,6 +16,9 @@ export class AttachmentMetaView {
     'contentType'?: string;
     'filename'?: string;
     'index': number;
+    /**
+    * DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME.
+    */
     'sizeBytes': number;
 
     static readonly discriminator: string | undefined = undefined;

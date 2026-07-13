@@ -2,10 +2,13 @@ package identity
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -460,12 +463,75 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 		if len(authHeadersJSON) > 0 {
 			_ = json.Unmarshal(authHeadersJSON, &m.AuthHeaders)
 		}
-		if len(attachmentsJSON) > 0 {
-			m.AttachmentsJSON = json.RawMessage(attachmentsJSON)
-		}
+		// size_bytes: the RAW MIME length of the stored message (same value
+		// the message list/detail views carry, and the dominant term of
+		// storage-quota accounting). Cheap to compute here; a held draft has
+		// no raw_message yet, so the field is omitted (0/omitempty) there.
+		m.SizeBytes = len(m.RawMessage)
+		// attachments: ONE shape everywhere — the export emits the same
+		// AttachmentMeta metadata {filename, content_type, size_bytes
+		// (DECODED), index} the live API uses, mapped at export time. For
+		// sent/inbound messages it is parsed from raw_message (whose exported
+		// bytes still contain the full attachment content); for held drafts
+		// (pending_review, no raw_message yet) it is mapped from the internal
+		// attachments_json blob ([]outbound.Attachment with base64 data),
+		// whose inline base64 bytes are deliberately NOT exported — the blob
+		// is transient internal storage, scrubbed on any terminal transition.
+		m.Attachments = exportAttachmentMeta(m.RawMessage, attachmentsJSON)
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// exportAttachmentMeta maps a message's attachments to the wire AttachmentMeta
+// shape for the export. Precedence: raw MIME when present (the authoritative
+// copy, same extraction as the live API), else the held-draft blob. A blob
+// that fails to parse yields nil rather than failing the whole export.
+func exportAttachmentMeta(raw, draftJSON []byte) []eventpayload.AttachmentMeta {
+	if len(raw) > 0 {
+		return eventpayload.AttachmentMetadata(raw)
+	}
+	if len(draftJSON) == 0 {
+		return nil
+	}
+	// The stored draft shape is []outbound.Attachment; decode structurally
+	// here to keep identity free of an outbound dependency.
+	var drafts []struct {
+		Filename    string `json:"filename"`
+		ContentType string `json:"content_type"`
+		Data        string `json:"data"`
+	}
+	if err := json.Unmarshal(draftJSON, &drafts); err != nil {
+		return nil
+	}
+	out := make([]eventpayload.AttachmentMeta, 0, len(drafts))
+	for i, d := range drafts {
+		out = append(out, eventpayload.AttachmentMeta{
+			Filename:    d.Filename,
+			ContentType: d.ContentType,
+			SizeBytes:   decodedBase64Len(d.Data),
+			Index:       i,
+		})
+	}
+	return out
+}
+
+// decodedBase64Len returns the DECODED byte length of a base64 string,
+// tolerating the line-wrapping whitespace mail tooling inserts (mirroring
+// validateAttachments on the accept path). Invalid base64 — which the accept
+// path rejects, so it shouldn't occur — reads as 0 rather than erroring.
+func decodedBase64Len(data string) int {
+	clean := strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
+			return -1
+		}
+		return r
+	}, data)
+	decoded, err := base64.StdEncoding.DecodeString(clean)
+	if err != nil {
+		return 0
+	}
+	return len(decoded)
 }
 
 func scanUsageEventsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]UsageEventEntry, error) {

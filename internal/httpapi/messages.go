@@ -47,8 +47,14 @@ type MessageView struct {
 	// the empty case.
 	WebhookStatus string `json:"webhook_status,omitempty"`
 	WebhookError  string `json:"webhook_error,omitempty"`
-	// SizeBytes is the raw_message byte length, mirroring MessageSummaryView.
-	SizeBytes int `json:"size_bytes,omitempty"`
+	// SizeBytes is the RAW MIME byte length of the whole stored message
+	// (octet length of raw_message) — headers + bodies + encoded attachments as
+	// transported. Mirrors MessageSummaryView. Distinct from the per-attachment
+	// size_bytes in attachments[], which is the DECODED payload size of one
+	// attachment. This raw length is also the dominant term of storage-quota
+	// accounting: usage.storage_bytes sums raw_message plus any retained
+	// held-draft body columns per message (see AccountView).
+	SizeBytes int `json:"size_bytes,omitempty" doc:"RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from attachments[].size_bytes, which is one attachment's DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes)."`
 	// DeliveryStatus is the outbound delivery rollup (migration 031:
 	// 'sent', 'delivered', 'bounced', …) — the worst recipient status by
 	// precedence. Outbound-only; omitted on inbound messages.
@@ -102,12 +108,15 @@ type MessageView struct {
 
 // AttachmentMetaView is metadata for one attachment of a message — never the
 // bytes. `index` is the stable 0-based attachment index (document order) used to
-// fetch the bytes via the attachment endpoint.
+// fetch the bytes via the attachment endpoint. SizeBytes is the DECODED
+// payload size (Content-Transfer-Encoding undone) — the size of the file a
+// download yields, NOT the encoded size inside the raw MIME and NOT the
+// message-level size_bytes (raw MIME length of the whole message).
 type AttachmentMetaView struct {
 	Index       int    `json:"index"`
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
-	SizeBytes   int    `json:"size_bytes"`
+	SizeBytes   int    `json:"size_bytes" doc:"DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME."`
 }
 
 // MessageParsedView is the parsed-body payload (see MessageView.Parsed).
@@ -244,10 +253,13 @@ type MessageSummaryView struct {
 	// Flagged + FlagReason are the inbound ingestion verdict (migration 033 /
 	// Slice 7). Surfaced in list views so flagged mail is visible without a
 	// per-message drill-down. Inbound-relevant; omitted on unflagged rows.
-	Flagged    bool     `json:"flagged,omitempty"`
-	FlagReason string   `json:"flag_reason,omitempty"`
-	SizeBytes  int      `json:"size_bytes,omitempty"`
-	Labels     []string `json:"labels" nullable:"false"`
+	Flagged    bool   `json:"flagged,omitempty"`
+	FlagReason string `json:"flag_reason,omitempty"`
+	// SizeBytes is the RAW MIME byte length of the whole stored message —
+	// same semantics as MessageView.SizeBytes (see there for the full note,
+	// including its role as the dominant term of storage-quota accounting).
+	SizeBytes int      `json:"size_bytes,omitempty" doc:"RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from an attachment's size_bytes, which is its DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes)."`
+	Labels    []string `json:"labels" nullable:"false"`
 	// CreatedAt is the keyset pagination ordering key, emitted at full RFC3339Nano
 	// precision (time.Time) so sub-second ordering is visible on the wire.
 	CreatedAt time.Time `json:"created_at" format:"date-time"`

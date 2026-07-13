@@ -40,8 +40,13 @@ import (
 type AttachmentMeta struct {
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
-	SizeBytes   int    `json:"size_bytes"`
-	Index       int    `json:"index" doc:"Stable 0-based attachment index (document order) — the fetch key for the attachment-bytes endpoint."`
+	// SizeBytes is the DECODED attachment payload size — the byte count of the
+	// file after the MIME Content-Transfer-Encoding (base64 / quoted-printable)
+	// is undone: the size of the file a download yields. NOT the encoded
+	// on-the-wire size inside the raw MIME, and NOT the message-level
+	// size_bytes (which is the raw MIME length of the whole message).
+	SizeBytes int `json:"size_bytes" doc:"DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME."`
+	Index     int `json:"index" doc:"Stable 0-based attachment index (document order) — the fetch key for the attachment-bytes endpoint."`
 }
 
 // EmailReceivedData is the `data` payload of an email.received event. The

@@ -90,7 +90,7 @@ Every event — on the webhook channel, in this event log, and on the WebSocket 
 
 | Event type | `data` schema | Required fields | Optional fields |
 |---|---|---|---|
-| `email.received` | `EmailReceivedData` | `message_id`, `agent_email`, `direction` (`inbound`), `from` (display/Reply-To sender), `authenticated_from` (the SPF/DKIM/DMARC-verified identity — gate on THIS), `to[]`, `delivered_to` (scalar — the one per-agent copy; the fetch key), `subject`, `auth_headers{}`, `received_at` | `conversation_id`, `cc[]`, `reply_to[]`, `attachments[]` (metadata only: `filename`, `content_type`, `size_bytes`, `index`) |
+| `email.received` | `EmailReceivedData` | `message_id`, `agent_email`, `direction` (`inbound`), `from` (display/Reply-To sender), `authenticated_from` (the SPF/DKIM/DMARC-verified identity — gate on THIS), `to[]`, `delivered_to` (scalar — the one per-agent copy; the fetch key), `subject`, `auth_headers{}`, `received_at` | `conversation_id`, `cc[]`, `reply_to[]`, `attachments[]` (metadata only: `filename`, `content_type`, `size_bytes` — the DECODED payload size, `index`) |
 | `email.sent` | `EmailSentData` | `message_id`, `agent_email`, `direction` (`outbound`), `provider_message_id`, `method`, `from`, `to[]`, `subject`, `message_type` | `conversation_id`, `cc[]`, `bcc[]` |
 | `email.failed` | `EmailFailedData` | `message_id`, `agent_email`, `direction`, `method`, `from`, `to[]`, `subject`, `message_type`, `reason` | `conversation_id`, `cc[]`, `bcc[]`, `reason_code`, `retryable` (present only when genuinely known) |
 | `email.delivered` | `EmailDeliveredData` | `message_id`, `agent_email`, `direction`, `delivered_to` (the one recipient this outcome is about) | `subject`, `smtp_detail` |

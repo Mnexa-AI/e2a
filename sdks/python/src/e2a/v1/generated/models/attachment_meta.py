@@ -29,7 +29,7 @@ class AttachmentMeta(BaseModel):
     content_type: Optional[StrictStr] = None
     filename: Optional[StrictStr] = None
     index: StrictInt = Field(description="Stable 0-based attachment index (document order) — the fetch key for the attachment-bytes endpoint.")
-    size_bytes: StrictInt
+    size_bytes: StrictInt = Field(description="DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["content_type", "filename", "index", "size_bytes"]
 

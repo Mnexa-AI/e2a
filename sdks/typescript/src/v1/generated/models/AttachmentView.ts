@@ -19,6 +19,9 @@ export class AttachmentView {
     'expiresAt': Date;
     'filename'?: string;
     'index': number;
+    /**
+    * DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — exactly what download_url serves and what the 256 KB inline cap is checked against; not the encoded size inside the raw MIME.
+    */
     'sizeBytes': number;
 
     static readonly discriminator: string | undefined = undefined;

@@ -19,6 +19,9 @@ export class AttachmentMeta {
     * Stable 0-based attachment index (document order) — the fetch key for the attachment-bytes endpoint.
     */
     'index': number;
+    /**
+    * DECODED attachment payload size in bytes (Content-Transfer-Encoding undone) — the size of the file a download yields, not its encoded size inside the raw MIME.
+    */
     'sizeBytes': number;
 
     static readonly discriminator: string | undefined = undefined;

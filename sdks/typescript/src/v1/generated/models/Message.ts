@@ -10,13 +10,14 @@
  * Do not edit the class manually.
  */
 
+import { AttachmentMeta } from '../models/AttachmentMeta.js';
 import { Result } from '../models/Result.js';
 import { HttpFile } from '../http/http.js';
 
 export class Message {
     'agentEmail': string;
     'approvalExpiresAt'?: Date;
-    'attachments'?: any | null;
+    'attachments'?: Array<AttachmentMeta> | null;
     'auth'?: Result;
     'authHeaders'?: { [key: string]: string; };
     'bcc'?: Array<string> | null;
@@ -49,6 +50,9 @@ export class Message {
     'scanAction'?: string;
     'scanScore'?: number;
     'sentAs'?: string;
+    /**
+    * RAW MIME byte length of the whole stored message (octet length of raw_message). Distinct from an attachment\'s size_bytes (DECODED payload size). Dominant term of storage-quota accounting (usage.storage_bytes).
+    */
     'sizeBytes'?: number;
     'status'?: string;
     'subject': string;
@@ -79,7 +83,7 @@ export class Message {
         {
             "name": "attachments",
             "baseName": "attachments",
-            "type": "any",
+            "type": "Array<AttachmentMeta>",
             "format": ""
         },
         {

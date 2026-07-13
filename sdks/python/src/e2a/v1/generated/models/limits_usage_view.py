@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
@@ -29,7 +29,7 @@ class LimitsUsageView(BaseModel):
     agents: StrictInt
     domains: StrictInt
     messages_month: StrictInt
-    storage_bytes: StrictInt
+    storage_bytes: StrictInt = Field(description="Bytes of stored message content counted against the storage quota: per message, the RAW MIME length (its size_bytes) plus any retained held-draft body/attachment columns (pending_review only; scrubbed on terminal transitions).")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["agents", "domains", "messages_month", "storage_bytes"]
 
