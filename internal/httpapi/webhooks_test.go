@@ -76,8 +76,8 @@ func TestCreateWebhookCapReached(t *testing.T) {
 	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
 		"url": "https://example.com/capped", "events": []string{"email.received"},
 	})
-	if code != 400 || errCode(body) != "webhook_cap_reached" {
-		t.Fatalf("want 400 webhook_cap_reached, got %d %v", code, body)
+	if code != 400 || errCode(body) != "webhook_limit_reached" {
+		t.Fatalf("want 400 webhook_limit_reached, got %d %v", code, body)
 	}
 }
 

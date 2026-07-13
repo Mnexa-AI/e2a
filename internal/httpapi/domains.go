@@ -400,10 +400,11 @@ func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInp
 		if errors.Is(err, identity.ErrDomainTaken) {
 			return nil, NewError(http.StatusConflict, "domain_taken", "domain is already claimed by another account")
 		}
-		return nil, NewError(http.StatusBadRequest, "domain_unavailable", "failed to register domain")
-	}
-	if d == nil {
-		return nil, NewError(http.StatusBadRequest, "domain_unavailable", "failed to register domain")
+		// Any non-taken failure here is a store/lookup error, not a client
+		// error (ClaimOrCreateDomain returns a domain, ErrDomainTaken, or a
+		// wrapped DB error — never nil, nil), so it is a 500 — the former
+		// 400 "domain_unavailable" misclassified it as the caller's fault.
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register domain")
 	}
 	return &domainCreateOutput{Body: s.domainView(d)}, nil
 }

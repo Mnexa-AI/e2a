@@ -145,8 +145,8 @@ func TestCreateAgentDuplicate(t *testing.T) {
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
 		"email": "dupe@acme.com",
 	})
-	if code != 409 || errCode(body) != "conflict" {
-		t.Fatalf("want 409 conflict, got %d %v", code, body)
+	if code != 409 || errCode(body) != "agent_taken" {
+		t.Fatalf("want 409 agent_taken, got %d %v", code, body)
 	}
 }
 

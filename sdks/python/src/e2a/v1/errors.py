@@ -7,7 +7,8 @@ branch with ``except E2ANotFoundError`` and read ``.code`` / ``.status`` /
 ``.request_id`` / ``.retryable`` without parsing bodies.
 
 Class selection is genuinely code-first: a known, stable ``error.code`` (see
-``_CODE_MAP`` and the ``*_not_found`` / ``*_exists`` suffix conventions) maps to
+``_CODE_MAP`` and the ``*_not_found`` / ``*_taken`` / ``invalid_*`` naming
+families from the published catalog in docs/api.md "Error codes") maps to
 its typed class *regardless of the HTTP status it arrives on*, so a code carried
 on an unexpected status no longer degrades to the bare base error. Unknown or
 empty codes fall back to the HTTP status bucket, which preserves every
@@ -163,26 +164,39 @@ _CODE_MAP: "dict[str, tuple[type[E2AError], bool]]" = {
     "unauthorized": (E2AAuthError, False),
     # 403 family
     "forbidden": (E2APermissionError, False),
-    # 404 family — also covers *_not_found via the suffix check in _resolve.
+    "blocked_by_policy": (E2APermissionError, False),
+    # 404/410 family — also covers *_not_found via the suffix check in _resolve.
     "not_found": (E2ANotFoundError, False),
     "gone": (E2ANotFoundError, False),
-    # 409 family — also covers *_exists via the suffix check in _resolve.
+    # 409 family — also covers the *_taken family (agent_taken / domain_taken /
+    # alias_taken) and *_exists via the suffix checks in _resolve.
     "conflict": (E2AConflictError, False),
+    "message_not_pending": (E2AConflictError, False),
     "webhook_cooldown": (E2AConflictError, False),
     "webhook_disabled": (E2AConflictError, False),
     # 4xx validation / bad-request family. invalid_request is the single
-    # canonical code the server now emits for both 400 and 422; bad_request /
-    # unprocessable_entity are retained only to tolerate legacy/mixed responses.
+    # canonical code the server emits for both 400 and 422 (its invalid_*
+    # prefix refinements resolve via the prefix check in _resolve); bad_request
+    # / unprocessable_entity are retained only to tolerate legacy/mixed
+    # responses.
     "domain_not_verified": (E2AValidationError, False),
+    "recipient_suppressed": (E2AValidationError, False),
     "invalid_request": (E2AValidationError, False),
     "bad_request": (E2AValidationError, False),
     "unprocessable_entity": (E2AValidationError, False),
-    "invalid_cursor": (E2AValidationError, False),
     # 402 — QUOTA cap (stock/flow). NOT retryable: distinct from the 429
     # request-RATE limit below. This is the permanent GA 402/429 split.
+    # The 400 fixed per-account count caps (template_limit_reached /
+    # webhook_limit_reached) join the same family: a retry never clears them.
     "limit_exceeded": (E2ALimitExceededError, False),
+    "template_limit_reached": (E2ALimitExceededError, False),
+    "webhook_limit_reached": (E2ALimitExceededError, False),
     # 429 — request-RATE / throughput limit. Retryable (back off Retry-After).
     "rate_limited": (E2ARateLimitError, True),
+    # 501 — feature not available on this deployment. Overrides the 5xx status
+    # bucket's retryable=True: retrying a not-implemented feature never helps.
+    "not_implemented": (E2AServerError, False),
+    "events_log_disabled": (E2AServerError, False),
 }
 
 
@@ -194,15 +208,20 @@ def _resolve(status: int, code: str) -> "tuple[type[E2AError], bool]":
     if code:
         if code in _CODE_MAP:
             return _CODE_MAP[code]
-        # Conventional suffixes the server uses across many resources.
+        # Naming families from the published error.code catalog (docs/api.md
+        # "Error codes"): *_not_found = a missing (sub)resource, *_taken = the
+        # identifier is already claimed, invalid_* = a validation refinement of
+        # invalid_request. (*_exists is tolerated for forward compatibility.)
         if code.endswith("_not_found"):
             return E2ANotFoundError, False
-        if code.endswith("_exists"):
+        if code.endswith("_taken") or code.endswith("_exists"):
             return E2AConflictError, False
+        if code.startswith("invalid_"):
+            return E2AValidationError, False
     # 3. Fall back to the HTTP status bucket for unknown/empty codes.
     by_status: "dict[int, tuple[type[E2AError], bool]]" = {
-        # Every 400 is a client/validation error — maps the many 400 codes
-        # (confirmation_required, too_many_recipients, invalid_domain, …) to the
+        # Every 400 is a client/validation error — maps the remaining 400 codes
+        # (too_many_recipients, reserved_domain, domain_has_agents, …) to the
         # validation family instead of degrading to the bare base error.
         400: (E2AValidationError, False),
         401: (E2AAuthError, False),

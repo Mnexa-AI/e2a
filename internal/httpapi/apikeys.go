@@ -168,7 +168,7 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, in *createAPIKeyInput) 
 	var agentID string
 	if scope == identity.ScopeAgent {
 		if in.Body.Agent == "" {
-			return nil, NewError(http.StatusBadRequest, "agent_required", "agent_email (inbox email) is required when scope=agent")
+			return nil, NewError(http.StatusBadRequest, "invalid_request", "agent_email (inbox email) is required when scope=agent")
 		}
 		ag, aerr := s.resolveOwnedAgent(ctx, in.Body.Agent)
 		if aerr != nil {

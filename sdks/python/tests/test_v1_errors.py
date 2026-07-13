@@ -165,6 +165,72 @@ def test_known_code_maps_by_code_on_unexpected_status():
     assert rl.retryable is True
 
 
+def test_code_family_patterns():
+    # The *_taken conflict family (agent_taken / domain_taken / alias_taken)
+    # maps code-first regardless of status.
+    for code in ("agent_taken", "domain_taken", "alias_taken"):
+        err = from_api_exception(
+            _exc(200, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2AConflictError)
+        assert err.retryable is False
+
+    # invalid_* refinements of invalid_request are validation errors even when
+    # the individual code is not in the table.
+    for code in ("invalid_slug", "invalid_filter", "invalid_expires_at"):
+        err = from_api_exception(
+            _exc(200, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2AValidationError)
+
+
+def test_catalog_family_overrides():
+    # 501 not_implemented / events_log_disabled: server family but NOT
+    # retryable — while a plain 501 with an unknown code stays retryable.
+    for code in ("not_implemented", "events_log_disabled"):
+        err = from_api_exception(
+            _exc(501, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2AServerError)
+        assert err.retryable is False
+    unknown = from_api_exception(
+        _exc(501, body='{"error":{"code":"totally_unknown_code","message":"x"}}')
+    )
+    assert unknown.retryable is True
+
+    # 400 fixed per-account caps map to the quota family, not validation.
+    for code in ("template_limit_reached", "webhook_limit_reached"):
+        err = from_api_exception(
+            _exc(400, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2ALimitExceededError)
+        assert err.retryable is False
+
+    # Outbound policy + review-hold + suppression + retention codes.
+    assert isinstance(
+        from_api_exception(
+            _exc(403, body='{"error":{"code":"blocked_by_policy","message":"x"}}')
+        ),
+        E2APermissionError,
+    )
+    assert isinstance(
+        from_api_exception(
+            _exc(409, body='{"error":{"code":"message_not_pending","message":"x"}}')
+        ),
+        E2AConflictError,
+    )
+    assert isinstance(
+        from_api_exception(
+            _exc(422, body='{"error":{"code":"recipient_suppressed","message":"x"}}')
+        ),
+        E2AValidationError,
+    )
+    assert isinstance(
+        from_api_exception(_exc(410, body='{"error":{"code":"gone","message":"x"}}')),
+        E2ANotFoundError,
+    )
+
+
 def test_unknown_code_falls_back_to_status_bucket():
     # An unrecognized code must not short-circuit the status bucket.
     err = from_api_exception(

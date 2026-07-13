@@ -62,7 +62,7 @@ MCP tool surface), see:
     degrades to at-least-once — a keyed retry may re-execute the operation
     rather than replay the cached response.
 - **Errors.** Non-2xx responses use a single `ErrorEnvelope` shape; branch on
-  `error.code`.
+  `error.code` (see [Error codes](#error-codes) below for the full vocabulary).
 - **Capacity limits — the permanent `402` / `429` split.** Two different limits
   can block a write, and they are **permanently distinct** — branch on the HTTP
   status:
@@ -81,6 +81,78 @@ MCP tool surface), see:
   the status, never conflate the two. The write operations that declare both are
   `sendMessage` / `replyToMessage` / `forwardMessage` / `testAgent` / `createAgent`
   (`registerDomain` declares only `402`; `approveReview` declares only `429`).
+
+## Error codes
+
+`error.code` is the stable, machine-branchable discriminator of the error
+contract. It is an **open set**: treat it as a string and tolerate unknown
+values — new codes may be added over time without a version bump. Branch on the
+codes you handle and fall back to the HTTP status otherwise. The catalog below
+is exhaustive for the current server (a drift test pins the source to this
+vocabulary); codes are never renamed or removed within `/v1` — that would be
+breaking.
+
+Naming families: `invalid_*` = a validation refinement of `invalid_request`;
+`*_not_found` = a specific missing (sub)resource; `*_taken` = the requested
+identifier is already claimed (409). The official SDKs map these families to
+their typed error classes code-first, so an unfamiliar member of a family still
+lands in the right class.
+
+Retry guidance: unless noted, 4xx codes are **not** retryable (fix the request
+or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
+`internal_error`/`limits_unavailable` are the retryable ones.
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| **Auth / policy** | | |
+| `unauthorized` | 401 | Missing or invalid credentials (REST and the WebSocket handshake). |
+| `forbidden` | 403 | Authenticated but not allowed (key scope, cross-tenant access). |
+| `blocked_by_policy` | 403 | The outbound message was blocked by the agent's outbound policy gate. |
+| **Validation** | | |
+| `invalid_request` | 400 / 422 | The canonical input-validation code — malformed (400) or semantically invalid (422). `error.details` carries the per-field list. |
+| `invalid_cursor` | 400 | Bad pagination cursor — drop it and re-fetch from the start. |
+| `invalid_filter` | 400 | Bad list-filter parameter (messages/conversations/events). |
+| `invalid_domain`, `invalid_slug`, `invalid_recipient`, `invalid_attachment`, `invalid_template`, `invalid_event_type`, `invalid_webhook_url`, `invalid_expires_at`, `invalid_scope` | 400 | Field/resource-specific refinements of `invalid_request`. |
+| `reserved_domain` | 400 | The domain is reserved by the deployment (e.g. the shared domain). |
+| `too_many_recipients` | 400 | Send/reply/forward recipient count over the cap. |
+| `template_render_failed`, `template_rendered_empty` | 400 | Template send: rendering failed / produced an empty body. |
+| `recipient_suppressed` | 422 | A recipient is on the account suppression list — un-suppress or drop it. |
+| **Not found / gone** | | |
+| `not_found` | 404 | No such resource (agents, messages, webhooks, …). |
+| `attachment_not_found`, `template_not_found`, `starter_template_not_found` | 404 | The `*_not_found` family — a specific sub-resource is missing. |
+| `gone` | 410 | The event exists but is past the 30-day retention window. |
+| **Conflict / state** | | |
+| `conflict` | 409 | Generic state conflict (e.g. redelivery to a webhook that never matched the event). |
+| `agent_taken`, `domain_taken`, `alias_taken` | 409 | The `*_taken` family — the requested identifier (agent address, domain, template alias) is already claimed. |
+| `message_not_pending` | 409 | The review hold was already resolved (approved/rejected/expired). |
+| `webhook_disabled` | 409 | Operation requires an enabled webhook. |
+| `webhook_cooldown` | 409 | The webhook was auto-disabled and cannot be re-enabled until the cooldown elapses — retryable after the cooldown. |
+| `domain_not_registered` | 400 | Create-agent on a domain the account has not registered. |
+| `domain_has_agents` | 400 | Domain delete blocked while agents exist on it. |
+| `domain_not_verified` | 400 / 403 | Domain verification pending — 400 on create-agent, 403 on send paths. |
+| **Capacity — see the 402/429 split above** | | |
+| `limit_exceeded` | 402 | Plan **quota** (stock/flow cap); `details` is `LimitExceededDetails`. Not retryable. |
+| `rate_limited` | 429 | Request-**rate** limit; wait `details.retry_after_seconds` / `Retry-After`, then retry. |
+| `template_limit_reached`, `webhook_limit_reached` | 400 | Fixed per-account count caps (not plan quotas) — delete one first. |
+| **Idempotency** | | |
+| `idempotency_in_flight` | 409 | Same key still executing — wait, then retry the byte-identical request to replay it. |
+| `idempotency_key_reuse` | 422 | Same key, different body — caller bug; never blind-retry. |
+| **Size** | | |
+| `payload_too_large` | 413 | Request body / total attachments over the cap. |
+| `attachment_too_large` | 413 | `?inline=true` requested for an attachment over the inline cap — use `download_url`. |
+| **Availability** | | |
+| `not_implemented` | 501 | The feature (API keys, reviews, suppressions) is not available on this deployment. Not retryable. |
+| `events_log_disabled` | 501 | The events log is disabled on this deployment (expected on some hosted configurations). Not retryable. |
+| `limits_unavailable` | 503 | The limits subsystem is not available — transient, retryable. |
+| **Server / fallback** | | |
+| `internal_error` | 5xx | Server-side failure; safe to retry with backoff unless the message says otherwise. |
+| `method_not_allowed` | 405 | Fallback code (wrong HTTP method on a real route). |
+| `unsupported_media_type` | 415 | Fallback code (non-JSON request body). |
+| `error` | other 4xx | Generic fallback for any otherwise-unmapped status (e.g. 406). |
+
+The SDKs additionally synthesize the client-side code `connection_error`
+(status `0`) when no HTTP response was received at all; it never comes from the
+server and is always retryable.
 
 ## Versioning & stability
 

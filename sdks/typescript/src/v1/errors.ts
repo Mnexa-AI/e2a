@@ -99,26 +99,41 @@ const CODE_TABLE: Record<string, { make: Make; retryable: boolean }> = {
   unauthorized: { make: mkAuth, retryable: false },
   // 403
   forbidden: { make: mkPermission, retryable: false },
-  // 404
+  blocked_by_policy: { make: mkPermission, retryable: false },
+  // 404 / 410 — the *_not_found suffix family resolves in resolve() below.
   not_found: { make: mkNotFound, retryable: false },
-  // 409
+  gone: { make: mkNotFound, retryable: false },
+  // 409 — the *_taken suffix family (agent_taken / domain_taken / alias_taken)
+  // resolves in resolve() below.
   conflict: { make: mkConflict, retryable: false },
+  message_not_pending: { make: mkConflict, retryable: false },
+  webhook_cooldown: { make: mkConflict, retryable: false },
+  webhook_disabled: { make: mkConflict, retryable: false },
   // 400/422 — input/semantic validation. invalid_request is the single
-  // canonical code the server now emits for both statuses; bad_request /
+  // canonical code the server emits for both statuses (its invalid_* prefix
+  // refinements resolve in resolve() below); bad_request /
   // unprocessable_entity are retained only to tolerate legacy/mixed responses.
   invalid_request: { make: mkValidation, retryable: false },
   bad_request: { make: mkValidation, retryable: false },
   unprocessable_entity: { make: mkValidation, retryable: false },
-  invalid_cursor: { make: mkValidation, retryable: false },
   domain_not_verified: { make: mkValidation, retryable: false },
+  recipient_suppressed: { make: mkValidation, retryable: false },
   // 402 — QUOTA cap (stock/flow). NOT retryable: distinct from the 429
   // request-RATE limit below. This is the permanent GA 402/429 split.
+  // The 400 fixed per-account count caps (template_limit_reached /
+  // webhook_limit_reached) join the same family: a retry never clears them.
   limit_exceeded: { make: mkLimitExceeded, retryable: false },
+  template_limit_reached: { make: mkLimitExceeded, retryable: false },
+  webhook_limit_reached: { make: mkLimitExceeded, retryable: false },
   // 429 — request-RATE / throughput limit. Retryable (back off Retry-After).
   rate_limited: { make: mkRateLimit, retryable: true },
   // idempotency (internal/httpapi/idempotency.go)
   idempotency_in_flight: { make: mkIdempotency, retryable: true },
   idempotency_key_reuse: { make: mkIdempotency, retryable: false },
+  // 501 — feature not available on this deployment. Overrides the 5xx status
+  // bucket's retryable=true: retrying a not-implemented feature never helps.
+  not_implemented: { make: mkServer, retryable: false },
+  events_log_disabled: { make: mkServer, retryable: false },
 };
 
 function resolve(status: number, code: string): { make: Make; retryable: boolean } {
@@ -126,14 +141,18 @@ function resolve(status: number, code: string): { make: Make; retryable: boolean
   if (code) {
     const byCode = CODE_TABLE[code];
     if (byCode) return byCode;
-    // Pattern families the server may add (e.g. agent_not_found, slug_exists).
+    // Naming families from the published error.code catalog (docs/api.md
+    // "Error codes"): *_not_found = a missing (sub)resource, *_taken = the
+    // identifier is already claimed, invalid_* = a validation refinement of
+    // invalid_request. (*_exists is tolerated for forward compatibility.)
     if (code.endsWith("_not_found")) return { make: mkNotFound, retryable: false };
-    if (code.endsWith("_exists")) return { make: mkConflict, retryable: false };
+    if (code.endsWith("_taken") || code.endsWith("_exists")) return { make: mkConflict, retryable: false };
+    if (code.startsWith("invalid_")) return { make: mkValidation, retryable: false };
   }
   switch (status) {
     case 400:
-      // Every 400 is a client/validation error. Maps the many 400 codes
-      // (confirmation_required, too_many_recipients, invalid_domain, …) to the
+      // Every 400 is a client/validation error. Maps the remaining 400 codes
+      // (too_many_recipients, reserved_domain, domain_has_agents, …) to the
       // validation family instead of degrading to the bare base error.
       return { make: mkValidation, retryable: false };
     case 401:

@@ -579,7 +579,7 @@ func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput
 	})
 	if err != nil {
 		if errors.Is(err, identity.ErrWebhookCapReached) {
-			return nil, NewError(http.StatusBadRequest, "webhook_cap_reached", err.Error())
+			return nil, NewError(http.StatusBadRequest, "webhook_limit_reached", err.Error())
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to create webhook")
 	}

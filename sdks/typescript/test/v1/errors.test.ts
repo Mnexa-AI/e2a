@@ -126,12 +126,55 @@ describe("code-first class selection (F2)", () => {
     expect(reuse.retryable).toBe(false);
   });
 
-  it("maps *_not_found / *_exists code families by pattern", () => {
+  it("maps the *_not_found / *_taken / *_exists / invalid_* code families by pattern", () => {
     expect(toE2AError({ status: 400, code: "agent_not_found", message: "x" })).toBeInstanceOf(
       E2ANotFoundError,
     );
     expect(toE2AError({ status: 200, code: "slug_exists", message: "x" })).toBeInstanceOf(
       E2AConflictError,
+    );
+    // The *_taken conflict family (agent_taken / domain_taken / alias_taken).
+    for (const code of ["agent_taken", "domain_taken", "alias_taken"]) {
+      const err = toE2AError({ status: 200, code, message: "x" });
+      expect(err).toBeInstanceOf(E2AConflictError);
+      expect(err.retryable).toBe(false);
+    }
+    // invalid_* refinements of invalid_request are validation errors even when
+    // the individual code is not in the table.
+    for (const code of ["invalid_slug", "invalid_filter", "invalid_expires_at"]) {
+      expect(toE2AError({ status: 200, code, message: "x" })).toBeInstanceOf(E2AValidationError);
+    }
+  });
+
+  it("maps the published catalog's family overrides code-first", () => {
+    // 501 not_implemented / events_log_disabled: server family but NOT
+    // retryable — while a plain 501 with an unknown code stays retryable.
+    for (const code of ["not_implemented", "events_log_disabled"]) {
+      const err = toE2AError({ status: 501, code, message: "x" });
+      expect(err).toBeInstanceOf(E2AServerError);
+      expect(err.retryable).toBe(false);
+    }
+    expect(toE2AError({ status: 501, code: "totally_unknown_code", message: "x" }).retryable).toBe(
+      true,
+    );
+    // 400 fixed per-account caps map to the quota family, not validation.
+    for (const code of ["template_limit_reached", "webhook_limit_reached"]) {
+      const err = toE2AError({ status: 400, code, message: "x" });
+      expect(err).toBeInstanceOf(E2ALimitExceededError);
+      expect(err.retryable).toBe(false);
+    }
+    // Outbound policy + review-hold + suppression + retention codes.
+    expect(toE2AError({ status: 403, code: "blocked_by_policy", message: "x" })).toBeInstanceOf(
+      E2APermissionError,
+    );
+    expect(toE2AError({ status: 409, code: "message_not_pending", message: "x" })).toBeInstanceOf(
+      E2AConflictError,
+    );
+    expect(toE2AError({ status: 422, code: "recipient_suppressed", message: "x" })).toBeInstanceOf(
+      E2AValidationError,
+    );
+    expect(toE2AError({ status: 410, code: "gone", message: "x" })).toBeInstanceOf(
+      E2ANotFoundError,
     );
   });
 

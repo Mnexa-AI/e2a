@@ -247,7 +247,9 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	ag, err := s.deps.CreateAgent(ctx, email, domain, req.Name, "", "", user.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate") {
-			return nil, NewError(http.StatusConflict, "conflict", "agent already registered for this domain")
+			// agent_taken joins the *_taken conflict family (domain_taken,
+			// alias_taken): the requested address is already registered.
+			return nil, NewError(http.StatusConflict, "agent_taken", "agent already registered for this domain")
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register agent")
 	}
