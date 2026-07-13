@@ -11,35 +11,38 @@ import (
 )
 
 // Jobs is the outbound-send integration on the shared River client: a
-// jobs.Registrar (contributes SendWorker) plus the transactional enqueue entry
-// point the accept-tx calls. The shared client is injected via SetEnqueuer after
-// jobs.New builds it (two-phase wiring, same as webhookdelivery / senderidentity).
+// jobs.Registrar (contributes SendWorker + the terminal reconciler) plus the
+// transactional enqueue entry point the accept-tx calls. The shared client is
+// injected via SetEnqueuer after jobs.New builds it (two-phase wiring, same as
+// webhookdelivery / senderidentity).
 type Jobs struct {
 	store     Store
 	deliverer Deliverer
+	pool      *pgxpool.Pool
 	enq       jobs.Enqueuer
 }
 
-// NewJobs builds the integration with its dependencies (no client yet).
-func NewJobs(store Store, deliverer Deliverer) *Jobs {
-	return &Jobs{store: store, deliverer: deliverer}
+// NewJobs builds the integration with its dependencies (no client yet). pool
+// backs the periodic terminal-state reconciler's scan.
+func NewJobs(store Store, deliverer Deliverer, pool *pgxpool.Pool) *Jobs {
+	return &Jobs{store: store, deliverer: deliverer, pool: pool}
 }
 
 // SetEnqueuer injects the shared client so EnqueueSendTx can insert jobs.
 func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 
-// RegisterJobs adds the SendWorker to the shared client's bundle. Implements
-// jobs.Registrar.
-//
-// No live periodic reconciler yet (startup cutover only). The one residual it would close: if a
-// job's terminal write (markFailed) fails on all its retries, the worker still
-// cancels/discards the River job, leaving the row `accepted` with a stamped-but-dead
-// job — which ReconcilePending (keyed on send_job_id IS NULL) does not catch. That
-// needs 3+ consecutive DB failures on the terminal write (very rare); a slice-D
-// periodic keyed on `accepted AND the job is terminal/absent` closes it.
+// RegisterJobs adds the SendWorker and terminal-state safety net to the shared
+// client's bundle. Implements jobs.Registrar.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, NewSendWorker(j.store, j.deliverer))
-	return nil
+	river.AddWorker(w, NewTerminalReconcileWorker(j.pool, j.store))
+	return []*river.PeriodicJob{
+		river.NewPeriodicJob(
+			river.PeriodicInterval(terminalReconcileInterval),
+			terminalReconcilePeriodicConstructor,
+			&river.PeriodicJobOpts{RunOnStart: false},
+		),
+	}
 }
 
 // ReconcilePending enqueues an outbound_send job for every accepted message that

@@ -192,4 +192,45 @@ func TestMarkOutboundFailedTx(t *testing.T) {
 	if detail != "550 mailbox unavailable" {
 		t.Errorf("delivery_detail = %q, want the failure detail", detail)
 	}
+
+	var sentMsgID string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		m, err := store.CreateOutboundMessageTx(ctx, tx, agentID,
+			[]string{"b@gmail.com"}, nil, nil, "Already sent", "send", "smtp", "", "conv-sent",
+			[]byte("raw"), "accepted", "agent@test.e2a.dev", "relay")
+		if err != nil {
+			return err
+		}
+		sentMsgID = m.ID
+		_, err = store.MarkOutboundSentTx(ctx, tx, sentMsgID, "<provider-sent>")
+		return err
+	}); err != nil {
+		t.Fatalf("create sent message: %v", err)
+	}
+
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		info, err := store.MarkOutboundFailedTx(ctx, tx, sentMsgID, "late terminal job")
+		if info != nil {
+			t.Errorf("MarkOutboundFailedTx(sent) info = %+v, want nil", info)
+		}
+		return err
+	}); err != nil {
+		t.Fatalf("MarkOutboundFailedTx(sent): %v", err)
+	}
+
+	var providerID string
+	if err := pool.QueryRow(ctx,
+		`SELECT delivery_status, provider_message_id, COALESCE(delivery_detail,'') FROM messages WHERE id=$1`, sentMsgID,
+	).Scan(&deliveryStatus, &providerID, &detail); err != nil {
+		t.Fatalf("read sent row: %v", err)
+	}
+	if deliveryStatus != "sent" {
+		t.Errorf("sent row delivery_status = %q, want sent", deliveryStatus)
+	}
+	if providerID != "<provider-sent>" {
+		t.Errorf("sent row provider_message_id = %q, want unchanged", providerID)
+	}
+	if detail != "" {
+		t.Errorf("sent row delivery_detail = %q, want unchanged empty detail", detail)
+	}
 }

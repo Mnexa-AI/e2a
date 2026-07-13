@@ -255,6 +255,7 @@ func main() {
 		outboundJobs = outboundsend.NewJobs(
 			agent.NewOutboundSendStore(store, webhookOutbox, usageTracker),
 			agent.NewOutboundDeliverer(sender),
+			pool,
 		)
 		registrars = append(registrars, outboundJobs)
 	}

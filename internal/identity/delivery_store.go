@@ -343,13 +343,16 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 
 // MarkOutboundFailedTx records, within the caller's transaction, a terminal
 // outbound send failure: delivery_status='failed' + delivery_detail. Returns the
-// row + owning user for the caller to emit email.failed, or nil if the row is gone.
+// row + owning user for the caller to emit email.failed, or nil if the row is gone
+// or already left accepted/sending. The compare-and-set prevents a late worker or
+// reconciler from overwriting a successful or otherwise terminal delivery state.
 func (s *Store) MarkOutboundFailedTx(ctx context.Context, tx pgx.Tx, messageID, detail string) (*OutboundSentInfo, error) {
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "failed", DeliveryDetail: detail}
 	err := tx.QueryRow(ctx,
 		`UPDATE messages
 		    SET delivery_status = 'failed', delivery_detail = $2
 		  WHERE id = $1 AND direction = 'outbound'
+		    AND delivery_status IN ('accepted', 'sending')
 		 RETURNING agent_id, subject, message_type, method, conversation_id, sender, to_recipients, cc, bcc`,
 		messageID, nullIfEmpty(detail),
 	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC)
