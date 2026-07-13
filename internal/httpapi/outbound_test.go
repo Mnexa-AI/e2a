@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"encoding/base64"
-	"strings"
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/outbound"
@@ -159,20 +158,29 @@ func TestSendOverCap(t *testing.T) {
 	}
 }
 
-// TestSendLargeBodyAccepted guards the outbound body cap: Huma's default is
-// 1 MiB, which would 413 attachment-bearing mail. The send op raises it to
-// maxOutboundBytes (40 MB), so a >1 MiB body is accepted, not rejected.
+// TestSendLargeBodyAccepted guards the outbound request wire cap: Huma's default
+// is 1 MiB, which would 413 attachment-bearing mail. The send op raises it to
+// maxOutboundBytes (40 MB), so a request body over 1 MiB is accepted, not
+// rejected. Proven with an attachment whose base64 wire size exceeds 1 MiB (the
+// production reason the cap was raised) — the per-field maxLength limits now cap
+// text/html at 1 MiB each, so an oversized single field is rejected by design
+// (see TestSendRejectsOversizedTextBody) and can't exercise the wire cap.
 func TestSendLargeBodyAccepted(t *testing.T) {
 	srv := testServer(t)
-	big := strings.Repeat("a", 1500*1024) // ~1.5 MiB — over Huma's 1 MiB default
+	// 1.5 MiB decoded → ~2 MiB base64 on the wire: over Huma's 1 MiB default wire
+	// cap, but under the 10 MiB per-attachment and composed caps.
 	code, body := postJSON(t, srv.URL+sendURL, "good", map[string]any{
-		"to": []string{"alice@x.com"}, "subject": "Hi", "text": big,
+		"to": []string{"alice@x.com"}, "subject": "Hi", "text": "hello",
+		"attachments": attField(map[string]any{
+			"filename": "big.bin", "content_type": "application/octet-stream",
+			"data": b64(1500 * 1024),
+		}),
 	})
 	if code == 413 {
-		t.Fatalf("a 1.5 MiB body must be accepted (cap raised to 40 MB), got 413")
+		t.Fatalf("a request with a ~2 MiB base64 wire body must be accepted (cap raised to 40 MB), got 413")
 	}
 	if code != 200 || body["status"] != "sent" {
-		t.Fatalf("want 200 sent for a large-but-under-cap body, got %d %v", code, body)
+		t.Fatalf("want 200 sent for a large-but-under-cap wire body, got %d %v", code, body)
 	}
 }
 

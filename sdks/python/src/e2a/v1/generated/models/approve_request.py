@@ -17,8 +17,9 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from e2a.v1.generated.models.attachment import Attachment
 from typing import Optional, Set
 from typing_extensions import Self
@@ -28,12 +29,12 @@ class ApproveRequest(BaseModel):
     ApproveRequest
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = None
-    bcc: Optional[List[StrictStr]] = None
-    cc: Optional[List[StrictStr]] = None
-    html: Optional[StrictStr] = None
-    subject: Optional[StrictStr] = None
-    text: Optional[StrictStr] = None
-    to: Optional[List[StrictStr]] = None
+    bcc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    cc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    html: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = None
+    subject: Optional[Annotated[str, Field(strict=True, max_length=2000)]] = None
+    text: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = None
+    to: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "html", "subject", "text", "to"]
 
