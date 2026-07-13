@@ -1,10 +1,18 @@
 """Unit tests for retry + idempotency (Slice 8c-1)."""
 
+import json
+
 import httpx
 import pytest
 
 from e2a.v1._retry import RetryConfig, request_with_retry
-from e2a.v1.errors import E2AConnectionError, E2ANotFoundError, E2AServerError
+from e2a.v1.errors import (
+    E2AConflictError,
+    E2AConnectionError,
+    E2AIdempotencyError,
+    E2ANotFoundError,
+    E2AServerError,
+)
 from e2a.v1.generated.exceptions import ApiException
 
 
@@ -25,10 +33,17 @@ class Script:
         return step
 
 
-def _api_exc(status, headers=None):
-    e = ApiException(status=status, body="{}")
+def _api_exc(status, headers=None, body="{}"):
+    e = ApiException(status=status, body=body)
     e.headers = headers
     return e
+
+
+def _conflict_exc(code, headers=None):
+    """A 409 carrying `error.code` in its envelope body — the shape the retry
+    layer must parse to tell idempotency_in_flight (retry-safe) apart from
+    idempotency_key_reuse / any other 409 code (never retry-safe)."""
+    return _api_exc(409, headers=headers, body=json.dumps({"error": {"code": code, "message": "x"}}))
 
 
 def cfg(**kw):
@@ -181,3 +196,58 @@ async def test_total_deadline_stops_before_retry():
             idempotency=False,
         )
     assert s.calls == 1  # deadline blocked the first retry
+
+
+# 409 is NOT in is_retryable_status (a bare 409 is never retried), but the
+# server's idempotency_in_flight code on a server-deduped keyed write IS
+# retry-safe (same key, still committing) — while idempotency_key_reuse rides
+# the identical status and must never be retried (a caller body-mismatch bug).
+# The retry layer must tell them apart by parsing the envelope, not the status
+# alone, and only for requests that actually carry an Idempotency-Key.
+@pytest.mark.anyio
+async def test_retries_409_idempotency_in_flight_then_succeeds():
+    s = Script([_conflict_exc("idempotency_in_flight"), "ok"])
+    out = await request_with_retry(s.make, cfg=cfg(), retryable=True, idempotency=True)
+    assert out == "ok"
+    assert s.calls == 2
+
+
+@pytest.mark.anyio
+async def test_no_retry_on_409_idempotency_key_reuse():
+    s = Script([_conflict_exc("idempotency_key_reuse")])
+    with pytest.raises(E2AIdempotencyError):
+        await request_with_retry(s.make, cfg=cfg(), retryable=True, idempotency=True)
+    assert s.calls == 1  # caller bug, not transient — never retried
+
+
+@pytest.mark.anyio
+async def test_no_retry_on_bare_409_with_unrelated_code():
+    s = Script([_conflict_exc("conflict")])
+    with pytest.raises(E2AConflictError):
+        await request_with_retry(s.make, cfg=cfg(), retryable=True, idempotency=True)
+    assert s.calls == 1
+
+
+@pytest.mark.anyio
+async def test_no_retry_on_409_idempotency_in_flight_without_idempotency_gate():
+    # retryable=True alone (e.g. a plain read, `_read`'s gating) is not enough:
+    # this response shape can't legitimately occur without an Idempotency-Key,
+    # and the body-peek must not fire for a request that never carried one.
+    s = Script([_conflict_exc("idempotency_in_flight")])
+    with pytest.raises(E2AIdempotencyError):
+        await request_with_retry(s.make, cfg=cfg(), retryable=True, idempotency=False)
+    assert s.calls == 1
+
+
+@pytest.mark.anyio
+async def test_409_idempotency_in_flight_retry_honors_retry_after_backoff():
+    delays = []
+
+    async def rec_sleep(secs):
+        delays.append(secs)
+
+    s = Script([_conflict_exc("idempotency_in_flight", headers={"Retry-After": "3"}), "ok"])
+    await request_with_retry(
+        s.make, cfg=cfg(sleep=rec_sleep, max_retries=1), retryable=True, idempotency=True
+    )
+    assert delays == [3.0]

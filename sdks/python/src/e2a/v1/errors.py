@@ -42,6 +42,8 @@ __all__ = [
     "is_retryable_status",
     "from_api_exception",
     "connection_error",
+    "IDEMPOTENCY_IN_FLIGHT_CODE",
+    "error_code_from_api_exception",
 ]
 
 
@@ -147,7 +149,14 @@ def is_retryable_status(status: int) -> bool:
 # The two idempotency-conflict codes from internal/httpapi/idempotency.go.
 # in_flight is safe to retry (same key, server dedupes); key_reuse is a caller
 # bug (same key, different body) and must not be retried.
-_IDEMPOTENCY_RETRYABLE = "idempotency_in_flight"
+#
+# Exposed (not underscore-prefixed) because the retry layer (_retry.py) needs
+# to recognize this exact code on a bare 409 *before* status-based retry
+# resolution even applies — 409 alone is never retryable (is_retryable_status
+# excludes it, precisely so idempotency_key_reuse is never retried), so
+# idempotency_in_flight is the one carve-out that must be matched by code.
+IDEMPOTENCY_IN_FLIGHT_CODE = "idempotency_in_flight"
+_IDEMPOTENCY_RETRYABLE = IDEMPOTENCY_IN_FLIGHT_CODE
 _IDEMPOTENCY_CODES = {_IDEMPOTENCY_RETRYABLE, "idempotency_key_reuse"}
 
 # Fallback code synthesized when the envelope omits one. invalid_request is the
@@ -360,6 +369,23 @@ def from_api_exception(exc: ApiException) -> E2AError:
         headers=headers,
         cause=exc,
     )
+
+
+def error_code_from_api_exception(exc: ApiException) -> str:
+    """Extract the envelope's ``error.code`` from a generated ``ApiException``
+    without building a full typed error.
+
+    Shared by :func:`from_api_exception` and the retry layer's 409
+    ``idempotency_in_flight`` gate (see ``_retry.py``), so both read the
+    ``{"error": {"code": ...}}`` shape the same way instead of hand-rolling it
+    twice.
+    """
+    env = _parse_envelope(getattr(exc, "data", None), getattr(exc, "body", None))
+    if isinstance(env, dict):
+        error = env.get("error")
+        if isinstance(error, dict):
+            return error.get("code") or ""
+    return ""
 
 
 def _normalize_headers(headers: Any) -> Optional[Mapping[str, str]]:
