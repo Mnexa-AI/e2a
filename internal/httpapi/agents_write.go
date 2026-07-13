@@ -182,9 +182,9 @@ type deleteAgentOutput struct{ Body DeleteAgentResult }
 // (trash, restorable for 30 days); permanent=true is the irreversible hard
 // delete and also accepts an agent already in the trash ("delete forever").
 type deleteAgentInput struct {
-	Address string `path:"email"`
-	DeleteConfirm
-	Permanent bool `query:"permanent" doc:"Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents."`
+	Address   string `path:"email"`
+	Confirm   string `query:"confirm" enum:"DELETE" required:"true" doc:"Must be the literal DELETE. The default action moves the agent to trash; permanent=true is irreversible."`
+	Permanent bool   `query:"permanent" doc:"Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents."`
 }
 
 func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*deleteAgentOutput, error) {
@@ -193,8 +193,8 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 	if _, err := s.requireAccountScope(ctx); err != nil {
 		return nil, err
 	}
-	// Confirm is enforced declaratively by Huma (required + enum:[DELETE] on
-	// DeleteConfirm): a missing/wrong ?confirm is a 422 before this handler.
+	// Confirm is enforced declaratively by Huma (required + enum:[DELETE]): a
+	// missing/wrong ?confirm is a 422 before this handler.
 	//
 	// One resolution path across both variants: any-state, so permanent=true
 	// can purge an agent already in the trash. A trashed agent is 404 for the
@@ -223,6 +223,10 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 		// the mutation — 404, not a generic 500.
 		if errors.Is(err, identity.ErrAgentNotFound) {
 			return nil, NewError(http.StatusNotFound, "not_found", "agent not found")
+		}
+		if errors.Is(err, identity.ErrSendInProgress) {
+			return nil, NewError(http.StatusConflict, "send_in_progress",
+				"agent has an outbound send in progress; retry permanent deletion after it finishes")
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
 	}

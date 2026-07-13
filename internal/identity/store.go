@@ -1367,6 +1367,20 @@ func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) (messag
 		if queryErr != nil {
 			return queryErr
 		}
+		var sending bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM messages
+				 WHERE agent_id = $1 AND delivery_status = 'sending'
+				   AND send_claimed_at > now() - make_interval(secs => $2)
+			)`,
+			agentID, int64(OutboundSendClaimStaleWindow/time.Second),
+		).Scan(&sending); err != nil {
+			return err
+		}
+		if sending {
+			return ErrSendInProgress
+		}
 		msgTag, err := tx.Exec(ctx, `DELETE FROM messages WHERE agent_id = $1`, agentID)
 		if err != nil {
 			return err
@@ -3598,18 +3612,32 @@ func (s *Store) RestoreMessage(ctx context.Context, messageID, agentID string) e
 // so a live message must be trashed first). Returns ErrNotInTrash for a
 // live message, ErrMessageNotFound otherwise.
 func (s *Store) PurgeMessage(ctx context.Context, messageID, agentID string) error {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM messages
-		  WHERE id = $1 AND agent_id = $2 AND deleted_at IS NOT NULL`,
-		messageID, agentID,
-	)
-	if err != nil {
+	return s.WithTx(ctx, func(tx pgx.Tx) error {
+		var deletedAt *time.Time
+		var deliveryStatus string
+		var activeSend bool
+		err := tx.QueryRow(ctx,
+			`SELECT deleted_at, COALESCE(delivery_status, ''),
+			        COALESCE(send_claimed_at > now() - make_interval(secs => $3), false)
+			   FROM messages
+			  WHERE id = $1 AND agent_id = $2 FOR UPDATE`,
+			messageID, agentID, int64(OutboundSendClaimStaleWindow/time.Second),
+		).Scan(&deletedAt, &deliveryStatus, &activeSend)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrMessageNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if deliveryStatus == "sending" && activeSend {
+			return ErrSendInProgress
+		}
+		if deletedAt == nil {
+			return ErrNotInTrash
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM messages WHERE id = $1`, messageID)
 		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return s.classifyTrashMiss(ctx, messageID, agentID, false)
-	}
-	return nil
+	})
 }
 
 // classifyTrashMiss turns a zero-row trash mutation into the precise error:

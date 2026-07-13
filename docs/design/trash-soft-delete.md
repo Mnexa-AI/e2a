@@ -13,12 +13,16 @@ Gmail/Outlook-style deletion for agent inboxes and messages:
   janitor.
 - Permanent deletion ("delete forever") is available from the trash.
 
-## Schema (migration 062)
+## Schema (migrations 062-063)
 
 `deleted_at TIMESTAMPTZ NULL` on `agent_identities` and `messages`.
 `NULL` = live; non-NULL = in trash since that instant. Partial indexes serve
 the trash listings and the purge sweep; both are small (trash is a tiny
 fraction of the table) so the write amplification is negligible.
+
+`messages.send_claimed_at TIMESTAMPTZ NULL` is the short-lived lease for an
+active async provider call. It is separate from `delivery_status = 'sending'`
+because that status can survive a worker crash or span River retry handling.
 
 ## Lifecycle semantics
 
@@ -35,7 +39,14 @@ fraction of the table) so the write amplification is negligible.
   trashed message stops being claimed (it resumes if the message is restored
   inside the retry window; otherwise the TTL prune drops it), and a
   queued-but-unsent async outbound send no-ops if its message (or its agent)
-  was trashed — deleting is the user's lever to stop an in-flight send. Two
+  was trashed before the worker claims it. The durable `sending` transition and
+  trash are serialized: if the worker claims first, trash completes immediately
+  but the provider outcome is still recorded on the hidden row; if trash wins,
+  the worker records the queued send as canceled without submitting it.
+  Retryable, side-effect-free provider failures release the claim back to
+  `accepted` during River backoff. Permanent deletion is blocked only by a
+  fresh `send_claimed_at` lease; stale leases recover crashed workers or failed
+  terminal bookkeeping without blocking deletion forever. Two
   deliberate exceptions: the single-message GET returns trashed rows
   (annotated with `deleted_at`) so the trash view can open them, mirroring
   Gmail's "view message in trash"; and the In-Reply-To / References
@@ -52,7 +63,8 @@ fraction of the table) so the write amplification is negligible.
   OR `(deleted_at <= now() - TrashRetention)`. While a row is in trash its
   natural expiry is suspended; the trash clock alone governs.
 - **Delete forever** (`PurgeMessage`): hard DELETE, allowed only on rows
-  already in trash (Gmail journey: delete → trash → delete forever).
+  already in trash (Gmail journey: delete → trash → delete forever). A fresh
+  provider-call lease returns HTTP 409 `send_in_progress`; retry after it ends.
 
 ### Agents (inboxes)
 
@@ -89,7 +101,8 @@ fraction of the table) so the write amplification is negligible.
   delete) drains the same way.
 - **Delete forever**: `DELETE /v1/agents/{email}?permanent=true&confirm=DELETE`
   hard-deletes from either state (trash UI uses it on trashed inboxes; API
-  callers keep a one-shot irreversible delete).
+  callers keep a one-shot irreversible delete). A fresh provider-call lease on
+  any attached message returns HTTP 409 `send_in_progress`.
 - Domain deletion still counts trashed agents (`HasAgentsOnDomain` is
   unchanged): the FK requires it, and silently orphaning a restorable inbox
   would be worse. The error message tells the user to check the trash.

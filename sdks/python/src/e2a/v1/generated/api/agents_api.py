@@ -330,7 +330,7 @@ class AgentsApi:
     async def delete_agent(
         self,
         email: StrictStr,
-        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE. The default action moves the agent to trash; permanent=true is irreversible.")],
         permanent: Annotated[Optional[StrictBool], Field(description="Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.")] = None,
         _request_timeout: Union[
             None,
@@ -351,7 +351,7 @@ class AgentsApi:
 
         :param email: (required)
         :type email: str
-        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :param confirm: Must be the literal DELETE. The default action moves the agent to trash; permanent=true is irreversible. (required)
         :type confirm: str
         :param permanent: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
         :type permanent: bool
@@ -405,7 +405,7 @@ class AgentsApi:
     async def delete_agent_with_http_info(
         self,
         email: StrictStr,
-        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE. The default action moves the agent to trash; permanent=true is irreversible.")],
         permanent: Annotated[Optional[StrictBool], Field(description="Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.")] = None,
         _request_timeout: Union[
             None,
@@ -426,7 +426,7 @@ class AgentsApi:
 
         :param email: (required)
         :type email: str
-        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :param confirm: Must be the literal DELETE. The default action moves the agent to trash; permanent=true is irreversible. (required)
         :type confirm: str
         :param permanent: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
         :type permanent: bool
@@ -480,7 +480,7 @@ class AgentsApi:
     async def delete_agent_without_preload_content(
         self,
         email: StrictStr,
-        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE — this action is irreversible.")],
+        confirm: Annotated[StrictStr, Field(description="Must be the literal DELETE. The default action moves the agent to trash; permanent=true is irreversible.")],
         permanent: Annotated[Optional[StrictBool], Field(description="Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.")] = None,
         _request_timeout: Union[
             None,
@@ -501,7 +501,7 @@ class AgentsApi:
 
         :param email: (required)
         :type email: str
-        :param confirm: Must be the literal DELETE — this action is irreversible. (required)
+        :param confirm: Must be the literal DELETE. The default action moves the agent to trash; permanent=true is irreversible. (required)
         :type confirm: str
         :param permanent: Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
         :type permanent: bool

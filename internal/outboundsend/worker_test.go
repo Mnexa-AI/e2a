@@ -16,9 +16,11 @@ type fakeStore struct {
 	job         *outboundsend.SendJob
 	loadErr     error
 	markSentErr error
+	releaseErr  error
 
-	sent   []sentCall
-	failed []failedCall
+	sent     []sentCall
+	failed   []failedCall
+	released []string
 }
 
 type sentCall struct{ id, provider, sentAs string }
@@ -28,7 +30,7 @@ type failedCall struct {
 	detail  string
 }
 
-func (f *fakeStore) LoadForSend(_ context.Context, _ string) (*outboundsend.SendJob, error) {
+func (f *fakeStore) ClaimSend(_ context.Context, _ string, _ int64) (*outboundsend.SendJob, error) {
 	return f.job, f.loadErr
 }
 func (f *fakeStore) MarkSent(_ context.Context, id, provider, sentAs string) error {
@@ -39,6 +41,10 @@ func (f *fakeStore) MarkFailed(_ context.Context, id string, attempt int, detail
 	f.failed = append(f.failed, failedCall{id, attempt, detail})
 	return nil
 }
+func (f *fakeStore) ReleaseSend(_ context.Context, id string, _ int64) error {
+	f.released = append(f.released, id)
+	return f.releaseErr
+}
 
 type fakeDeliverer struct{ out outboundsend.DeliverOutcome }
 
@@ -48,7 +54,7 @@ func (f fakeDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) outbo
 
 func job(id string, attempt int) *river.Job[outboundsend.OutboundSendArgs] {
 	return &river.Job[outboundsend.OutboundSendArgs]{
-		JobRow: &rivertype.JobRow{Attempt: attempt, MaxAttempts: outboundsend.MaxSendAttempts, Kind: outboundsend.OutboundSendArgs{}.Kind()},
+		JobRow: &rivertype.JobRow{ID: 1, Attempt: attempt, MaxAttempts: outboundsend.MaxSendAttempts, Kind: outboundsend.OutboundSendArgs{}.Kind()},
 		Args:   outboundsend.OutboundSendArgs{MessageID: id},
 	}
 }
@@ -134,6 +140,21 @@ func TestSendWorker_RetryableFailureDoesNotMarkFailed(t *testing.T) {
 	if len(st.sent) != 0 {
 		t.Errorf("failed send must not MarkSent")
 	}
+	if len(st.released) != 1 || st.released[0] != "msg_1" {
+		t.Errorf("retryable failure must release the active claim, got %v", st.released)
+	}
+}
+
+func TestSendWorker_RetryableFailureReleaseErrorRetries(t *testing.T) {
+	st := &fakeStore{job: acceptedJob("msg_1"), releaseErr: errors.New("db unavailable")}
+	dl := fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("transient 421")}}
+	w := outboundsend.NewSendWorker(st, dl)
+	if err := w.Work(context.Background(), job("msg_1", 1)); err == nil || !errors.Is(err, st.releaseErr) {
+		t.Fatalf("Work error = %v, want release error", err)
+	}
+	if len(st.released) != 1 {
+		t.Fatalf("release calls = %v, want one", st.released)
+	}
 }
 
 func TestSendWorker_OutageSnoozesWithoutBurningAttempt(t *testing.T) {
@@ -153,6 +174,9 @@ func TestSendWorker_OutageSnoozesWithoutBurningAttempt(t *testing.T) {
 	}
 	if len(st.sent) != 0 {
 		t.Errorf("an outage must not MarkSent")
+	}
+	if len(st.released) != 1 || st.released[0] != "msg_1" {
+		t.Errorf("outage snooze must release the active claim, got %v", st.released)
 	}
 }
 

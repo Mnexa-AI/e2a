@@ -3,6 +3,7 @@ package identity_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -90,7 +91,52 @@ func TestCreateOutboundMessageTx_AcceptedRow(t *testing.T) {
 	}
 }
 
-// TestMarkOutboundSentTx flips an accepted row to sent with the provider id +
+func TestClaimOutboundForSend_JobOwnership(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	agentID := convoTestSetup(t, store, "async-claim-owner")
+
+	var msgID string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		m, err := store.CreateOutboundMessageTx(ctx, tx, agentID,
+			[]string{"a@gmail.com"}, nil, nil, "S", "send", "smtp", "", "conv-claim",
+			[]byte("raw"), "accepted", "agent@test.e2a.dev", "relay")
+		if err != nil {
+			return err
+		}
+		msgID = m.ID
+		return store.StampSendJobIDTx(ctx, tx, msgID, 4242)
+	}); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		payload, err := store.ClaimOutboundForSend(ctx, msgID, 4242)
+		if err != nil || payload == nil {
+			t.Fatalf("same-job claim %d = (%v, %v), want payload", i+1, payload, err)
+		}
+	}
+	payload, err := store.ClaimOutboundForSend(ctx, msgID, 4343)
+	if err != nil || payload != nil {
+		t.Fatalf("foreign-job claim = (%v, %v), want (nil, nil)", payload, err)
+	}
+	if err := store.ReleaseOutboundSendClaim(ctx, msgID, 4242); err != nil {
+		t.Fatalf("ReleaseOutboundSendClaim: %v", err)
+	}
+	var status string
+	var claimedAt *time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT delivery_status, send_claimed_at FROM messages WHERE id=$1`, msgID,
+	).Scan(&status, &claimedAt); err != nil {
+		t.Fatalf("read released claim: %v", err)
+	}
+	if status != "accepted" || claimedAt != nil {
+		t.Fatalf("released claim = status %q claimed_at %v, want accepted/nil", status, claimedAt)
+	}
+}
+
+// TestMarkOutboundSentTx flips a claimed sending row to sent with the provider id +
 // per-recipient rows, and returns the owning user/domain for the caller.
 func TestMarkOutboundSentTx(t *testing.T) {
 	pool := testutil.TestDB(t)
@@ -104,6 +150,10 @@ func TestMarkOutboundSentTx(t *testing.T) {
 			[]string{"a@gmail.com"}, nil, nil, "S", "send", "smtp", "", "conv-s",
 			[]byte("raw"), "accepted", "agent@test.e2a.dev", "relay")
 		msgID = m.ID
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE messages SET delivery_status='sending' WHERE id=$1`, msgID)
 		return err
 	}); err != nil {
 		t.Fatalf("accept tx: %v", err)
@@ -155,7 +205,7 @@ func TestMarkOutboundSentTx(t *testing.T) {
 	}
 }
 
-// TestMarkOutboundFailedTx flips an accepted row to failed with the detail.
+// TestMarkOutboundFailedTx flips a claimed sending row to failed with the detail.
 func TestMarkOutboundFailedTx(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -168,6 +218,10 @@ func TestMarkOutboundFailedTx(t *testing.T) {
 			[]string{"a@gmail.com"}, nil, nil, "F", "send", "smtp", "", "conv-f",
 			[]byte("raw"), "accepted", "agent@test.e2a.dev", "relay")
 		msgID = m.ID
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE messages SET delivery_status='sending' WHERE id=$1`, msgID)
 		return err
 	}); err != nil {
 		t.Fatalf("accept tx: %v", err)

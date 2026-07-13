@@ -365,7 +365,7 @@ export class PromiseAgentsApi {
      * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
-     * @param confirm Must be the literal DELETE — this action is irreversible.
+     * @param confirm Must be the literal DELETE. The default action moves the agent to trash; permanent&#x3D;true is irreversible.
      * @param [permanent] Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
      */
     public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', permanent?: boolean, _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteAgentResult>> {
@@ -378,7 +378,7 @@ export class PromiseAgentsApi {
      * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
-     * @param confirm Must be the literal DELETE — this action is irreversible.
+     * @param confirm Must be the literal DELETE. The default action moves the agent to trash; permanent&#x3D;true is irreversible.
      * @param [permanent] Delete irreversibly right away instead of moving to the trash. Accepts live and trashed agents.
      */
     public deleteAgent(email: string, confirm: 'DELETE', permanent?: boolean, _options?: PromiseConfigurationOptions): Promise<DeleteAgentResult> {

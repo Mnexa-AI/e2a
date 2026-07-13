@@ -535,6 +535,9 @@ func mapTrashErr(err error, resource string) error {
 			"message is held for review — approve or reject it in the review queue first")
 	case errors.Is(err, identity.ErrNotInTrash):
 		return NewError(http.StatusConflict, "not_in_trash", resource+" is not in the trash")
+	case errors.Is(err, identity.ErrSendInProgress):
+		return NewError(http.StatusConflict, "send_in_progress",
+			resource+" has an outbound send in progress; retry permanent deletion after it finishes")
 	default:
 		return NewError(http.StatusInternalServerError, "internal_error", "operation failed")
 	}

@@ -44,10 +44,10 @@ type OutboundEnqueuer interface {
 }
 
 // outboundSendStore implements outboundsend.Store over identity.Store +
-// webhookpub.Outbox + the usage tracker: LoadForSend reads the accepted row;
-// MarkSent/MarkFailed each run one transaction that flips delivery_status and
-// emits email.sent / email.failed via the outbox. MarkSent also meters usage
-// post-commit (the message only becomes a billable send once submitted).
+// webhookpub.Outbox + the usage tracker. ClaimSend persists the short-lived
+// sending state before provider I/O; MarkSent/MarkFailed then record one monotonic
+// terminal outcome in fresh transactions. Successful sends are metered post-commit
+// (the message only becomes billable once submitted).
 type outboundSendStore struct {
 	store  *identity.Store
 	outbox webhookpub.Outbox
@@ -59,8 +59,8 @@ func NewOutboundSendStore(store *identity.Store, outbox webhookpub.Outbox, usage
 	return &outboundSendStore{store: store, outbox: outbox, usage: usageTracker}
 }
 
-func (a *outboundSendStore) LoadForSend(ctx context.Context, messageID string) (*outboundsend.SendJob, error) {
-	p, err := a.store.LoadOutboundForSend(ctx, messageID)
+func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, jobID int64) (*outboundsend.SendJob, error) {
+	p, err := a.store.ClaimOutboundForSend(ctx, messageID, jobID)
 	if err != nil || p == nil {
 		return nil, err
 	}
@@ -75,6 +75,10 @@ func (a *outboundSendStore) LoadForSend(ctx context.Context, messageID string) (
 	}, nil
 }
 
+func (a *outboundSendStore) ReleaseSend(ctx context.Context, messageID string, jobID int64) error {
+	return a.store.ReleaseOutboundSendClaim(ctx, messageID, jobID)
+}
+
 func (a *outboundSendStore) MarkSent(ctx context.Context, messageID, providerMessageID, sentAs string) error {
 	var info *identity.OutboundSentInfo
 	if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
@@ -84,7 +88,7 @@ func (a *outboundSendStore) MarkSent(ctx context.Context, messageID, providerMes
 		}
 		info = i
 		if info == nil {
-			return nil // row gone between load and mark — nothing to record
+			return nil
 		}
 		// email.sent uses the same deterministic id + best-effort semantics as the
 		// synchronous publishSent: the SES submit already happened, so a failed

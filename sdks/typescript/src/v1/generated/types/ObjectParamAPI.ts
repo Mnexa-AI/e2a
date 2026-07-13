@@ -401,7 +401,7 @@ export interface AgentsApiDeleteAgentRequest {
      */
     email: string
     /**
-     * Must be the literal DELETE — this action is irreversible.
+     * Must be the literal DELETE. The default action moves the agent to trash; permanent&#x3D;true is irreversible.
      * Defaults to: undefined
      * @type &#39;DELETE&#39;
      * @memberof AgentsApideleteAgent

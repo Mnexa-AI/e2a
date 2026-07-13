@@ -113,14 +113,18 @@ type Deliverer interface {
 }
 
 // Store is the messages-store surface the worker needs. Implemented over
-// internal/identity in the binary. MarkSent/MarkFailed each own their own
-// transaction and emit email.sent / email.failed via the webhook outbox in it.
+// internal/identity in the binary. ClaimSend atomically checks that the message
+// and agent are live and persists delivery_status='sending' for the stamped River
+// job before provider I/O begins.
 type Store interface {
-	// LoadForSend returns the send payload, or (nil, nil) if the message is gone
+	// ClaimSend returns nil when the message is gone, trashed, terminal, or owned
+	// by a different River job.
 	// (agent-delete cascade / TTL) — the worker treats that as a no-op.
-	LoadForSend(ctx context.Context, messageID string) (*SendJob, error)
-	// MarkSent sets delivery_status='sent' + provider_message_id and emits
-	// email.sent, in one transaction.
+	ClaimSend(ctx context.Context, messageID string, jobID int64) (*SendJob, error)
+	// ReleaseSend clears a side-effect-free attempt before River backoff.
+	ReleaseSend(ctx context.Context, messageID string, jobID int64) error
+	// MarkSent records the provider outcome monotonically from a pre-terminal
+	// state, including when trash won after ClaimSend.
 	MarkSent(ctx context.Context, messageID, providerMessageID, sentAs string) error
 	// MarkFailed sets delivery_status='failed' + detail and emits email.failed, in
 	// one transaction.
@@ -152,7 +156,7 @@ func (w *SendWorker) NextRetry(job *river.Job[OutboundSendArgs]) time.Time {
 // River's 60s default JobTimeout. (Contrast the maintenance/sweep workers, which
 // override it because they can run for minutes.)
 func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs]) error {
-	j, err := w.store.LoadForSend(ctx, job.Args.MessageID)
+	j, err := w.store.ClaimSend(ctx, job.Args.MessageID, job.ID)
 	if err != nil {
 		return err // DB error — retryable
 	}
@@ -183,6 +187,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 			w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error())
 			return fmt.Errorf("outbound send failed (provider outage past %s horizon): %w", sendRetryHorizon, out.Err)
 		}
+		if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+			return fmt.Errorf("release outbound send claim after provider outage: %w", err)
+		}
 		return river.JobSnooze(outageSnoozeInterval)
 	}
 	// Last attempt — River discards after this, so the terminal 'failed' write is
@@ -192,6 +199,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return fmt.Errorf("outbound send failed (final attempt %d): %w", job.Attempt, out.Err)
 	}
 	// Retryable — River reschedules per NextRetry.
+	if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+		return fmt.Errorf("release outbound send claim after retryable failure: %w", err)
+	}
 	return fmt.Errorf("outbound send attempt %d failed: %w", job.Attempt, out.Err)
 }
 

@@ -140,6 +140,18 @@ func TestDeleteMessagePermanentNotInTrash(t *testing.T) {
 	}
 }
 
+func TestDeleteMessagePermanentSendInProgress(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.PurgeMessage = func(ctx context.Context, messageID, agentID string) error {
+			return identity.ErrSendInProgress
+		}
+	})
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_sending?permanent=true&confirm=DELETE", "good", nil)
+	if code != 409 || errCode(body) != "send_in_progress" {
+		t.Fatalf("want 409 send_in_progress, got %d %v", code, body)
+	}
+}
+
 func TestRestoreMessage(t *testing.T) {
 	var c trashCalls
 	srv := testServer(t, withTrashDeps(&c), func(d *Deps) {
@@ -222,6 +234,18 @@ func TestDeleteAgentPermanentFromTrash(t *testing.T) {
 	}
 	if c.hardAgent != 1 || c.softAgent != 0 {
 		t.Fatalf("soft=%d hard=%d, want hard only", c.softAgent, c.hardAgent)
+	}
+}
+
+func TestDeleteAgentPermanentSendInProgress(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.PermanentDeleteAgent = func(ctx context.Context, agentID, userID string) (int64, error) {
+			return 0, identity.ErrSendInProgress
+		}
+	})
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com?confirm=DELETE&permanent=true", "good", nil)
+	if code != 409 || errCode(body) != "send_in_progress" {
+		t.Fatalf("want 409 send_in_progress, got %d %v", code, body)
 	}
 }
 

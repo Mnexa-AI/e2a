@@ -63,6 +63,7 @@ var emittedErrorCodes = []string{
 	"message_held",
 	"message_not_pending",
 	"not_in_trash",
+	"send_in_progress",
 	"webhook_disabled",
 	"webhook_cooldown",
 	"domain_not_registered",
