@@ -62,8 +62,19 @@ func TestUpdateAgentNotOwned(t *testing.T) {
 func TestDeleteAgent(t *testing.T) {
 	srv := testServer(t)
 	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com?confirm=DELETE", "good", nil)
-	if code != 204 || len(body) != 0 {
-		t.Fatalf("want 204 no body, got %d %v", code, body)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	// Uniform deletion object: {deleted:true, email, messages_deleted}.
+	if body["deleted"] != true {
+		t.Fatalf("want deleted:true, got %v", body)
+	}
+	if body["email"] != "support@acme.com" {
+		t.Fatalf("want email echo, got %v", body)
+	}
+	// The fake deps report 3 cascaded messages (operations_test.go).
+	if body["messages_deleted"] != float64(3) {
+		t.Fatalf("want messages_deleted:3, got %v", body)
 	}
 }
 

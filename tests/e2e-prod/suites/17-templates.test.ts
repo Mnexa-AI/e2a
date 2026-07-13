@@ -157,7 +157,10 @@ test("createTemplate + getTemplate + listTemplates + deleteTemplate lifecycle", 
     );
 
     const del = await delTemplate(id);
-    assert.equal(del.status, 204, `deleteTemplate → 204, got ${del.status}: ${del.raw.slice(0, 200)}`);
+    assert.equal(del.status, 200, `deleteTemplate → 200 + deletion object, got ${del.status}: ${del.raw.slice(0, 200)}`);
+    const delBody = JSON.parse(del.raw) as { deleted?: boolean; id?: string };
+    assert.equal(delBody.deleted, true, "deletion object has deleted:true");
+    assert.equal(delBody.id, id, "deletion object echoes the template id");
     id = null;
 
     const after = await client.get<ErrEnv>(`/v1/templates/${create.body!.id}`);

@@ -66,7 +66,7 @@ type deleteAPIKeyInput struct {
 	ID string `path:"id"`
 	DeleteConfirm
 }
-type deleteAPIKeyOutput struct{ Status int }
+type deleteAPIKeyOutput struct{ Body DeleteApiKeyResult }
 
 func (s *Server) registerAPIKeys() {
 	huma.Register(s.API, huma.Operation{
@@ -86,8 +86,8 @@ func (s *Server) registerAPIKeys() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteApiKey", Method: http.MethodDelete, Path: "/v1/account/api-keys/{id}",
 		Summary: "Revoke an API key", Tags: []string{"account"},
-		Description: "Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.",
-		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).",
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteAPIKey)
 }
 
@@ -201,5 +201,5 @@ func (s *Server) handleDeleteAPIKey(ctx context.Context, in *deleteAPIKeyInput) 
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to revoke API key")
 	}
-	return &deleteAPIKeyOutput{Status: http.StatusNoContent}, nil
+	return &deleteAPIKeyOutput{Body: DeleteApiKeyResult{Deleted: true, ID: in.ID}}, nil
 }

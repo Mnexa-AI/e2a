@@ -10,6 +10,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { AgentView } from '../models/AgentView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { PageAgentView } from '../models/PageAgentView.js';
@@ -73,7 +74,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param email 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -453,10 +454,14 @@ export class AgentsApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteAgent
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteAgentResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteAgentResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteAgentResult", ""
+            ) as DeleteAgentResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -468,10 +473,10 @@ export class AgentsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteAgentResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteAgentResult", ""
+            ) as DeleteAgentResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

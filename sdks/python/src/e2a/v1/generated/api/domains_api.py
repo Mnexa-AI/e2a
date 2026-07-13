@@ -19,6 +19,7 @@ from typing_extensions import Annotated
 from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
+from e2a.v1.generated.models.delete_domain_result import DeleteDomainResult
 from e2a.v1.generated.models.domain_view import DomainView
 from e2a.v1.generated.models.page_domain_view import PageDomainView
 from e2a.v1.generated.models.register_domain_request import RegisterDomainRequest
@@ -59,10 +60,10 @@ class DomainsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> DeleteDomainResult:
         """Delete a domain
 
-        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
 
         :param domain: (required)
         :type domain: str
@@ -100,7 +101,7 @@ class DomainsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteDomainResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -130,10 +131,10 @@ class DomainsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[DeleteDomainResult]:
         """Delete a domain
 
-        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
 
         :param domain: (required)
         :type domain: str
@@ -171,7 +172,7 @@ class DomainsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteDomainResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -204,7 +205,7 @@ class DomainsApi:
     ) -> RESTResponseType:
         """Delete a domain
 
-        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+        Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
 
         :param domain: (required)
         :type domain: str
@@ -242,7 +243,7 @@ class DomainsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteDomainResult",
         }
         response_data = await self.api_client.call_api(
             *_param,

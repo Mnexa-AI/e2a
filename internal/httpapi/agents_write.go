@@ -97,14 +97,13 @@ func (s *Server) registerAgentWrites() {
 	}, s.handleUpdateAgent)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID:   "deleteAgent",
-		Method:        http.MethodDelete,
-		Path:          "/v1/agents/{email}",
-		Summary:       "Delete an agent",
-		Description:   "Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).",
-		Tags:          []string{"agents"},
-		Security:      []map[string][]string{{"bearer": {}}},
-		DefaultStatus: http.StatusNoContent,
+		OperationID: "deleteAgent",
+		Method:      http.MethodDelete,
+		Path:        "/v1/agents/{email}",
+		Summary:     "Delete an agent",
+		Description: "Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.",
+		Tags:        []string{"agents"},
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteAgent)
 }
 
@@ -151,7 +150,7 @@ func (s *Server) handleUpdateAgent(ctx context.Context, in *updateAgentInput) (*
 	return &agentOutput{Body: agentViewFromIdentity(updated)}, nil
 }
 
-type deleteAgentOutput struct{}
+type deleteAgentOutput struct{ Body DeleteAgentResult }
 
 // deleteAgentInput adds the confirmation guard (AG-6). Deleting an agent
 // discards held drafts and revokes its credentials, so it requires
@@ -176,10 +175,16 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 	if s.deps.DeleteAgent == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
 	}
-	if err := s.deps.DeleteAgent(ctx, ag.ID, ag.UserID); err != nil {
+	messagesDeleted, err := s.deps.DeleteAgent(ctx, ag.ID, ag.UserID)
+	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
 	}
-	return &deleteAgentOutput{}, nil
+	// ag.ID is the agent's email (canonical form) — echo it as the identity key.
+	return &deleteAgentOutput{Body: DeleteAgentResult{
+		Deleted:         true,
+		Email:           ag.ID,
+		MessagesDeleted: messagesDeleted,
+	}}, nil
 }
 
 func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*createAgentOutput, error) {

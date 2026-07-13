@@ -151,8 +151,8 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
         if (args.confirm !== true) {
           throw new Error("delete_webhook requires confirm:true.");
         }
-        await client.deleteWebhook(args.id);
-        return { deleted: args.id };
+        // Return the server's deletion object verbatim: {deleted:true, id}.
+        return client.deleteWebhook(args.id);
       }),
   );
 

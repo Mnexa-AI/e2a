@@ -156,6 +156,17 @@ Every `DELETE` endpoint requires the `?confirm=DELETE` query param (a required
 `enum: [DELETE]`); a missing or wrong value is rejected before the delete runs.
 The SDKs and CLI supply it automatically for their typed `delete(...)` calls.
 
+**Uniform delete responses.** Every `DELETE` returns `200 OK` with a small
+typed deletion object — never `204 No Content`. The base shape is
+`{"deleted": true, "<identity key>": ...}` where the identity key matches the
+resource's identity field: `id` for webhooks/templates/API keys, `email` for
+agents, `domain` for domains, `address` for suppressions. `deleted` is always
+`true` — a failed delete is an error envelope, never `deleted: false`.
+Cascading deletes may additionally carry receipt counts (all additive):
+`DELETE /v1/agents/{email}` includes `messages_deleted`, and `DELETE
+/v1/account` returns the full per-table `DeleteUserDataResult` receipt on top
+of `deleted: true`.
+
 ### Domains (`/v1/domains`)
 
 Custom sending/receiving domains and their DNS verification.

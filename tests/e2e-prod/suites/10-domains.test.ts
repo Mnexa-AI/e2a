@@ -96,7 +96,7 @@ test("domains: verify unowned-DNS domain returns 200 with verified:false and per
   }
 });
 
-test("domains: DELETE returns 204 and removes from list", async () => {
+test("domains: DELETE returns 200 + deletion object and removes from list", async () => {
   const domain = fakeDomain("del");
   const c = await client.post("/v1/domains", { body: { domain } });
   if (c.status !== 201) {
@@ -107,8 +107,12 @@ test("domains: DELETE returns 204 and removes from list", async () => {
   // DELETE is irreversible (deprovisions the sending identity) and requires
   // the ?confirm=DELETE guard (required enum:[DELETE] query param) — without it
   // the server returns 422 before the handler runs.
-  const del = await client.delete(`/v1/domains/${encodeURIComponent(domain)}?confirm=DELETE`);
-  assert.equal(del.status, 204, `DELETE expected 204, got ${del.status}: ${del.raw.slice(0, 200)}`);
+  const del = await client.delete<{ deleted: boolean; domain: string }>(
+    `/v1/domains/${encodeURIComponent(domain)}?confirm=DELETE`,
+  );
+  assert.equal(del.status, 200, `DELETE expected 200 + deletion object, got ${del.status}: ${del.raw.slice(0, 200)}`);
+  assert.equal(del.body?.deleted, true, "deletion object has deleted:true");
+  assert.equal(del.body?.domain, domain, "deletion object echoes the domain");
   const after = await client.get(`/v1/domains/${encodeURIComponent(domain)}`);
   assert.ok(after.status === 404 || after.status === 403, `deleted domain should 404/403, got ${after.status}`);
 });

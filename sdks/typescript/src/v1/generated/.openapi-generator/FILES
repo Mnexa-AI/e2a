@@ -37,7 +37,13 @@ models/CreateTemplateRequest.ts
 models/CreateWebhookRequest.ts
 models/CreateWebhookResponse.ts
 models/DNSRecord.ts
+models/DeleteAgentResult.ts
+models/DeleteApiKeyResult.ts
+models/DeleteDomainResult.ts
+models/DeleteSuppressionResult.ts
+models/DeleteTemplateResult.ts
 models/DeleteUserDataResult.ts
+models/DeleteWebhookResult.ts
 models/DeliveryStatusJSON.ts
 models/DeploymentInfoView.ts
 models/Domain.ts

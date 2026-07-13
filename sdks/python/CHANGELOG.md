@@ -1,5 +1,26 @@
 # Changelog
 
+## 5.1.0
+
+### Breaking (pre-GA)
+- **Uniform DELETE responses: every `.delete(...)` now returns a typed deletion
+  object instead of `None`.** The API's seven delete endpoints all return
+  `200 OK` with `{"deleted": true, <identity key>}` instead of the previous mix
+  of `204 No Content` and `200`. New return types: `agents.delete` →
+  `DeleteAgentResult` (`deleted`, `email`, `messages_deleted` — the message
+  cascade count), `domains.delete` → `DeleteDomainResult` (`domain`),
+  `webhooks.delete` → `DeleteWebhookResult` (`id`), `templates.delete` →
+  `DeleteTemplateResult` (`id`), `account.api_keys.delete` →
+  `DeleteApiKeyResult` (`id`), `account.suppressions.delete` →
+  `DeleteSuppressionResult` (`address`); `account.delete()` still returns
+  `DeleteUserDataResult`, which now also carries `deleted: true`. `deleted` is
+  always `True` — a failed delete raises a typed error, never returns
+  `deleted: False`. Applies identically to the sync `E2AClient` facade (it
+  mirrors the async surface). Callers that ignored the old `None` return need
+  no changes; the SDK still auto-sends the `?confirm=DELETE` guard. Older SDK
+  versions whose generated bases expected `204` are incompatible with servers
+  running this contract — upgrade together (pre-GA break).
+
 ## 5.0.0
 
 Breaking: the async client class was renamed, and the freed name now ships a

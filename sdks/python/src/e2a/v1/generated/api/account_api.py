@@ -22,6 +22,8 @@ from typing_extensions import Annotated
 from e2a.v1.generated.models.account_view import AccountView
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest
 from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse
+from e2a.v1.generated.models.delete_api_key_result import DeleteApiKeyResult
+from e2a.v1.generated.models.delete_suppression_result import DeleteSuppressionResult
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult
 from e2a.v1.generated.models.page_api_key_view import PageAPIKeyView
 from e2a.v1.generated.models.page_suppression import PageSuppression
@@ -338,7 +340,7 @@ class AccountApi:
     ) -> DeleteUserDataResult:
         """Delete your account + all data (irreversible)
 
-        Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+        Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
 
         :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
@@ -405,7 +407,7 @@ class AccountApi:
     ) -> ApiResponse[DeleteUserDataResult]:
         """Delete your account + all data (irreversible)
 
-        Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+        Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
 
         :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
@@ -472,7 +474,7 @@ class AccountApi:
     ) -> RESTResponseType:
         """Delete your account + all data (irreversible)
 
-        Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+        Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
 
         :param confirm: Must be the literal DELETE — this action is irreversible. (required)
         :type confirm: str
@@ -599,10 +601,10 @@ class AccountApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> DeleteApiKeyResult:
         """Revoke an API key
 
-        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
 
         :param id: (required)
         :type id: str
@@ -640,7 +642,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteApiKeyResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -670,10 +672,10 @@ class AccountApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[DeleteApiKeyResult]:
         """Revoke an API key
 
-        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
 
         :param id: (required)
         :type id: str
@@ -711,7 +713,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteApiKeyResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -744,7 +746,7 @@ class AccountApi:
     ) -> RESTResponseType:
         """Revoke an API key
 
-        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+        Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
 
         :param id: (required)
         :type id: str
@@ -782,7 +784,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteApiKeyResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -877,10 +879,10 @@ class AccountApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> DeleteSuppressionResult:
         """Remove an address from the suppression list
 
-        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
 
         :param address: (required)
         :type address: str
@@ -918,7 +920,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteSuppressionResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -948,10 +950,10 @@ class AccountApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[DeleteSuppressionResult]:
         """Remove an address from the suppression list
 
-        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
 
         :param address: (required)
         :type address: str
@@ -989,7 +991,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteSuppressionResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1022,7 +1024,7 @@ class AccountApi:
     ) -> RESTResponseType:
         """Remove an address from the suppression list
 
-        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+        Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
 
         :param address: (required)
         :type address: str
@@ -1060,7 +1062,7 @@ class AccountApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteSuppressionResult",
         }
         response_data = await self.api_client.call_api(
             *_param,

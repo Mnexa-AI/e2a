@@ -8,6 +8,7 @@ import {canConsumeForm, isCodeInRange} from '../util.js';
 import {SecurityAuthentication} from '../auth/auth.js';
 
 
+import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
 import { DomainView } from '../models/DomainView.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
@@ -21,7 +22,7 @@ import { VerifyDomainView } from '../models/VerifyDomainView.js';
 export class DomainsApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
-     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
      * Delete a domain
      * @param domain 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -247,10 +248,14 @@ export class DomainsApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteDomain
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteDomainWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteDomainWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteDomainResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteDomainResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteDomainResult", ""
+            ) as DeleteDomainResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -262,10 +267,10 @@ export class DomainsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteDomainResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteDomainResult", ""
+            ) as DeleteDomainResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

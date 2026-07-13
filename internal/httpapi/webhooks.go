@@ -238,8 +238,8 @@ func (s *Server) registerWebhooks() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteWebhook", Method: http.MethodDelete, Path: "/v1/webhooks/{id}",
 		Summary: "Delete a webhook", Tags: []string{"webhooks"},
-		Description: "Delete a webhook subscriber by id. Requires ?confirm=DELETE.",
-		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).",
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteWebhook)
 
 	huma.Register(s.API, huma.Operation{
@@ -639,7 +639,7 @@ func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*web
 	return &webhookOutput{Body: webhookView(wh)}, nil
 }
 
-type deleteWebhookOutput struct{}
+type deleteWebhookOutput struct{ Body DeleteWebhookResult }
 
 func (s *Server) handleDeleteWebhook(ctx context.Context, in *deleteWebhookInput) (*deleteWebhookOutput, error) {
 	user, err := s.requireAccountUser(ctx)
@@ -652,5 +652,5 @@ func (s *Server) handleDeleteWebhook(ctx context.Context, in *deleteWebhookInput
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete webhook")
 	}
-	return &deleteWebhookOutput{}, nil
+	return &deleteWebhookOutput{Body: DeleteWebhookResult{Deleted: true, ID: in.ID}}, nil
 }

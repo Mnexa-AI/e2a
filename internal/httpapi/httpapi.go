@@ -75,7 +75,9 @@ type AgentCreateEnforcer func(ctx context.Context, userID string) error
 
 // Agent mutation funcs mirror the like-named store methods.
 type (
-	AgentDeleter func(ctx context.Context, agentID, userID string) error
+	// AgentDeleter deletes an agent, returning the number of message rows
+	// removed by the cascade (surfaced in the DeleteAgentResult receipt).
+	AgentDeleter func(ctx context.Context, agentID, userID string) (messagesDeleted int64, err error)
 )
 
 // Deps are the collaborators the v1 layer needs. Everything is injected so

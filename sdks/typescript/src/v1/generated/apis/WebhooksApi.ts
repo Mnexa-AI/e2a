@@ -10,6 +10,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
+import { DeleteWebhookResult } from '../models/DeleteWebhookResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
@@ -72,7 +73,7 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param id 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -463,10 +464,14 @@ export class WebhooksApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteWebhook
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteWebhookResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteWebhookResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteWebhookResult", ""
+            ) as DeleteWebhookResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -478,10 +483,10 @@ export class WebhooksApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteWebhookResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteWebhookResult", ""
+            ) as DeleteWebhookResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

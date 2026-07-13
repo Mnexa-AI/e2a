@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.3.0
+
+### Breaking (pre-GA)
+- **Uniform DELETE responses: every `.delete(...)` now returns a typed deletion
+  object instead of `void`.** The API's seven delete endpoints all return
+  `200 OK` with `{deleted: true, <identity key>}` instead of the previous mix
+  of `204 No Content` and `200`. New return types: `agents.delete` →
+  `DeleteAgentResult` (`deleted`, `email`, `messagesDeleted` — the message
+  cascade count), `domains.delete` → `DeleteDomainResult` (`domain`),
+  `webhooks.delete` → `DeleteWebhookResult` (`id`), `templates.delete` →
+  `DeleteTemplateResult` (`id`), `account.apiKeys.delete` →
+  `DeleteApiKeyResult` (`id`), `account.suppressions.delete` →
+  `DeleteSuppressionResult` (`address`); `account.delete()` still returns
+  `DeleteUserDataResult`, which now also carries `deleted: true`. `deleted` is
+  always `true` — a failed delete throws a typed error, never resolves with
+  `deleted: false`. Callers that ignored the old `void` return need no changes;
+  the SDK still auto-sends the `?confirm=DELETE` guard. Older SDK versions
+  whose generated bases expected `204` are incompatible with servers running
+  this contract — upgrade together (pre-GA break).
+
 ## 4.2.0
 
 ### Breaking (pre-GA)

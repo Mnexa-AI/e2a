@@ -280,6 +280,46 @@ func TestDeleteAPIKey(t *testing.T) {
 	}
 }
 
+// TestDeleteAgentReturnsMessageCascadeCount pins the DeleteAgent receipt: the
+// agent's message rows are deleted in the same transaction and their
+// rows-affected count is returned for the API's deletion object
+// (DeleteAgentResult.messages_deleted).
+func TestDeleteAgentReturnsMessageCascadeCount(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "agent-del@example.com", "Owner", "google-agent-del")
+	if _, err := store.ClaimOrCreateDomain(ctx, "agentdel.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, "bot@agentdel.example.com", "agentdel.example.com", "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@agentdel.example.com", fmt.Sprintf("<del-%d@gmail.com>", i), "M", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{}); err != nil {
+			t.Fatalf("CreateInboundMessage: %v", err)
+		}
+	}
+
+	n, err := store.DeleteAgent(ctx, agent.ID, user.ID)
+	if err != nil {
+		t.Fatalf("DeleteAgent: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("messagesDeleted = %d, want 3", n)
+	}
+	if got, err := store.GetAgentByID(ctx, agent.ID); err == nil && got != nil {
+		t.Error("agent still readable after delete")
+	}
+
+	// Not-owned / missing agent: no count, an error, and nothing deleted.
+	if _, err := store.DeleteAgent(ctx, agent.ID, user.ID); err == nil {
+		t.Error("expected error deleting an already-deleted agent")
+	}
+}
+
 func TestGetUserByAPIKey(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

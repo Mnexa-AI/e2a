@@ -631,7 +631,7 @@ func (ua *UserAuth) HandleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := ua.store.DeleteAgent(r.Context(), agent.ID, user.ID); err != nil {
+	if _, err := ua.store.DeleteAgent(r.Context(), agent.ID, user.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}

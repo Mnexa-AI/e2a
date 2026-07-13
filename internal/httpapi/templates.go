@@ -207,9 +207,9 @@ func (s *Server) registerTemplates() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteTemplate", Method: http.MethodDelete, Path: "/v1/templates/{id}",
 		Summary: "Delete a template (beta)", Tags: []string{"templates"},
-		Description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. " + templatesBetaDoc,
-		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
-		Extensions: experimental(),
+		Description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). " + templatesBetaDoc,
+		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
 	}, s.handleDeleteTemplate)
 
 	huma.Register(s.API, huma.Operation{
@@ -423,7 +423,7 @@ func (s *Server) handleUpdateTemplate(ctx context.Context, in *updateTemplateInp
 	return &templateOutput{Body: templateView(tp)}, nil
 }
 
-type deleteTemplateOutput struct{}
+type deleteTemplateOutput struct{ Body DeleteTemplateResult }
 
 func (s *Server) handleDeleteTemplate(ctx context.Context, in *deleteTemplateInput) (*deleteTemplateOutput, error) {
 	user, err := s.requireAccountUser(ctx)
@@ -439,7 +439,7 @@ func (s *Server) handleDeleteTemplate(ctx context.Context, in *deleteTemplateInp
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete template")
 	}
-	return &deleteTemplateOutput{}, nil
+	return &deleteTemplateOutput{Body: DeleteTemplateResult{Deleted: true, ID: in.ID}}, nil
 }
 
 // --- send integration (POST /v1/agents/{email}/messages) ---

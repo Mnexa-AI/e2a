@@ -59,6 +59,12 @@ import type {
   AccountView,
   UserExport,
   DeleteUserDataResult,
+  DeleteAgentResult,
+  DeleteDomainResult,
+  DeleteSuppressionResult,
+  DeleteApiKeyResult,
+  DeleteTemplateResult,
+  DeleteWebhookResult,
   Suppression,
   APIKeyView,
   CreateAPIKeyRequest,
@@ -230,10 +236,11 @@ class AgentsResource {
   replaceProtection(email: string, config: ProtectionConfigRequest): Promise<ProtectionConfigView> {
     return call(() => this.api.putAgentProtection(email, config));
   }
-  async delete(email: string): Promise<void> {
+  delete(email: string): Promise<DeleteAgentResult> {
     // The typed .delete() call is itself the confirmation; the ?confirm=DELETE
-    // guard exists to protect raw/curl callers (AG-6).
-    await call(() => this.api.deleteAgent(email, "DELETE"));
+    // guard exists to protect raw/curl callers (AG-6). Returns the deletion
+    // receipt ({deleted:true, email, messages_deleted}).
+    return call(() => this.api.deleteAgent(email, "DELETE"));
   }
   test(email: string): Promise<SendResultView> {
     return call(() => this.api.testAgent(email));
@@ -354,10 +361,11 @@ class TemplatesResource {
   update(id: string, patch: UpdateTemplateRequest): Promise<TemplateView> {
     return call(() => this.api.updateTemplate(id, patch));
   }
-  async delete(id: string): Promise<void> {
+  delete(id: string): Promise<DeleteTemplateResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteTemplate(id, "DELETE"));
+    // Returns the deletion object ({deleted:true, id}).
+    return call(() => this.api.deleteTemplate(id, "DELETE"));
   }
   /** Dry-run template source without persisting: per-part parse errors, a
    *  rendered preview against testData (present only when valid), and
@@ -412,8 +420,9 @@ class DomainsResource {
   create(body: RegisterDomainRequest): Promise<DomainView> {
     return call(() => this.api.registerDomain(body));
   }
-  async delete(domain: string): Promise<void> {
-    await call(() => this.api.deleteDomain(domain, "DELETE"));
+  delete(domain: string): Promise<DeleteDomainResult> {
+    // Returns the deletion object ({deleted:true, domain}).
+    return call(() => this.api.deleteDomain(domain, "DELETE"));
   }
   verify(domain: string): Promise<VerifyDomainView> {
     return call(() => this.api.verifyDomain(domain));
@@ -488,10 +497,11 @@ class WebhooksResource {
   update(id: string, patch: UpdateWebhookRequest): Promise<WebhookView> {
     return call(() => this.api.updateWebhook(id, patch));
   }
-  async delete(id: string): Promise<void> {
+  delete(id: string): Promise<DeleteWebhookResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteWebhook(id, "DELETE"));
+    // Returns the deletion object ({deleted:true, id}).
+    return call(() => this.api.deleteWebhook(id, "DELETE"));
   }
   rotateSecret(id: string): Promise<RotateSecretResponse> {
     return call(() => this.api.rotateWebhookSecret(id));
@@ -518,10 +528,11 @@ class SuppressionsResource {
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-  async delete(email: string): Promise<void> {
+  delete(email: string): Promise<DeleteSuppressionResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteSuppression(email, "DELETE"));
+    // Returns the deletion object ({deleted:true, address}).
+    return call(() => this.api.deleteSuppression(email, "DELETE"));
   }
 }
 
@@ -538,10 +549,11 @@ class APIKeysResource {
   create(body: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
     return call(() => this.api.createApiKey(body));
   }
-  async delete(id: string): Promise<void> {
+  delete(id: string): Promise<DeleteApiKeyResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteApiKey(id, "DELETE"));
+    // Returns the deletion object ({deleted:true, id}).
+    return call(() => this.api.deleteApiKey(id, "DELETE"));
   }
 }
 
@@ -560,7 +572,8 @@ class AccountResource {
   }
   delete(): Promise<DeleteUserDataResult> {
     // Irreversible. The typed .delete() call is the confirmation; the SDK
-    // supplies the ?confirm=DELETE guard the raw API requires.
+    // supplies the ?confirm=DELETE guard the raw API requires. Returns the
+    // deletion receipt ({deleted:true} plus per-table cascade counts).
     return call(() => this.api.deleteAccount("DELETE"));
   }
 }

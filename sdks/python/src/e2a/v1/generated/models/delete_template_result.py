@@ -17,29 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
-class DeleteUserDataResult(BaseModel):
+class DeleteTemplateResult(BaseModel):
     """
-    DeleteUserDataResult
+    DeleteTemplateResult
     """ # noqa: E501
-    agents_deleted: StrictInt
-    api_keys_deleted: StrictInt
-    deleted: StrictBool = Field(description="Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false.")
-    domains_deleted: StrictInt
-    messages_deleted: StrictInt
-    oauth_access_tokens_deleted: Optional[StrictInt] = None
-    oauth_auth_codes_deleted: Optional[StrictInt] = None
-    oauth_refresh_tokens_deleted: Optional[StrictInt] = None
-    sessions_deleted: StrictInt
-    usage_events_deleted: StrictInt
-    usage_summaries_deleted: StrictInt
-    user_deleted: StrictBool
+    deleted: StrictBool = Field(description="Always true — the template no longer exists. A failed delete is an error envelope, never deleted:false.")
+    id: StrictStr = Field(description="ID of the deleted template.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agents_deleted", "api_keys_deleted", "deleted", "domains_deleted", "messages_deleted", "oauth_access_tokens_deleted", "oauth_auth_codes_deleted", "oauth_refresh_tokens_deleted", "sessions_deleted", "usage_events_deleted", "usage_summaries_deleted", "user_deleted"]
+    __properties: ClassVar[List[str]] = ["deleted", "id"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -59,7 +49,7 @@ class DeleteUserDataResult(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of DeleteUserDataResult from a JSON string"""
+        """Create an instance of DeleteTemplateResult from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -91,7 +81,7 @@ class DeleteUserDataResult(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of DeleteUserDataResult from a dict"""
+        """Create an instance of DeleteTemplateResult from a dict"""
         if obj is None:
             return None
 
@@ -99,18 +89,8 @@ class DeleteUserDataResult(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agents_deleted": obj.get("agents_deleted"),
-            "api_keys_deleted": obj.get("api_keys_deleted"),
             "deleted": obj.get("deleted"),
-            "domains_deleted": obj.get("domains_deleted"),
-            "messages_deleted": obj.get("messages_deleted"),
-            "oauth_access_tokens_deleted": obj.get("oauth_access_tokens_deleted"),
-            "oauth_auth_codes_deleted": obj.get("oauth_auth_codes_deleted"),
-            "oauth_refresh_tokens_deleted": obj.get("oauth_refresh_tokens_deleted"),
-            "sessions_deleted": obj.get("sessions_deleted"),
-            "usage_events_deleted": obj.get("usage_events_deleted"),
-            "usage_summaries_deleted": obj.get("usage_summaries_deleted"),
-            "user_deleted": obj.get("user_deleted")
+            "id": obj.get("id")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

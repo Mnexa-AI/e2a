@@ -21,6 +21,7 @@ from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.agent_view import AgentView
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
+from e2a.v1.generated.models.delete_agent_result import DeleteAgentResult
 from e2a.v1.generated.models.page_agent_view import PageAgentView
 from e2a.v1.generated.models.protection_config_request import ProtectionConfigRequest
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView
@@ -342,10 +343,10 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> DeleteAgentResult:
         """Delete an agent
 
-        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
 
         :param email: (required)
         :type email: str
@@ -383,7 +384,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteAgentResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -413,10 +414,10 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[DeleteAgentResult]:
         """Delete an agent
 
-        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
 
         :param email: (required)
         :type email: str
@@ -454,7 +455,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteAgentResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -487,7 +488,7 @@ class AgentsApi:
     ) -> RESTResponseType:
         """Delete an agent
 
-        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+        Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
 
         :param email: (required)
         :type email: str
@@ -525,7 +526,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteAgentResult",
         }
         response_data = await self.api_client.call_api(
             *_param,

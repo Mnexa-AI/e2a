@@ -19,7 +19,13 @@ export * from '../models/CreateTemplateRequest.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
 export * from '../models/DNSRecord.js';
+export * from '../models/DeleteAgentResult.js';
+export * from '../models/DeleteApiKeyResult.js';
+export * from '../models/DeleteDomainResult.js';
+export * from '../models/DeleteSuppressionResult.js';
+export * from '../models/DeleteTemplateResult.js';
 export * from '../models/DeleteUserDataResult.js';
+export * from '../models/DeleteWebhookResult.js';
 export * from '../models/DeliveryStatusJSON.js';
 export * from '../models/DeploymentInfoView.js';
 export * from '../models/Domain.js';
@@ -128,7 +134,13 @@ import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
+import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
+import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
+import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
+import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
+import { DeleteWebhookResult } from '../models/DeleteWebhookResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
@@ -274,7 +286,13 @@ let typeMap: {[index: string]: any} = {
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
     "DNSRecord": DNSRecord,
+    "DeleteAgentResult": DeleteAgentResult,
+    "DeleteApiKeyResult": DeleteApiKeyResult,
+    "DeleteDomainResult": DeleteDomainResult,
+    "DeleteSuppressionResult": DeleteSuppressionResult,
+    "DeleteTemplateResult": DeleteTemplateResult,
     "DeleteUserDataResult": DeleteUserDataResult,
+    "DeleteWebhookResult": DeleteWebhookResult,
     "DeliveryStatusJSON": DeliveryStatusJSON,
     "DeploymentInfoView": DeploymentInfoView,
     "Domain": Domain,

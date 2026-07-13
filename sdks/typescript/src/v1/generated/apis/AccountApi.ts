@@ -11,6 +11,8 @@ import {SecurityAuthentication} from '../auth/auth.js';
 import { AccountView } from '../models/AccountView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
+import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
+import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
@@ -71,7 +73,7 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
      * Delete your account + all data (irreversible)
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
@@ -113,7 +115,7 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Revoke an API key
      * @param id 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -163,7 +165,7 @@ export class AccountApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
      * Remove an address from the suppression list
      * @param address 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -443,10 +445,14 @@ export class AccountApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteApiKey
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteApiKeyWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteApiKeyWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteApiKeyResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteApiKeyResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteApiKeyResult", ""
+            ) as DeleteApiKeyResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -458,10 +464,10 @@ export class AccountApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteApiKeyResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteApiKeyResult", ""
+            ) as DeleteApiKeyResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 
@@ -475,10 +481,14 @@ export class AccountApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteSuppression
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteSuppressionWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteSuppressionWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteSuppressionResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteSuppressionResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteSuppressionResult", ""
+            ) as DeleteSuppressionResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -490,10 +500,10 @@ export class AccountApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteSuppressionResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteSuppressionResult", ""
+            ) as DeleteSuppressionResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

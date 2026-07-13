@@ -56,7 +56,7 @@ func scopeTestServer(t *testing.T) *httptest.Server {
 		UpdateAgentProtection: func(ctx context.Context, agentID, userID string, cfg identity.ProtectionConfig) error {
 			return nil
 		},
-		DeleteAgent: func(ctx context.Context, agentID, userID string) error { return nil },
+		DeleteAgent: func(ctx context.Context, agentID, userID string) (int64, error) { return 0, nil },
 		Legacy:      http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }),
 	}
 	srv := httptest.NewServer(New(deps))
@@ -75,7 +75,7 @@ func TestScope_AccountOnlyRoutesRejectAgentKeys(t *testing.T) {
 		{"list/account-ok", "GET", "/v1/agents", "acct", 200},
 		{"list/agent-403", "GET", "/v1/agents", "agtSupport", 403},
 		// Delete agent is admin even on the bound agent.
-		{"delete/account-ok", "DELETE", "/v1/agents/support%40acme.com?confirm=DELETE", "acct", 204},
+		{"delete/account-ok", "DELETE", "/v1/agents/support%40acme.com?confirm=DELETE", "acct", 200},
 		// confirm=DELETE clears Huma's required-param validation so the request
 		// reaches the scope gate (403), like the empty JSON body does for POSTs.
 		{"delete/agent-bound-403", "DELETE", "/v1/agents/support%40acme.com?confirm=DELETE", "agtSupport", 403},

@@ -233,8 +233,8 @@ func (s *Server) registerDomains() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteDomain", Method: http.MethodDelete, Path: "/v1/domains/{domain}",
 		Summary: "Delete a domain", Tags: []string{"domains"},
-		Description: "Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).",
-		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).",
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteDomain)
 
 	huma.Register(s.API, huma.Operation{
@@ -408,7 +408,7 @@ func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInp
 	return &domainCreateOutput{Body: s.domainView(d)}, nil
 }
 
-type deleteDomainOutput struct{}
+type deleteDomainOutput struct{ Body DeleteDomainResult }
 
 // deleteDomainInput adds the confirmation guard (D-5). Deleting a domain
 // deprovisions its SES sending identity and breaks sending for every agent on
@@ -445,5 +445,5 @@ func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) 
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete domain")
 		}
 	}
-	return &deleteDomainOutput{}, nil
+	return &deleteDomainOutput{Body: DeleteDomainResult{Deleted: true, Domain: in.Domain}}, nil
 }

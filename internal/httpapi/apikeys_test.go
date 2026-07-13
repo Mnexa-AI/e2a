@@ -110,9 +110,12 @@ func TestCreateAPIKeyRejectsPastExpiry(t *testing.T) {
 
 func TestDeleteAPIKey(t *testing.T) {
 	srv := testServer(t)
-	code, _ := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_1?confirm=DELETE", "good", nil)
-	if code != 204 {
-		t.Fatalf("want 204, got %d", code)
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/account/api-keys/apk_1?confirm=DELETE", "good", nil)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if body["deleted"] != true || body["id"] != "apk_1" {
+		t.Fatalf("want {deleted:true, id:apk_1}, got %v", body)
 	}
 }
 

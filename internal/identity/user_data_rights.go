@@ -237,7 +237,12 @@ func scanProtectionEventsForUser(ctx context.Context, tx pgx.Tx, userID string) 
 // DeleteUserDataResult breaks out per-table row counts for audit logs.
 // Operators receiving a deletion request often have to attest to what
 // was removed; returning structured counts beats parsing a log line.
+//
+// Deleted is the uniform delete-object marker (every /v1 delete returns 200 +
+// {deleted:true, ...}); the /v1 handler sets it. It is always true on a
+// response — a failed delete is an error envelope, never deleted:false.
 type DeleteUserDataResult struct {
+	Deleted                   bool  `json:"deleted" doc:"Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false."`
 	UsageEventsDeleted        int64 `json:"usage_events_deleted"`
 	UsageSummariesDeleted     int64 `json:"usage_summaries_deleted"`
 	MessagesDeleted           int64 `json:"messages_deleted"`

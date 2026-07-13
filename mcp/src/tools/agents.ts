@@ -242,8 +242,9 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
             "delete_agent requires confirm:true — refusing to proceed without explicit confirmation.",
           );
         }
-        const deleted = await client.deleteAgent(args.email);
-        return { deleted };
+        // Return the server's deletion receipt verbatim:
+        // {deleted:true, email, messages_deleted}.
+        return client.deleteAgent(args.email);
       }),
   );
 }

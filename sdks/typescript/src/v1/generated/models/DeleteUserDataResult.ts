@@ -15,6 +15,10 @@ import { HttpFile } from '../http/http.js';
 export class DeleteUserDataResult {
     'agentsDeleted': number;
     'apiKeysDeleted': number;
+    /**
+    * Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false.
+    */
+    'deleted': boolean;
     'domainsDeleted': number;
     'messagesDeleted': number;
     'oauthAccessTokensDeleted'?: number;
@@ -41,6 +45,12 @@ export class DeleteUserDataResult {
             "baseName": "api_keys_deleted",
             "type": "number",
             "format": "int64"
+        },
+        {
+            "name": "deleted",
+            "baseName": "deleted",
+            "type": "boolean",
+            "format": ""
         },
         {
             "name": "domainsDeleted",

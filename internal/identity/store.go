@@ -1259,17 +1259,42 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string, limit int, 
 	return agents, rows.Err()
 }
 
-func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) error {
-	tag, err := s.pool.Exec(ctx,
+// DeleteAgent removes an agent and everything bound to it. It returns the
+// number of message rows removed with the agent — the messages are deleted
+// explicitly (rather than left to the agent_identities → messages FK cascade)
+// purely so their rows-affected count is available for the API's deletion
+// receipt at zero extra query cost; webhook_deliveries still cascade from the
+// deleted messages. The ownership join on the messages delete plus the
+// single-transaction scope keep it exactly as safe as the old cascade path.
+func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) (messagesDeleted int64, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	msgTag, err := tx.Exec(ctx,
+		`DELETE FROM messages USING agent_identities a
+		 WHERE messages.agent_id = a.id AND a.id = $1 AND a.user_id = $2`, agentID, userID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	tag, err := tx.Exec(ctx,
 		`DELETE FROM agent_identities WHERE id = $1 AND user_id = $2`, agentID, userID,
 	)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("agent not found or not owned by user")
+		// The deferred rollback undoes the messages delete — though the
+		// ownership join means none can have matched if the agent row didn't.
+		return 0, fmt.Errorf("agent not found or not owned by user")
 	}
-	return nil
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return msgTag.RowsAffected(), nil
 }
 
 // --- Messages ---

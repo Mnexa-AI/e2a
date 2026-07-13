@@ -184,8 +184,8 @@ export function registerTemplateTools(server: McpServer, client: McpClient): voi
         if (args.confirm !== true) {
           throw new Error("delete_template requires confirm:true.");
         }
-        await client.deleteTemplate(args.id);
-        return { deleted: args.id };
+        // Return the server's deletion object verbatim: {deleted:true, id}.
+        return client.deleteTemplate(args.id);
       }),
   );
 

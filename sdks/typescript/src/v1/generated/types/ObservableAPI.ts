@@ -24,7 +24,13 @@ import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
+import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
+import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
+import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
+import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
+import { DeleteWebhookResult } from '../models/DeleteWebhookResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
@@ -163,7 +169,7 @@ export class ObservableAccountApi {
     }
 
     /**
-     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
      * Delete your account + all data (irreversible)
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
@@ -188,7 +194,7 @@ export class ObservableAccountApi {
     }
 
     /**
-     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
      * Delete your account + all data (irreversible)
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
@@ -197,12 +203,12 @@ export class ObservableAccountApi {
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Revoke an API key
      * @param id
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteApiKeyWithHttpInfo(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteApiKeyWithHttpInfo(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteApiKeyResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteApiKey(id, confirm, _config);
@@ -223,22 +229,22 @@ export class ObservableAccountApi {
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Revoke an API key
      * @param id
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteApiKey(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteApiKeyWithHttpInfo(id, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteApiKey(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteApiKeyResult> {
+        return this.deleteApiKeyWithHttpInfo(id, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteApiKeyResult>) => apiResponse.data));
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
      * Remove an address from the suppression list
      * @param address
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteSuppressionWithHttpInfo(address: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteSuppressionWithHttpInfo(address: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteSuppressionResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteSuppression(address, confirm, _config);
@@ -259,13 +265,13 @@ export class ObservableAccountApi {
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
      * Remove an address from the suppression list
      * @param address
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteSuppression(address: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteSuppressionWithHttpInfo(address, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteSuppression(address: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteSuppressionResult> {
+        return this.deleteSuppressionWithHttpInfo(address, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteSuppressionResult>) => apiResponse.data));
     }
 
     /**
@@ -457,12 +463,12 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param email
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteAgentWithHttpInfo(email: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteAgentResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteAgent(email, confirm, _config);
@@ -483,13 +489,13 @@ export class ObservableAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param email
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteAgent(email: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteAgentWithHttpInfo(email, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteAgent(email: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteAgentResult> {
+        return this.deleteAgentWithHttpInfo(email, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteAgentResult>) => apiResponse.data));
     }
 
     /**
@@ -817,12 +823,12 @@ export class ObservableDomainsApi {
     }
 
     /**
-     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
      * Delete a domain
      * @param domain
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteDomainWithHttpInfo(domain: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteDomainWithHttpInfo(domain: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteDomainResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteDomain(domain, confirm, _config);
@@ -843,13 +849,13 @@ export class ObservableDomainsApi {
     }
 
     /**
-     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
      * Delete a domain
      * @param domain
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteDomain(domain: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteDomainWithHttpInfo(domain, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteDomain(domain: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteDomainResult> {
+        return this.deleteDomainWithHttpInfo(domain, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteDomainResult>) => apiResponse.data));
     }
 
     /**
@@ -1697,12 +1703,12 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param id
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteTemplateWithHttpInfo(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteTemplateWithHttpInfo(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteTemplateResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteTemplate(id, confirm, _config);
@@ -1723,13 +1729,13 @@ export class ObservableTemplatesApi {
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param id
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteTemplate(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteTemplateWithHttpInfo(id, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteTemplate(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteTemplateResult> {
+        return this.deleteTemplateWithHttpInfo(id, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteTemplateResult>) => apiResponse.data));
     }
 
     /**
@@ -1993,12 +1999,12 @@ export class ObservableWebhooksApi {
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param id
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteWebhookWithHttpInfo(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteWebhookWithHttpInfo(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteWebhookResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteWebhook(id, confirm, _config);
@@ -2019,13 +2025,13 @@ export class ObservableWebhooksApi {
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param id
      * @param confirm Must be the literal DELETE — this action is irreversible.
      */
-    public deleteWebhook(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteWebhookWithHttpInfo(id, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteWebhook(id: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteWebhookResult> {
+        return this.deleteWebhookWithHttpInfo(id, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteWebhookResult>) => apiResponse.data));
     }
 
     /**

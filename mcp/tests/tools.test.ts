@@ -99,7 +99,7 @@ function makeStubClient(
       holds: { ttlSeconds: 604800, onExpiry: "reject" },
     })),
     updateProtection: vi.fn(async (config: unknown, _addr?: string) => config),
-    deleteAgent: vi.fn(async (addr?: string) => addr ?? "bot@example.com"),
+    deleteAgent: vi.fn(async (addr?: string) => ({ deleted: true, email: addr ?? "bot@example.com", messagesDeleted: 0 })),
     listDomains: vi.fn(async () => ({
       items: [{ domain: "mail.acme.com", verified: true, verificationToken: "tok1" }],
       next_cursor: undefined,
@@ -123,7 +123,7 @@ function makeStubClient(
       verified: true,
       sendingStatus: "verified",
     })),
-    deleteDomain: vi.fn(async () => undefined),
+    deleteDomain: vi.fn(async (domain: string) => ({ deleted: true, domain })),
     listWebhookDeliveries: vi.fn(
       async (id: string, _params: { status?: string; cursor?: string; limit?: number }) => ({
         items: [{ id: "whd_1", webhookId: id, status: "delivered", attempts: 1 }],
@@ -210,7 +210,7 @@ function makeStubClient(
       createdAt: "2026-06-01T00:00:00Z",
       updatedAt: "2026-06-02T00:00:00Z",
     })),
-    deleteTemplate: vi.fn(async () => undefined),
+    deleteTemplate: vi.fn(async (id: string) => ({ deleted: true, id })),
     validateTemplate: vi.fn(async () => ({
       valid: true,
       errors: [],

@@ -23,7 +23,13 @@ import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
+import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
+import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
+import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
+import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
+import { DeleteWebhookResult } from '../models/DeleteWebhookResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
@@ -237,7 +243,7 @@ export class ObjectAccountApi {
     }
 
     /**
-     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
      * Delete your account + all data (irreversible)
      * @param param the request object
      */
@@ -246,7 +252,7 @@ export class ObjectAccountApi {
     }
 
     /**
-     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
      * Delete your account + all data (irreversible)
      * @param param the request object
      */
@@ -255,38 +261,38 @@ export class ObjectAccountApi {
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Revoke an API key
      * @param param the request object
      */
-    public deleteApiKeyWithHttpInfo(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteApiKeyWithHttpInfo(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteApiKeyResult>> {
         return this.api.deleteApiKeyWithHttpInfo(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Revoke an API key
      * @param param the request object
      */
-    public deleteApiKey(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteApiKey(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<DeleteApiKeyResult> {
         return this.api.deleteApiKey(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
      * Remove an address from the suppression list
      * @param param the request object
      */
-    public deleteSuppressionWithHttpInfo(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteSuppressionWithHttpInfo(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteSuppressionResult>> {
         return this.api.deleteSuppressionWithHttpInfo(param.address, param.confirm,  options).toPromise();
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
      * Remove an address from the suppression list
      * @param param the request object
      */
-    public deleteSuppression(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteSuppression(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<DeleteSuppressionResult> {
         return this.api.deleteSuppression(param.address, param.confirm,  options).toPromise();
     }
 
@@ -500,20 +506,20 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param param the request object
      */
-    public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteAgentResult>> {
         return this.api.deleteAgentWithHttpInfo(param.email, param.confirm,  options).toPromise();
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param param the request object
      */
-    public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<DeleteAgentResult> {
         return this.api.deleteAgent(param.email, param.confirm,  options).toPromise();
     }
 
@@ -808,20 +814,20 @@ export class ObjectDomainsApi {
     }
 
     /**
-     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
      * Delete a domain
      * @param param the request object
      */
-    public deleteDomainWithHttpInfo(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteDomainWithHttpInfo(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteDomainResult>> {
         return this.api.deleteDomainWithHttpInfo(param.domain, param.confirm,  options).toPromise();
     }
 
     /**
-     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
      * Delete a domain
      * @param param the request object
      */
-    public deleteDomain(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteDomain(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<DeleteDomainResult> {
         return this.api.deleteDomain(param.domain, param.confirm,  options).toPromise();
     }
 
@@ -1772,20 +1778,20 @@ export class ObjectTemplatesApi {
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param param the request object
      */
-    public deleteTemplateWithHttpInfo(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteTemplateWithHttpInfo(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteTemplateResult>> {
         return this.api.deleteTemplateWithHttpInfo(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param param the request object
      */
-    public deleteTemplate(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteTemplate(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<DeleteTemplateResult> {
         return this.api.deleteTemplate(param.id, param.confirm,  options).toPromise();
     }
 
@@ -2063,20 +2069,20 @@ export class ObjectWebhooksApi {
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param param the request object
      */
-    public deleteWebhookWithHttpInfo(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteWebhookWithHttpInfo(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteWebhookResult>> {
         return this.api.deleteWebhookWithHttpInfo(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param param the request object
      */
-    public deleteWebhook(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteWebhook(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<DeleteWebhookResult> {
         return this.api.deleteWebhook(param.id, param.confirm,  options).toPromise();
     }
 

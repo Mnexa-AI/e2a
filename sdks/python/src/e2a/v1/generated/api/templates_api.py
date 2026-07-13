@@ -20,6 +20,7 @@ from pydantic import Field, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest
+from e2a.v1.generated.models.delete_template_result import DeleteTemplateResult
 from e2a.v1.generated.models.page_starter_template_view import PageStarterTemplateView
 from e2a.v1.generated.models.page_template_summary_view import PageTemplateSummaryView
 from e2a.v1.generated.models.starter_template_detail_view import StarterTemplateDetailView
@@ -337,10 +338,10 @@ class TemplatesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> DeleteTemplateResult:
         """Delete a template (beta)
 
-        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
@@ -378,7 +379,7 @@ class TemplatesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteTemplateResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -408,10 +409,10 @@ class TemplatesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[DeleteTemplateResult]:
         """Delete a template (beta)
 
-        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
@@ -449,7 +450,7 @@ class TemplatesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteTemplateResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -482,7 +483,7 @@ class TemplatesApi:
     ) -> RESTResponseType:
         """Delete a template (beta)
 
-        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+        Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
 
         :param id: (required)
         :type id: str
@@ -520,7 +521,7 @@ class TemplatesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteTemplateResult",
         }
         response_data = await self.api_client.call_api(
             *_param,

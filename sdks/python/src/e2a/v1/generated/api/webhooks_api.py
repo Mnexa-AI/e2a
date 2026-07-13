@@ -21,6 +21,7 @@ from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse
+from e2a.v1.generated.models.delete_webhook_result import DeleteWebhookResult
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
@@ -335,10 +336,10 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> DeleteWebhookResult:
         """Delete a webhook
 
-        Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+        Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
 
         :param id: (required)
         :type id: str
@@ -376,7 +377,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteWebhookResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -406,10 +407,10 @@ class WebhooksApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[DeleteWebhookResult]:
         """Delete a webhook
 
-        Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+        Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
 
         :param id: (required)
         :type id: str
@@ -447,7 +448,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteWebhookResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -480,7 +481,7 @@ class WebhooksApi:
     ) -> RESTResponseType:
         """Delete a webhook
 
-        Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+        Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
 
         :param id: (required)
         :type id: str
@@ -518,7 +519,7 @@ class WebhooksApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteWebhookResult",
         }
         response_data = await self.api_client.call_api(
             *_param,

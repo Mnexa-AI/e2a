@@ -58,7 +58,13 @@ __all__ = [
     "CreateWebhookRequest",
     "CreateWebhookResponse",
     "DNSRecord",
+    "DeleteAgentResult",
+    "DeleteApiKeyResult",
+    "DeleteDomainResult",
+    "DeleteSuppressionResult",
+    "DeleteTemplateResult",
     "DeleteUserDataResult",
+    "DeleteWebhookResult",
     "DeliveryStatusJSON",
     "DeploymentInfoView",
     "Domain",
@@ -192,7 +198,13 @@ from e2a.v1.generated.models.create_template_request import CreateTemplateReques
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse as CreateWebhookResponse
 from e2a.v1.generated.models.dns_record import DNSRecord as DNSRecord
+from e2a.v1.generated.models.delete_agent_result import DeleteAgentResult as DeleteAgentResult
+from e2a.v1.generated.models.delete_api_key_result import DeleteApiKeyResult as DeleteApiKeyResult
+from e2a.v1.generated.models.delete_domain_result import DeleteDomainResult as DeleteDomainResult
+from e2a.v1.generated.models.delete_suppression_result import DeleteSuppressionResult as DeleteSuppressionResult
+from e2a.v1.generated.models.delete_template_result import DeleteTemplateResult as DeleteTemplateResult
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult as DeleteUserDataResult
+from e2a.v1.generated.models.delete_webhook_result import DeleteWebhookResult as DeleteWebhookResult
 from e2a.v1.generated.models.delivery_status_json import DeliveryStatusJSON as DeliveryStatusJSON
 from e2a.v1.generated.models.deployment_info_view import DeploymentInfoView as DeploymentInfoView
 from e2a.v1.generated.models.domain import Domain as Domain

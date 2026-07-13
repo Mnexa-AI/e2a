@@ -634,6 +634,77 @@ components:
         - purpose
         - status
       type: object
+    DeleteAgentResult:
+      additionalProperties: true
+      properties:
+        deleted:
+          description: Always true — the agent no longer exists. A failed delete is an error envelope, never deleted:false.
+          type: boolean
+        email:
+          description: Email address of the deleted agent.
+          type: string
+        messages_deleted:
+          description: Number of messages removed by the cascade (webhook-delivery records cascade from these).
+          format: int64
+          type: integer
+      required:
+        - deleted
+        - email
+        - messages_deleted
+      type: object
+    DeleteApiKeyResult:
+      additionalProperties: true
+      properties:
+        deleted:
+          description: Always true — the key is revoked. A failed delete is an error envelope, never deleted:false.
+          type: boolean
+        id:
+          description: ID of the revoked API key.
+          type: string
+      required:
+        - deleted
+        - id
+      type: object
+    DeleteDomainResult:
+      additionalProperties: true
+      properties:
+        deleted:
+          description: Always true — the domain no longer exists. A failed delete is an error envelope, never deleted:false.
+          type: boolean
+        domain:
+          description: The deleted domain.
+          type: string
+      required:
+        - deleted
+        - domain
+      type: object
+    DeleteSuppressionResult:
+      additionalProperties: true
+      properties:
+        address:
+          description: The un-suppressed recipient address.
+          type: string
+        deleted:
+          description: Always true — the address is no longer suppressed. A failed delete is an error envelope, never deleted:false.
+          type: boolean
+      required:
+        - deleted
+        - address
+      type: object
+    DeleteTemplateResult:
+      additionalProperties: true
+      properties:
+        deleted:
+          description: Always true — the template no longer exists. A failed delete is an error envelope, never deleted:false.
+          type: boolean
+        id:
+          description: ID of the deleted template.
+          type: string
+      required:
+        - deleted
+        - id
+      type: object
+      x-stability: experimental
     DeleteUserDataResult:
       additionalProperties: true
       properties:
@@ -643,6 +714,9 @@ components:
         api_keys_deleted:
           format: int64
           type: integer
+        deleted:
+          description: Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false.
+          type: boolean
         domains_deleted:
           format: int64
           type: integer
@@ -670,6 +744,7 @@ components:
         user_deleted:
           type: boolean
       required:
+        - deleted
         - usage_events_deleted
         - usage_summaries_deleted
         - messages_deleted
@@ -678,6 +753,19 @@ components:
         - api_keys_deleted
         - sessions_deleted
         - user_deleted
+      type: object
+    DeleteWebhookResult:
+      additionalProperties: true
+      properties:
+        deleted:
+          description: Always true — the webhook no longer exists. A failed delete is an error envelope, never deleted:false.
+          type: boolean
+        id:
+          description: ID of the deleted webhook.
+          type: string
+      required:
+        - deleted
+        - id
       type: object
     DeliveryStatusJSON:
       additionalProperties: true
@@ -2666,7 +2754,7 @@ openapi: 3.1.0
 paths:
   /v1/account:
     delete:
-      description: Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+      description: Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
       operationId: deleteAccount
       parameters:
         - description: Must be the literal DELETE — this action is irreversible.
@@ -2788,7 +2876,7 @@ paths:
         - account
   /v1/account/api-keys/{id}:
     delete:
-      description: Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+      description: Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
       operationId: deleteApiKey
       parameters:
         - in: path
@@ -2807,8 +2895,12 @@ paths:
               - DELETE
             type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteApiKeyResult"
+          description: OK
         default:
           content:
             application/json:
@@ -2889,7 +2981,7 @@ paths:
         - account
   /v1/account/suppressions/{address}:
     delete:
-      description: Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+      description: Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
       operationId: deleteSuppression
       parameters:
         - in: path
@@ -2908,8 +3000,12 @@ paths:
               - DELETE
             type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSuppressionResult"
+          description: OK
         default:
           content:
             application/json:
@@ -3003,7 +3099,7 @@ paths:
         - agents
   /v1/agents/{email}:
     delete:
-      description: Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+      description: Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent's webhook-delivery records and revokes its credentials.
       operationId: deleteAgent
       parameters:
         - in: path
@@ -3022,8 +3118,12 @@ paths:
               - DELETE
             type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAgentResult"
+          description: OK
         default:
           content:
             application/json:
@@ -3906,7 +4006,7 @@ paths:
         - domains
   /v1/domains/{domain}:
     delete:
-      description: Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+      description: Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
       operationId: deleteDomain
       parameters:
         - in: path
@@ -3925,8 +4025,12 @@ paths:
               - DELETE
             type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteDomainResult"
+          description: OK
         default:
           content:
             application/json:
@@ -4479,7 +4583,7 @@ paths:
       x-stability: experimental
   /v1/templates/{id}:
     delete:
-      description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable."
+      description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: deleteTemplate
       parameters:
         - in: path
@@ -4498,8 +4602,12 @@ paths:
               - DELETE
             type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteTemplateResult"
+          description: OK
         default:
           content:
             application/json:
@@ -4643,7 +4751,7 @@ paths:
         - webhooks
   /v1/webhooks/{id}:
     delete:
-      description: Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+      description: Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
       operationId: deleteWebhook
       parameters:
         - in: path
@@ -4662,8 +4770,12 @@ paths:
               - DELETE
             type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteWebhookResult"
+          description: OK
         default:
           content:
             application/json:

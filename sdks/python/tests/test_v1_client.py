@@ -291,6 +291,23 @@ async def test_create_agent_posts_body(httpx_mock):
 
 
 @pytest.mark.anyio
+async def test_agents_delete_sends_confirm_and_returns_receipt(httpx_mock):
+    httpx_mock.add_response(
+        json={"deleted": True, "email": "bot@test.dev", "messages_deleted": 12}
+    )
+    async with _client() as c:
+        res = await c.agents.delete("bot@test.dev")
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "DELETE"
+    assert "/v1/agents/bot%40test.dev" in str(req.url)
+    assert "confirm=DELETE" in str(req.url)
+    # 200 + typed deletion receipt (uniform delete contract).
+    assert res.deleted is True
+    assert res.email == "bot@test.dev"
+    assert res.messages_deleted == 12
+
+
+@pytest.mark.anyio
 async def test_agents_list_autopager(httpx_mock):
     httpx_mock.add_response(
         json={"items": [_valid(AgentView, id="ag_1", email="bot@test.dev")], "next_cursor": None}
@@ -620,12 +637,15 @@ async def test_templates_update_patches_and_keeps_explicit_html_clear(httpx_mock
 
 @pytest.mark.anyio
 async def test_templates_delete_issues_delete(httpx_mock):
-    httpx_mock.add_response(status_code=204)
+    httpx_mock.add_response(json={"deleted": True, "id": "tmpl_1"})
     async with _client() as c:
-        await c.templates.delete("tmpl_1")
+        res = await c.templates.delete("tmpl_1")
     req = httpx_mock.get_requests()[-1]
     assert req.method == "DELETE"
     assert "/v1/templates/tmpl_1" in str(req.url)
+    # 200 + typed deletion object (uniform delete contract).
+    assert res.deleted is True
+    assert res.id == "tmpl_1"
 
 
 @pytest.mark.anyio
@@ -703,13 +723,14 @@ async def test_templates_round_trip_create_update_delete(httpx_mock):
     # asserting each hits the right method+path.
     httpx_mock.add_response(status_code=201, json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s", text="b"))
     httpx_mock.add_response(json=_valid(TemplateView, id="tmpl_rt", name="RT", subject="s2", text="b"))
-    httpx_mock.add_response(status_code=204)
+    httpx_mock.add_response(json={"deleted": True, "id": "tmpl_rt"})
     async with _client() as c:
         created = await c.templates.create({"name": "RT", "subject": "s", "text": "b"})
         assert created.id == "tmpl_rt"
         updated = await c.templates.update("tmpl_rt", {"subject": "s2"})
         assert updated.subject == "s2"
-        await c.templates.delete("tmpl_rt")
+        deleted = await c.templates.delete("tmpl_rt")
+        assert deleted.deleted is True and deleted.id == "tmpl_rt"
     methods = [(r.method, str(r.url)) for r in httpx_mock.get_requests()]
     assert methods[0][0] == "POST" and methods[0][1].endswith("/v1/templates")
     assert methods[1][0] == "PATCH" and "/v1/templates/tmpl_rt" in methods[1][1]
