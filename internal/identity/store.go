@@ -1362,7 +1362,7 @@ func (s *Store) DeleteAgent(ctx context.Context, agentID, userID string) (messag
 			`SELECT id FROM agent_identities WHERE id = $1 AND user_id = $2 FOR UPDATE`,
 			agentID, userID).Scan(&lockedID)
 		if errors.Is(queryErr, pgx.ErrNoRows) {
-			return fmt.Errorf("agent not found or not owned by user")
+			return ErrAgentNotFound
 		}
 		if queryErr != nil {
 			return queryErr
@@ -1392,7 +1392,7 @@ func (s *Store) SoftDeleteAgent(ctx context.Context, agentID, userID string) err
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("agent not found or not owned by user")
+		return ErrAgentNotFound
 	}
 	return nil
 }
@@ -1403,8 +1403,8 @@ func (s *Store) SoftDeleteAgent(ctx context.Context, agentID, userID string) err
 // shifted forward by the time spent in the trash, so a restore never
 // resurrects an inbox whose mail immediately expires — nor auto-resolves a
 // hold whose review TTL silently lapsed while the inbox was trashed.
-// Returns ErrNotInTrash when the agent exists but is live, and a not-found
-// error when it doesn't exist (or isn't the caller's).
+// Returns ErrNotInTrash when the agent exists but is live, and ErrAgentNotFound
+// when it doesn't exist (or isn't the caller's).
 func (s *Store) RestoreAgent(ctx context.Context, agentID, userID string) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
 		var deletedAt *time.Time
@@ -1413,7 +1413,7 @@ func (s *Store) RestoreAgent(ctx context.Context, agentID, userID string) error 
 			  WHERE id = $1 AND user_id = $2 FOR UPDATE`, agentID, userID,
 		).Scan(&deletedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("agent not found or not owned by user")
+			return ErrAgentNotFound
 		}
 		if err != nil {
 			return err
@@ -1522,6 +1522,13 @@ var ErrNotInTrash = fmt.Errorf("resource is not in the trash")
 // is held for review (status pending_review) — the review queue is its
 // resolution surface; approve or reject it first.
 var ErrMessageHeld = fmt.Errorf("message is held for review")
+
+// ErrAgentNotFound is returned by agent trash operations (soft delete /
+// restore / permanent delete) when the agent row isn't there for the caller
+// — either it never existed, belongs to another user, or was hard-deleted
+// between resolution and the mutation (a race the handler maps to 404
+// instead of a generic 500). Mirrors ErrMessageNotFound / ErrDomainNotFound.
+var ErrAgentNotFound = fmt.Errorf("agent not found or not owned by user")
 
 // NewMessageID returns a fresh internal message ID. Callers can use this
 // to generate the ID up-front when they need it before storing — for

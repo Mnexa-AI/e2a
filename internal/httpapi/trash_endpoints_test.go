@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var errUnauthorizedTest = errors.New("unauthorized")
@@ -415,5 +416,55 @@ func TestAgentScopedCannotManageAgentTrash(t *testing.T) {
 	code, body = sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com?confirm=DELETE&permanent=true", "agentkey", nil)
 	if code != 403 {
 		t.Fatalf("permanent delete by agent-scoped key: want 403, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentTrashedAddressConflict covers the address-reserved rule
+// (docs/design/trash-soft-delete.md): soft-delete keeps the trashed row's PK,
+// so recreating a trashed inbox's address must 409 with a pointer to the
+// caller's trash (restore / permanently delete) — not the generic conflict.
+func TestCreateAgentTrashedAddressConflict(t *testing.T) {
+	var createCalled string
+	srv := testServer(t, func(d *Deps) {
+		d.CreateAgent = func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
+			createCalled = email
+			return nil, &pgconn.PgError{Code: "23505", Message: "duplicate key value"}
+		}
+		trashed := trashedSampleAgent() // support@acme.com, owned by u_1
+		d.GetAgentAnyState = func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			return &trashed, nil
+		}
+	})
+	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "support@acme.com", "name": "Bot",
+	})
+	if code != 409 || errCode(body) != "address_in_trash" {
+		t.Fatalf("want 409 address_in_trash, got %d %v", code, body)
+	}
+	if createCalled != "support@acme.com" {
+		t.Fatalf("CreateAgent not invoked with the trashed address; got %q", createCalled)
+	}
+}
+
+// TestCreateAgentTrashedByOtherUserIsAgentTaken: a trashed inbox owned by
+// ANOTHER account (only reachable on the shared domain) must fall back to the
+// standard duplicate-agent conflict — never "in your trash", so we don't
+// reveal another account's trashed inbox.
+func TestCreateAgentTrashedByOtherUserIsAgentTaken(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.CreateAgent = func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
+			return nil, &pgconn.PgError{Code: "23505", Message: "duplicate key value"}
+		}
+		other := trashedSampleAgent()
+		other.UserID = "u_someone_else"
+		d.GetAgentAnyState = func(ctx context.Context, address string) (*identity.AgentIdentity, error) {
+			return &other, nil
+		}
+	})
+	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "support@acme.com", "name": "Bot",
+	})
+	if code != 409 || errCode(body) != "agent_taken" {
+		t.Fatalf("want 409 agent_taken (not address_in_trash), got %d %v", code, body)
 	}
 }

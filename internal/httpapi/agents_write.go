@@ -10,7 +10,18 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// isUniqueViolation reports whether err is a Postgres unique-constraint
+// violation (SQLSTATE 23505) — the duplicate-key signal on the
+// agent_identities PK. Mirrors identity.isUniqueViolation / the agent
+// package's helper; typed instead of a strings.Contains match so a non-pg
+// error (e.g. a wrapped network error) can't masquerade as a conflict.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.SQLState() == "23505"
+}
 
 // CreateAgentRequest is the /v1 agent-create body. The legacy agent_mode and
 // webhook_url fields were dropped (migration 029): push is delivered solely
@@ -207,6 +218,12 @@ func (s *Server) handleDeleteAgent(ctx context.Context, in *deleteAgentInput) (*
 		err = s.deps.DeleteAgent(ctx, ag.ID, ag.UserID)
 	}
 	if err != nil {
+		// A not-found here means the agent vanished (hard-deleted or moved to
+		// the trash by a concurrent request) between the any-state resolve and
+		// the mutation — 404, not a generic 500.
+		if errors.Is(err, identity.ErrAgentNotFound) {
+			return nil, NewError(http.StatusNotFound, "not_found", "agent not found")
+		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete agent")
 	}
 	// ag.ID is the agent's email (canonical form) — echo it as the identity key.
@@ -235,6 +252,9 @@ func (s *Server) handleRestoreAgent(ctx context.Context, in *AddressParam) (*age
 	if err := s.deps.RestoreAgent(ctx, ag.ID, ag.UserID); err != nil {
 		if errors.Is(err, identity.ErrNotInTrash) {
 			return nil, NewError(http.StatusConflict, "not_in_trash", "agent is not in the trash")
+		}
+		if errors.Is(err, identity.ErrAgentNotFound) {
+			return nil, NewError(http.StatusNotFound, "not_found", "agent not found")
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to restore agent")
 	}
@@ -311,7 +331,22 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	// pass "" to satisfy the retained signature.
 	ag, err := s.deps.CreateAgent(ctx, email, domain, req.Name, "", "", user.ID)
 	if err != nil {
-		if strings.Contains(err.Error(), "duplicate") {
+		if isUniqueViolation(err) {
+			// Soft-delete (migration 062) keeps the trashed row's PK, so the
+			// address stays reserved: a user who trashed an inbox and tries to
+			// recreate the same address hits this conflict. If the duplicate is
+			// the caller's own trashed inbox, point them at the trash (restore
+			// or permanently delete to reuse the address); otherwise fall back
+			// to the generic conflict so we never reveal another account's
+			// trashed inbox. Probe is post-conflict, so there's no TOCTOU
+			// window between a pre-check and the INSERT.
+			if s.deps.GetAgentAnyState != nil {
+				if existing, lerr := s.deps.GetAgentAnyState(ctx, email); lerr == nil && existing != nil &&
+					existing.DeletedAt != nil && existing.UserID == user.ID {
+					return nil, NewError(http.StatusConflict, "address_in_trash",
+						"this address belongs to an inbox in your trash — restore it, or delete it permanently from the trash, to reuse the address")
+				}
+			}
 			// agent_taken joins the *_taken conflict family (domain_taken,
 			// alias_taken): the requested address is already registered.
 			return nil, NewError(http.StatusConflict, "agent_taken", "agent already registered for this domain")

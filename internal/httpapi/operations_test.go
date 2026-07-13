@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/startertemplates"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // sampleAgent is the canonical fixture agent owned by user u_1.
@@ -604,7 +605,10 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 		},
 		CreateAgent: func(ctx context.Context, email, domain, name, webhookURL, agentMode, userID string) (*identity.AgentIdentity, error) {
 			if email == "dupe@acme.com" {
-				return nil, errors.New("duplicate key value")
+				// Real unique-violation shape (SQLSTATE 23505) so the handler's
+				// typed isUniqueViolation check classifies it as a conflict —
+				// a plain errors.New("duplicate key value") no longer matches.
+				return nil, &pgconn.PgError{Code: "23505", Message: "duplicate key value"}
 			}
 			return &identity.AgentIdentity{ID: email, Domain: domain, Email: email, Name: name, UserID: userID}, nil
 		},
