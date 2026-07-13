@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { E2AError } from "@e2a/sdk/v1";
+import { E2AConnectionError, E2AError } from "@e2a/sdk/v1";
 import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
 import { assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
@@ -12,7 +12,7 @@ import { registerReviewTools } from "../src/tools/review.js";
 import { registerWebhookTools } from "../src/tools/webhooks.js";
 import { registerEventTools } from "../src/tools/events.js";
 import { registerTemplateTools } from "../src/tools/templates.js";
-import { runTool } from "../src/tools/util.js";
+import { CodedError, runTool } from "../src/tools/util.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Build a small RFC822 blob with one attachment so the MessageView's
@@ -1280,6 +1280,40 @@ describe("e2a MCP server", () => {
     // Text form unchanged: prose, no fabricated code bracket.
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     expect(text).toBe("e2a error: email is required");
+  });
+
+  it("a connection-level failure carries connection_error/retryable/status 0 in structuredContent", async () => {
+    // The SDK's connectionError(...) shape: code connection_error, status 0
+    // (no HTTP response), retryable true — the documented structured form for
+    // "the API was never reached".
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AConnectionError({
+        code: "connection_error",
+        message: "connection to https://api.e2a.dev failed: fetch failed",
+        status: 0,
+        retryable: true,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ code: "connection_error", retryable: true, status: 0 });
+  });
+
+  it("a CodedError carries its server-vocabulary code (no status); text stays prose", async () => {
+    // ownerOfPending's "pending draft already approved/rejected/expired" is a
+    // not-found condition, not malformed input — it must NOT surface as
+    // invalid_request (PR #453 review).
+    const res = await runTool(async () => {
+      throw new CodedError("not_found", "pending message msg_p not found on any owned agent");
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ code: "not_found", retryable: false });
+    expect(res.content[0]?.text).toBe(
+      "e2a error: pending message msg_p not found on any owned agent",
+    );
   });
 
   it("the confirm-guard throw carries invalid_request in structuredContent", async () => {
