@@ -1,6 +1,12 @@
 import WebSocket from "ws";
 import { EventEmitter } from "node:events";
-import { E2AError, E2AAuthError, E2APermissionError, E2ANotFoundError } from "./errors.js";
+import {
+  E2AError,
+  E2AAuthError,
+  E2AConnectionReplacedError,
+  E2APermissionError,
+  E2ANotFoundError,
+} from "./errors.js";
 import type { WebhookEvent } from "./webhook-signature.js";
 
 // Map a fatal (non-retryable) WebSocket handshake rejection status to a typed
@@ -14,7 +20,55 @@ function fatalErrorForStatus(status: number): E2AError {
   // 404 — the agent doesn't exist OR isn't yours (the server collapses the
   // cross-tenant case into not_found so the handshake can't enumerate agents).
   if (status === 404) return new E2ANotFoundError({ code: "not_found", message, status, retryable: false });
-  return new E2AError({ code: "websocket_rejected", message, status, retryable: false });
+  return new E2AError({ code: "ws_handshake_rejected", message, status, retryable: false });
+}
+
+/**
+ * e2a application close code: a NEWER connection for this agent superseded
+ * this one (the server holds one connection per agent). Terminal — do not
+ * reconnect. See docs/api.md "Connection lifecycle & close codes".
+ */
+export const WS_CLOSE_REPLACED = 4000;
+
+// Map a server close CODE to a fatal (terminal, no-reconnect) typed error, per
+// the documented close-code contract (docs/api.md; mirrors the Python SDK's
+// _fatal_error_for_close):
+//   4000 "replaced"     → E2AConnectionReplacedError — a newer connection for
+//                         this agent took over; reconnecting would steal the
+//                         socket back and loop.
+//   1008                → E2APermissionError — genuine policy rejection;
+//                         retrying the same connection cannot succeed.
+//   4001–4999           → reserved e2a application codes; unknown ones are
+//                         fatal by contract (forward-compat).
+// Everything else (1001 shutting_down / ping_timeout, 1006 abnormal, 1011
+// internal error, …) is transient → returns null → backoff reconnect.
+function fatalErrorForClose(code: number, reason: string): E2AError | null {
+  const suffix = `WebSocket closed by server: code=${code} reason="${reason}"`;
+  if (code === WS_CLOSE_REPLACED) {
+    return new E2AConnectionReplacedError({
+      code: "ws_replaced",
+      message: `a newer connection for this agent superseded this one; not reconnecting (one connection per agent) — ${suffix}`,
+      status: 0,
+      retryable: false,
+    });
+  }
+  if (code === 1008) {
+    return new E2APermissionError({
+      code: "ws_policy_violation",
+      message: `connection rejected by server policy; not reconnecting — ${suffix}`,
+      status: 0,
+      retryable: false,
+    });
+  }
+  if (code >= 4000 && code <= 4999) {
+    return new E2AError({
+      code: "ws_closed",
+      message: `terminal application close; not reconnecting — ${suffix}`,
+      status: 0,
+      retryable: false,
+    });
+  }
+  return null;
 }
 
 /**
@@ -46,6 +100,12 @@ export interface WSListenerOptions {
   /**
    * Auto-reconnect on disconnect. Defaults to true.
    * Reconnect uses exponential backoff (1s → maxBackoffMs).
+   *
+   * Applies only to TRANSIENT closes (network drops, server restart/shutdown,
+   * ping timeout, internal error). Terminal close codes — 4000 "replaced" (a
+   * newer connection for this agent took over), 1008 (policy rejection), and
+   * other 4xxx application codes — never reconnect: the stream stops with a
+   * typed error ({@link E2AConnectionReplacedError} for 4000).
    */
   reconnect?: boolean;
   /** Initial reconnect delay in ms. Defaults to 1000 (1 second). */
@@ -152,7 +212,8 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
     });
 
     ws.on("close", (code: number, reason: Buffer) => {
-      this.emit("close", code, reason.toString());
+      const reasonStr = reason.toString();
+      this.emit("close", code, reasonStr);
       this.ws = null;
       if (fatal) {
         // Fatal handshake (auth/4xx) — surface the typed error and STOP; a
@@ -160,6 +221,17 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
         this.closed = true;
         this.emit("error", fatal);
         return;
+      }
+      // Server-sent terminal close codes (4000 "replaced", 1008 policy, other
+      // 4xxx) — surface the typed error and STOP. Only consulted when we did
+      // not initiate the close ourselves.
+      if (!this.closed) {
+        const fatalClose = fatalErrorForClose(code, reasonStr);
+        if (fatalClose) {
+          this.closed = true;
+          this.emit("error", fatalClose);
+          return;
+        }
       }
       if (!this.closed && this.shouldReconnect) {
         setTimeout(() => this.dial(), this.currentBackoffMs);

@@ -1,5 +1,5 @@
 import type { E2AClient, EmailReceivedData, WSEvent } from "@e2a/sdk/v1";
-import { isEmailReceived } from "@e2a/sdk/v1";
+import { E2AConnectionReplacedError, isEmailReceived } from "@e2a/sdk/v1";
 import { createClient, requireAgentEmail } from "../sdk.js";
 import { EXIT, fail } from "../exit.js";
 import { sanitizeTsvField } from "./messages.js";
@@ -110,6 +110,9 @@ export async function listen(opts: ListenOptions): Promise<void> {
   });
 
   stream.on("error", (err: Error) => {
+    // The replaced takeover (close code 4000) gets its dedicated message from
+    // the for-await catch below — don't print it twice.
+    if (err instanceof E2AConnectionReplacedError) return;
     process.stderr.write(`Connection error: ${err.message}\n`);
   });
 
@@ -122,6 +125,7 @@ export async function listen(opts: ListenOptions): Promise<void> {
   // Iterate notifications. handleNotification swallows its own errors so
   // a single bad message doesn't tear down the loop.
   let matched = false;
+  try {
   for await (const event of stream) {
     try {
       // Only email.received frames carry an inbox notification; tolerate (and
@@ -161,6 +165,24 @@ export async function listen(opts: ListenOptions): Promise<void> {
       const message = err instanceof Error ? err.message : String(err);
       process.stderr.write(`Error handling message: ${message}\n`);
     }
+  }
+  } catch (err: unknown) {
+    // Terminal stream errors thrown by the for-await (the SDK stopped
+    // reconnecting): give the replaced takeover its own clear exit; let other
+    // typed errors ride the top-level handler's AUTH/REQUEST/ERROR mapping.
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    stream.close();
+    if (err instanceof E2AConnectionReplacedError) {
+      // EXIT.REQUEST (5), not ERROR (1): retry-on-1 wrappers must NOT rerun
+      // this — reconnecting would steal the socket back from the newer
+      // listener and loop (the exact bug the 4000 close code exists to stop).
+      fail(
+        EXIT.REQUEST,
+        'listener replaced: a newer WebSocket connection for this agent took over (close code 4000 "replaced"). ' +
+          "Not reconnecting — the server keeps one connection per agent; stop the other listener if this one should win.",
+      );
+    }
+    throw err;
   }
 
   if (deadlineTimer) clearTimeout(deadlineTimer);

@@ -31,6 +31,7 @@ export {
   E2ARateLimitError,
   E2AServerError,
   E2AConnectionError,
+  E2AConnectionReplacedError,
   E2AWebhookSignatureError,
 } from "./errors.js";
 
@@ -78,7 +79,7 @@ export type {
 
 // Real-time WebSocket stream. Frames are the SAME versioned event envelope as
 // webhook deliveries (WebhookEvent) — WSEvent is an alias.
-export { WSListener, WSStream } from "./ws.js";
+export { WSListener, WSStream, WS_CLOSE_REPLACED } from "./ws.js";
 export type { WSListenerOptions, WSListenerEvents, WSEvent } from "./ws.js";
 
 // Friendly cross-language aliases for the most-used response shapes — mirror

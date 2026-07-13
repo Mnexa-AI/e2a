@@ -94,6 +94,122 @@ describe("WSListener auth", () => {
   });
 });
 
+describe("WSListener close-code contract (docs/api.md)", () => {
+  // Drives the reconnect matrix by mocking the `ws` module: each fake socket
+  // records its event handlers so the test can fire a server-initiated close
+  // with a specific code/reason and observe whether the listener redials
+  // (transient) or stops with a typed error (terminal).
+  type Handler = (...args: unknown[]) => void;
+  class FakeWS {
+    static instances: FakeWS[] = [];
+    handlers = new Map<string, Handler>();
+    constructor(
+      public url: string,
+      public opts: unknown,
+    ) {
+      FakeWS.instances.push(this);
+    }
+    on(event: string, fn: Handler) {
+      this.handlers.set(event, fn);
+      return this;
+    }
+    close() {}
+    serverClose(code: number, reason: string) {
+      this.handlers.get("close")?.(code, Buffer.from(reason));
+    }
+  }
+
+  async function listenWith(closeCode: number, reason: string) {
+    FakeWS.instances = [];
+    vi.resetModules();
+    vi.doMock("ws", () => ({ default: FakeWS }));
+    vi.useFakeTimers();
+    const { WSListener } = await import("../../src/v1/ws.js");
+    const errors = await import("../../src/v1/errors.js");
+    const l = new WSListener({
+      apiKey: "k",
+      agentEmail: "bot@x.dev",
+      reconnect: true,
+      reconnectDelay: 10,
+    });
+    const seen: Error[] = [];
+    const closes: Array<{ code: number; reason: string }> = [];
+    l.on("error", (e) => seen.push(e));
+    l.on("close", (code, r) => closes.push({ code, reason: r }));
+    l.connect();
+    expect(FakeWS.instances).toHaveLength(1);
+    FakeWS.instances[0].serverClose(closeCode, reason);
+    // Give any scheduled redial a chance to fire.
+    await vi.advanceTimersByTimeAsync(60_000);
+    vi.useRealTimers();
+    vi.doUnmock("ws");
+    vi.resetModules();
+    return { dials: FakeWS.instances.length, errors: seen, closes, errorsMod: errors, listener: l };
+  }
+
+  it("4000 'replaced' → E2AConnectionReplacedError, no reconnect", async () => {
+    const { dials, errors, closes, errorsMod } = await listenWith(4000, "replaced");
+    expect(dials).toBe(1); // never redialed
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(errorsMod.E2AConnectionReplacedError);
+    expect((errors[0] as InstanceType<typeof errorsMod.E2AError>).code).toBe("ws_replaced");
+    expect((errors[0] as InstanceType<typeof errorsMod.E2AError>).retryable).toBe(false);
+    expect(closes).toEqual([{ code: 4000, reason: "replaced" }]);
+  });
+
+  it("1008 policy rejection → E2APermissionError, no reconnect", async () => {
+    const { dials, errors, errorsMod } = await listenWith(1008, "policy violation");
+    expect(dials).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(errorsMod.E2APermissionError);
+    expect((errors[0] as InstanceType<typeof errorsMod.E2AError>).code).toBe("ws_policy_violation");
+  });
+
+  it("unknown 4xxx application code → fatal E2AError, no reconnect (forward-compat)", async () => {
+    const { dials, errors, errorsMod } = await listenWith(4321, "future_condition");
+    expect(dials).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(errorsMod.E2AError);
+    expect((errors[0] as InstanceType<typeof errorsMod.E2AError>).code).toBe("ws_closed");
+    expect((errors[0] as InstanceType<typeof errorsMod.E2AError>).retryable).toBe(false);
+  });
+
+  it("1001 'shutting_down' (server restart) → reconnects with backoff", async () => {
+    const { dials, errors } = await listenWith(1001, "shutting_down");
+    expect(dials).toBeGreaterThan(1); // redialed
+    expect(errors).toHaveLength(0);
+  });
+
+  it("1006 abnormal close (network drop) → reconnects", async () => {
+    const { dials, errors } = await listenWith(1006, "");
+    expect(dials).toBeGreaterThan(1);
+    expect(errors).toHaveLength(0);
+  });
+
+  it("1011 internal server error → reconnects", async () => {
+    const { dials, errors } = await listenWith(1011, "");
+    expect(dials).toBeGreaterThan(1);
+    expect(errors).toHaveLength(0);
+  });
+
+  it("client-initiated close → no reconnect and no error, even if the server echoes a code", async () => {
+    FakeWS.instances = [];
+    vi.resetModules();
+    vi.doMock("ws", () => ({ default: FakeWS }));
+    const { WSListener } = await import("../../src/v1/ws.js");
+    const l = new WSListener({ apiKey: "k", agentEmail: "bot@x.dev", reconnect: true });
+    const seen: Error[] = [];
+    l.on("error", (e) => seen.push(e));
+    l.connect();
+    l.close(); // client closes first
+    FakeWS.instances[0].serverClose(1000, "");
+    vi.doUnmock("ws");
+    vi.resetModules();
+    expect(FakeWS.instances).toHaveLength(1);
+    expect(seen).toHaveLength(0);
+  });
+});
+
 describe("E2AClient.listen()", () => {
   it("requires an email at point of use", async () => {
     const { E2AClient } = await import("../../src/v1/client.js");

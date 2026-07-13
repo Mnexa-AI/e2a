@@ -73,7 +73,9 @@ func (h *Hub) Close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for id, conn := range h.conns {
-		conn.Close(websocket.StatusGoingAway, "server shutting down")
+		// 1001 + the stable "shutting_down" token: transient (a deploy /
+		// restart) — clients reconnect with backoff. See closecodes.go.
+		conn.Close(websocket.StatusGoingAway, ReasonShuttingDown)
 		delete(h.conns, id)
 	}
 }

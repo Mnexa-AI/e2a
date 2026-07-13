@@ -296,3 +296,57 @@ describe("listen notification handling", () => {
     );
   });
 });
+
+describe("listen replaced-takeover exit (WS close 4000)", () => {
+  afterEach(() => {
+    vi.doUnmock("../sdk.js");
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  it("prints a clear message and exits EXIT.REQUEST (5) — never retry-loops", async () => {
+    vi.resetModules();
+
+    // Build the fake stream first; wire the typed error from the SAME module
+    // registry the re-imported listen.js will use, so instanceof matches.
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => ({ listen: () => fakeStream }),
+      requireAgentEmail: (a?: string) => a ?? "bot@agents.e2a.dev",
+    }));
+
+    const sdk = await import("@e2a/sdk/v1");
+    const replaced = new sdk.E2AConnectionReplacedError({
+      code: "ws_replaced",
+      message: "a newer connection for this agent superseded this one",
+      status: 0,
+      retryable: false,
+    });
+
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      [Symbol.asyncIterator]() {
+        // The SDK stream rejects the pending next() with the typed error
+        // after it stops reconnecting on close code 4000.
+        return { next: () => Promise.reject(replaced) };
+      },
+    };
+
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never);
+
+    const { listen } = await import("../commands/listen.js");
+    await expect(listen({ agent: "bot@agents.e2a.dev" })).rejects.toThrow("process.exit(5)");
+
+    expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.REQUEST — do NOT retry
+    expect(fakeStream.close).toHaveBeenCalled();
+    const said = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(said).toContain("listener replaced");
+    expect(said).toContain("4000");
+    expect(said).toContain("one connection per agent");
+    // The generic connection-error line must not double-report it.
+    expect(said).not.toContain("Connection error:");
+  });
+});

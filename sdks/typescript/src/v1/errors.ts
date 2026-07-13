@@ -69,6 +69,14 @@ export class E2ARateLimitError extends E2AError {}   // 429 — request-RATE / t
 export class E2AServerError extends E2AError {}      // 5xx / 408
 export class E2AConnectionError extends E2AError {}  // no response (network)
 export class E2AWebhookSignatureError extends E2AError {} // local webhook verify failure
+/**
+ * WebSocket close code 4000 ("replaced"): a NEWER connection for the same
+ * agent superseded this one — the server holds one connection per agent.
+ * Terminal by contract: the SDK does NOT auto-reconnect, because reconnecting
+ * would steal the socket back from the replacement and loop. If the takeover
+ * was yours, it already succeeded on the other side; run one listener per agent.
+ */
+export class E2AConnectionReplacedError extends E2AError {} // WS close 4000 "replaced"
 
 /** Status codes where a retry could plausibly help (excludes connection — that
  *  path is handled separately, since there's no status to inspect). */

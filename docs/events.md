@@ -74,7 +74,9 @@ The review-hold + screening events (`email.flagged`, `email.blocked`, `email.rev
 
 ## Envelope and typed payloads
 
-Every event — on the webhook channel, in this event log, and on the WebSocket — is the same versioned envelope:
+Every event — on the webhook channel, in this event log, and on the WebSocket — is the same versioned envelope.
+(For the WebSocket channel's connection lifecycle — the one-connection-per-agent policy and the frozen close-code
+table, including `4000 replaced` — see [api.md → Connection lifecycle & close codes](api.md#connection-lifecycle--close-codes).)
 
 ```json
 {
