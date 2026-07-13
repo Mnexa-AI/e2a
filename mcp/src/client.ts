@@ -38,6 +38,7 @@ import type {
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
 import type { Scope } from "./tools/tiers.js";
+import { CodedError } from "./tools/util.js";
 
 // Outbound drafts held for human review surface in the message list with
 // this status (the hold vocabulary was unified on `pending_review` across
@@ -335,7 +336,11 @@ export class McpClient {
         .toArray({ limit: DEFAULT_LIST_LIMIT });
       if (rows.some((r) => r.id === messageId)) return address;
     }
-    throw new Error(
+    // Not-found/already-resolved, NOT malformed input — carry the server's
+    // canonical `not_found` code so an agent branching on structuredContent
+    // doesn't wrongly re-validate its arguments (PR #453 review).
+    throw new CodedError(
+      "not_found",
       `pending message ${messageId} not found on any owned agent (it may have already been approved, rejected, or expired).`,
     );
   }

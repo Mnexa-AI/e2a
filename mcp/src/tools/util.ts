@@ -52,6 +52,24 @@ export const paginationInput = {
     .describe("Max items in this page (1–100). Defaults to a server-chosen page size (100)."),
 } as const;
 
+// CodedError: a wrapper-thrown error that carries a stable machine `code`
+// from the SERVER'S canonical vocabulary (e.g. "not_found") instead of the
+// blanket `invalid_request` that plain wrapper Errors map to. Use it when the
+// wrapper synthesizes a failure that is semantically NOT a caller-input
+// problem — e.g. ownerOfPending's "pending message not found / already
+// resolved", where an agent branching on `invalid_request` would wrongly
+// re-validate its arguments. No status/request_id ride along: the failure was
+// synthesized by the wrapper, not read off a specific HTTP response. The text
+// form stays the code-less `e2a error: msg` prose (frozen wrapper shape).
+export class CodedError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "CodedError";
+    this.code = code;
+  }
+}
+
 export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
   try {
     const result = await fn();
@@ -74,9 +92,10 @@ export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
     //    retry_after_seconds?, details? }. New agents should branch on this
     //    instead of parsing the text.
     //
-    // The MCP SDK explicitly exempts isError results from outputSchema
-    // validation and allows structuredContent without a declared schema, so
-    // this is additive and non-breaking for every client.
+    // The MCP TS SDK skips outputSchema validation for isError results
+    // server-side and allows structuredContent without a declared schema.
+    // (A client MAY still validate against a declared outputSchema — but no
+    // e2a tool declares one, so this is additive and non-breaking.)
     const structured = structuredError(err);
     // Surface the API envelope's machine-branchable `code` (§6a #4) so an agent
     // can branch on a stable code (e.g. domain_not_verified, message_not_pending,
@@ -116,7 +135,9 @@ export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
 //                        carry the envelope code (domain_not_verified,
 //                        rate_limited, …); wrapper-thrown validation errors
 //                        (missing agent arg, confirm guard) reuse the server's
-//                        canonical validation code `invalid_request`.
+//                        canonical validation code `invalid_request`; a
+//                        CodedError carries its own server-vocabulary code
+//                        (e.g. `not_found`).
 //   retryable            boolean — ALWAYS present; true when a retry could
 //                        plausibly succeed (429 / 5xx / connection).
 //   status               HTTP status of the API response (0 = connection-level
@@ -150,6 +171,13 @@ function structuredError(err: unknown): { [key: string]: unknown } {
       }
     }
     return out;
+  }
+  // Wrapper-thrown error with an explicit server-vocabulary code (e.g.
+  // ownerOfPending's "not_found" for a pending draft that was already
+  // approved/rejected/expired). Not retryable, and no status/request_id —
+  // the wrapper synthesized it rather than reading it off a response.
+  if (err instanceof CodedError) {
+    return { code: err.code, retryable: false };
   }
   // Wrapper-thrown validation error (plain Error from the MCP layer itself —
   // e.g. "delete_agent requires confirm:true", missing agent selection). It is
