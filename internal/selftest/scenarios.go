@@ -265,11 +265,18 @@ func scenarioAgentLifecycle(ctx context.Context, p *Probe) Result {
 		return fail("update agent: HTTP %d, want 200", st)
 	}
 
-	// DELETE (confirmed) → 204.
-	if st, _, err := p.do(ctx, http.MethodDelete, agentURL+"?confirm=DELETE", nil); err != nil {
+	// DELETE (confirmed) → 200 + deletion object {deleted:true, email, ...}.
+	if st, body, err := p.do(ctx, http.MethodDelete, agentURL+"?confirm=DELETE", nil); err != nil {
 		return fail("delete agent: %v", err)
-	} else if st != http.StatusNoContent {
-		return fail("delete agent: HTTP %d, want 204", st)
+	} else if st != http.StatusOK {
+		return fail("delete agent: HTTP %d, want 200", st)
+	} else {
+		var res struct {
+			Deleted bool `json:"deleted"`
+		}
+		if err := json.Unmarshal(body, &res); err != nil || !res.Deleted {
+			return fail("delete agent: want deletion object {deleted:true}, got %s", string(body))
+		}
 	}
 
 	// Confirm it's gone — a follow-up GET must not return 200.

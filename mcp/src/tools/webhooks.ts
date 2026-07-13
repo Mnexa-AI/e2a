@@ -89,7 +89,7 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
           .array(z.string().min(1))
           .min(1)
           .describe(
-            "Event types to subscribe to. Valid values: email.received, email.sent, email.pending_review, email.review_approved, email.review_rejected, email.blocked, email.delivered, email.bounced, email.complained, email.flagged, domain.sending_verified, domain.sending_failed, domain.suppression_added.",
+            "Event types to subscribe to. Valid values: email.received, email.sent, email.failed, email.review_requested, email.review_approved, email.review_rejected, email.blocked, email.delivered, email.bounced, email.complained, email.flagged, domain.sending_verified, domain.sending_failed, domain.suppression_added.",
           ),
         description: z.string().optional().describe("Optional free-form label (max 200 chars)."),
         filters: filtersSchema.optional(),
@@ -151,8 +151,8 @@ export function registerWebhookTools(server: McpServer, client: McpClient): void
         if (args.confirm !== true) {
           throw new Error("delete_webhook requires confirm:true.");
         }
-        await client.deleteWebhook(args.id);
-        return { deleted: args.id };
+        // Return the server's deletion object verbatim: {deleted:true, id}.
+        return client.deleteWebhook(args.id);
       }),
   );
 

@@ -56,6 +56,8 @@ export async function keysList(opts: KeysListOptions): Promise<void> {
 export async function keysDelete(id: string | undefined): Promise<void> {
   if (!id) fail(EXIT.USAGE, DELETE_USAGE);
   const client = createClient();
-  await client.account.apiKeys.delete(id);
-  process.stdout.write(`revoked ${id}\n`);
+  // The API confirms deletes with a 200 + deletion object ({deleted, id});
+  // echo the server's confirmation rather than the caller's input.
+  const res = await client.account.apiKeys.delete(id);
+  process.stdout.write(`revoked ${res.id}\n`);
 }

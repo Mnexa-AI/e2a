@@ -174,11 +174,12 @@ describe("Templates page", () => {
       "/v1/starter-templates": () => jsonResp(starterCatalog),
       [`DELETE /v1/templates/${encodeURIComponent(template.id)}?confirm=DELETE`]: () => {
         deletedIDs.push(template.id);
+        // Uniform delete contract: 200 + {deleted:true, id}.
         return {
           ok: true,
-          status: 204,
-          text: async () => "",
-          json: async () => ({}),
+          status: 200,
+          text: async () => JSON.stringify({ deleted: true, id: template.id }),
+          json: async () => ({ deleted: true, id: template.id }),
         };
       },
     }) as unknown as typeof fetch;

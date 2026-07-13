@@ -1,6 +1,77 @@
 # Changelog
 
-## 4.0.1
+## 5.1.0
+
+### Breaking (pre-GA)
+- **Uniform DELETE responses: every `.delete(...)` now returns a typed deletion
+  object instead of `void`.** The API's seven delete endpoints all return
+  `200 OK` with `{deleted: true, <identity key>}` instead of the previous mix
+  of `204 No Content` and `200`. New return types: `agents.delete` →
+  `DeleteAgentResult` (`deleted`, `email`, `messagesDeleted` — the message
+  cascade count), `domains.delete` → `DeleteDomainResult` (`domain`),
+  `webhooks.delete` → `DeleteWebhookResult` (`id`), `templates.delete` →
+  `DeleteTemplateResult` (`id`), `account.apiKeys.delete` →
+  `DeleteApiKeyResult` (`id`), `account.suppressions.delete` →
+  `DeleteSuppressionResult` (`address`); `account.delete()` still returns
+  `DeleteUserDataResult`, which now also carries `deleted: true`. `deleted` is
+  always `true` — a failed delete throws a typed error, never resolves with
+  `deleted: false`. Callers that ignored the old `void` return need no changes;
+  the SDK still auto-sends the `?confirm=DELETE` guard. Older SDK versions
+  whose generated bases expected `204` are incompatible with servers running
+  this contract — upgrade together (pre-GA break).
+
+## 5.0.0
+
+Breaking: the WebSocket frame is now the versioned event envelope (server #456).
+
+### Changed
+- **The WebSocket frame is the versioned event envelope** — the same
+  `{type, id, schema_version, created_at, data}` shape a webhook delivery
+  carries, so one parser (and one dedup key: the event `id`) serves both
+  channels. Frames were previously a flat ad-hoc notification object.
+- **`WSNotification` and the `"notification"` emitter event are removed.**
+  Listen for `"event"` on `WSListener` (or iterate `client.listen(...)`)
+  and use the new `WSEvent` type — an alias of `WebhookEvent`. Narrow with
+  the type guards (e.g. `isEmailReceived(event)`) and read the payload from
+  `event.data`.
+
+### Added
+- **Typed per-event payloads** for the nine stable event types
+  (`EmailReceivedData`, `EmailSentData`, `EmailFailedData`,
+  `EmailDeliveredData`, `EmailBouncedData`, `EmailComplainedData`,
+  `DomainSendingVerifiedData`, `DomainSendingFailedData`,
+  `DomainSuppressionAddedData`, plus `AttachmentMeta`) with narrowing guards
+  (`isEmailReceived`, `isEmailSent`, …) shared by the webhook and WS
+  channels. The shapes are locked to the server's committed golden fixtures.
+
+## 4.2.0
+
+### Breaking (pre-GA)
+- **`AgentIdentity.webhookHealthy` (boolean) replaced by `AgentIdentity.webhookStatus`
+  (optional string enum).** The bool could not distinguish "no webhook
+  configured" from "healthy". The new field is an open set — tolerate unknown
+  values. Known values: `none` (no webhook matches the agent), `healthy` (an
+  enabled matching webhook, no terminally-failed delivery in the last 24h),
+  `failing` (an enabled matching webhook had a terminally-failed delivery in
+  the last 24h), `disabled` (matching webhooks exist but all are manually
+  disabled), `auto_disabled` (all matching webhooks disabled, at least one by
+  the chronic-failure sweep). `AgentIdentity` only appears in the account
+  export (`account.export()`), so most integrations are unaffected.
+
+## 4.1.0
+
+Additive, no breaking changes.
+
+### Added
+- **`E2ALimitExceededError`** — the typed error for a `402 limit_exceeded`
+  response (a per-account **quota** cap: monthly messages, storage, agent/domain
+  counts). It is **not** retryable. This completes the permanent GA split with
+  `E2ARateLimitError` (`429 rate_limited`, a request-**rate**/throughput limit,
+  which **is** retryable): branch on the error subclass (equivalently the HTTP
+  status) — `402` → surface a quota/upgrade path, `429` → back off
+  `retryAfterSeconds` and retry. A `402` previously surfaced as the base
+  `E2AError`; it now surfaces as this subclass (still an `E2AError` via
+  `instanceof`, so existing catch-all handling is unaffected).
 
 Additive, no breaking changes.
 

@@ -35,7 +35,7 @@ func sendURL(base, agentEmail string) string {
 // agent_identities.webhook_url path (per-agent, single URL, no filters).
 //
 // Coverage map (from the approved test plan):
-//   P1 — outbound events: email.sent, email.pending_review,
+//   P1 — outbound events: email.sent, email.review_requested,
 //         email.approved, email.rejected fire from real handler triggers
 //   P2 — inbound:         email.received fires from a real SMTP message
 //   P3 — filters:         agent_ids + conversation_ids + labels (H5)
@@ -240,7 +240,7 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 
 	_, key, agent := setupSubscriberOwner(t, ts, "wh-hitl", true)
 	pendingHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/pending",
-		[]string{"email.pending_review"}, identity.WebhookFilters{})
+		[]string{"email.review_requested"}, identity.WebhookFilters{})
 	approvedHook := registerWebhook(t, ts, agent.UserID, receiver.Server.URL+"/approved",
 		[]string{"email.review_approved"}, identity.WebhookFilters{})
 
@@ -257,14 +257,14 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 		t.Fatalf("no message_id in hold response: %s", string(respBytes))
 	}
 
-	// First tick — should deliver email.pending_review.
+	// First tick — should deliver email.review_requested.
 	tick(t, ts)
 	receiver.WaitFor(t, 2*time.Second, func(c []testutil.SubscriberCaptured) bool { return len(c) >= 1 })
 	got := receiver.Captured()
 	if len(got) != 1 {
 		t.Fatalf("after pending: got %d captures, want 1", len(got))
 	}
-	if got[0].URL != "/pending" || got[0].Envelope["type"] != "email.pending_review" {
+	if got[0].URL != "/pending" || got[0].Envelope["type"] != "email.review_requested" {
 		t.Errorf("first capture path=%q event=%v", got[0].URL, got[0].Envelope["type"])
 	}
 	if !verifyHMACv1(t, got[0].Headers, got[0].RawBody, pendingHook.SigningSecret) {
@@ -296,12 +296,17 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 	if !verifyHMACv1(t, approved.Headers, approved.RawBody, approvedHook.SigningSecret) {
 		t.Errorf("approved HMAC verification failed")
 	}
-	// data.reviewed_by_user_id is set on approve (build path puts the
-	// caller's user id there). Verify the shape, not the value — the
-	// per-test user id is opaque.
+	// reviewed_by_user_id is an internal DB id and must NOT be exposed on the
+	// event; agent_email + direction are the public routing fields.
 	data, _ := approved.Envelope["data"].(map[string]any)
-	if data["reviewed_by_user_id"] == "" {
-		t.Errorf("approved event missing reviewed_by_user_id: %v", data)
+	if _, ok := data["reviewed_by_user_id"]; ok {
+		t.Errorf("approved event must not expose reviewed_by_user_id: %v", data)
+	}
+	if data["direction"] != "outbound" {
+		t.Errorf("approved event direction=%v want outbound", data["direction"])
+	}
+	if data["agent_email"] != agent.ID {
+		t.Errorf("approved event agent_email=%v want %q", data["agent_email"], agent.ID)
 	}
 }
 
@@ -349,8 +354,8 @@ func TestWebhooksE2E_HITL_Rejected(t *testing.T) {
 		t.Errorf("rejected HMAC verification failed")
 	}
 	data, _ := got[0].Envelope["data"].(map[string]any)
-	if data["rejection_reason"] != "off-policy" {
-		t.Errorf("rejection_reason=%v want off-policy", data["rejection_reason"])
+	if data["reason"] != "off-policy" {
+		t.Errorf("reason=%v want off-policy", data["reason"])
 	}
 }
 
@@ -717,8 +722,10 @@ func TestWebhooksE2E_ConversationThreadedFromAgentReply(t *testing.T) {
 		t.Fatalf("first inbound: got %d captures, want 1", len(got))
 	}
 	d1, _ := got[0].Envelope["data"].(map[string]any)
-	if cv := fmt.Sprint(d1["conversation_id"]); cv != "" {
-		t.Errorf("first-contact conversation_id = %q, want \"\" (no thread context yet)", cv)
+	// conversation_id is optional-with-omitempty on the typed EmailReceivedData
+	// payload — a first-contact message (no thread context yet) omits the key.
+	if cv, present := d1["conversation_id"]; present && fmt.Sprint(cv) != "" {
+		t.Errorf("first-contact conversation_id = %v, want omitted (no thread context yet)", cv)
 	}
 
 	// (2) The agent replies, stamping its own conversation id. Recorded

@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { E2AError } from "@e2a/sdk/v1";
+import { E2AConnectionError, E2AError } from "@e2a/sdk/v1";
 import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
 import { assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
@@ -13,6 +13,7 @@ import { registerWebhookTools } from "../src/tools/webhooks.js";
 import { registerEventTools } from "../src/tools/events.js";
 import { registerTemplateTools } from "../src/tools/templates.js";
 import { registerApiKeyTools } from "../src/tools/apikeys.js";
+import { CodedError, runTool } from "../src/tools/util.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Build a small RFC822 blob with one attachment so the MessageView's
@@ -99,7 +100,7 @@ function makeStubClient(
       holds: { ttlSeconds: 604800, onExpiry: "reject" },
     })),
     updateProtection: vi.fn(async (config: unknown, _addr?: string) => config),
-    deleteAgent: vi.fn(async (addr?: string) => addr ?? "bot@example.com"),
+    deleteAgent: vi.fn(async (addr?: string) => ({ deleted: true, email: addr ?? "bot@example.com", messagesDeleted: 0 })),
     listDomains: vi.fn(async () => ({
       items: [{ domain: "mail.acme.com", verified: true, verificationToken: "tok1" }],
       next_cursor: undefined,
@@ -123,7 +124,7 @@ function makeStubClient(
       verified: true,
       sendingStatus: "verified",
     })),
-    deleteDomain: vi.fn(async () => undefined),
+    deleteDomain: vi.fn(async (domain: string) => ({ deleted: true, domain })),
     listWebhookDeliveries: vi.fn(
       async (id: string, _params: { status?: string; cursor?: string; limit?: number }) => ({
         items: [{ id: "whd_1", webhookId: id, status: "delivered", attempts: 1 }],
@@ -210,7 +211,7 @@ function makeStubClient(
       createdAt: "2026-06-01T00:00:00Z",
       updatedAt: "2026-06-02T00:00:00Z",
     })),
-    deleteTemplate: vi.fn(async () => undefined),
+    deleteTemplate: vi.fn(async (id: string) => ({ deleted: true, id })),
     validateTemplate: vi.fn(async () => ({
       valid: true,
       errors: [],
@@ -1311,6 +1312,164 @@ describe("e2a MCP server", () => {
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
     expect(text.length).toBeLessThan(600); // bounded, not 5000+
     expect(text).toContain("…");
+  });
+
+  // ── structuredContent on tool errors (GA review Tier-2 #12/#31) ─────────
+  //
+  // Every isError result now ALSO carries a machine-branchable
+  // `structuredContent` payload — the sanctioned alternative to regex-parsing
+  // the (frozen) `e2a error [code]: msg` text. The text stays byte-for-byte
+  // stable; structuredContent is additive.
+
+  it("a typed API error surfaces code/status/request_id/retryable/details in structuredContent", async () => {
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({
+        code: "domain_not_verified",
+        message: "the sending domain is not verified",
+        status: 403,
+        requestId: "req_abc123",
+        details: { domain: "example.com", hint: "verify DNS" },
+        retryable: false,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({
+      code: "domain_not_verified",
+      status: 403,
+      request_id: "req_abc123",
+      retryable: false,
+      details: { domain: "example.com", hint: "verify DNS" },
+    });
+    // The legacy text form is untouched — agents parsing it keep working.
+    const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(text).toBe("e2a error [domain_not_verified]: the sending domain is not verified");
+  });
+
+  it("a retryable API error carries retryable + retry_after_seconds in structuredContent", async () => {
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({
+        code: "rate_limited",
+        message: "slow down",
+        status: 429,
+        retryable: true,
+        retryAfterSeconds: 30,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({
+      code: "rate_limited",
+      status: 429,
+      retryable: true,
+      retry_after_seconds: 30,
+    });
+  });
+
+  it("a wrapper-thrown error carries the stable invalid_request code (no status/request_id)", async () => {
+    // Plain Error from the MCP layer itself — no HTTP exchange happened, so
+    // structuredContent has no status/request_id, but it still carries a
+    // stable code (the server's canonical validation code) instead of none.
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("email is required"));
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ code: "invalid_request", retryable: false });
+    // Text form unchanged: prose, no fabricated code bracket.
+    const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(text).toBe("e2a error: email is required");
+  });
+
+  it("a connection-level failure carries connection_error/retryable/status 0 in structuredContent", async () => {
+    // The SDK's connectionError(...) shape: code connection_error, status 0
+    // (no HTTP response), retryable true — the documented structured form for
+    // "the API was never reached".
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AConnectionError({
+        code: "connection_error",
+        message: "connection to https://api.e2a.dev failed: fetch failed",
+        status: 0,
+        retryable: true,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ code: "connection_error", retryable: true, status: 0 });
+  });
+
+  it("a CodedError carries its server-vocabulary code (no status); text stays prose", async () => {
+    // ownerOfPending's "pending draft already approved/rejected/expired" is a
+    // not-found condition, not malformed input — it must NOT surface as
+    // invalid_request (PR #453 review).
+    const res = await runTool(async () => {
+      throw new CodedError("not_found", "pending message msg_p not found on any owned agent");
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ code: "not_found", retryable: false });
+    expect(res.content[0]?.text).toBe(
+      "e2a error: pending message msg_p not found on any owned agent",
+    );
+  });
+
+  it("the confirm-guard throw carries invalid_request in structuredContent", async () => {
+    // The tools' confirm guards (`throw new Error("delete_agent requires
+    // confirm:true …")`) sit behind a z.literal(true) schema, so drive runTool
+    // directly with the guard-style throw to pin its structured shape.
+    const res = await runTool(async () => {
+      throw new Error(
+        "delete_agent requires confirm:true — refusing to proceed without explicit confirmation.",
+      );
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({ code: "invalid_request", retryable: false });
+    expect(res.content[0]?.text).toBe(
+      "e2a error: delete_agent requires confirm:true — refusing to proceed without explicit confirmation.",
+    );
+  });
+
+  it("oversized details are omitted from structuredContent (context-blowup guard)", async () => {
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({
+        code: "invalid_request",
+        message: "bad input",
+        status: 422,
+        details: { blob: "a".repeat(5000) },
+        retryable: false,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toEqual({
+      code: "invalid_request",
+      status: 422,
+      retryable: false,
+      // no `details` key — its JSON exceeded the cap
+    });
+  });
+
+  it("success results are unchanged: no structuredContent", async () => {
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent).toBeUndefined();
+    const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(JSON.parse(text)).toMatchObject({ messageId: "msg_sent" });
   });
 
   // ── Templates (beta) ────────────────────────────────────────────

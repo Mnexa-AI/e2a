@@ -19,6 +19,7 @@ import (
 
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/emailauth"
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/inboundpolicy"
@@ -419,6 +420,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// design §5.1.
 	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
 		messageID, conversationID, displaySender, senderEmail, rcpt, threadInfo.Subject, threadInfo, authHeaders, agent,
+		time.Now().UTC(), eventpayload.AttachmentMetadata(body),
 	))
 	event.AgentID = agent.ID
 	event.ConversationID = conversationID
@@ -433,25 +435,26 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// is untrusted. Deterministic id keeps MTA retries idempotent.
 	// email.flagged fires for a delivered gate-flag. When the message is HELD
 	// (review/block), delivery is suppressed and email.flagged is not fired: a
-	// block emits email.blocked, a review emits email.pending_review (below).
+	// block emits email.blocked, a review emits email.review_requested (below).
 	var flaggedEvent *webhookpub.Event
 	if policyDecision.Flagged && !screenRes.Hold {
 		fe := webhookpub.NewEvent(webhookpub.EventEmailFlagged, agent.UserID, map[string]interface{}{
 			"message_id":      messageID,
 			"conversation_id": conversationID,
+			"direction":       "inbound",
 			"agent_email":     agent.EmailAddress(),
-			// from is the AUTHENTICATED From identity the policy evaluated and
-			// flagged — NOT displaySender (Reply-To), which is attacker-
-			// controllable and would name a trusted-looking address on the very
-			// message the gate rejected. display_sender/reply_to carry the
-			// reply-routing addresses separately so the signal is complete.
-			"from":           senderEmail,
-			"display_sender": displaySender,
-			"reply_to":       threadInfo.ReplyTo,
-			"delivered_to":   rcpt,
-			"subject":        threadInfo.Subject,
-			"policy":         agent.InboundPolicy,
-			"reason":         policyDecision.Reason,
+			// Mirror email.received's from/authenticated_from semantics: from is the
+			// display/reply-preferred sender, authenticated_from is the gated From
+			// identity that SPF/DKIM/DMARC and the inbound policy evaluated (and
+			// flagged). A consumer of an allowlist/domain-gated agent MUST treat
+			// authenticated_from — not from — as the verified identity.
+			"from":               displaySender,
+			"authenticated_from": senderEmail,
+			"reply_to":           threadInfo.ReplyTo,
+			"delivered_to":       rcpt,
+			"subject":            threadInfo.Subject,
+			"policy":             agent.InboundPolicy,
+			"reason":             policyDecision.Reason,
 		})
 		fe.AgentID = agent.ID
 		fe.ConversationID = conversationID
@@ -485,14 +488,14 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		blockedEvent = &be
 	}
 
-	// email.pending_review: fired when the applied action is review — the message is
+	// email.review_requested: fired when the applied action is review — the message is
 	// held as pending_review awaiting a human / TTL. The same event fires for
 	// outbound HITL holds (direction-aware); carries the review TTL (approval_expires_at) and
 	// reason_source so a subscriber can drive a review queue from push. Deterministic
 	// id keeps MTA retries idempotent.
 	var pendingReviewEvent *webhookpub.Event
 	if screenRes.Review() {
-		pe := webhookpub.NewEvent(webhookpub.EventEmailPendingReview, agent.UserID, map[string]interface{}{
+		pe := webhookpub.NewEvent(webhookpub.EventEmailReviewRequested, agent.UserID, map[string]interface{}{
 			"message_id":          messageID,
 			"conversation_id":     conversationID,
 			"agent_email":         agent.EmailAddress(),
@@ -507,7 +510,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		pe.AgentID = agent.ID
 		pe.ConversationID = conversationID
 		pe.MessageID = messageID
-		pe.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailPendingReview)
+		pe.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReviewRequested)
 		pendingReviewEvent = &pe
 	}
 
@@ -627,7 +630,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q verified=%t",
 		messageID, displaySender, rcpt, slug, conversationID, threadInfo.Subject, domainAuth.DomainAuthenticated())
 
-	// Inbound events (email.received + flagged/blocked/pending_review variants)
+	// Inbound events (email.received + flagged/blocked/review_requested variants)
 	// are written to the outbox (webhook_events) above, in the message tx; the
 	// drain fans them out and enqueues River delivery jobs. No in-process
 	// fan-out here.
@@ -636,61 +639,91 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// /v1/webhooks subscriber resource (driven by the outbox drain) is the
 	// durable push path; WS is an opportunistic live-tail on top of it,
 	// available to every agent regardless of how it's configured.
+	//
+	// The frame is the SAME versioned envelope the webhook channel delivers —
+	// this trigger's email.received event (type/id/schema_version/created_at/
+	// data) with identical fields and the identical event id, so a consumer
+	// can share one parser across both channels and dedup WS-vs-webhook on
+	// the event id. Byte layout may differ between the channels (the webhook
+	// body round-trips through Postgres JSONB, which reorders keys and
+	// de-escapes Go's HTML escapes) — JSON key order/escaping is not
+	// contractual, the marshaled JSON value is.
 	if srv.hub != nil && !screenRes.Hold && srv.hub.IsConnected(agent.ID) {
-		notification := buildWSNotification(inboundMsg)
-		if srv.hub.Send(agent.ID, notification) {
-			log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
+		if notification, err := json.Marshal(event.AsEnvelope()); err == nil {
+			if srv.hub.Send(agent.ID, notification) {
+				log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
+			}
+		} else {
+			// Practically unreachable (the envelope marshals plain structs),
+			// but a silent swallow would make a dropped live frame invisible.
+			log.Printf("[mail:%s] ws_notify=marshal_failed slug=%s err=%v", messageID, slug, err)
 		}
 	}
 	return nil
 }
 
-// The envelope wrapper ({event, id, created_at, data}) is added by the publisher
-// when it marshals the Event; this helper only produces the data subfield.
+// The envelope wrapper ({type, id, schema_version, created_at, data}) is added
+// by the publisher when it marshals the Event; this helper only produces the
+// typed data subfield (the canonical eventpayload.EmailReceivedData — the same
+// struct the WebSocket channel emits, so webhook and WS payloads are identical
+// for the same event).
 //
 // buildEmailReceivedPayload builds the email.received event data. The event is a
 // metadata-only NOTIFICATION, not a content carrier: it omits the message body
 // (raw_message) that an earlier revision embedded. A subscriber fetches the full
-// message — body + attachments — from GET /v1/agents/{recipient}/messages/{message_id}
+// message — body + attachment bytes — from GET /v1/agents/{recipient}/messages/{message_id}
 // using the message_id + recipient carried here (the same notify→fetch model the
 // WebSocket listener already uses). This keeps the fan-out bus payload bounded,
 // avoids shipping full message PII to every subscriber endpoint, and makes the
-// REST resource the single source of truth for content.
+// REST resource the single source of truth for content. Attachment METADATA
+// (never bytes) does ride on the event — the same extraction the message views
+// use, so the indexes agree with the attachment-fetch endpoint.
 //
 // auth_headers stays on the event: it is small SIGNED metadata — the X-E2A-Auth-*
 // attestation (HMAC-keyed by the owner's signing secret, with a replay timestamp)
 // that lets a subscriber INDEPENDENTLY verify the inbound SPF/DKIM/DMARC verdict.
 // It is metadata, not content, so it is not subject to the body-fetch rule.
+//
+// receivedAt is injected (not time.Now() here) so the golden-fixture test can
+// assert the marshaled payload byte-for-byte.
 func buildEmailReceivedPayload(
 	messageID, conversationID, displaySender, authenticatedFrom, recipient, subject string,
 	threadInfo threadInfo,
 	authHeaders map[string]string,
 	agent *identity.AgentIdentity,
-) map[string]interface{} {
-	return map[string]interface{}{
-		"message_id":      messageID,
-		"conversation_id": conversationID,
-		"agent_email":     agent.EmailAddress(),
-		"from":            displaySender,
+	receivedAt time.Time,
+	attachments []eventpayload.AttachmentMeta,
+) eventpayload.EmailReceivedData {
+	if authHeaders == nil {
+		authHeaders = map[string]string{} // required field: present-but-empty, never null
+	}
+	to := threadInfo.To
+	if to == nil {
+		to = []string{} // required field: present-but-empty, never null
+	}
+	return eventpayload.EmailReceivedData{
+		MessageID:      messageID,
+		AgentEmail:     agent.EmailAddress(),
+		Direction:      "inbound",
+		ConversationID: conversationID,
+		From:           displaySender,
 		// authenticated_from is the From-header identity that SPF/DKIM/DMARC
 		// and the inbound trust policy (decision 10) actually pertain to.
 		// It can differ from "from" (which prefers Reply-To for reply
 		// routing): a consumer of an allowlist/domain-gated agent MUST treat
 		// authenticated_from — not from — as the gated/verified identity.
-		"authenticated_from": authenticatedFrom,
-		"to":                 threadInfo.To,
-		"cc":                 threadInfo.CC,
-		"reply_to":           threadInfo.ReplyTo,
-		"delivered_to":       recipient,
-		"subject":            subject,
-		"auth_headers":       authHeaders,
-		"received_at":        time.Now().UTC().Format(time.RFC3339),
+		AuthenticatedFrom: authenticatedFrom,
+		To:                to,
+		CC:                threadInfo.CC,
+		ReplyTo:           threadInfo.ReplyTo,
+		DeliveredTo:       recipient,
+		Subject:           subject,
+		AuthHeaders:       authHeaders,
+		// The raw time.Time marshals to RFC3339Nano, matching the precision of
+		// the envelope created_at.
+		ReceivedAt:  receivedAt,
+		Attachments: attachments,
 	}
-}
-
-// buildWSNotification creates a lightweight JSON notification for WebSocket delivery.
-func buildWSNotification(msg *identity.Message) []byte {
-	return ws.BuildNotification(msg)
 }
 
 func splitEmail(addr string) (local, domain string) {

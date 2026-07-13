@@ -10,10 +10,13 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { AgentView } from '../models/AgentView.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { PageAgentView } from '../models/PageAgentView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 
@@ -71,7 +74,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param email 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -244,9 +247,9 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
      * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
      * Replace an agent\'s protection config (beta)
      * @param email The agent\&#39;s full email address.
-     * @param protectionConfigView 
+     * @param protectionConfigRequest 
      */
-    public async putAgentProtection(email: string, protectionConfigView: ProtectionConfigView, _options?: Configuration): Promise<RequestContext> {
+    public async putAgentProtection(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -255,9 +258,9 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         }
 
 
-        // verify required parameter 'protectionConfigView' is not null or undefined
-        if (protectionConfigView === null || protectionConfigView === undefined) {
-            throw new RequiredError("AgentsApi", "putAgentProtection", "protectionConfigView");
+        // verify required parameter 'protectionConfigRequest' is not null or undefined
+        if (protectionConfigRequest === null || protectionConfigRequest === undefined) {
+            throw new RequiredError("AgentsApi", "putAgentProtection", "protectionConfigRequest");
         }
 
 
@@ -276,7 +279,7 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
         ]);
         requestContext.setHeaderParam("Content-Type", contentType);
         const serializedBody = ObjectSerializer.stringify(
-            ObjectSerializer.serialize(protectionConfigView, "ProtectionConfigView", ""),
+            ObjectSerializer.serialize(protectionConfigRequest, "ProtectionConfigRequest", ""),
             contentType
         );
         requestContext.setBody(serializedBody);
@@ -415,7 +418,14 @@ export class AgentsApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "LimitExceededEnvelope", ""
             ) as LimitExceededEnvelope;
-            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.", body, response.headers);
+        }
+        if (isCodeInRange("429", response.httpStatusCode)) {
+            const body: RateLimitedEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "RateLimitedEnvelope", ""
+            ) as RateLimitedEnvelope;
+            throw new ApiException<RateLimitedEnvelope>(response.httpStatusCode, "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path.", body, response.headers);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -444,10 +454,14 @@ export class AgentsApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteAgent
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteAgentResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteAgentResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteAgentResult", ""
+            ) as DeleteAgentResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -459,10 +473,10 @@ export class AgentsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteAgentResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteAgentResult", ""
+            ) as DeleteAgentResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 
@@ -641,7 +655,14 @@ export class AgentsApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "LimitExceededEnvelope", ""
             ) as LimitExceededEnvelope;
-            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;.", body, response.headers);
+            throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.", body, response.headers);
+        }
+        if (isCodeInRange("429", response.httpStatusCode)) {
+            const body: RateLimitedEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "RateLimitedEnvelope", ""
+            ) as RateLimitedEnvelope;
+            throw new ApiException<RateLimitedEnvelope>(response.httpStatusCode, "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path.", body, response.headers);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(

@@ -35,7 +35,7 @@ import { writeReport, info } from "../harness/report.ts";
 //
 // Event types covered (HTTP-triggerable, per internal/webhookpub/event.go):
 //   email.sent            — real send (no hold) to the SES simulator (SES 200).
-//   email.pending_review  — hold-all-outbound BEFORE send → 202 pending_review.
+//   email.review_requested  — hold-all-outbound BEFORE send → 202 pending_review.
 //   email.review_rejected — reject a held message (clean; no send).
 //   email.review_approved — approve a held message addressed to the simulator
 //                           (approve→send succeeds; a non-simulator recipient
@@ -308,10 +308,10 @@ test("emit: email.sent — real send emits the event and attempts a delivery", {
   }
 });
 
-// ---- email.pending_review: hold-all-outbound BEFORE send → 202 ----
-test("emit: email.pending_review — held send emits the event and attempts a delivery", { skip }, async () => {
+// ---- email.review_requested: hold-all-outbound BEFORE send → 202 ----
+test("emit: email.review_requested — held send emits the event and attempts a delivery", { skip }, async () => {
   const email = await createAgent("pending", true);
-  const hook = await createHook(["email.pending_review"]);
+  const hook = await createHook(["email.review_requested"]);
   const since = sinceNow();
   let heldId: string | null = null;
   try {
@@ -323,20 +323,20 @@ test("emit: email.pending_review — held send emits the event and attempts a de
     heldId = send.body!.message_id!;
     assert.ok(heldId?.startsWith("msg_"), "held send returns a msg_ id");
 
-    const ev = await pollEvent({ type: "email.pending_review", agentId: email, since }, (e) =>
+    const ev = await pollEvent({ type: "email.review_requested", agentId: email, since }, (e) =>
       e.message_id === heldId || e.data.message_id === heldId,
     );
-    assert.ok(ev, `email.pending_review event for ${heldId} must appear within 15s`);
-    assertEventShape(ev!, { type: "email.pending_review", agentId: email, messageId: heldId! });
+    assert.ok(ev, `email.review_requested event for ${heldId} must appear within 15s`);
+    assertEventShape(ev!, { type: "email.review_requested", agentId: email, messageId: heldId! });
     // Payload is direction-aware (outbound HITL hold).
     assert.equal(ev!.data.direction, "outbound", "pending_review payload carries direction=outbound");
 
     const fanout = await pollEventFanout(ev!.id);
     assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
-    const del = await pollDelivery(hook.id, "email.pending_review");
-    assert.ok(del, `a delivery ATTEMPT for email.pending_review must appear on webhook ${hook.id}`);
+    const del = await pollDelivery(hook.id, "email.review_requested");
+    assert.ok(del, `a delivery ATTEMPT for email.review_requested must appear on webhook ${hook.id}`);
     assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
-    info(SUITE, "email.pending_review", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
+    info(SUITE, "email.review_requested", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
   } finally {
     // Resolve the hold explicitly (reject), then delete (delete cascades anyway).
     if (heldId) await client.post(`/v1/reviews/${heldId}/reject`, { body: { reason: "e2e pending-emit cleanup" } });

@@ -10,6 +10,7 @@ import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
+import { AttachmentMeta } from '../models/AttachmentMeta.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
@@ -23,11 +24,26 @@ import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
+import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
+import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
+import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
+import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
+import { DeleteWebhookResult } from '../models/DeleteWebhookResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
+import { DomainSendingFailedData } from '../models/DomainSendingFailedData.js';
+import { DomainSendingVerifiedData } from '../models/DomainSendingVerifiedData.js';
+import { DomainSuppressionAddedData } from '../models/DomainSuppressionAddedData.js';
 import { DomainView } from '../models/DomainView.js';
+import { EmailBouncedData } from '../models/EmailBouncedData.js';
+import { EmailComplainedData } from '../models/EmailComplainedData.js';
+import { EmailDeliveredData } from '../models/EmailDeliveredData.js';
+import { EmailFailedData } from '../models/EmailFailedData.js';
+import { EmailReceivedData } from '../models/EmailReceivedData.js';
+import { EmailSentData } from '../models/EmailSentData.js';
 import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
@@ -57,12 +73,20 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionRequest } from '../models/ProtectionDirectionRequest.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
+import { ProtectionGateRequest } from '../models/ProtectionGateRequest.js';
 import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsRequest } from '../models/ProtectionHoldsRequest.js';
 import { ProtectionHoldsView } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanRequest } from '../models/ProtectionScanRequest.js';
 import { ProtectionScanView } from '../models/ProtectionScanView.js';
+import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
+import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
+import { RateLimitedErrorBody } from '../models/RateLimitedErrorBody.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
@@ -99,6 +123,7 @@ import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js'
 import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
+import { WebhookFiltersRequest } from '../models/WebhookFiltersRequest.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
 
@@ -228,7 +253,7 @@ export class ObjectAccountApi {
     }
 
     /**
-     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
      * Delete your account + all data (irreversible)
      * @param param the request object
      */
@@ -237,7 +262,7 @@ export class ObjectAccountApi {
     }
 
     /**
-     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.
+     * Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.
      * Delete your account + all data (irreversible)
      * @param param the request object
      */
@@ -246,38 +271,38 @@ export class ObjectAccountApi {
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Revoke an API key
      * @param param the request object
      */
-    public deleteApiKeyWithHttpInfo(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteApiKeyWithHttpInfo(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteApiKeyResult>> {
         return this.api.deleteApiKeyWithHttpInfo(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE.
+     * Revoke a key by id. Integrations using it stop authenticating immediately. Account scope only. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Revoke an API key
      * @param param the request object
      */
-    public deleteApiKey(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteApiKey(param: AccountApiDeleteApiKeyRequest, options?: ConfigurationOptions): Promise<DeleteApiKeyResult> {
         return this.api.deleteApiKey(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
      * Remove an address from the suppression list
      * @param param the request object
      */
-    public deleteSuppressionWithHttpInfo(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteSuppressionWithHttpInfo(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteSuppressionResult>> {
         return this.api.deleteSuppressionWithHttpInfo(param.address, param.confirm,  options).toPromise();
     }
 
     /**
-     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.
+     * Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).
      * Remove an address from the suppression list
      * @param param the request object
      */
-    public deleteSuppression(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteSuppression(param: AccountApiDeleteSuppressionRequest, options?: ConfigurationOptions): Promise<DeleteSuppressionResult> {
         return this.api.deleteSuppression(param.address, param.confirm,  options).toPromise();
     }
 
@@ -433,10 +458,10 @@ export interface AgentsApiPutAgentProtectionRequest {
     email: string
     /**
      * 
-     * @type ProtectionConfigView
+     * @type ProtectionConfigRequest
      * @memberof AgentsApiputAgentProtection
      */
-    protectionConfigView: ProtectionConfigView
+    protectionConfigRequest: ProtectionConfigRequest
 }
 
 export interface AgentsApiTestAgentRequest {
@@ -491,20 +516,20 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param param the request object
      */
-    public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteAgentWithHttpInfo(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteAgentResult>> {
         return this.api.deleteAgentWithHttpInfo(param.email, param.confirm,  options).toPromise();
     }
 
     /**
-     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible).
+     * Delete an agent the caller owns. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion receipt ({deleted:true, email, messages_deleted}) — the cascade also removes the agent\'s webhook-delivery records and revokes its credentials.
      * Delete an agent
      * @param param the request object
      */
-    public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<DeleteAgentResult> {
         return this.api.deleteAgent(param.email, param.confirm,  options).toPromise();
     }
 
@@ -568,7 +593,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public putAgentProtectionWithHttpInfo(param: AgentsApiPutAgentProtectionRequest, options?: ConfigurationOptions): Promise<HttpInfo<ProtectionConfigView>> {
-        return this.api.putAgentProtectionWithHttpInfo(param.email, param.protectionConfigView,  options).toPromise();
+        return this.api.putAgentProtectionWithHttpInfo(param.email, param.protectionConfigRequest,  options).toPromise();
     }
 
     /**
@@ -577,7 +602,7 @@ export class ObjectAgentsApi {
      * @param param the request object
      */
     public putAgentProtection(param: AgentsApiPutAgentProtectionRequest, options?: ConfigurationOptions): Promise<ProtectionConfigView> {
-        return this.api.putAgentProtection(param.email, param.protectionConfigView,  options).toPromise();
+        return this.api.putAgentProtection(param.email, param.protectionConfigRequest,  options).toPromise();
     }
 
     /**
@@ -799,20 +824,20 @@ export class ObjectDomainsApi {
     }
 
     /**
-     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
      * Delete a domain
      * @param param the request object
      */
-    public deleteDomainWithHttpInfo(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteDomainWithHttpInfo(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteDomainResult>> {
         return this.api.deleteDomainWithHttpInfo(param.domain, param.confirm,  options).toPromise();
     }
 
     /**
-     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).
+     * Deprovisions the domain\'s sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).
      * Delete a domain
      * @param param the request object
      */
-    public deleteDomain(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteDomain(param: DomainsApiDeleteDomainRequest, options?: ConfigurationOptions): Promise<DeleteDomainResult> {
         return this.api.deleteDomain(param.domain, param.confirm,  options).toPromise();
     }
 
@@ -1062,7 +1087,7 @@ export interface MessagesApiForwardMessageRequest {
      */
     forwardRequest: ForwardRequest
     /**
-     * 
+     * Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApiforwardMessage
@@ -1237,7 +1262,7 @@ export interface MessagesApiReplyToMessageRequest {
      */
     replyRequest: ReplyRequest
     /**
-     * 
+     * Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApireplyToMessage
@@ -1267,7 +1292,7 @@ export interface MessagesApiSendMessageRequest {
      */
     sendEmailRequest: SendEmailRequest
     /**
-     * 
+     * Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApisendMessage
@@ -1331,7 +1356,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected with 413 attachment_too_large. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param param the request object
      */
@@ -1340,7 +1365,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected with 413 attachment_too_large. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param param the request object
      */
@@ -1403,7 +1428,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
+     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry).
      * Send a new email
      * @param param the request object
      */
@@ -1412,7 +1437,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).
+     * Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry).
      * Send a new email
      * @param param the request object
      */
@@ -1491,7 +1516,7 @@ export interface ReviewsApiApproveReviewRequest {
      */
     approveRequest: ApproveRequest
     /**
-     * 
+     * Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * Defaults to: undefined
      * @type string
      * @memberof ReviewsApiapproveReview
@@ -1552,7 +1577,7 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
      * Approve a held message
      * @param param the request object
      */
@@ -1561,7 +1586,7 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold.
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
      * Approve a held message
      * @param param the request object
      */
@@ -1763,20 +1788,20 @@ export class ObjectTemplatesApi {
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param param the request object
      */
-    public deleteTemplateWithHttpInfo(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteTemplateWithHttpInfo(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteTemplateResult>> {
         return this.api.deleteTemplateWithHttpInfo(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param param the request object
      */
-    public deleteTemplate(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteTemplate(param: TemplatesApiDeleteTemplateRequest, options?: ConfigurationOptions): Promise<DeleteTemplateResult> {
         return this.api.deleteTemplate(param.id, param.confirm,  options).toPromise();
     }
 
@@ -1990,7 +2015,7 @@ export interface WebhooksApiRotateWebhookSecretRequest {
      */
     id: string
     /**
-     * 
+     * Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * Defaults to: undefined
      * @type string
      * @memberof WebhooksApirotateWebhookSecret
@@ -2054,20 +2079,20 @@ export class ObjectWebhooksApi {
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param param the request object
      */
-    public deleteWebhookWithHttpInfo(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteWebhookWithHttpInfo(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteWebhookResult>> {
         return this.api.deleteWebhookWithHttpInfo(param.id, param.confirm,  options).toPromise();
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param param the request object
      */
-    public deleteWebhook(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteWebhook(param: WebhooksApiDeleteWebhookRequest, options?: ConfigurationOptions): Promise<DeleteWebhookResult> {
         return this.api.deleteWebhook(param.id, param.confirm,  options).toPromise();
     }
 
@@ -2124,7 +2149,7 @@ export class ObjectWebhooksApi {
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
      * Rotate a webhook signing secret
      * @param param the request object
      */
@@ -2133,7 +2158,7 @@ export class ObjectWebhooksApi {
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
      * Rotate a webhook signing secret
      * @param param the request object
      */

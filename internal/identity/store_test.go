@@ -280,6 +280,46 @@ func TestDeleteAPIKey(t *testing.T) {
 	}
 }
 
+// TestDeleteAgentReturnsMessageCascadeCount pins the DeleteAgent receipt: the
+// agent's message rows are deleted in the same transaction and their
+// rows-affected count is returned for the API's deletion object
+// (DeleteAgentResult.messages_deleted).
+func TestDeleteAgentReturnsMessageCascadeCount(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "agent-del@example.com", "Owner", "google-agent-del")
+	if _, err := store.ClaimOrCreateDomain(ctx, "agentdel.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, "bot@agentdel.example.com", "agentdel.example.com", "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := store.CreateInboundMessage(ctx, "", agent.ID, "a@gmail.com", "bot@agentdel.example.com", fmt.Sprintf("<del-%d@gmail.com>", i), "M", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{}); err != nil {
+			t.Fatalf("CreateInboundMessage: %v", err)
+		}
+	}
+
+	n, err := store.DeleteAgent(ctx, agent.ID, user.ID)
+	if err != nil {
+		t.Fatalf("DeleteAgent: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("messagesDeleted = %d, want 3", n)
+	}
+	if got, err := store.GetAgentByID(ctx, agent.ID); err == nil && got != nil {
+		t.Error("agent still readable after delete")
+	}
+
+	// Not-owned / missing agent: no count, an error, and nothing deleted.
+	if _, err := store.DeleteAgent(ctx, agent.ID, user.ID); err == nil {
+		t.Error("expected error deleting an already-deleted agent")
+	}
+}
+
 func TestGetUserByAPIKey(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -1277,8 +1317,8 @@ func TestGetDashboardStats_DeliverySuccess(t *testing.T) {
 
 // TestListAgentsByUser_EnrichedFields: the dashboard's GET /api/dashboard/agents
 // must surface per-agent stats (Inbound7d, Outbound7d, PendingCount,
-// LastDeliveryAt, WebhookHealthy) so the cards can render without
-// extra round-trips. Asserts the five subqueries produce the right
+// LastDeliveryAt, WebhookStatus) so the cards can render without
+// extra round-trips. Asserts the subqueries produce the right
 // counts for a representative mix of activity.
 func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 	pool := testutil.TestDB(t)
@@ -1293,7 +1333,7 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 	// Seed:
 	//   2 inbound in last 7d, 1 inbound > 7d old
 	//   3 outbound (sent) in last 7d, 1 pending_approval
-	//   1 webhook delivery: delivered (healthy)
+	//   1 enabled webhook + 1 delivered subscriber delivery (healthy)
 	for i := 0; i < 2; i++ {
 		store.CreateInboundMessage(ctx, "", agent.ID, "alice@gmail.com", agent.EmailAddress(), "", "in fresh", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
 	}
@@ -1308,12 +1348,19 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 		"send", "", "", "", 3600)
 	_ = pending
 
-	// One delivered webhook (healthy state)
-	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "delivered-msg", "send", "webhook", "", "", nil)
-	pool.Exec(ctx,
-		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
-		 VALUES ($1, 'delivered', 1, '', now(), now())`,
-		m.ID)
+	// An enabled account-wide webhook subscriber with one delivered
+	// delivery — the healthy state.
+	wh, err := store.CreateWebhook(ctx, user.ID, "https://example.com/wh", "", []string{"email.received"}, identity.WebhookFilters{})
+	if err != nil {
+		t.Fatalf("CreateWebhook: %v", err)
+	}
+	store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "delivered-msg", "send", "webhook", "", "", nil)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status, attempts, last_attempt_at)
+		 VALUES ($1, $2, 'email.sent', '{}'::jsonb, 'delivered', 1, now())`,
+		"whd_enriched_ok", wh.ID); err != nil {
+		t.Fatalf("seed webhook_subscriber_deliveries: %v", err)
+	}
 
 	agents, err := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
 	if err != nil {
@@ -1339,15 +1386,17 @@ func TestListAgentsByUser_EnrichedFields(t *testing.T) {
 	if a.LastDeliveryAt == nil {
 		t.Errorf("LastDeliveryAt should be set (we created 4 sent outbound messages)")
 	}
-	if !a.WebhookHealthy {
-		t.Errorf("WebhookHealthy = false, want true (only delivery is status=delivered)")
+	if a.WebhookStatus != identity.WebhookStatusHealthy {
+		t.Errorf("WebhookStatus = %q, want %q (enabled webhook, only delivery is status=delivered)",
+			a.WebhookStatus, identity.WebhookStatusHealthy)
 	}
 }
 
-// TestListAgentsByUser_WebhookUnhealthyOnRecentFailure: a failed delivery
-// in the last 24h flips WebhookHealthy to false. Operator-visible signal
-// so the dashboard can paint the badge red.
-func TestListAgentsByUser_WebhookUnhealthyOnRecentFailure(t *testing.T) {
+// TestListAgentsByUser_WebhookFailingOnRecentFailure: a terminally-failed
+// subscriber delivery in the last 24h on a webhook serving the agent
+// surfaces as webhook_status=failing. Operator-visible signal so the
+// dashboard can paint the badge red.
+func TestListAgentsByUser_WebhookFailingOnRecentFailure(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -1355,23 +1404,29 @@ func TestListAgentsByUser_WebhookUnhealthyOnRecentFailure(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "wh-fail@example.com", "Owner", "google-wh-fail")
 	store.ClaimOrCreateDomain(ctx, "whfail.example.com", user.ID)
 	store.VerifyDomain(ctx, "whfail.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@whfail.example.com", "whfail.example.com", "", "https://example.com/wh", "cloud", user.ID)
+	store.CreateAgent(ctx, "bot@whfail.example.com", "whfail.example.com", "", "", "cloud", user.ID)
 
-	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "failed-msg", "send", "webhook", "", "", nil)
-	pool.Exec(ctx,
-		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
-		 VALUES ($1, 'failed', 3, '500 internal', now(), now() - interval '5 minutes')`,
-		m.ID)
+	wh, err := store.CreateWebhook(ctx, user.ID, "https://example.com/wh", "", []string{"email.received"}, identity.WebhookFilters{})
+	if err != nil {
+		t.Fatalf("CreateWebhook: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status, attempts, last_error, last_attempt_at)
+		 VALUES ($1, $2, 'email.received', '{}'::jsonb, 'failed', 5, '500 internal', now() - interval '5 minutes')`,
+		"whd_recent_fail", wh.ID); err != nil {
+		t.Fatalf("seed webhook_subscriber_deliveries: %v", err)
+	}
 
 	agents, _ := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
-	if agents[0].WebhookHealthy {
-		t.Error("WebhookHealthy = true, want false on recent failed delivery")
+	if agents[0].WebhookStatus != identity.WebhookStatusFailing {
+		t.Errorf("WebhookStatus = %q, want %q on recent failed delivery",
+			agents[0].WebhookStatus, identity.WebhookStatusFailing)
 	}
 }
 
 // TestListAgentsByUser_OldFailureDoesNotPoisonHealth: failures older
-// than 24h don't flip WebhookHealthy. Otherwise a one-off blip from
-// last week would forever paint the agent red.
+// than 24h don't flip webhook_status to failing. Otherwise a one-off
+// blip from last week would forever paint the agent red.
 func TestListAgentsByUser_OldFailureDoesNotPoisonHealth(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -1380,17 +1435,112 @@ func TestListAgentsByUser_OldFailureDoesNotPoisonHealth(t *testing.T) {
 	user, _ := store.CreateOrGetUser(ctx, "wh-old-fail@example.com", "Owner", "google-wh-of")
 	store.ClaimOrCreateDomain(ctx, "wholdfail.example.com", user.ID)
 	store.VerifyDomain(ctx, "wholdfail.example.com", user.ID)
-	agent, _ := store.CreateAgent(ctx, "bot@wholdfail.example.com", "wholdfail.example.com", "", "https://example.com/wh", "cloud", user.ID)
+	store.CreateAgent(ctx, "bot@wholdfail.example.com", "wholdfail.example.com", "", "", "cloud", user.ID)
 
-	m, _ := store.CreateOutboundMessage(ctx, agent.ID, []string{"alice@example.com"}, nil, nil, "stale-fail", "send", "webhook", "", "", nil)
-	pool.Exec(ctx,
-		`INSERT INTO webhook_deliveries (message_id, status, attempts, last_error, created_at, last_attempt_at)
-		 VALUES ($1, 'failed', 5, 'stale', now() - interval '3 days', now() - interval '3 days')`,
-		m.ID)
+	wh, err := store.CreateWebhook(ctx, user.ID, "https://example.com/wh", "", []string{"email.received"}, identity.WebhookFilters{})
+	if err != nil {
+		t.Fatalf("CreateWebhook: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO webhook_subscriber_deliveries (id, webhook_id, event_type, event_payload, status, attempts, last_error, created_at, last_attempt_at)
+		 VALUES ($1, $2, 'email.received', '{}'::jsonb, 'failed', 5, 'stale', now() - interval '3 days', now() - interval '3 days')`,
+		"whd_stale_fail", wh.ID); err != nil {
+		t.Fatalf("seed webhook_subscriber_deliveries: %v", err)
+	}
 
 	agents, _ := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
-	if !agents[0].WebhookHealthy {
-		t.Error("WebhookHealthy = false, want true (3-day-old failure shouldn't poison health)")
+	if agents[0].WebhookStatus != identity.WebhookStatusHealthy {
+		t.Errorf("WebhookStatus = %q, want %q (3-day-old failure shouldn't poison health)",
+			agents[0].WebhookStatus, identity.WebhookStatusHealthy)
+	}
+}
+
+// TestListAgentsByUser_WebhookStatusNoneWithoutSubscriber: an agent with
+// no matching webhook subscriber reports webhook_status=none — the state
+// the old webhook_healthy bool could not express (it read as "healthy").
+// Also covers agent-filter scoping: a webhook pinned to a different agent
+// must not count as "configured" for this one.
+func TestListAgentsByUser_WebhookStatusNoneWithoutSubscriber(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "wh-none@example.com", "Owner", "google-wh-none")
+	store.ClaimOrCreateDomain(ctx, "whnone.example.com", user.ID)
+	store.VerifyDomain(ctx, "whnone.example.com", user.ID)
+	covered, _ := store.CreateAgent(ctx, "covered@whnone.example.com", "whnone.example.com", "", "", "cloud", user.ID)
+	store.CreateAgent(ctx, "bare@whnone.example.com", "whnone.example.com", "", "", "cloud", user.ID)
+
+	// One webhook, filtered to `covered` only.
+	if _, err := store.CreateWebhook(ctx, user.ID, "https://example.com/wh", "", []string{"email.received"},
+		identity.WebhookFilters{AgentIDs: []string{covered.ID}}); err != nil {
+		t.Fatalf("CreateWebhook: %v", err)
+	}
+
+	agents, err := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListAgentsByUser: %v", err)
+	}
+	byEmail := map[string]string{}
+	for _, a := range agents {
+		byEmail[a.Email] = a.WebhookStatus
+	}
+	if got := byEmail["covered@whnone.example.com"]; got != identity.WebhookStatusHealthy {
+		t.Errorf("covered agent WebhookStatus = %q, want %q (agent-filtered webhook matches it)",
+			got, identity.WebhookStatusHealthy)
+	}
+	if got := byEmail["bare@whnone.example.com"]; got != identity.WebhookStatusNone {
+		t.Errorf("bare agent WebhookStatus = %q, want %q (no webhook matches it)",
+			got, identity.WebhookStatusNone)
+	}
+}
+
+// TestListAgentsByUser_WebhookStatusDisabledStates: a matching webhook that
+// is disabled reports `disabled` when turned off by hand and `auto_disabled`
+// when the chronic-failure sweep tripped it (auto_disabled_at set) — and an
+// enabled matching webhook takes precedence over a disabled one.
+func TestListAgentsByUser_WebhookStatusDisabledStates(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "wh-disabled@example.com", "Owner", "google-wh-disabled")
+	store.ClaimOrCreateDomain(ctx, "whdis.example.com", user.ID)
+	store.VerifyDomain(ctx, "whdis.example.com", user.ID)
+	store.CreateAgent(ctx, "bot@whdis.example.com", "whdis.example.com", "", "", "cloud", user.ID)
+
+	wh, err := store.CreateWebhook(ctx, user.ID, "https://example.com/wh", "", []string{"email.received"}, identity.WebhookFilters{})
+	if err != nil {
+		t.Fatalf("CreateWebhook: %v", err)
+	}
+
+	status := func() string {
+		t.Helper()
+		agents, err := store.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
+		if err != nil {
+			t.Fatalf("ListAgentsByUser: %v", err)
+		}
+		return agents[0].WebhookStatus
+	}
+
+	// Manually disabled: enabled=false, no auto_disabled_at.
+	pool.Exec(ctx, `UPDATE webhooks SET enabled = false, auto_disabled_at = NULL WHERE id = $1`, wh.ID)
+	if got := status(); got != identity.WebhookStatusDisabled {
+		t.Errorf("WebhookStatus = %q, want %q (manually disabled webhook)", got, identity.WebhookStatusDisabled)
+	}
+
+	// Auto-disabled by the failure sweep: auto_disabled_at set.
+	pool.Exec(ctx, `UPDATE webhooks SET enabled = false, auto_disabled_at = now() WHERE id = $1`, wh.ID)
+	if got := status(); got != identity.WebhookStatusAutoDisabled {
+		t.Errorf("WebhookStatus = %q, want %q (auto-disabled webhook)", got, identity.WebhookStatusAutoDisabled)
+	}
+
+	// A second, enabled webhook outranks the disabled one.
+	if _, err := store.CreateWebhook(ctx, user.ID, "https://example.com/wh2", "", []string{"email.received"}, identity.WebhookFilters{}); err != nil {
+		t.Fatalf("CreateWebhook 2: %v", err)
+	}
+	if got := status(); got != identity.WebhookStatusHealthy {
+		t.Errorf("WebhookStatus = %q, want %q (enabled webhook outranks disabled)", got, identity.WebhookStatusHealthy)
 	}
 }
 

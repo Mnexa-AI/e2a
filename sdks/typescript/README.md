@@ -151,9 +151,12 @@ Every failure throws an `E2AError` (or subclass) with `.code` (the stable
 machine code from the response envelope), `.status`, `.requestId`, and
 `.retryable`. Subclasses: `E2AAuthError` (401), `E2APermissionError` (403),
 `E2ANotFoundError` (404), `E2AConflictError` (409), `E2AValidationError` (422),
-`E2AIdempotencyError`, `E2ARateLimitError` (429), `E2AServerError` (5xx),
-`E2AConnectionError` (no response), `E2AWebhookSignatureError` (local verify
-failure).
+`E2AIdempotencyError`, `E2ALimitExceededError` (402 — a **quota** cap; not
+retryable), `E2ARateLimitError` (429 — a request-**rate** limit; retryable after
+`retryAfterSeconds`), `E2AServerError` (5xx), `E2AConnectionError` (no response),
+`E2AWebhookSignatureError` (local verify failure). The 402/429 split is
+permanent — branch on the subclass: 402 → surface a quota/upgrade path, 429 →
+back off and retry.
 
 > Note: e2a hides the existence of agents you don't own — `agents.get` of an
 > unknown address returns `403` (`E2APermissionError`), not `404`.
@@ -172,23 +175,30 @@ Agents receive lightweight notifications over a WebSocket; auth is the
 URL) — no public URL needed.
 
 ```typescript
-import { E2AClient } from "@e2a/sdk/v1";
+import { E2AClient, isEmailReceived } from "@e2a/sdk/v1";
 
 const client = new E2AClient({ apiKey: "e2a_..." });
 
-for await (const notif of client.listen("bot@agents.e2a.dev")) {
+for await (const event of client.listen("bot@agents.e2a.dev")) {
+  if (!isEmailReceived(event)) continue; // tolerate future event kinds
   // Lightweight metadata only — fetch the body when you want it.
-  const email = await client.messages.get(notif.recipient, notif.message_id);
-  console.log(notif.from, notif.subject);
+  const email = await client.webhooks.fetchMessage(event);
+  console.log(event.data.from, event.data.subject);
 }
 ```
 
 `client.listen(address)` (address falls back to `E2A_AGENT_EMAIL`) returns a
-`WSStream` that is **both** an `AsyncIterable<WSNotification>` and an
-`EventEmitter` — use `.on("error" | "close", …)` for connection-level events
-and `.close()` to stop. Reconnects with exponential backoff (1s → 30s,
-configurable via `maxBackoffMs`). The lower-level `WSListener` is also exported
-for advanced use.
+`WSStream` that is **both** an `AsyncIterable<WSEvent>` and an
+`EventEmitter` — each item is the same versioned `{type, id, schema_version,
+created_at, data}` envelope a webhook delivery carries, so
+`client.webhooks.fetchMessage(event)` works on either channel. Use
+`.on("error" | "close", …)` for connection-level events and `.close()` to
+stop. Reconnects with exponential backoff (1s → 30s, configurable via
+`maxBackoffMs`) on transient closes. The server keeps **one connection per
+agent**: if a newer connection for the same agent takes over, the stream
+stops with `E2AConnectionReplacedError` (WS close code `4000 "replaced"`)
+instead of reconnecting — reconnecting would steal the socket back and loop.
+The lower-level `WSListener` is also exported for advanced use.
 
 ## Conversation threading
 

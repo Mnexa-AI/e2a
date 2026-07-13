@@ -246,11 +246,12 @@ describe("Webhooks page", () => {
       "GET /v1/webhooks": () => jsonResp({ items: [webhook, second] }),
       [`DELETE /v1/webhooks/${encodeURIComponent("wh_other")}?confirm=DELETE`]: () => {
         deletedIDs.push("wh_other");
+        // Uniform delete contract: 200 + {deleted:true, id}.
         return {
           ok: true,
-          status: 204,
-          text: async () => "",
-          json: async () => ({}),
+          status: 200,
+          text: async () => JSON.stringify({ deleted: true, id: "wh_other" }),
+          json: async () => ({ deleted: true, id: "wh_other" }),
         };
       },
     }) as unknown as typeof fetch;

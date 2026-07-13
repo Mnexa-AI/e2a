@@ -52,7 +52,37 @@ func (s *Server) errorEnvelopeResponse() *huma.Response {
 // the AccountView usage/limits field stems) instead of a bare `any`.
 func (s *Server) limitExceededResponse() *huma.Response {
 	return s.jsonResponse(reflect.TypeOf(LimitExceededEnvelope{}), "LimitExceededEnvelope",
-		"Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>.")
+		"Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.")
+}
+
+// rateLimitedResponse is the typed 429 response for the throughput-limited write
+// operations (send/reply/forward/test, create agent, approve review). Its schema
+// is the RateLimitedEnvelope, whose error.details is a typed RateLimitedDetails
+// (retry_after_seconds) so codegen surfaces a concrete backoff hint instead of a
+// bare `any`. It is the request-RATE counterpart to limitExceededResponse (402
+// QUOTA) — together they are the permanent GA split clients branch on by status.
+func (s *Server) rateLimitedResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(RateLimitedEnvelope{}), "RateLimitedEnvelope",
+		"Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path.")
+}
+
+// idempotencyInFlightResponse is the declared 409 for every operation that
+// honors the Idempotency-Key header (send/reply/forward/approve/rotate-secret):
+// a request with the same key is still executing. It is RETRY-ABLE — the retry
+// contract is the opposite of the 422 below, so the two must stay separately
+// documented on every keyed operation.
+func (s *Server) idempotencyInFlightResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+		"Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect.")
+}
+
+// idempotencyReuseResponse is the declared 422 for every Idempotency-Key
+// operation: the key was already used with a DIFFERENT request (the dedup hash
+// covers route + raw body bytes). This is the dangerous-retry case — the caller
+// MUST NOT blind-retry, so the contract has to be declared, not just emitted.
+func (s *Server) idempotencyReuseResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+		"Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body.")
 }
 
 // SendResultView is the single outbound result for send/reply/forward/approve/
@@ -157,7 +187,7 @@ type SendEmailRequest struct {
 type createMessageInput struct {
 	Address        string `path:"email"`
 	RawBody        []byte
-	IdempotencyKey string `header:"Idempotency-Key"`
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
 	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
 	Body           SendEmailRequest
 }
@@ -195,10 +225,10 @@ func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "sendMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages",
 		Summary: "Send a new email", Tags: []string{"messages"},
-		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
+		Description:  "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "409": s.idempotencyInFlightResponse(), "413": tooLarge413(), "422": s.idempotencyReuseResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleCreateMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -207,7 +237,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "409": s.idempotencyInFlightResponse(), "413": tooLarge413(), "422": s.idempotencyReuseResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
@@ -216,7 +246,7 @@ func (s *Server) registerOutbound() {
 		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "413": tooLarge413(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "409": s.idempotencyInFlightResponse(), "413": tooLarge413(), "422": s.idempotencyReuseResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
@@ -224,7 +254,7 @@ func (s *Server) registerOutbound() {
 		Summary: "Send a test email to the agent's own address", Tags: []string{"agents"},
 		Description: "Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.",
 		Security:    []map[string][]string{{"bearer": {}}},
-		Responses:   map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "default": s.errorEnvelopeResponse()},
+		Responses:   map[string]*huma.Response{"202": accepted202(), "402": s.limitExceededResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleTestSend)
 }
 
@@ -280,7 +310,7 @@ type replyInput struct {
 	Address        string `path:"email"`
 	ID             string `path:"id"`
 	RawBody        []byte
-	IdempotencyKey string `header:"Idempotency-Key"`
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
 	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
 	Body           ReplyRequest
 }
@@ -416,7 +446,7 @@ type forwardInput struct {
 	Address        string `path:"email"`
 	ID             string `path:"id"`
 	RawBody        []byte
-	IdempotencyKey string `header:"Idempotency-Key"`
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
 	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
 	Body           ForwardRequest
 }

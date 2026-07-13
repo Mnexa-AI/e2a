@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { WSNotification } from "@e2a/sdk/v1";
+import type { EmailReceivedData } from "@e2a/sdk/v1";
 
 import {
   isOpenClawUrl,
@@ -15,12 +15,17 @@ function mockResponse(body: unknown): Response {
   } as Response;
 }
 
-function makeNotification(overrides: Partial<WSNotification> = {}): WSNotification {
+function makeNotification(overrides: Partial<EmailReceivedData> = {}): EmailReceivedData {
   return {
     message_id: "msg_123",
+    agent_email: "bot@agents.e2a.dev",
+    direction: "inbound",
     from: "alice@example.com",
+    authenticated_from: "alice@example.com",
+    to: ["bot@agents.e2a.dev"],
     delivered_to: "bot@agents.e2a.dev",
     subject: "Hello",
+    auth_headers: {},
     received_at: "2025-01-15T10:30:00Z",
     ...overrides,
   };
@@ -289,5 +294,59 @@ describe("listen notification handling", () => {
     expect(mockStderr).toHaveBeenCalledWith(
       "Replied to alice@example.com (msg_123)\n",
     );
+  });
+});
+
+describe("listen replaced-takeover exit (WS close 4000)", () => {
+  afterEach(() => {
+    vi.doUnmock("../sdk.js");
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  it("prints a clear message and exits EXIT.REQUEST (5) — never retry-loops", async () => {
+    vi.resetModules();
+
+    // Build the fake stream first; wire the typed error from the SAME module
+    // registry the re-imported listen.js will use, so instanceof matches.
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => ({ listen: () => fakeStream }),
+      requireAgentEmail: (a?: string) => a ?? "bot@agents.e2a.dev",
+    }));
+
+    const sdk = await import("@e2a/sdk/v1");
+    const replaced = new sdk.E2AConnectionReplacedError({
+      code: "ws_replaced",
+      message: "a newer connection for this agent superseded this one",
+      status: 0,
+      retryable: false,
+    });
+
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      [Symbol.asyncIterator]() {
+        // The SDK stream rejects the pending next() with the typed error
+        // after it stops reconnecting on close code 4000.
+        return { next: () => Promise.reject(replaced) };
+      },
+    };
+
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never);
+
+    const { listen } = await import("../commands/listen.js");
+    await expect(listen({ agent: "bot@agents.e2a.dev" })).rejects.toThrow("process.exit(5)");
+
+    expect(exitSpy).toHaveBeenCalledWith(5); // EXIT.REQUEST — do NOT retry
+    expect(fakeStream.close).toHaveBeenCalled();
+    const said = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(said).toContain("listener replaced");
+    expect(said).toContain("4000");
+    expect(said).toContain("one connection per agent");
+    // The generic connection-error line must not double-report it.
+    expect(said).not.toContain("Connection error:");
   });
 });

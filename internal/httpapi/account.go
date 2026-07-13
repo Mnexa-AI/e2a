@@ -67,7 +67,7 @@ func (s *Server) registerAccount() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteAccount", Method: http.MethodDelete, Path: "/v1/account",
 		Summary: "Delete your account + all data (irreversible)", Tags: []string{"account"},
-		Description: "Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE.",
+		Description: "Permanently deletes the account and cascades all owned data. Requires ?confirm=DELETE. Returns 200 with a deletion receipt (deleted:true plus per-table cascade counts) — like every delete op, which all return 200 + a deletion object.",
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteAccount)
 
@@ -81,8 +81,8 @@ func (s *Server) registerAccount() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteSuppression", Method: http.MethodDelete, Path: "/v1/account/suppressions/{address}",
 		Summary: "Remove an address from the suppression list", Tags: []string{"account"},
-		Description: "Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE.",
-		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Un-suppress a recipient. A previously-blocked send to it then succeeds (idempotency keys are released, so no fresh key is needed). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, address}).",
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteSuppression)
 }
 
@@ -151,7 +151,7 @@ type deleteSuppressionInput struct {
 	Address string `path:"address"`
 	DeleteConfirm
 }
-type deleteSuppressionOutput struct{ Status int }
+type deleteSuppressionOutput struct{ Body DeleteSuppressionResult }
 
 func (s *Server) handleDeleteSuppression(ctx context.Context, in *deleteSuppressionInput) (*deleteSuppressionOutput, error) {
 	user, err := s.requireAccountUser(ctx)
@@ -168,7 +168,7 @@ func (s *Server) handleDeleteSuppression(ctx context.Context, in *deleteSuppress
 	if !found {
 		return nil, NewError(http.StatusNotFound, "not_found", "address not on the suppression list")
 	}
-	return &deleteSuppressionOutput{Status: http.StatusNoContent}, nil
+	return &deleteSuppressionOutput{Body: DeleteSuppressionResult{Deleted: true, Address: in.Address}}, nil
 }
 
 type exportOutput struct {
@@ -225,6 +225,10 @@ func (s *Server) handleDeleteAccount(ctx context.Context, in *deleteAccountInput
 	if err != nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete user data")
 	}
+	// Conform to the uniform delete-object shape: every delete op returns
+	// {deleted:true, ...}; the account receipt keeps its per-table cascade
+	// counts on top of that base.
+	res.Deleted = true
 	return &deleteAccountOutput{Body: res}, nil
 }
 

@@ -164,7 +164,7 @@ func TestCorrelationMatchesBracketedSESID(t *testing.T) {
 	// Store the realistic bracketed+suffixed shape; correlate with the bare id.
 	_, msgID, agentEmail := seedOutbound(t, store, "corr", "<010f0193abc-000000@us-east-2.amazonses.com>", []string{"a@x.com"})
 
-	mID, _, _, found, err := store.CorrelateBySESMessageID(ctx, "010f0193abc-000000")
+	mID, _, _, _, found, err := store.CorrelateBySESMessageID(ctx, "010f0193abc-000000")
 	if err != nil {
 		t.Fatal(err)
 	}

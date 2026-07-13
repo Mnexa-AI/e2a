@@ -56,6 +56,13 @@ e2a listen --agent bot@acme.com --json
 
 `--agent` falls back to the `agent_email` saved in config.
 
+The server keeps **one WebSocket connection per agent**. If another listener
+for the same agent connects (a second `e2a listen`, or an SDK
+`client.listen()` elsewhere), this one is superseded: it prints a
+`listener replaced` explanation and exits `5` instead of reconnecting —
+auto-reconnecting would steal the socket back from the newer listener and
+loop.
+
 #### OpenAI Responses auto-reply
 
 When the `--forward <url>` path ends in `/v1/responses`, `listen` switches to

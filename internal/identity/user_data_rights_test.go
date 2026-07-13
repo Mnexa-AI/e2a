@@ -126,6 +126,17 @@ func TestExportUserData(t *testing.T) {
 		if !jsonContains(agentJSON, "email") {
 			t.Error("exported agent is missing `email` — the agent's identifier")
 		}
+		// webhook_status must be computed (not the zero value) in the
+		// export: the fixture has no webhook subscriber, so the agent
+		// reports `none` — the state the old webhook_healthy bool could
+		// not express. The dropped bool must not resurface on the wire.
+		if got := dump.Agents[0].WebhookStatus; got != identity.WebhookStatusNone {
+			t.Errorf("exported agent WebhookStatus = %q, want %q (no webhook subscriber seeded)",
+				got, identity.WebhookStatusNone)
+		}
+		if jsonContains(agentJSON, "webhook_healthy") {
+			t.Error("exported agent leaks `webhook_healthy` — replaced by the webhook_status enum pre-GA")
+		}
 	}
 	if len(dump.APIKeys) != 2 {
 		t.Errorf("api_keys: got %d, want 2", len(dump.APIKeys))

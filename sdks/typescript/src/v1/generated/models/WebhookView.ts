@@ -1,6 +1,6 @@
 /**
  * e2a API
- * e2a — authenticated email gateway for AI agents. v1 contract.
+ * e2a — authenticated email gateway for AI agents. v1 contract.  ## Stability policy  The v1 surface is stable and evolves **additively only**: new endpoints, new optional request fields, new response fields, and new values in open string sets (event types, statuses) may appear at any time without a version bump. Clients MUST tolerate unknown response fields and unknown values in open string sets. This is machine-readable in the schemas: response schemas declare `additionalProperties: true`; request schemas stay strict (`additionalProperties: false` — an unknown request field is rejected with 422).  Operations and schemas marked `x-stability: experimental` are exempt from this freeze and may change or be removed without a major version. A field marked `x-experimental-values` is itself stable, but the listed values (and their event payloads) are experimental. Everything not marked experimental is stable.  Removing or changing stable surface only happens on a new major version path (/v2); deprecations are announced ahead of time via `deprecated: true` in this document and keep working within v1.
  *
  * OpenAPI spec version: 1.0.0
  * 
@@ -19,7 +19,7 @@ export class WebhookView {
     'description': string;
     'enabled': boolean;
     /**
-    * The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable.
+    * The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable.
     */
     'events': Array<string>;
     'filters': WebhookFiltersView;

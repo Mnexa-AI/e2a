@@ -260,9 +260,9 @@ pip install 'e2a[ws]'      # adds WebSocket support
 ```
 
 ```python
-from e2a.v1 import E2AClient, construct_event
+from e2a.v1 import AsyncE2AClient, construct_event
 
-client = E2AClient()                                       # reads E2A_API_KEY
+client = AsyncE2AClient()                                       # reads E2A_API_KEY
 event = construct_event(request_body, signature_header, webhook_secret)  # parse + HMAC-verify
 if event.type == "email.received":
     # event.data is metadata only — replying needs just the recipient + message_id
@@ -275,9 +275,9 @@ if event.type == "email.received":
 WebSocket (no public URL needed):
 
 ```python
-from e2a.v1 import E2AClient
+from e2a.v1 import AsyncE2AClient
 
-async with E2AClient(api_key="e2a_…") as client:
+async with AsyncE2AClient(api_key="e2a_…") as client:
     async for notif in client.listen("bot@your-domain.com"):  # falls back to E2A_AGENT_EMAIL
         # notif is lightweight metadata — fetch the body when you want it
         email = await client.messages.get(notif.recipient, notif.message_id)

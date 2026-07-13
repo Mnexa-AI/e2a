@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -25,8 +26,22 @@ const (
 	webhookMaxDescriptionLen  = 200
 )
 
-// WebhookFiltersView mirrors identity.WebhookFilters.
+// WebhookFiltersView mirrors identity.WebhookFilters (response side).
 type WebhookFiltersView struct {
+	AgentIDs        []string `json:"agent_emails,omitempty" nullable:"false"`
+	ConversationIDs []string `json:"conversation_ids,omitempty" nullable:"false"`
+	Labels          []string `json:"labels,omitempty" nullable:"false"`
+}
+
+// WebhookFiltersRequest is WebhookFiltersView's request-side twin (create/
+// update bodies). Dedicated input type because the spec's forward-compat
+// stance is asymmetric: request schemas stay `additionalProperties: false`
+// (an unknown filter key is a 422, not a silently ignored no-op filter) while
+// response schemas are open so clients tolerate additive fields; one shared
+// schema cannot carry both (stability.go panics if one tries). Keep the fields
+// in lockstep with the View. Convertible via WebhookFiltersView(f) — the
+// compiler enforces the mirror.
+type WebhookFiltersRequest struct {
 	AgentIDs        []string `json:"agent_emails,omitempty" nullable:"false"`
 	ConversationIDs []string `json:"conversation_ids,omitempty" nullable:"false"`
 	Labels          []string `json:"labels,omitempty" nullable:"false"`
@@ -39,7 +54,7 @@ type WebhookView struct {
 	ID              string             `json:"id"`
 	URL             string             `json:"url"`
 	Description     string             `json:"description"`
-	Events          []string           `json:"events" nullable:"false" doc:"The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.deferred, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."`
+	Events          []string           `json:"events" nullable:"false" doc:"The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."`
 	Filters         WebhookFiltersView `json:"filters"`
 	Enabled         bool               `json:"enabled"`
 	AutoDisabledAt  *time.Time         `json:"auto_disabled_at,omitempty" format:"date-time"`
@@ -181,10 +196,10 @@ type listWebhooksOutput struct {
 // constrained to the canonical vocabulary (WH-2; keep in sync with
 // webhookpub.AllEventTypes).
 type CreateWebhookRequest struct {
-	URL         string              `json:"url"`
-	Events      []string            `json:"events" nullable:"false" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
-	Filters     *WebhookFiltersView `json:"filters,omitempty"`
-	Description string              `json:"description,omitempty"`
+	URL         string                 `json:"url"`
+	Events      []string               `json:"events" nullable:"false" enum:"email.received,email.sent,email.failed,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.review_requested" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
+	Filters     *WebhookFiltersRequest `json:"filters,omitempty"`
+	Description string                 `json:"description,omitempty"`
 }
 type createWebhookInput struct{ Body CreateWebhookRequest }
 
@@ -223,8 +238,8 @@ func (s *Server) registerWebhooks() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteWebhook", Method: http.MethodDelete, Path: "/v1/webhooks/{id}",
 		Summary: "Delete a webhook", Tags: []string{"webhooks"},
-		Description: "Delete a webhook subscriber by id. Requires ?confirm=DELETE.",
-		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).",
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteWebhook)
 
 	huma.Register(s.API, huma.Operation{
@@ -232,13 +247,23 @@ func (s *Server) registerWebhooks() {
 		Summary: "Update a webhook", Tags: []string{"webhooks"},
 		Description: "Partial update. url/events/filters are full-replace when present. Re-enabling within the auto-disable cooldown returns 409.",
 		Security:    []map[string][]string{{"bearer": {}}},
+		Responses: map[string]*huma.Response{
+			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+				"Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. Retry after the cooldown, or fix the endpoint first."),
+			"default": s.errorEnvelopeResponse(),
+		},
 	}, s.handleUpdateWebhook)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "rotateWebhookSecret", Method: http.MethodPost, Path: "/v1/webhooks/{id}/rotate-secret",
 		Summary: "Rotate a webhook signing secret", Tags: []string{"webhooks"},
-		Description: "Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.",
+		Description: "Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).",
 		Security:    []map[string][]string{{"bearer": {}}},
+		Responses: map[string]*huma.Response{
+			"409":     s.idempotencyInFlightResponse(),
+			"422":     s.idempotencyReuseResponse(),
+			"default": s.errorEnvelopeResponse(),
+		},
 	}, s.handleRotateWebhookSecret)
 
 	huma.Register(s.API, huma.Operation{
@@ -258,7 +283,7 @@ func (s *Server) registerWebhooks() {
 
 // TestWebhookRequest mirrors the legacy body.
 type TestWebhookRequest struct {
-	Event string         `json:"type,omitempty" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review"`
+	Event string         `json:"type,omitempty" enum:"email.received,email.sent,email.failed,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.review_requested"`
 	Data  map[string]any `json:"data,omitempty"`
 }
 type testWebhookInput struct {
@@ -326,7 +351,7 @@ func (s *Server) handleTestWebhook(ctx context.Context, in *testWebhookInput) (*
 // WebhookDeliveryView mirrors the legacy per-delivery wire shape.
 type WebhookDeliveryView struct {
 	ID             string     `json:"id"`
-	EventType      string     `json:"type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.deferred, email.delivered, …, domain.*)."`
+	EventType      string     `json:"type" doc:"The event type that triggered this delivery. Open set: new event types may be added, so treat as a string and tolerate unknown values. Known values are the webhook event catalog (email.received, email.sent, email.failed, email.delivered, …, domain.*)."`
 	Status         string     `json:"status" doc:"Delivery state. Open set; tolerate unknown values. Known values: pending, delivered, failed."`
 	Attempts       int        `json:"attempts"`
 	LastError      string     `json:"last_error,omitempty"`
@@ -421,11 +446,11 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, in *ListDelive
 // UpdateWebhookRequest mirrors the legacy PATCH body — pointer fields so
 // absent != zero; url/events/filters are full-replace when present.
 type UpdateWebhookRequest struct {
-	URL         *string             `json:"url,omitempty"`
-	Events      *[]string           `json:"events,omitempty" enum:"email.received,email.sent,email.failed,email.deferred,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.pending_review" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.pending_review, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
-	Filters     *WebhookFiltersView `json:"filters,omitempty"`
-	Description *string             `json:"description,omitempty"`
-	Enabled     *bool               `json:"enabled,omitempty"`
+	URL         *string                `json:"url,omitempty"`
+	Events      *[]string              `json:"events,omitempty" enum:"email.received,email.sent,email.failed,email.review_approved,email.review_rejected,domain.sending_verified,domain.sending_failed,email.delivered,email.bounced,email.complained,domain.suppression_added,email.flagged,email.blocked,email.review_requested" doc:"Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."`
+	Filters     *WebhookFiltersRequest `json:"filters,omitempty"`
+	Description *string                `json:"description,omitempty"`
+	Enabled     *bool                  `json:"enabled,omitempty"`
 }
 type updateWebhookInput struct {
 	ID   string `path:"id"`
@@ -461,7 +486,7 @@ func (s *Server) handleUpdateWebhook(ctx context.Context, in *updateWebhookInput
 	}
 	effFilters := WebhookFiltersView{AgentIDs: current.Filters.AgentIDs, ConversationIDs: current.Filters.ConversationIDs, Labels: current.Filters.Labels}
 	if req.Filters != nil {
-		effFilters = *req.Filters
+		effFilters = WebhookFiltersView(*req.Filters)
 	}
 	effDesc := current.Description
 	if req.Description != nil {
@@ -506,7 +531,7 @@ type rotateSecretOutput struct {
 // idempotency dedup hashes the route (which includes the webhook id) alone.
 type rotateSecretInput struct {
 	ID             string `path:"id"`
-	IdempotencyKey string `header:"Idempotency-Key"`
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
 }
 
 func (s *Server) handleRotateWebhookSecret(ctx context.Context, in *rotateSecretInput) (*rotateSecretOutput, error) {
@@ -542,7 +567,7 @@ func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput
 	}
 	var filters WebhookFiltersView
 	if in.Body.Filters != nil {
-		filters = *in.Body.Filters
+		filters = WebhookFiltersView(*in.Body.Filters)
 	}
 	if env := s.validateWebhookFields(ctx, user.ID, in.Body.URL, in.Body.Events, filters, in.Body.Description); env != nil {
 		return nil, env
@@ -554,7 +579,7 @@ func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput
 	})
 	if err != nil {
 		if errors.Is(err, identity.ErrWebhookCapReached) {
-			return nil, NewError(http.StatusBadRequest, "webhook_cap_reached", err.Error())
+			return nil, NewError(http.StatusBadRequest, "webhook_limit_reached", err.Error())
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to create webhook")
 	}
@@ -614,7 +639,7 @@ func (s *Server) handleGetWebhook(ctx context.Context, in *WebhookIDParam) (*web
 	return &webhookOutput{Body: webhookView(wh)}, nil
 }
 
-type deleteWebhookOutput struct{}
+type deleteWebhookOutput struct{ Body DeleteWebhookResult }
 
 func (s *Server) handleDeleteWebhook(ctx context.Context, in *deleteWebhookInput) (*deleteWebhookOutput, error) {
 	user, err := s.requireAccountUser(ctx)
@@ -627,5 +652,5 @@ func (s *Server) handleDeleteWebhook(ctx context.Context, in *deleteWebhookInput
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete webhook")
 	}
-	return &deleteWebhookOutput{}, nil
+	return &deleteWebhookOutput{Body: DeleteWebhookResult{Deleted: true, ID: in.ID}}, nil
 }

@@ -145,9 +145,11 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
       assert.equal(typeof d.attempts, "number", "delivery.attempts is a number");
     }
 
-    // deleteWebhook — 204, then the hook 404s.
-    const rm = await client.delete(`/v1/webhooks/${id}?confirm=DELETE`);
-    assert.equal(rm.status, 204, `delete expected 204, got ${rm.status}: ${rm.raw.slice(0, 200)}`);
+    // deleteWebhook — 200 + {deleted:true, id}, then the hook 404s.
+    const rm = await client.delete<{ deleted: boolean; id: string }>(`/v1/webhooks/${id}?confirm=DELETE`);
+    assert.equal(rm.status, 200, `delete expected 200 + deletion object, got ${rm.status}: ${rm.raw.slice(0, 200)}`);
+    assert.equal(rm.body?.deleted, true, "deletion object has deleted:true");
+    assert.equal(rm.body?.id, id, "deletion object echoes the webhook id");
     const gone = await client.get<ErrEnvelope>(`/v1/webhooks/${id}`);
     assert.equal(gone.status, 404, `deleted webhook should 404, got ${gone.status}`);
     assert.equal(gone.body?.error?.code, "not_found");

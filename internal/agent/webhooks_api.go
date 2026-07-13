@@ -3,6 +3,7 @@ package agent
 import (
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -32,6 +33,10 @@ import (
 // /forward. outMsg may be nil if CreateOutboundMessage failed — in
 // that case we still publish (the SES send already happened) but with
 // an empty message_id; receivers see the event without a row to fetch.
+//
+// Data is the canonical typed eventpayload.EmailSentData — the SAME struct the
+// async send worker's buildEmailSentEventFromRow emits, so subscribers see an
+// identical payload on both paths (golden-fixture-locked).
 func (a *API) buildSentEvent(
 	agent *identity.AgentIdentity,
 	outMsg *identity.Message,
@@ -43,17 +48,19 @@ func (a *API) buildSentEvent(
 	if outMsg != nil {
 		messageID = outMsg.ID
 	}
-	data := map[string]interface{}{
-		"message_id":          messageID,
-		"provider_message_id": result.MessageID,
-		"method":              result.Method,
-		"from":                agent.EmailAddress(),
-		"to":                  result.To,
-		"cc":                  result.CC,
-		"bcc":                 result.BCC,
-		"subject":             req.Subject,
-		"type":                msgType,
-		"conversation_id":     req.ConversationID,
+	data := eventpayload.EmailSentData{
+		MessageID:         messageID,
+		AgentEmail:        agent.EmailAddress(),
+		Direction:         "outbound",
+		ConversationID:    req.ConversationID,
+		ProviderMessageID: result.MessageID,
+		Method:            result.Method,
+		From:              agent.EmailAddress(),
+		To:                orEmpty(result.To),
+		CC:                result.CC,
+		BCC:               result.BCC,
+		Subject:           req.Subject,
+		MessageType:       msgType,
 	}
 	return webhookpub.Event{
 		ID:             generateEventIDForAgent(),
@@ -79,18 +86,19 @@ func (a *API) buildPendingApprovalEvent(
 	data := map[string]interface{}{
 		"message_id":          msg.ID,
 		"direction":           "outbound",
+		"agent_email":         agent.EmailAddress(),
 		"from":                agent.EmailAddress(),
 		"to":                  req.To,
 		"cc":                  req.CC,
 		"bcc":                 req.BCC,
 		"subject":             req.Subject,
-		"type":                msgType,
+		"message_type":        msgType,
 		"conversation_id":     req.ConversationID,
 		"approval_expires_at": msg.ApprovalExpiresAt,
 	}
 	return webhookpub.Event{
 		ID:             generateEventIDForAgent(),
-		Type:           webhookpub.EventEmailPendingReview,
+		Type:           webhookpub.EventEmailReviewRequested,
 		CreatedAt:      time.Now().UTC(),
 		UserID:         agent.UserID,
 		AgentID:        agent.ID,
@@ -110,14 +118,14 @@ func (a *API) buildApprovedEvent(
 	data := map[string]interface{}{
 		"message_id":          sent.ID,
 		"direction":           "outbound",
+		"agent_email":         agent.EmailAddress(),
 		"provider_message_id": sent.ProviderMessageID,
 		"method":              sent.Method,
 		"from":                agent.EmailAddress(),
 		"to":                  sent.ToRecipients,
 		"subject":             sent.Subject,
-		"type":                sent.Type,
+		"message_type":        sent.Type,
 		"edited":              sent.Edited,
-		"reviewed_by_user_id": reviewerUserID,
 	}
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
@@ -140,11 +148,11 @@ func (a *API) buildRejectedEvent(
 	reason string,
 ) webhookpub.Event {
 	data := map[string]interface{}{
-		"message_id":          rejected.ID,
-		"direction":           "outbound",
-		"type":                rejected.Type,
-		"rejection_reason":    reason,
-		"reviewed_by_user_id": userID,
+		"message_id":   rejected.ID,
+		"direction":    "outbound",
+		"agent_email":  rejected.AgentID,
+		"message_type": rejected.Type,
+		"reason":       reason,
 	}
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
@@ -166,17 +174,17 @@ func (a *API) buildRejectedEvent(
 //
 // ownerUserID is the ROUTING key (whose webhooks fire) — always the agent's
 // owner, mirroring buildApprovedEvent. reviewerUserID is the human who acted; it
-// goes in the payload as reviewed_by_user_id. They are equal today (the endpoint
-// is account-scoped + ownership-checked) but are kept distinct so a future
-// multi-reviewer ACL can't misroute the event to a non-owner reviewer.
+// is NOT exposed in the payload (an internal DB user id) but is kept as a distinct
+// parameter from ownerUserID so a future multi-reviewer ACL can't misroute the
+// event to a non-owner reviewer.
 func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID string) webhookpub.Event {
 	data := map[string]interface{}{
-		"message_id":          msg.ID,
-		"direction":           "inbound",
-		"from":                msg.Sender,
-		"subject":             msg.Subject,
-		"type":                msg.Type,
-		"reviewed_by_user_id": reviewerUserID,
+		"message_id":   msg.ID,
+		"direction":    "inbound",
+		"agent_email":  msg.Recipient,
+		"from":         msg.Sender,
+		"subject":      msg.Subject,
+		"message_type": msg.Type,
 	}
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
@@ -195,11 +203,11 @@ func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, ownerUs
 // agent owner (see buildInboundReleasedEvent).
 func (a *API) buildInboundRejectedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID, reason string) webhookpub.Event {
 	data := map[string]interface{}{
-		"message_id":          msg.ID,
-		"direction":           "inbound",
-		"type":                msg.Type,
-		"rejection_reason":    reason,
-		"reviewed_by_user_id": reviewerUserID,
+		"message_id":   msg.ID,
+		"direction":    "inbound",
+		"agent_email":  msg.Recipient,
+		"message_type": msg.Type,
+		"reason":       reason,
 	}
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
@@ -219,3 +227,11 @@ func generateEventIDForAgent() string {
 }
 
 // --- helpers ---
+
+// orEmpty keeps a REQUIRED wire array present-but-empty rather than null.
+func orEmpty(ss []string) []string {
+	if ss == nil {
+		return []string{}
+	}
+	return ss
+}

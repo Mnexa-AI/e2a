@@ -27,6 +27,7 @@ import type {
   CreateAgentRequest,
   UpdateAgentRequest,
   ProtectionConfigView,
+  ProtectionConfigRequest,
   MessageView,
   AttachmentView,
   MessageSummaryView,
@@ -58,6 +59,12 @@ import type {
   AccountView,
   UserExport,
   DeleteUserDataResult,
+  DeleteAgentResult,
+  DeleteDomainResult,
+  DeleteSuppressionResult,
+  DeleteApiKeyResult,
+  DeleteTemplateResult,
+  DeleteWebhookResult,
   Suppression,
   APIKeyView,
   CreateAPIKeyRequest,
@@ -77,7 +84,7 @@ import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
 import { E2AError, fromApiException, connectionError } from "./errors.js";
 import { AutoPager } from "./pagination.js";
 import { WSStream } from "./ws.js";
-import type { WebhookEvent, EmailReceivedPayload } from "./webhook-signature.js";
+import type { WebhookEvent, EmailReceivedData } from "./webhook-signature.js";
 
 export interface E2AClientOptions {
   /** Account (`e2a_acct_`) or agent (`e2a_agt_`) key, or an OAuth access token.
@@ -178,11 +185,15 @@ export class E2AClient {
   }
 
   /**
-   * Open a notification stream for an agent's inbox. Yields lightweight
-   * {@link WSNotification}s; fetch the body with `client.messages.get(email, id)`
-   * when you need it.
+   * Open a notification stream for an agent's inbox. Yields versioned
+   * {@link WSEvent} envelopes — the same shape as webhook deliveries
+   * (`email.received` today; tolerate unknown types). Fetch the body with
+   * `client.webhooks.fetchMessage(event)` when you need it.
    *
-   *     for await (const n of client.listen("bot@acme.dev")) { ... }
+   *     for await (const event of client.listen("bot@acme.dev")) {
+   *       if (!isEmailReceived(event)) continue;
+   *       const email = await client.webhooks.fetchMessage(event);
+   *     }
    */
   listen(email: string): WSStream {
     if (!email) {
@@ -226,13 +237,14 @@ class AgentsResource {
    * Replace an agent's protection config wholesale (all three top-level keys
    * required). Beta; account scope only.
    */
-  replaceProtection(email: string, config: ProtectionConfigView): Promise<ProtectionConfigView> {
+  replaceProtection(email: string, config: ProtectionConfigRequest): Promise<ProtectionConfigView> {
     return call(() => this.api.putAgentProtection(email, config));
   }
-  async delete(email: string): Promise<void> {
+  delete(email: string): Promise<DeleteAgentResult> {
     // The typed .delete() call is itself the confirmation; the ?confirm=DELETE
-    // guard exists to protect raw/curl callers (AG-6).
-    await call(() => this.api.deleteAgent(email, "DELETE"));
+    // guard exists to protect raw/curl callers (AG-6). Returns the deletion
+    // receipt ({deleted:true, email, messages_deleted}).
+    return call(() => this.api.deleteAgent(email, "DELETE"));
   }
   test(email: string): Promise<SendResultView> {
     return call(() => this.api.testAgent(email));
@@ -353,10 +365,11 @@ class TemplatesResource {
   update(id: string, patch: UpdateTemplateRequest): Promise<TemplateView> {
     return call(() => this.api.updateTemplate(id, patch));
   }
-  async delete(id: string): Promise<void> {
+  delete(id: string): Promise<DeleteTemplateResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteTemplate(id, "DELETE"));
+    // Returns the deletion object ({deleted:true, id}).
+    return call(() => this.api.deleteTemplate(id, "DELETE"));
   }
   /** Dry-run template source without persisting: per-part parse errors, a
    *  rendered preview against testData (present only when valid), and
@@ -411,8 +424,9 @@ class DomainsResource {
   create(body: RegisterDomainRequest): Promise<DomainView> {
     return call(() => this.api.registerDomain(body));
   }
-  async delete(domain: string): Promise<void> {
-    await call(() => this.api.deleteDomain(domain, "DELETE"));
+  delete(domain: string): Promise<DeleteDomainResult> {
+    // Returns the deletion object ({deleted:true, domain}).
+    return call(() => this.api.deleteDomain(domain, "DELETE"));
   }
   verify(domain: string): Promise<VerifyDomainView> {
     return call(() => this.api.verifyDomain(domain));
@@ -462,7 +476,7 @@ class WebhooksResource {
    * those keys.
    */
   fetchMessage(event: WebhookEvent): Promise<MessageView> {
-    const d = event.data as EmailReceivedPayload | undefined;
+    const d = event.data as EmailReceivedData | undefined;
     if (event.type !== "email.received" || !d?.message_id || !d?.delivered_to) {
       throw new Error(
         "fetchMessage expects an email.received event with message_id and delivered_to",
@@ -487,10 +501,11 @@ class WebhooksResource {
   update(id: string, patch: UpdateWebhookRequest): Promise<WebhookView> {
     return call(() => this.api.updateWebhook(id, patch));
   }
-  async delete(id: string): Promise<void> {
+  delete(id: string): Promise<DeleteWebhookResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteWebhook(id, "DELETE"));
+    // Returns the deletion object ({deleted:true, id}).
+    return call(() => this.api.deleteWebhook(id, "DELETE"));
   }
   rotateSecret(id: string): Promise<RotateSecretResponse> {
     return call(() => this.api.rotateWebhookSecret(id));
@@ -517,10 +532,11 @@ class SuppressionsResource {
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-  async delete(email: string): Promise<void> {
+  delete(email: string): Promise<DeleteSuppressionResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteSuppression(email, "DELETE"));
+    // Returns the deletion object ({deleted:true, address}).
+    return call(() => this.api.deleteSuppression(email, "DELETE"));
   }
 }
 
@@ -537,10 +553,11 @@ class APIKeysResource {
   create(body: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
     return call(() => this.api.createApiKey(body));
   }
-  async delete(id: string): Promise<void> {
+  delete(id: string): Promise<DeleteApiKeyResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the
     // ?confirm=DELETE guard the raw API requires so callers aren't burdened.
-    await call(() => this.api.deleteApiKey(id, "DELETE"));
+    // Returns the deletion object ({deleted:true, id}).
+    return call(() => this.api.deleteApiKey(id, "DELETE"));
   }
 }
 
@@ -559,7 +576,8 @@ class AccountResource {
   }
   delete(): Promise<DeleteUserDataResult> {
     // Irreversible. The typed .delete() call is the confirmation; the SDK
-    // supplies the ?confirm=DELETE guard the raw API requires.
+    // supplies the ?confirm=DELETE guard the raw API requires. Returns the
+    // deletion receipt ({deleted:true} plus per-table cascade counts).
     return call(() => this.api.deleteAccount("DELETE"));
   }
 }

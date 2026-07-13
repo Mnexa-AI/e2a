@@ -107,8 +107,9 @@ export async function createAgent(params: {
 }
 
 // DELETE /v1/agents/{email}. The v1 surface guards destructive deletes
-// behind an explicit `?confirm=DELETE` query param and returns 204 (no
-// body) on success — `request<T>` maps that to undefined.
+// behind an explicit `?confirm=DELETE` query param and returns 200 with a
+// deletion receipt ({deleted:true, email, messages_deleted}); the dashboard
+// doesn't consume it, so this stays Promise<void>.
 export async function deleteAgent(email: string): Promise<void> {
   return request(
     "/v1/agents/" + encodeURIComponent(email) + "?confirm=DELETE",

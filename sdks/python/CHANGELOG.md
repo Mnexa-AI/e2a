@@ -1,6 +1,134 @@
 # Changelog
 
-## 4.0.1
+## 5.1.0
+
+### Breaking (pre-GA)
+- **Uniform DELETE responses: every `.delete(...)` now returns a typed deletion
+  object instead of `None`.** The API's seven delete endpoints all return
+  `200 OK` with `{"deleted": true, <identity key>}` instead of the previous mix
+  of `204 No Content` and `200`. New return types: `agents.delete` →
+  `DeleteAgentResult` (`deleted`, `email`, `messages_deleted` — the message
+  cascade count), `domains.delete` → `DeleteDomainResult` (`domain`),
+  `webhooks.delete` → `DeleteWebhookResult` (`id`), `templates.delete` →
+  `DeleteTemplateResult` (`id`), `account.api_keys.delete` →
+  `DeleteApiKeyResult` (`id`), `account.suppressions.delete` →
+  `DeleteSuppressionResult` (`address`); `account.delete()` still returns
+  `DeleteUserDataResult`, which now also carries `deleted: true`. `deleted` is
+  always `True` — a failed delete raises a typed error, never returns
+  `deleted: False`. Applies identically to the sync `E2AClient` facade (it
+  mirrors the async surface). Callers that ignored the old `None` return need
+  no changes; the SDK still auto-sends the `?confirm=DELETE` guard. Older SDK
+  versions whose generated bases expected `204` are incompatible with servers
+  running this contract — upgrade together (pre-GA break).
+
+## 5.0.0
+
+Breaking: the async client class was renamed (the freed name now ships a
+synchronous client), and the WebSocket frame is now the versioned event
+envelope (server #456).
+
+### Changed
+- **`E2AClient` → `AsyncE2AClient`.** The 4.x client was async-only, but its
+  name inverted the Python-ecosystem convention (httpx, openai, anthropic:
+  plain name = sync client, `Async*` prefix = async client) and squatted the
+  name the synchronous client needs. The class, exports (`e2a` and `e2a.v1`),
+  docs, and examples all now use `AsyncE2AClient`; its behavior is unchanged.
+  Migration from 4.x is mechanical: `from e2a.v1 import AsyncE2AClient`.
+- **The WebSocket frame is the versioned event envelope** — the same
+  ``{type, id, schema_version, created_at, data}`` shape a webhook delivery
+  carries, so one parser (and one dedup key: the event ``id``) serves both
+  channels. Frames were previously a flat ad-hoc notification object.
+- **`WSNotification` is removed.** ``client.listen(...)`` now yields
+  ``WSEvent`` envelopes: branch on ``event.type`` (tolerate unknown values —
+  forward-compat) and read the payload from ``event.data`` (for
+  ``email.received`` the flat ``notif.message_id`` / ``notif.delivered_to``
+  attributes become ``event.data["message_id"]`` /
+  ``event.data["delivered_to"]``). The ``is_email_*`` / ``is_domain_*``
+  guards narrow the stable payloads.
+
+### Added
+- **Typed per-event payload models** for the nine stable event types
+  (``EmailReceivedData``, ``EmailSentData``, ``EmailFailedData``,
+  ``EmailDeliveredData``, ``EmailBouncedData``, ``EmailComplainedData``,
+  ``DomainSendingVerifiedData``, ``DomainSendingFailedData``,
+  ``DomainSuppressionAddedData``, plus ``AttachmentMeta``) with narrowing
+  guards (``is_email_received``, ``is_email_sent``, …) shared by the webhook
+  and WS channels. The shapes are locked to the server's committed golden
+  fixtures.
+- ``client.webhooks.fetch_message(event)`` accepts both a verified
+  ``WebhookEvent`` and a ``WSEvent`` (any envelope-shaped object with
+  ``type`` and ``data``).
+- **`E2AClient` — the synchronous client** — under the name the rename freed
+  (there is deliberately no compatibility alias to the async client). It is a
+  facade over `AsyncE2AClient`: a background daemon thread runs an event loop
+  for the client's lifetime and every call bridges the corresponding async
+  coroutine onto it, so there is exactly one implementation of
+  resources/retries/typed errors/pagination and the two surfaces cannot drift.
+  - Identical constructor (`api_key`, `base_url`, `max_retries`,
+    `max_elapsed_ms`, `timeout_ms`) and resource tree; typed `E2AError`
+    subclasses propagate unwrapped, so `except E2ALimitExceededError:` works
+    the same as in async code.
+  - List endpoints return a **sync pager**: plain `for` iteration, plus
+    `page(cursor)` / `to_list(limit=N)` / `for_each(fn)`.
+  - `client.listen(address)` returns a plain iterable of `WSEvent` envelopes
+    (the same envelope the async `listen()` yields); `close()` from another
+    thread unblocks a pending iteration cleanly.
+  - Lifecycle: use as a context manager or call `close()` (idempotent). An
+    unclosed client is cleaned up at GC/interpreter exit and cannot hang
+    shutdown.
+  - **Async-context guard:** calling any sync method while an event loop is
+    running in the current thread raises a guiding `RuntimeError`
+    ("use AsyncE2AClient") instead of blocking the loop. 4.x code that still
+    imports `E2AClient` now gets the sync client — update those imports to
+    `AsyncE2AClient`.
+
+## 4.3.0
+
+### Breaking (pre-GA)
+- **`AgentIdentity.webhook_healthy` (bool) replaced by `AgentIdentity.webhook_status`
+  (optional string enum).** The bool could not distinguish "no webhook
+  configured" from "healthy". The new field is an open set — tolerate unknown
+  values. Known values: `none` (no webhook matches the agent), `healthy` (an
+  enabled matching webhook, no terminally-failed delivery in the last 24h),
+  `failing` (an enabled matching webhook had a terminally-failed delivery in
+  the last 24h), `disabled` (matching webhooks exist but all are manually
+  disabled), `auto_disabled` (all matching webhooks disabled, at least one by
+  the chronic-failure sweep). `AgentIdentity` only appears in the account
+  export (`account.export()`), so most integrations are unaffected.
+
+## 4.2.0
+
+Additive, no breaking changes.
+
+### Fixed
+- **`templates.list()` / `templates.list_starters()` silently truncated to the
+  first page.** Both ignored the server's `next_cursor` and stopped after one
+  request, dropping every template/starter past page one. They now thread the
+  cursor and auto-page to completion like every other `.list()` (TS SDK
+  parity), and accept a `limit=` per-page size.
+
+### Added
+- **`AutoPager.page(cursor=None)`** — the manual, caller-driven pagination
+  primitive (parity with the TS SDK's `pager.page()`): fetch a SINGLE page and
+  get back a `Page` of `items` + `next_cursor`. Pass the previous page's
+  `next_cursor` to resume (e.g. checkpoint/restart from a queue); a `None`
+  `next_cursor` in the result means there are no more pages. The page size is
+  the `limit` baked into the list call that produced the pager.
+
+## 4.1.0
+
+Additive, no breaking changes.
+
+### Added
+- **`E2ALimitExceededError`** — the typed error for a `402 limit_exceeded`
+  response (a per-account **quota** cap: monthly messages, storage, agent/domain
+  counts). It is **not** retryable. This completes the permanent GA split with
+  `E2ARateLimitError` (`429 rate_limited`, a request-**rate**/throughput limit,
+  which **is** retryable): branch on the exception type (equivalently the HTTP
+  status) — `402` → surface a quota/upgrade path, `429` → back off
+  `retry_after_seconds` and retry. A `402` previously surfaced as the base
+  `E2AError`; it now surfaces as this subclass (still an `E2AError`, so existing
+  `except E2AError` handlers are unaffected).
 
 Additive, no breaking changes.
 

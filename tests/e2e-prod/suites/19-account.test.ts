@@ -145,8 +145,12 @@ test("createApiKey → list shows it → deleteApiKey (new key only) → gone", 
       !client.env.apiKey.startsWith(created.key_prefix),
       "sanity: new key_prefix does not match the auth key before delete",
     );
-    const del = await client.delete(`/v1/account/api-keys/${encodeURIComponent(created.id)}?confirm=DELETE`);
-    assert.equal(del.status, 204, `deleteApiKey expected 204 No Content, got ${del.status}: ${del.raw.slice(0, 200)}`);
+    const del = await client.delete<{ deleted: boolean; id: string }>(
+      `/v1/account/api-keys/${encodeURIComponent(created.id)}?confirm=DELETE`,
+    );
+    assert.equal(del.status, 200, `deleteApiKey expected 200 + deletion object, got ${del.status}: ${del.raw.slice(0, 200)}`);
+    assert.equal(del.body?.deleted, true, "deletion object has deleted:true");
+    assert.equal(del.body?.id, created.id, "deletion object echoes the key id");
     deleted = true;
 
     // Gone from the list.

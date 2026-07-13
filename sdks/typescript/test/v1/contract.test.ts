@@ -426,7 +426,7 @@ class Runner {
       reconnect: false,
     });
 
-    listener.on("notification", (notif) => {
+    listener.on("event", (notif) => {
       this.wsMessages.push(JSON.stringify(notif));
     });
 
@@ -466,7 +466,7 @@ class Runner {
           clearTimeout(timeout);
           resolve(JSON.stringify(notif));
         };
-        this.wsListener!.once("notification", handler);
+        this.wsListener!.once("event", handler);
       });
     }
 
@@ -486,9 +486,14 @@ class Runner {
       for (const [key, expected] of Object.entries(ex.field_match)) {
         const resolvedKey = this.resolve(key);
         const resolvedExpected = this.resolveValue(expected);
+        // Dot-path lookup ("data.message_id") — WS frames are the versioned
+        // event envelope, so scenario assertions address into `data`.
+        const actual = resolvedKey
+          .split(".")
+          .reduce<unknown>((acc, part) => (acc as Record<string, unknown> | undefined)?.[part], notif);
         expect(
-          valuesEqual(notif[resolvedKey], resolvedExpected),
-          `step ${step.id}: field_match ${resolvedKey} = ${JSON.stringify(notif[resolvedKey])}, want ${JSON.stringify(resolvedExpected)}`,
+          valuesEqual(actual, resolvedExpected),
+          `step ${step.id}: field_match ${resolvedKey} = ${JSON.stringify(actual)}, want ${JSON.stringify(resolvedExpected)}`,
         ).toBe(true);
       }
     }

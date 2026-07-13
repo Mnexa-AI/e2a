@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -145,12 +146,31 @@ func TestHubSendNotConnected(t *testing.T) {
 func TestHubClose(t *testing.T) {
 	hub := NewHub()
 
-	_, conn := newTestWSPair(t)
+	clientConn, conn := newTestWSPair(t)
 	hub.Register("agent1", conn)
 	hub.Close()
 
 	if hub.IsConnected("agent1") {
 		t.Fatal("expected no connections after close")
+	}
+
+	// Contract: shutdown closes with 1001 (going away) + the stable
+	// "shutting_down" reason token — clients reconnect with backoff.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _, err := clientConn.Read(ctx)
+	if err == nil {
+		t.Fatal("expected the client connection to be closed")
+	}
+	if got := websocket.CloseStatus(err); got != websocket.StatusGoingAway {
+		t.Fatalf("close code = %d, want %d (going away) — err: %v", got, websocket.StatusGoingAway, err)
+	}
+	var ce websocket.CloseError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a websocket.CloseError, got %v", err)
+	}
+	if ce.Reason != ReasonShuttingDown {
+		t.Fatalf("close reason = %q, want the stable token %q", ce.Reason, ReasonShuttingDown)
 	}
 }
 

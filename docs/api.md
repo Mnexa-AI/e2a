@@ -40,10 +40,119 @@ MCP tool surface), see:
   hand-rolled clients must do it themselves.
 - **Pagination.** List endpoints return `{ items, next_cursor }`; pass
   `next_cursor` back as `?cursor=…` to page forward. The SDKs auto-page.
-- **Idempotency.** Mutating send/approve/rotate operations honor an
-  `Idempotency-Key` header. See the spec for which operations accept it.
+- **Idempotency.** Five mutating operations honor an opt-in `Idempotency-Key`
+  header: `sendMessage`, `replyToMessage`, `forwardMessage`, `approveReview`,
+  and `rotateWebhookSecret`. Semantics:
+  - **Replay.** A retry with the same key and a **byte-identical** body replays
+    the first request's response instead of re-executing the side effect (the
+    dedup hash covers the route + the raw body bytes, so the same key on a
+    different route or with re-serialized JSON does not match).
+  - **Dedup window: at least 24 hours.** Completed keys are remembered for a
+    minimum of 24 hours after completion. Treat 24h as the published floor —
+    a deployment may remember keys longer, never shorter.
+  - **`409 idempotency_in_flight`** — a request with the same key is still
+    executing. Retry-able: wait for the first request to finish, then retry
+    unchanged (same key, byte-identical body) to have its response replayed.
+  - **`422 idempotency_key_reuse`** — the key was already used with a
+    *different* request body. Do **not** blind-retry this one: a legitimate
+    retry must resend the byte-identical body, and a genuinely new request
+    needs a fresh key.
+  - **Best-effort.** Dedup is best-effort, not transactional: under
+    idempotency-store degradation or a mid-request crash the protection
+    degrades to at-least-once — a keyed retry may re-execute the operation
+    rather than replay the cached response.
 - **Errors.** Non-2xx responses use a single `ErrorEnvelope` shape; branch on
-  `error.code`.
+  `error.code` (see [Error codes](#error-codes) below for the full vocabulary).
+- **Capacity limits — the permanent `402` / `429` split.** Two different limits
+  can block a write, and they are **permanently distinct** — branch on the HTTP
+  status:
+  - **`402 limit_exceeded`** is a **quota** (a stock/flow cap): monthly-message
+    allowance, storage bytes, agent/domain counts. A retry alone will not clear
+    it — surface an upgrade/quota path. `error.details` is a `LimitExceededDetails`
+    whose `resource` (`agents | domains | messages_month | storage_bytes`) keys the
+    cap to `usage.<resource>` / `limits.max_<resource>` on `GET /v1/account`.
+  - **`429 rate_limited`** is a **throughput / request-rate** limit (e.g. the
+    per-agent send rate). It is transient and retry-able: wait
+    `error.details.retry_after_seconds` (mirrored on the `Retry-After` header),
+    then the same request succeeds.
+
+  This is frozen GA semantics: `402` = QUOTA, `429` = RATE. Clients (and the
+  official SDKs — `E2ALimitExceededError` vs `E2ARateLimitError`) must branch on
+  the status, never conflate the two. The write operations that declare both are
+  `sendMessage` / `replyToMessage` / `forwardMessage` / `testAgent` / `createAgent`
+  (`registerDomain` declares only `402`; `approveReview` declares only `429`).
+
+## Error codes
+
+`error.code` is the stable, machine-branchable discriminator of the error
+contract. It is an **open set**: treat it as a string and tolerate unknown
+values — new codes may be added over time without a version bump. Branch on the
+codes you handle and fall back to the HTTP status otherwise. The catalog below
+is exhaustive for the current server (a drift test pins the source to this
+vocabulary); codes are never renamed or removed within `/v1` — that would be
+breaking.
+
+Naming families: `invalid_*` = a validation refinement of `invalid_request`;
+`*_not_found` = a specific missing (sub)resource; `*_taken` = the requested
+identifier is already claimed (409). The official SDKs map these families to
+their typed error classes code-first, so an unfamiliar member of a family still
+lands in the right class.
+
+Retry guidance: unless noted, 4xx codes are **not** retryable (fix the request
+or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
+`internal_error`/`limits_unavailable` are the retryable ones.
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| **Auth / policy** | | |
+| `unauthorized` | 401 | Missing or invalid credentials (REST and the WebSocket handshake). |
+| `forbidden` | 403 | Authenticated but not allowed (key scope, cross-tenant access). |
+| `blocked_by_policy` | 403 | The outbound message was blocked by the agent's outbound policy gate. |
+| **Validation** | | |
+| `invalid_request` | 400 / 422 | The canonical input-validation code — malformed (400) or semantically invalid (422). `error.details` carries the per-field list. |
+| `invalid_cursor` | 400 | Bad pagination cursor — drop it and re-fetch from the start. |
+| `invalid_filter` | 400 | Bad list-filter parameter (messages/conversations/events). |
+| `invalid_domain`, `invalid_slug`, `invalid_recipient`, `invalid_attachment`, `invalid_template`, `invalid_event_type`, `invalid_webhook_url`, `invalid_expires_at`, `invalid_scope` | 400 | Field/resource-specific refinements of `invalid_request`. |
+| `reserved_domain` | 400 | The domain is reserved by the deployment (e.g. the shared domain). |
+| `too_many_recipients` | 400 | Send/reply/forward recipient count over the cap. |
+| `template_render_failed`, `template_rendered_empty` | 400 | Template send: rendering failed / produced an empty body. |
+| `recipient_suppressed` | 422 | A recipient is on the account suppression list — un-suppress or drop it. |
+| **Not found / gone** | | |
+| `not_found` | 404 | No such resource (agents, messages, webhooks, …). |
+| `attachment_not_found`, `template_not_found`, `starter_template_not_found` | 404 | The `*_not_found` family — a specific sub-resource is missing. |
+| `gone` | 410 | The event exists but is past the 30-day retention window. |
+| **Conflict / state** | | |
+| `conflict` | 409 | Generic state conflict (e.g. redelivery to a webhook that never matched the event). |
+| `agent_taken`, `domain_taken`, `alias_taken` | 409 | The `*_taken` family — the requested identifier (agent address, domain, template alias) is already claimed. |
+| `message_not_pending` | 409 | The review hold was already resolved (approved/rejected/expired). |
+| `webhook_disabled` | 409 | Operation requires an enabled webhook. |
+| `webhook_cooldown` | 409 | The webhook was auto-disabled and cannot be re-enabled until the cooldown elapses — retryable after the cooldown. |
+| `domain_not_registered` | 400 | Create-agent on a domain the account has not registered. |
+| `domain_has_agents` | 400 | Domain delete blocked while agents exist on it. |
+| `domain_not_verified` | 400 / 403 | Domain verification pending — 400 on create-agent, 403 on send paths. |
+| **Capacity — see the 402/429 split above** | | |
+| `limit_exceeded` | 402 | Plan **quota** (stock/flow cap); `details` is `LimitExceededDetails`. Not retryable. |
+| `rate_limited` | 429 | Request-**rate** limit; wait `details.retry_after_seconds` / `Retry-After`, then retry. |
+| `template_limit_reached`, `webhook_limit_reached` | 400 | Fixed per-account count caps (not plan quotas) — delete one first. |
+| **Idempotency** | | |
+| `idempotency_in_flight` | 409 | Same key still executing — wait, then retry the byte-identical request to replay it. |
+| `idempotency_key_reuse` | 422 | Same key, different body — caller bug; never blind-retry. |
+| **Size** | | |
+| `payload_too_large` | 413 | Request body / total attachments over the cap. |
+| `attachment_too_large` | 413 | `?inline=true` requested for an attachment over the inline cap — use `download_url`. |
+| **Availability** | | |
+| `not_implemented` | 501 | The feature (API keys, reviews, suppressions) is not available on this deployment. Not retryable. |
+| `events_log_disabled` | 501 | The events log is disabled on this deployment (expected on some hosted configurations). Not retryable. |
+| `limits_unavailable` | 503 | The limits subsystem is not available — transient, retryable. |
+| **Server / fallback** | | |
+| `internal_error` | 5xx | Server-side failure; safe to retry with backoff unless the message says otherwise. |
+| `method_not_allowed` | 405 | Fallback code (wrong HTTP method on a real route). |
+| `unsupported_media_type` | 415 | Fallback code (non-JSON request body). |
+| `error` | other 4xx | Generic fallback for any otherwise-unmapped status (e.g. 406). |
+
+The SDKs additionally synthesize the client-side code `connection_error`
+(status `0`) when no HTTP response was received at all; it never comes from the
+server and is always retryable.
 
 ## Versioning & stability
 
@@ -56,7 +165,23 @@ Our commitment, and what you can rely on:
   two would run side by side during a published migration window.
 - **Additive changes can happen anytime** and are *not* breaking: new endpoints,
   new optional request fields, and **new response fields**. Clients must ignore
-  fields they don't recognize.
+  fields they don't recognize. This is machine-readable in the spec: every
+  **response** schema declares `additionalProperties: true` (a client generated
+  from the spec tolerates additive fields), while every **request** schema stays
+  strict (`additionalProperties: false`) — an unknown request field is rejected
+  with a 422, which is intentional input validation (it catches typos like
+  `body` vs `text`), not a stability concern.
+- **Experimental surfaces are marked `x-stability: experimental`** in the spec
+  (operations, schemas, and individual fields — e.g. the `template_*` fields on
+  send) and `(beta)` in prose — today: templates, starter templates, and the
+  agent protection config. They are **exempt from the
+  freeze**: they may change or be removed without a major version. Where only
+  specific *values* of a stable field are experimental (the screening +
+  review-hold event types `email.flagged`, `email.blocked`,
+  `email.pending_review`, `email.review_approved`, `email.review_rejected`),
+  the field carries `x-experimental-values` listing exactly those values —
+  their payloads may still change; all other event types are stable. Anything
+  not marked experimental is stable surface.
 - **Enums in responses are open.** Treat any `type` / `*_status` / `event_type`
   value as an open string set: we may introduce new values (e.g. a new event
   type or delivery state) without a major bump, so a client **must not crash on
@@ -102,6 +227,17 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
 Every `DELETE` endpoint requires the `?confirm=DELETE` query param (a required
 `enum: [DELETE]`); a missing or wrong value is rejected before the delete runs.
 The SDKs and CLI supply it automatically for their typed `delete(...)` calls.
+
+**Uniform delete responses.** Every `DELETE` returns `200 OK` with a small
+typed deletion object — never `204 No Content`. The base shape is
+`{"deleted": true, "<identity key>": ...}` where the identity key matches the
+resource's identity field: `id` for webhooks/templates/API keys, `email` for
+agents, `domain` for domains, `address` for suppressions. `deleted` is always
+`true` — a failed delete is an error envelope, never `deleted: false`.
+Cascading deletes may additionally carry receipt counts (all additive):
+`DELETE /v1/agents/{email}` includes `messages_deleted`, and `DELETE
+/v1/account` returns the full per-table `DeleteUserDataResult` receipt on top
+of `deleted: true`.
 
 ### Domains (`/v1/domains`)
 
@@ -254,24 +390,88 @@ the `Authorization: Bearer <api_key>` handshake header (the credential never
 appears in the URL). Not part of the OpenAPI document (it is not an HTTP
 request/response operation).
 
-The server pushes lightweight JSON notifications (metadata only); fetch full
+The server pushes the SAME versioned event envelope a webhook delivery
+carries — `{type, id, schema_version, created_at, data}` with the
+`email.received` payload (`EmailReceivedData`; see
+[events.md](events.md#envelope-and-typed-payloads)) — so one parser serves
+both channels, and the event `id` (identical across channels for the same
+event) lets a consumer dedup WS-vs-webhook. Tolerate unknown `type` values:
+future WS event kinds arrive in the same envelope. Metadata only; fetch full
 content via `GET /v1/agents/{email}/messages/{id}`:
 
 ```json
 {
-  "message_id": "msg_abc123",
-  "conversation_id": "conv_xyz",
-  "from": "alice@example.com",
-  "delivered_to": "bot@your-domain.com",
-  "subject": "Meeting tomorrow",
-  "received_at": "2026-04-24T10:00:00Z"
+  "type": "email.received",
+  "id": "evt_62eb7644b075459043c358bc6448d754",
+  "schema_version": "1",
+  "created_at": "2026-04-24T10:00:00.123456789Z",
+  "data": {
+    "message_id": "msg_abc123",
+    "agent_email": "bot@your-domain.com",
+    "direction": "inbound",
+    "conversation_id": "conv_xyz",
+    "from": "alice@example.com",
+    "authenticated_from": "alice@example.com",
+    "to": ["bot@your-domain.com"],
+    "delivered_to": "bot@your-domain.com",
+    "subject": "Meeting tomorrow",
+    "auth_headers": {},
+    "received_at": "2026-04-24T10:00:00.123456789Z"
+  }
 }
 ```
 
-On connect, all unread messages are drained as notifications automatically. The
-full message payload (fetched separately) includes the parsed `to`, `cc`, and
-`reply_to` header lists; the lightweight notification omits them since the agent
-fetches the body anyway.
+On connect, all unread messages are drained as `email.received` events
+automatically. Live events carry the same marshaled event envelope as the
+webhook delivery — identical fields and event id; byte layout may differ
+(JSON key order/escaping is not contractual). The drain-on-reconnect rebuild
+carries the full auth contract (`authenticated_from` + the signed
+`auth_headers`, persisted with the message) and diverges from the original
+event in exactly two ways: `attachments` is omitted (the raw message is not
+loaded by the drain query), and `created_at`/`received_at` are the message
+row's time rather than the original event's publish time — the full message
+(fetched separately) always has everything.
+
+### Connection lifecycle & close codes
+
+**One connection per agent.** The server holds at most one WebSocket per
+agent: when a newer connection for the same agent completes its handshake,
+it wins, and the older connection is closed with code **4000 `replaced`**.
+WS is an opportunistic push channel on top of the durable pollable inbox and
+webhook subscriptions — if you need fan-out to several consumers, use
+webhooks (or poll), not multiple sockets.
+
+Close codes are a frozen part of the API contract. Standard codes keep their
+standard semantics; e2a-specific conditions use application codes in the
+4000–4999 range:
+
+| Code | Reason token | Meaning | Client action |
+|---|---|---|---|
+| `1000` | *(empty)* | Normal closure. | None — expected after your own close. |
+| `1001` | `shutting_down` | Server shutdown/restart (e.g. a deploy). | Reconnect with backoff. |
+| `1001` | `ping_timeout` | The server dropped an unresponsive connection (missed keepalive pong). Usually observed as a `1006` abnormal close instead, since the peer is already gone. | Reconnect with backoff. |
+| `1006` | *(n/a — never sent; synthesized locally)* | Abnormal close / network drop. | Reconnect with backoff. |
+| `1008` | *(human-readable message)* | Genuine policy rejection of an **established** connection. Reserved: the server does not currently close established connections with 1008 — all credential/ownership rejections happen at the handshake as HTTP errors (below). | Do **not** reconnect — retrying the same connection cannot succeed. |
+| `1011` | *(human-readable message)* | Internal server error. | Reconnect with backoff. |
+| `4000` | `replaced` | A **newer connection for this agent** superseded this one (one-connection-per-agent). Benign — but the superseded client must stop: auto-reconnecting would steal the socket back from its replacement and loop. | Do **not** reconnect. Surface the condition (SDKs raise/emit `E2AConnectionReplacedError`). |
+| `4001`–`4999` | — | Reserved for future e2a-specific terminal conditions (e.g. agent deleted mid-connection). | Treat any unrecognized 4xxx as terminal: do **not** auto-reconnect. |
+
+Reason strings on e2a-specific closes are short stable `snake_case` tokens
+(`replaced`, `shutting_down`, `ping_timeout`) — safe to branch on, though
+clients should branch on the **code** first; reasons on standard codes may be
+human-readable text.
+
+Handshake rejections (missing/invalid key → `401`, agent-scoped key for a
+different agent → `403`, nonexistent or not-your agent → `404`) happen
+**before** the upgrade and return the canonical HTTP error envelope, never a
+close code. The SDKs treat those as fatal too (typed error, no retry loop).
+
+SDK behavior (TS `WSListener`/`WSStream`, Python `WSStream`, and the CLI
+`listen` command, which inherits from the TS SDK): transient closes reconnect
+with exponential backoff; `4000 replaced`, `1008`, unknown 4xxx, and fatal
+handshake rejections stop the stream with a typed error. The CLI prints a
+`listener replaced` explanation and exits `5` (permanent — retry wrappers
+must not rerun it).
 
 ## HITL magic links
 

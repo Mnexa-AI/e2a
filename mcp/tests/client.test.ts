@@ -51,6 +51,19 @@ describe("McpClient review routing (tier-correct endpoints)", () => {
     expect(sdk.messages.get).toHaveBeenCalledWith("bot@test.dev", "msg_p");
     expect(sdk.reviews.get).not.toHaveBeenCalled();
   });
+
+  it("getReview on a missing/resolved pending draft throws not_found, not invalid_request", async () => {
+    // PR #453 review: an already-approved/rejected/expired draft is a
+    // not-found condition — a CodedError with the server's canonical
+    // `not_found` code, so structuredError doesn't mislabel it as a
+    // caller-input problem.
+    const sdk = mockSdk();
+    const c = new McpClient(sdk as never, "bot@test.dev", "agent");
+    await expect(c.getReview("msg_gone")).rejects.toMatchObject({
+      code: "not_found",
+      message: expect.stringContaining("already been approved, rejected, or expired"),
+    });
+  });
 });
 
 // Templates (beta) ride the SDK's `templates` resource through the shared

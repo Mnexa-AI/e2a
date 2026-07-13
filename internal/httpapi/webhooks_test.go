@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -76,8 +77,8 @@ func TestCreateWebhookCapReached(t *testing.T) {
 	code, body := postJSON(t, srv.URL+"/v1/webhooks", "good", map[string]any{
 		"url": "https://example.com/capped", "events": []string{"email.received"},
 	})
-	if code != 400 || errCode(body) != "webhook_cap_reached" {
-		t.Fatalf("want 400 webhook_cap_reached, got %d %v", code, body)
+	if code != 400 || errCode(body) != "webhook_limit_reached" {
+		t.Fatalf("want 400 webhook_limit_reached, got %d %v", code, body)
 	}
 }
 
@@ -129,8 +130,15 @@ func TestDeleteWebhook(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 204 {
-		t.Fatalf("want 204, got %d", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["deleted"] != true || body["id"] != "wh_1" {
+		t.Fatalf("want {deleted:true, id:wh_1}, got %v", body)
 	}
 }
 

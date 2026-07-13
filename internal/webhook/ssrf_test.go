@@ -64,7 +64,7 @@ func TestSubscriberDeliverer_ProdBlocksInternalIP(t *testing.T) {
 	d := NewSubscriberDeliverer(true, "")
 	// A literal-IP HTTPS URL clears the scheme check, then the dial guard
 	// rejects the resolved loopback address before any connection is made.
-	out := d.Deliver(context.Background(), "https://127.0.0.1:9/hook", []byte(`{}`), "whsec_x", "")
+	out := d.Deliver(context.Background(), "https://127.0.0.1:9/hook", []byte(`{}`), "whsec_x", "", "email.received", "1")
 	if out.Success {
 		t.Fatal("delivery to loopback succeeded; want blocked by dial guard")
 	}

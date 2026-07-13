@@ -149,6 +149,53 @@ func TestSpecRegisterDomain409Declared(t *testing.T) {
 	}
 }
 
+// responseSchemaRef returns the $ref of a response's application/json schema, or
+// "" when the response (or its schema) is absent.
+func responseSchemaRef(resp map[string]any, code string) string {
+	r, ok := resp[code].(map[string]any)
+	if !ok {
+		return ""
+	}
+	content, _ := r["content"].(map[string]any)
+	mt, _ := content["application/json"].(map[string]any)
+	sc, _ := mt["schema"].(map[string]any)
+	ref, _ := sc["$ref"].(string)
+	return ref
+}
+
+// The permanent GA 402/429 split (decision #49/#50): 402 limit_exceeded is a
+// stock/flow QUOTA cap, 429 rate_limited is a throughput/request-RATE cap. This
+// test pins BOTH halves of the split on the write operations so neither the
+// typed 402 (LimitExceededEnvelope, #439) nor the typed 429 (RateLimitedEnvelope)
+// declaration silently regresses. Quota-enforcing writes must declare 402;
+// throughput/send-rate-limited writes must declare 429; the two are typed to
+// distinct envelopes so codegen surfaces concrete detail shapes.
+func TestSpec402_429Split(t *testing.T) {
+	doc := renderSpec(t)
+
+	// 402 limit_exceeded (QUOTA) — every cap-enforcing write.
+	for _, opID := range []string{"createAgent", "registerDomain", "sendMessage", "replyToMessage", "forwardMessage", "testAgent"} {
+		resp := operationResponses(t, doc, opID)
+		if ref := responseSchemaRef(resp, "402"); ref != "#/components/schemas/LimitExceededEnvelope" {
+			t.Errorf("%s: 402 must be declared with LimitExceededEnvelope, got %q; codes=%v", opID, ref, keysOf(resp))
+		}
+	}
+
+	// 429 rate_limited (RATE) — every throughput/send-rate-limited write.
+	for _, opID := range []string{"createAgent", "sendMessage", "replyToMessage", "forwardMessage", "testAgent", "approveReview"} {
+		resp := operationResponses(t, doc, opID)
+		if ref := responseSchemaRef(resp, "429"); ref != "#/components/schemas/RateLimitedEnvelope" {
+			t.Errorf("%s: 429 must be declared with RateLimitedEnvelope, got %q; codes=%v", opID, ref, keysOf(resp))
+		}
+	}
+
+	// The 429 detail schema must carry the typed retry hint (retry_after_seconds).
+	props := schemaProps(t, doc, "RateLimitedDetails")
+	if _, ok := props["retry_after_seconds"]; !ok {
+		t.Errorf("RateLimitedDetails must declare retry_after_seconds; props=%v", keysOf(props))
+	}
+}
+
 // MED-5 — response enum policy for GA (see docs/api.md "Versioning & stability"):
 //   - A field whose value set is genuinely closed forever (direction: a message is
 //     inbound or outbound, period) carries a closed enum.

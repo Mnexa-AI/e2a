@@ -6,6 +6,7 @@ export * from '../models/AgentIdentity.js';
 export * from '../models/AgentView.js';
 export * from '../models/ApproveRequest.js';
 export * from '../models/Attachment.js';
+export * from '../models/AttachmentMeta.js';
 export * from '../models/AttachmentMetaView.js';
 export * from '../models/AttachmentView.js';
 export * from '../models/AuthVerdict.js';
@@ -19,11 +20,26 @@ export * from '../models/CreateTemplateRequest.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
 export * from '../models/DNSRecord.js';
+export * from '../models/DeleteAgentResult.js';
+export * from '../models/DeleteApiKeyResult.js';
+export * from '../models/DeleteDomainResult.js';
+export * from '../models/DeleteSuppressionResult.js';
+export * from '../models/DeleteTemplateResult.js';
 export * from '../models/DeleteUserDataResult.js';
+export * from '../models/DeleteWebhookResult.js';
 export * from '../models/DeliveryStatusJSON.js';
 export * from '../models/DeploymentInfoView.js';
 export * from '../models/Domain.js';
+export * from '../models/DomainSendingFailedData.js';
+export * from '../models/DomainSendingVerifiedData.js';
+export * from '../models/DomainSuppressionAddedData.js';
 export * from '../models/DomainView.js';
+export * from '../models/EmailBouncedData.js';
+export * from '../models/EmailComplainedData.js';
+export * from '../models/EmailDeliveredData.js';
+export * from '../models/EmailFailedData.js';
+export * from '../models/EmailReceivedData.js';
+export * from '../models/EmailSentData.js';
 export * from '../models/ErrorBody.js';
 export * from '../models/ErrorBodyDetails.js';
 export * from '../models/ErrorEnvelope.js';
@@ -53,12 +69,20 @@ export * from '../models/PageSuppression.js';
 export * from '../models/PageTemplateSummaryView.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
+export * from '../models/ProtectionConfigRequest.js';
 export * from '../models/ProtectionConfigView.js';
+export * from '../models/ProtectionDirectionRequest.js';
 export * from '../models/ProtectionDirectionView.js';
 export * from '../models/ProtectionEventExportEntry.js';
+export * from '../models/ProtectionGateRequest.js';
 export * from '../models/ProtectionGateView.js';
+export * from '../models/ProtectionHoldsRequest.js';
 export * from '../models/ProtectionHoldsView.js';
+export * from '../models/ProtectionScanRequest.js';
 export * from '../models/ProtectionScanView.js';
+export * from '../models/RateLimitedDetails.js';
+export * from '../models/RateLimitedEnvelope.js';
+export * from '../models/RateLimitedErrorBody.js';
 export * from '../models/RedeliverDelivery.js';
 export * from '../models/RedeliverEventRequest.js';
 export * from '../models/RedeliverView.js';
@@ -95,6 +119,7 @@ export * from '../models/ValidateTemplateResponse.js';
 export * from '../models/ValidationErrorDetails.js';
 export * from '../models/VerifyDomainView.js';
 export * from '../models/WebhookDeliveryView.js';
+export * from '../models/WebhookFiltersRequest.js';
 export * from '../models/WebhookFiltersView.js';
 export * from '../models/WebhookView.js';
 
@@ -106,6 +131,7 @@ import { AgentIdentity } from '../models/AgentIdentity.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
+import { AttachmentMeta } from '../models/AttachmentMeta.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
@@ -119,11 +145,26 @@ import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DNSRecord } from '../models/DNSRecord.js';
+import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
+import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
+import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
+import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
+import { DeleteWebhookResult } from '../models/DeleteWebhookResult.js';
 import { DeliveryStatusJSON } from '../models/DeliveryStatusJSON.js';
 import { DeploymentInfoView } from '../models/DeploymentInfoView.js';
 import { Domain } from '../models/Domain.js';
+import { DomainSendingFailedData } from '../models/DomainSendingFailedData.js';
+import { DomainSendingVerifiedData } from '../models/DomainSendingVerifiedData.js';
+import { DomainSuppressionAddedData   , DomainSuppressionAddedDataSourceEnum   } from '../models/DomainSuppressionAddedData.js';
 import { DomainView } from '../models/DomainView.js';
+import { EmailBouncedData  , EmailBouncedDataBounceTypeEnum        } from '../models/EmailBouncedData.js';
+import { EmailComplainedData } from '../models/EmailComplainedData.js';
+import { EmailDeliveredData } from '../models/EmailDeliveredData.js';
+import { EmailFailedData } from '../models/EmailFailedData.js';
+import { EmailReceivedData } from '../models/EmailReceivedData.js';
+import { EmailSentData } from '../models/EmailSentData.js';
 import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
@@ -153,12 +194,20 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionRequest } from '../models/ProtectionDirectionRequest.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
+import { ProtectionGateRequest, ProtectionGateRequestActionEnum   , ProtectionGateRequestPolicyEnum   } from '../models/ProtectionGateRequest.js';
 import { ProtectionGateView, ProtectionGateViewActionEnum   , ProtectionGateViewPolicyEnum   } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsRequest, ProtectionHoldsRequestOnExpiryEnum    } from '../models/ProtectionHoldsRequest.js';
 import { ProtectionHoldsView, ProtectionHoldsViewOnExpiryEnum    } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanRequest, ProtectionScanRequestSensitivityEnum   } from '../models/ProtectionScanRequest.js';
 import { ProtectionScanView, ProtectionScanViewSensitivityEnum   } from '../models/ProtectionScanView.js';
+import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
+import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
+import { RateLimitedErrorBody, RateLimitedErrorBodyCodeEnum      } from '../models/RateLimitedErrorBody.js';
 import { RedeliverDelivery } from '../models/RedeliverDelivery.js';
 import { RedeliverEventRequest } from '../models/RedeliverEventRequest.js';
 import { RedeliverView } from '../models/RedeliverView.js';
@@ -195,6 +244,7 @@ import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js'
 import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
+import { WebhookFiltersRequest } from '../models/WebhookFiltersRequest.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
 
@@ -216,14 +266,21 @@ let enumsMap: Set<string> = new Set<string>([
     "CreateAPIKeyRequestScopeEnum",
     "CreateAPIKeyResponseScopeEnum",
     "CreateWebhookRequestEventsEnum",
+    "DomainSuppressionAddedDataSourceEnum",
+    "EmailBouncedDataBounceTypeEnum",
     "LimitExceededDetailsResourceEnum",
     "LimitExceededErrorBodyCodeEnum",
     "MessageSummaryViewDirectionEnum",
     "MessageViewDirectionEnum",
+    "ProtectionGateRequestActionEnum",
+    "ProtectionGateRequestPolicyEnum",
     "ProtectionGateViewActionEnum",
     "ProtectionGateViewPolicyEnum",
+    "ProtectionHoldsRequestOnExpiryEnum",
     "ProtectionHoldsViewOnExpiryEnum",
+    "ProtectionScanRequestSensitivityEnum",
     "ProtectionScanViewSensitivityEnum",
+    "RateLimitedErrorBodyCodeEnum",
     "ReviewViewDirectionEnum",
     "TestWebhookRequestTypeEnum",
     "UpdateWebhookRequestEventsEnum",
@@ -238,6 +295,7 @@ let typeMap: {[index: string]: any} = {
     "AgentView": AgentView,
     "ApproveRequest": ApproveRequest,
     "Attachment": Attachment,
+    "AttachmentMeta": AttachmentMeta,
     "AttachmentMetaView": AttachmentMetaView,
     "AttachmentView": AttachmentView,
     "AuthVerdict": AuthVerdict,
@@ -251,11 +309,26 @@ let typeMap: {[index: string]: any} = {
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
     "DNSRecord": DNSRecord,
+    "DeleteAgentResult": DeleteAgentResult,
+    "DeleteApiKeyResult": DeleteApiKeyResult,
+    "DeleteDomainResult": DeleteDomainResult,
+    "DeleteSuppressionResult": DeleteSuppressionResult,
+    "DeleteTemplateResult": DeleteTemplateResult,
     "DeleteUserDataResult": DeleteUserDataResult,
+    "DeleteWebhookResult": DeleteWebhookResult,
     "DeliveryStatusJSON": DeliveryStatusJSON,
     "DeploymentInfoView": DeploymentInfoView,
     "Domain": Domain,
+    "DomainSendingFailedData": DomainSendingFailedData,
+    "DomainSendingVerifiedData": DomainSendingVerifiedData,
+    "DomainSuppressionAddedData": DomainSuppressionAddedData,
     "DomainView": DomainView,
+    "EmailBouncedData": EmailBouncedData,
+    "EmailComplainedData": EmailComplainedData,
+    "EmailDeliveredData": EmailDeliveredData,
+    "EmailFailedData": EmailFailedData,
+    "EmailReceivedData": EmailReceivedData,
+    "EmailSentData": EmailSentData,
     "ErrorBody": ErrorBody,
     "ErrorBodyDetails": ErrorBodyDetails,
     "ErrorEnvelope": ErrorEnvelope,
@@ -285,12 +358,20 @@ let typeMap: {[index: string]: any} = {
     "PageTemplateSummaryView": PageTemplateSummaryView,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
+    "ProtectionConfigRequest": ProtectionConfigRequest,
     "ProtectionConfigView": ProtectionConfigView,
+    "ProtectionDirectionRequest": ProtectionDirectionRequest,
     "ProtectionDirectionView": ProtectionDirectionView,
     "ProtectionEventExportEntry": ProtectionEventExportEntry,
+    "ProtectionGateRequest": ProtectionGateRequest,
     "ProtectionGateView": ProtectionGateView,
+    "ProtectionHoldsRequest": ProtectionHoldsRequest,
     "ProtectionHoldsView": ProtectionHoldsView,
+    "ProtectionScanRequest": ProtectionScanRequest,
     "ProtectionScanView": ProtectionScanView,
+    "RateLimitedDetails": RateLimitedDetails,
+    "RateLimitedEnvelope": RateLimitedEnvelope,
+    "RateLimitedErrorBody": RateLimitedErrorBody,
     "RedeliverDelivery": RedeliverDelivery,
     "RedeliverEventRequest": RedeliverEventRequest,
     "RedeliverView": RedeliverView,
@@ -327,6 +408,7 @@ let typeMap: {[index: string]: any} = {
     "ValidationErrorDetails": ValidationErrorDetails,
     "VerifyDomainView": VerifyDomainView,
     "WebhookDeliveryView": WebhookDeliveryView,
+    "WebhookFiltersRequest": WebhookFiltersRequest,
     "WebhookFiltersView": WebhookFiltersView,
     "WebhookView": WebhookView,
 }

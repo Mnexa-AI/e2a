@@ -9,6 +9,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
+import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
@@ -72,7 +73,7 @@ export class TemplatesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable.
+     * Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}). Beta: templates are unstable — their shape may change before they are declared stable.
      * Delete a template (beta)
      * @param id 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -436,10 +437,14 @@ export class TemplatesApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteTemplate
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteTemplateWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteTemplateWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteTemplateResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteTemplateResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteTemplateResult", ""
+            ) as DeleteTemplateResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -451,10 +456,10 @@ export class TemplatesApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteTemplateResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteTemplateResult", ""
+            ) as DeleteTemplateResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

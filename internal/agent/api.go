@@ -278,7 +278,7 @@ func (a *API) publishSent(ctx context.Context, e webhookpub.Event, outMsg *ident
 	a.emit().OutboxEventsPublished(e.Type)
 }
 
-// publishPendingApproval fires email.pending_review (direction=outbound) via the
+// publishPendingApproval fires email.review_requested (direction=outbound) via the
 // outbox (PublishTx — pre-side-effect: the pending row hasn't been sent to SES
 // yet). pendingMsgID seeds the deterministic event id so /send retries with the
 // same idempotency key don't fire duplicate events.
@@ -288,7 +288,7 @@ func (a *API) publishPendingApproval(ctx context.Context, e webhookpub.Event, pe
 		if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
 			return a.outbox.PublishTx(ctx, tx, e)
 		}); err != nil {
-			log.Printf("[api] outbox tx for email.pending_review err: %v", err)
+			log.Printf("[api] outbox tx for email.review_requested err: %v", err)
 		}
 	}
 	a.emit().OutboxEventsPublished(e.Type)

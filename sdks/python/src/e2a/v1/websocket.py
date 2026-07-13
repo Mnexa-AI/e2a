@@ -1,14 +1,21 @@
 """Notification-only WebSocket stream for e2a /v1.
 
-Connects to ``/v1/agents/{address}/ws`` and yields lightweight
-:class:`WSNotification` objects — one per inbound message. The protocol is
-server-to-client only; the client never sends application frames.
+Connects to ``/v1/agents/{address}/ws`` and yields :class:`WSEvent` objects —
+each frame is the SAME versioned event envelope a webhook delivery carries
+(``{type, id, schema_version, created_at, data}``). Today the relay emits
+``email.received`` events (``data`` is the :class:`~e2a.v1.webhook_signature.EmailReceivedData`
+shape); tolerate unknown ``type`` values — future WS event kinds parse into
+the same envelope. The protocol is server-to-client only; the client never
+sends application frames.
 
-The notification carries metadata (message_id, sender, subject, …). Fetch the
-full body via REST when you want it::
+The event carries metadata (message_id, sender, subject, …), never the body.
+Fetch the full message via REST when you want it::
 
-    async for notif in client.listen("bot@agents.e2a.dev"):
-        email = await client.messages.get(notif.delivered_to, notif.message_id)
+    async for event in client.listen("bot@agents.e2a.dev"):
+        if event.type != "email.received":
+            continue  # forward-compat: skip unknown event kinds
+        data = event.data
+        email = await client.messages.get(data["delivered_to"], data["message_id"])
 
 Requires ``websockets`` (``pip install e2a[ws]``).
 """
@@ -18,13 +25,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Dict, Mapping, Optional
 from urllib.parse import quote, urlparse, urlunparse
 
-from .errors import E2AAuthError, E2AError, E2ANotFoundError, E2APermissionError
+from .errors import (
+    E2AAuthError,
+    E2AConnectionReplacedError,
+    E2AError,
+    E2ANotFoundError,
+    E2APermissionError,
+)
 
-__all__ = ["WSNotification", "WSStream"]
+__all__ = ["WSEvent", "WSStream", "WS_CLOSE_REPLACED"]
+
+#: e2a application close code: a NEWER connection for this agent superseded
+#: this one (the server holds one connection per agent). Terminal — do not
+#: reconnect. See docs/api.md "Connection lifecycle & close codes".
+WS_CLOSE_REPLACED = 4000
 
 logger = logging.getLogger("e2a.v1.websocket")
 
@@ -88,30 +106,101 @@ def _fatal_error_for_status(status: int, exc: BaseException) -> Optional[E2AErro
     return None
 
 
-@dataclass
-class WSNotification:
-    """Lightweight notification pushed over the WebSocket on new inbound mail.
+def _close_code_and_reason(exc: BaseException) -> tuple[Optional[int], str]:
+    """Return the (code, reason) of a server-sent WebSocket close, if any.
 
-    ``from_`` is spelled with a trailing underscore to avoid Python's reserved
-    word, matching the convention used elsewhere in the SDK.
+    The ``websockets`` library raises ``ConnectionClosed`` with the received
+    close frame on ``exc.rcvd`` (modern; ``.rcvd.code`` / ``.rcvd.reason``) or
+    the deprecated ``.code`` / ``.reason`` attributes. Probe both so this works
+    across library versions without importing version-specific symbols.
+    """
+    rcvd = getattr(exc, "rcvd", None)
+    code = getattr(rcvd, "code", None)
+    if isinstance(code, int):
+        reason = getattr(rcvd, "reason", "")
+        return code, reason if isinstance(reason, str) else ""
+    code = getattr(exc, "code", None)  # deprecated attribute shape
+    if isinstance(code, int):
+        reason = getattr(exc, "reason", "")
+        return code, reason if isinstance(reason, str) else ""
+    return None, ""
+
+
+def _fatal_error_for_close(code: int, reason: str) -> Optional[E2AError]:
+    """Map a terminal (no-reconnect) server close CODE to a typed E2AError.
+
+    Implements the documented close-code contract (docs/api.md "Connection
+    lifecycle & close codes"; mirrors the TS SDK's ``fatalErrorForClose``):
+
+    - ``4000 "replaced"`` → :class:`E2AConnectionReplacedError` — a newer
+      connection for this agent took over; reconnecting would steal the socket
+      back and loop.
+    - ``1008`` → :class:`E2APermissionError` — genuine policy rejection;
+      retrying the same connection cannot succeed.
+    - other ``4001–4999`` — reserved e2a application codes; unknown ones are
+      fatal by contract (forward-compat).
+
+    Everything else (1001 shutting_down / ping_timeout, 1006 abnormal, 1011
+    internal error, …) is transient → ``None`` → backoff reconnect.
+    """
+    suffix = f'WebSocket closed by server: code={code} reason="{reason}"'
+    if code == WS_CLOSE_REPLACED:
+        return E2AConnectionReplacedError(
+            code="ws_replaced",
+            message=(
+                "a newer connection for this agent superseded this one; not "
+                f"reconnecting (one connection per agent) — {suffix}"
+            ),
+            status=0,
+            retryable=False,
+        )
+    if code == 1008:
+        return E2APermissionError(
+            code="ws_policy_violation",
+            message=f"connection rejected by server policy; not reconnecting — {suffix}",
+            status=0,
+            retryable=False,
+        )
+    if 4000 <= code <= 4999:
+        return E2AError(
+            code="ws_closed",
+            message=f"terminal application close; not reconnecting — {suffix}",
+            status=0,
+            retryable=False,
+        )
+    return None
+
+
+@dataclass(frozen=True)
+class WSEvent:
+    """One WebSocket frame: the versioned event envelope (same shape as a
+    webhook delivery / ``GET /v1/events/{id}``).
+
+    ``data`` is the per-event payload dict. For ``email.received`` it matches
+    :class:`~e2a.v1.webhook_signature.EmailReceivedData`; unknown/beta types
+    stay generic dicts (tolerate them — forward-compat). ``id`` is stable
+    across channels for the same event, so a consumer receiving both the
+    webhook and the WS frame can dedup on it.
     """
 
-    message_id: str
-    from_: str
-    delivered_to: str
-    subject: str
-    received_at: str
-    conversation_id: Optional[str] = None
+    type: str
+    data: Dict[str, Any] = field(default_factory=dict)
+    id: Optional[str] = None
+    created_at: Optional[str] = None
+    schema_version: Optional[str] = None
+    #: The full parsed envelope (all fields, for forward-compatibility).
+    raw: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_payload(cls, payload: dict) -> "WSNotification":
+    def from_payload(cls, payload: dict) -> "WSEvent":
+        data = payload.get("data")
         return cls(
-            message_id=payload.get("message_id", ""),
-            from_=payload.get("from", ""),
-            delivered_to=payload.get("delivered_to") or payload.get("to") or "",
-            subject=payload.get("subject", ""),
-            received_at=payload.get("received_at", ""),
-            conversation_id=payload.get("conversation_id"),
+            type=payload.get("type", ""),
+            data=data if isinstance(data, dict) else {},
+            id=payload.get("id"),
+            created_at=payload.get("created_at"),
+            schema_version=payload.get("schema_version"),
+            raw=payload,
         )
 
 
@@ -129,14 +218,19 @@ def _build_ws_url(base_url: str, agent_email: str) -> str:
 
 
 class WSStream:
-    """Async-iterable notification stream returned by ``client.listen(address)``.
+    """Async-iterable event stream returned by ``client.listen(address)``.
 
-    Iterate it directly::
+    Iterate it directly — each item is a :class:`WSEvent` envelope::
 
-        async for notif in client.listen("bot@agents.e2a.dev"):
+        async for event in client.listen("bot@agents.e2a.dev"):
             ...
 
-    Reconnects with exponential backoff (1s → ``max_backoff``) by default.
+    Reconnects with exponential backoff (1s → ``max_backoff``) by default —
+    but only on TRANSIENT closes (network drops, server restart/shutdown, ping
+    timeout, internal error). Terminal close codes — 4000 ``"replaced"`` (a
+    newer connection for this agent took over), 1008 (policy rejection), and
+    other 4xxx application codes — never reconnect: iteration raises a typed
+    error (:class:`~e2a.v1.errors.E2AConnectionReplacedError` for 4000).
     """
 
     def __init__(
@@ -154,10 +248,10 @@ class WSStream:
         self._reconnect = reconnect
         self._max_backoff = max_backoff
 
-    def __aiter__(self) -> AsyncIterator[WSNotification]:
+    def __aiter__(self) -> AsyncIterator[WSEvent]:
         return self._stream()
 
-    async def _stream(self) -> AsyncIterator[WSNotification]:
+    async def _stream(self) -> AsyncIterator[WSEvent]:
         try:
             import websockets  # noqa: F401
         except ImportError:  # pragma: no cover - optional dep
@@ -176,6 +270,16 @@ class WSStream:
                 # Already-typed fatal errors (e.g. raised below) propagate.
                 raise
             except Exception as exc:  # noqa: BLE001
+                # A terminal server close (4000 "replaced", 1008 policy, other
+                # 4xxx) will never succeed on retry — and for "replaced",
+                # retrying would steal the socket back from our own
+                # replacement. Surface the typed error and stop.
+                close_code, close_reason = _close_code_and_reason(exc)
+                if close_code is not None:
+                    fatal = _fatal_error_for_close(close_code, close_reason)
+                    if fatal is not None:
+                        fatal.__cause__ = exc
+                        raise fatal
                 # A fatal handshake rejection (auth/permission/4xx) will never
                 # succeed on retry — surface it and stop instead of looping.
                 status = _handshake_status(exc)
@@ -209,17 +313,20 @@ def _ws_connect(ws_url: str, api_key: str):
 
 async def _connect_and_stream(
     ws_url: str, api_key: str, agent_email: str
-) -> AsyncIterator[WSNotification]:
-    """Connect once and yield notifications until disconnect. Sends no frames."""
+) -> AsyncIterator[WSEvent]:
+    """Connect once and yield event envelopes until disconnect. Sends no frames."""
     async with _ws_connect(ws_url, api_key) as ws:
         logger.info("Connected to WebSocket for %s", agent_email)
         async for raw in ws:
             try:
                 payload = json.loads(raw)
-                if not payload.get("message_id"):
-                    logger.warning("WS notification missing message_id: %s", raw)
+                # Every frame is the versioned event envelope; a frame without
+                # a string `type` is not one. Unknown type VALUES are yielded
+                # (forward-compat) — consumers branch on event.type.
+                if not isinstance(payload, dict) or not isinstance(payload.get("type"), str) or not payload["type"]:
+                    logger.warning("WS frame is not an event envelope (missing `type`): %s", raw)
                     continue
-                yield WSNotification.from_payload(payload)
+                yield WSEvent.from_payload(payload)
             except Exception:  # noqa: BLE001
-                logger.exception("Error processing WS notification")
+                logger.exception("Error processing WS event")
                 continue

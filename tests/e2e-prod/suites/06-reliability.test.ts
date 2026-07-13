@@ -36,9 +36,11 @@ function wsUrl(email: string): string {
 
 function openWS(url: string, key?: string | null, timeoutMs = 5_000): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    if (key) u.searchParams.set("token", key);
-    const ws = new WebSocket(u.toString());
+    // Auth is the `Authorization: Bearer` handshake header — the legacy
+    // `?token=` query param was retired (the server 401s it). Node's global
+    // WebSocket (undici) supports the non-standard `headers` init option.
+    const opts = key ? { headers: { Authorization: `Bearer ${key}` } } : undefined;
+    const ws = new WebSocket(url, opts as unknown as string[]);
     const t = setTimeout(() => {
       try {
         ws.close();
@@ -132,19 +134,25 @@ test("reliability: WS reconnect cycle (open → close → open) works", async ()
   await waitClose(second);
 });
 
-test("reliability: two concurrent WS sessions to same agent", async () => {
-  const [a, b] = await Promise.all([
-    openWS(wsUrl(sharedAgentEmail), client.env.apiKey, 5_000),
-    openWS(wsUrl(sharedAgentEmail), client.env.apiKey, 5_000),
-  ]);
-  // Either both open (server allows fan-out) or one is rejected — both are valid designs.
-  if (a.readyState === 1 && b.readyState === 1) {
-    info(SUITE, "ws-multi-session", "server allows multiple concurrent WS sessions to same agent (fan-out)");
-  } else {
-    info(SUITE, "ws-single-session", `only one WS held — states a=${a.readyState} b=${b.readyState}`);
-  }
-  try { a.close(); } catch {}
-  try { b.close(); } catch {}
+test("reliability: second WS session supersedes the first — close 4000 'replaced'", async () => {
+  // Frozen close-code contract (docs/api.md "Connection lifecycle & close
+  // codes"): the server holds ONE connection per agent. A newer connection
+  // wins; the superseded one is closed with the application code 4000 and the
+  // stable reason token "replaced" — NOT 1008, which would read as a genuine
+  // policy rejection (and, pre-contract, made auto-reconnecting SDKs steal
+  // the socket back from each other in a loop).
+  const first = await openWS(wsUrl(sharedAgentEmail), client.env.apiKey, 5_000);
+  const firstClosed = waitClose(first, 5_000);
+  const second = await openWS(wsUrl(sharedAgentEmail), client.env.apiKey, 5_000);
+  assert.equal(second.readyState, 1, "newer WS session should open");
+
+  const closed = await firstClosed;
+  assert.equal(closed.code, 4000, `superseded WS must close with 4000, got ${closed.code} "${closed.reason}"`);
+  assert.equal(closed.reason, "replaced", `close reason must be the stable token "replaced", got "${closed.reason}"`);
+  info(SUITE, "ws-single-session", "newer connection won; older closed 4000 'replaced'");
+
+  try { second.close(); } catch {}
+  await waitClose(second);
 });
 
 test("reliability: idempotent protection PUT — applying same payload twice yields same state", async () => {

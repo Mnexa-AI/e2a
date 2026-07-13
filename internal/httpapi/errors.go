@@ -54,7 +54,7 @@ type ErrorEnvelope struct {
 
 // ErrorBody is the inner object of the envelope.
 type ErrorBody struct {
-	Code      string `json:"code" doc:"Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Known values: invalid_request, unauthorized, forbidden, not_found, conflict, gone, method_not_allowed, payload_too_large, unsupported_media_type, rate_limited, limit_exceeded, internal_error — plus resource-specific codes (e.g. domain_not_verified, invalid_cursor, idempotency_in_flight, idempotency_key_reuse) and the *_not_found / *_exists suffix families. A single canonical code, invalid_request, covers all input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid)."`
+	Code      string `json:"code" doc:"Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). The full vocabulary, grouped — auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), message_not_pending (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."`
 	Message   string `json:"message" doc:"Human-readable explanation. Not for branching — use code."`
 	Details   any    `json:"details,omitempty" doc:"Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({\"fields\":[{\"location\",\"message\"}]}); rate_limited and limit_exceeded carry {\"retry_after_seconds\"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes."`
 	RequestID string `json:"request_id,omitempty" doc:"Echoes the X-Request-Id response header so a failing call is greppable in logs."`
@@ -125,6 +125,42 @@ type LimitExceededErrorBody struct {
 // value, so the wire shape matches this schema byte-for-byte.
 type LimitExceededEnvelope struct {
 	Err LimitExceededErrorBody `json:"error"`
+}
+
+// RateLimitedDetails is the typed `error.details` payload carried by a 429
+// rate_limited response. `retry_after_seconds` is the seconds a client should
+// wait before retrying — it mirrors the Retry-After response header, so a
+// client that can only read the body still gets the backoff hint.
+//
+// This is the THROUGHPUT/request-RATE arm of the contract, distinct from the
+// 402 limit_exceeded (stock/flow QUOTA) arm: a 429 is a short-lived, retry-able
+// signal (wait retry_after_seconds and the same request succeeds), whereas a
+// 402 is a persistent cap that a retry alone will not clear (see
+// LimitExceededDetails). Clients MUST branch on the HTTP status: 429 → back off
+// and retry; 402 → surface a quota/upgrade path, do not hammer-retry.
+type RateLimitedDetails struct {
+	RetryAfterSeconds int `json:"retry_after_seconds" doc:"Seconds to wait before retrying; mirrors the Retry-After response header. Always ≥ 1."`
+}
+
+// RateLimitedErrorBody mirrors ErrorBody but with typed rate_limited details, so
+// codegen surfaces a concrete detail shape for the 429 case instead of `any`.
+type RateLimitedErrorBody struct {
+	Code      string             `json:"code" enum:"rate_limited" doc:"Always rate_limited for this response."`
+	Message   string             `json:"message"`
+	Details   RateLimitedDetails `json:"details"`
+	RequestID string             `json:"request_id,omitempty"`
+}
+
+// RateLimitedEnvelope is the 429 error envelope with typed details. It is the
+// declared schema for the 429 response on the throughput-limited write
+// operations (send/reply/forward/test, create agent, approve review); the
+// runtime envelope is the generic ErrorEnvelope whose `details` is populated
+// with a RateLimitedDetails value (or the equivalent map), so the wire shape
+// matches this schema byte-for-byte. It is the request-RATE counterpart to the
+// 402 LimitExceededEnvelope (stock/flow QUOTA) — the two are the permanent GA
+// split clients branch on by HTTP status.
+type RateLimitedEnvelope struct {
+	Err RateLimitedErrorBody `json:"error"`
 }
 
 // Error implements the error interface (huma.StatusError embeds error).

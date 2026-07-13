@@ -3,6 +3,7 @@ import { E2AError } from "@e2a/sdk/v1";
 
 export type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
+  structuredContent?: { [key: string]: unknown };
   isError?: boolean;
 };
 
@@ -51,6 +52,24 @@ export const paginationInput = {
     .describe("Max items in this page (1–100). Defaults to a server-chosen page size (100)."),
 } as const;
 
+// CodedError: a wrapper-thrown error that carries a stable machine `code`
+// from the SERVER'S canonical vocabulary (e.g. "not_found") instead of the
+// blanket `invalid_request` that plain wrapper Errors map to. Use it when the
+// wrapper synthesizes a failure that is semantically NOT a caller-input
+// problem — e.g. ownerOfPending's "pending message not found / already
+// resolved", where an agent branching on `invalid_request` would wrongly
+// re-validate its arguments. No status/request_id ride along: the failure was
+// synthesized by the wrapper, not read off a specific HTTP response. The text
+// form stays the code-less `e2a error: msg` prose (frozen wrapper shape).
+export class CodedError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "CodedError";
+    this.code = code;
+  }
+}
+
 export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
   try {
     const result = await fn();
@@ -62,30 +81,110 @@ export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
           : JSON.stringify(result, null, 2);
     return { content: [{ type: "text", text }] };
   } catch (err) {
+    // Every tool error carries BOTH representations (GA review Tier-2 #12/#31):
+    //
+    //  * `content` (text) — the human/legacy form. Its wording is a de-facto
+    //    FROZEN contract (`e2a error [code](retryable)?: msg` for API errors,
+    //    `e2a error: msg` for wrapper errors) because deployed agents regex it.
+    //    Do NOT change it.
+    //  * `structuredContent` — the sanctioned machine-branchable form (see
+    //    structuredError below): { code, retryable, status?, request_id?,
+    //    retry_after_seconds?, details? }. New agents should branch on this
+    //    instead of parsing the text.
+    //
+    // The MCP TS SDK skips outputSchema validation for isError results
+    // server-side and allows structuredContent without a declared schema.
+    // (A client MAY still validate against a declared outputSchema — but no
+    // e2a tool declares one, so this is additive and non-breaking.)
+    const structured = structuredError(err);
     // Surface the API envelope's machine-branchable `code` (§6a #4) so an agent
     // can branch on a stable code (e.g. domain_not_verified, message_not_pending,
     // recipient_suppressed) instead of parsing prose. The retryable hint tells
     // it whether a retry could ever help. Errors thrown by the wrapper itself
     // (plain Error — e.g. "email is required") have no code and fall through to
-    // the prose form.
+    // the prose form (text stays code-less; structuredContent still carries a
+    // stable code).
     if (err instanceof E2AError && err.code) {
       const retry = err.retryable ? " (retryable)" : "";
       // Only the `code` (a trusted snake_case token) goes inside the brackets.
       // The message is free-form and can echo caller/recipient input, so bound +
       // sanitize it: strip control chars/newlines (keep the `[code]` convention
-      // parseable) and cap length (avoid context blowup). We surface code +
-      // message only — never the raw response body, headers, or request_id.
+      // parseable) and cap length (avoid context blowup). The text carries code +
+      // message only; request_id/details ride in structuredContent (details
+      // size-capped there).
       return {
         content: [{ type: "text", text: `e2a error [${err.code}]${retry}: ${sanitizeMessage(err.message)}` }],
+        structuredContent: structured,
         isError: true,
       };
     }
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `e2a error: ${sanitizeMessage(message)}` }],
+      structuredContent: structured,
       isError: true,
     };
   }
+}
+
+// structuredError builds the machine-branchable error payload emitted as
+// `structuredContent` on every isError tool result.
+//
+// Shape (stable, additive-only post-GA):
+//   code                 stable snake_case token — ALWAYS present. API errors
+//                        carry the envelope code (domain_not_verified,
+//                        rate_limited, …); wrapper-thrown validation errors
+//                        (missing agent arg, confirm guard) reuse the server's
+//                        canonical validation code `invalid_request`; a
+//                        CodedError carries its own server-vocabulary code
+//                        (e.g. `not_found`).
+//   retryable            boolean — ALWAYS present; true when a retry could
+//                        plausibly succeed (429 / 5xx / connection).
+//   status               HTTP status of the API response (0 = connection-level
+//                        failure). ABSENT for wrapper errors: no request was
+//                        ever made.
+//   request_id           server X-Request-Id — quote it in support requests.
+//   retry_after_seconds  back-off hint (Retry-After header or the send-path
+//                        429's details.retry_after_seconds).
+//   details              envelope `error.details` (field-level validation
+//                        info). Omitted when it doesn't JSON-serialize or its
+//                        JSON exceeds MAX_DETAILS_JSON_LEN (context-blowup /
+//                        echoed-input guard, mirroring sanitizeMessage).
+const MAX_DETAILS_JSON_LEN = 2000;
+function structuredError(err: unknown): { [key: string]: unknown } {
+  if (err instanceof E2AError) {
+    const out: { [key: string]: unknown } = {
+      // toE2AError always synthesizes a code; "error" only guards a
+      // hand-constructed codeless E2AError (mirrors the SDK's own fallback).
+      code: err.code || "error",
+      retryable: err.retryable,
+      status: err.status,
+    };
+    if (err.requestId) out.request_id = err.requestId;
+    if (err.retryAfterSeconds !== undefined) out.retry_after_seconds = err.retryAfterSeconds;
+    if (err.details !== undefined) {
+      try {
+        const json = JSON.stringify(err.details);
+        if (json !== undefined && json.length <= MAX_DETAILS_JSON_LEN) out.details = err.details;
+      } catch {
+        // Unserializable (cycles, BigInt) — omit rather than fail the result.
+      }
+    }
+    return out;
+  }
+  // Wrapper-thrown error with an explicit server-vocabulary code (e.g.
+  // ownerOfPending's "not_found" for a pending draft that was already
+  // approved/rejected/expired). Not retryable, and no status/request_id —
+  // the wrapper synthesized it rather than reading it off a response.
+  if (err instanceof CodedError) {
+    return { code: err.code, retryable: false };
+  }
+  // Wrapper-thrown validation error (plain Error from the MCP layer itself —
+  // e.g. "delete_agent requires confirm:true", missing agent selection). It is
+  // always a caller-input problem, so reuse the server's canonical validation
+  // code instead of surfacing no code at all. No status/request_id: no HTTP
+  // exchange happened.
+  return { code: "invalid_request", retryable: false };
 }
 
 // sanitizeMessage makes an error message safe to splice into the single-line

@@ -118,7 +118,7 @@ type DeliveryOutcome struct {
 // 2xx responses are success. Anything else (including 3xx, since
 // redirects are blocked) is a failure with the HTTP status code
 // reported back. Connection errors return Success=false and StatusCode=0.
-func (d *SubscriberDeliverer) Deliver(ctx context.Context, url string, body []byte, secret, secretPrev string) DeliveryOutcome {
+func (d *SubscriberDeliverer) Deliver(ctx context.Context, url string, body []byte, secret, secretPrev, eventType, schemaVersion string) DeliveryOutcome {
 	client := d.client
 	if d.internalSinkURL != "" && url == d.internalSinkURL {
 		// Trusted internal sink (see NewSubscriberDeliverer): exempt from the
@@ -139,6 +139,16 @@ func (d *SubscriberDeliverer) Deliver(ctx context.Context, url string, body []by
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-E2A-Signature", signatureValue)
 	req.Header.Set("User-Agent", "e2a-webhooks/1")
+	// Event-type + schema-version headers let a consumer route/version a delivery
+	// before parsing the body (both values also live in the JSON envelope). The
+	// schema version is stamped at delivery time from the current constant, so a
+	// redelivery of an event stored before schema_version existed still carries it.
+	if eventType != "" {
+		req.Header.Set("X-E2A-Event-Type", eventType)
+	}
+	if schemaVersion != "" {
+		req.Header.Set("X-E2A-Schema-Version", schemaVersion)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

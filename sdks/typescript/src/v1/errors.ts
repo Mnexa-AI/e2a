@@ -64,10 +64,19 @@ export class E2ANotFoundError extends E2AError {}    // 404
 export class E2AConflictError extends E2AError {}    // 409
 export class E2AValidationError extends E2AError {}  // 422 — input validation
 export class E2AIdempotencyError extends E2AError {} // idempotency_in_flight / _key_reuse
-export class E2ARateLimitError extends E2AError {}   // 429
+export class E2ALimitExceededError extends E2AError {} // 402 — QUOTA (stock/flow) cap; NOT retryable
+export class E2ARateLimitError extends E2AError {}   // 429 — request-RATE / throughput limit; retryable
 export class E2AServerError extends E2AError {}      // 5xx / 408
 export class E2AConnectionError extends E2AError {}  // no response (network)
 export class E2AWebhookSignatureError extends E2AError {} // local webhook verify failure
+/**
+ * WebSocket close code 4000 ("replaced"): a NEWER connection for the same
+ * agent superseded this one — the server holds one connection per agent.
+ * Terminal by contract: the SDK does NOT auto-reconnect, because reconnecting
+ * would steal the socket back from the replacement and loop. If the takeover
+ * was yours, it already succeeded on the other side; run one listener per agent.
+ */
+export class E2AConnectionReplacedError extends E2AError {} // WS close 4000 "replaced"
 
 /** Status codes where a retry could plausibly help (excludes connection — that
  *  path is handled separately, since there's no status to inspect). */
@@ -83,6 +92,7 @@ const mkNotFound: Make = (f) => new E2ANotFoundError(f);
 const mkConflict: Make = (f) => new E2AConflictError(f);
 const mkValidation: Make = (f) => new E2AValidationError(f);
 const mkIdempotency: Make = (f) => new E2AIdempotencyError(f);
+const mkLimitExceeded: Make = (f) => new E2ALimitExceededError(f);
 const mkRateLimit: Make = (f) => new E2ARateLimitError(f);
 const mkServer: Make = (f) => new E2AServerError(f);
 
@@ -97,23 +107,41 @@ const CODE_TABLE: Record<string, { make: Make; retryable: boolean }> = {
   unauthorized: { make: mkAuth, retryable: false },
   // 403
   forbidden: { make: mkPermission, retryable: false },
-  // 404
+  blocked_by_policy: { make: mkPermission, retryable: false },
+  // 404 / 410 — the *_not_found suffix family resolves in resolve() below.
   not_found: { make: mkNotFound, retryable: false },
-  // 409
+  gone: { make: mkNotFound, retryable: false },
+  // 409 — the *_taken suffix family (agent_taken / domain_taken / alias_taken)
+  // resolves in resolve() below.
   conflict: { make: mkConflict, retryable: false },
+  message_not_pending: { make: mkConflict, retryable: false },
+  webhook_cooldown: { make: mkConflict, retryable: false },
+  webhook_disabled: { make: mkConflict, retryable: false },
   // 400/422 — input/semantic validation. invalid_request is the single
-  // canonical code the server now emits for both statuses; bad_request /
+  // canonical code the server emits for both statuses (its invalid_* prefix
+  // refinements resolve in resolve() below); bad_request /
   // unprocessable_entity are retained only to tolerate legacy/mixed responses.
   invalid_request: { make: mkValidation, retryable: false },
   bad_request: { make: mkValidation, retryable: false },
   unprocessable_entity: { make: mkValidation, retryable: false },
-  invalid_cursor: { make: mkValidation, retryable: false },
   domain_not_verified: { make: mkValidation, retryable: false },
-  // 429
+  recipient_suppressed: { make: mkValidation, retryable: false },
+  // 402 — QUOTA cap (stock/flow). NOT retryable: distinct from the 429
+  // request-RATE limit below. This is the permanent GA 402/429 split.
+  // The 400 fixed per-account count caps (template_limit_reached /
+  // webhook_limit_reached) join the same family: a retry never clears them.
+  limit_exceeded: { make: mkLimitExceeded, retryable: false },
+  template_limit_reached: { make: mkLimitExceeded, retryable: false },
+  webhook_limit_reached: { make: mkLimitExceeded, retryable: false },
+  // 429 — request-RATE / throughput limit. Retryable (back off Retry-After).
   rate_limited: { make: mkRateLimit, retryable: true },
   // idempotency (internal/httpapi/idempotency.go)
   idempotency_in_flight: { make: mkIdempotency, retryable: true },
   idempotency_key_reuse: { make: mkIdempotency, retryable: false },
+  // 501 — feature not available on this deployment. Overrides the 5xx status
+  // bucket's retryable=true: retrying a not-implemented feature never helps.
+  not_implemented: { make: mkServer, retryable: false },
+  events_log_disabled: { make: mkServer, retryable: false },
 };
 
 function resolve(status: number, code: string): { make: Make; retryable: boolean } {
@@ -121,18 +149,24 @@ function resolve(status: number, code: string): { make: Make; retryable: boolean
   if (code) {
     const byCode = CODE_TABLE[code];
     if (byCode) return byCode;
-    // Pattern families the server may add (e.g. agent_not_found, slug_exists).
+    // Naming families from the published error.code catalog (docs/api.md
+    // "Error codes"): *_not_found = a missing (sub)resource, *_taken = the
+    // identifier is already claimed, invalid_* = a validation refinement of
+    // invalid_request. (*_exists is tolerated for forward compatibility.)
     if (code.endsWith("_not_found")) return { make: mkNotFound, retryable: false };
-    if (code.endsWith("_exists")) return { make: mkConflict, retryable: false };
+    if (code.endsWith("_taken") || code.endsWith("_exists")) return { make: mkConflict, retryable: false };
+    if (code.startsWith("invalid_")) return { make: mkValidation, retryable: false };
   }
   switch (status) {
     case 400:
-      // Every 400 is a client/validation error. Maps the many 400 codes
-      // (confirmation_required, too_many_recipients, invalid_domain, …) to the
+      // Every 400 is a client/validation error. Maps the remaining 400 codes
+      // (too_many_recipients, reserved_domain, domain_has_agents, …) to the
       // validation family instead of degrading to the bare base error.
       return { make: mkValidation, retryable: false };
     case 401:
       return { make: mkAuth, retryable: false };
+    case 402:
+      return { make: mkLimitExceeded, retryable: false };
     case 403:
       return { make: mkPermission, retryable: false };
     case 404:
@@ -186,6 +220,7 @@ function retryAfterFromDetails(details: unknown): number | undefined {
 const DEFAULT_CODE: Record<number, string> = {
   400: "invalid_request",
   401: "unauthorized",
+  402: "limit_exceeded",
   403: "forbidden",
   404: "not_found",
   409: "conflict",

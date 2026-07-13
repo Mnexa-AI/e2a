@@ -10,13 +10,12 @@ lists as an :class:`~e2a.v1.pagination.AutoPager`. Async-only.
 from __future__ import annotations
 
 import os
-from typing import Any, Awaitable, Callable, List, Optional, Sequence, Type, TypeVar, Union
+from typing import Any, Awaitable, Callable, List, Optional, Protocol, Sequence, Type, TypeVar, Union
 
 from pydantic import ValidationError
 
 from ._retry import RetryConfig, request_with_retry
 from .errors import E2AError, E2AValidationError
-from .webhook_signature import WebhookEvent
 from .generated.api.account_api import AccountApi
 from .generated.api.agents_api import AgentsApi
 from .generated.api.conversations_api import ConversationsApi
@@ -40,7 +39,13 @@ from .generated.models import (
     CreateAPIKeyResponse,
     CreateWebhookRequest,
     CreateWebhookResponse,
+    DeleteAgentResult,
+    DeleteApiKeyResult,
+    DeleteDomainResult,
+    DeleteSuppressionResult,
+    DeleteTemplateResult,
     DeleteUserDataResult,
+    DeleteWebhookResult,
     DeploymentInfoView,
     DomainView,
     EventJSON,
@@ -67,6 +72,7 @@ from .generated.models import (
     TestWebhookResponse,
     TestWebhookRequest,
     ProtectionConfigView,
+    ProtectionConfigRequest,
     CreateTemplateRequest,
     UpdateAgentRequest,
     UpdateMessageRequest,
@@ -82,12 +88,28 @@ from .generated.models import (
 )
 from .pagination import AutoPager, Page
 
-__all__ = ["E2AClient"]
+__all__ = ["AsyncE2AClient"]
 
 T = TypeVar("T")
 _Make = Callable[[Optional["dict[str, str]"]], Awaitable[Any]]
 # A request body accepted as the typed model or a plain dict.
 Body = Union[Any, dict]
+
+
+class EventLike(Protocol):
+    """Structural type for the versioned event envelope — anything with a
+    ``type`` and a ``data`` payload. Both :class:`WebhookEvent` and the
+    WebSocket channel's ``WSEvent`` satisfy it (the two channels carry the
+    same envelope), so envelope-consuming helpers like
+    ``client.webhooks.fetch_message`` accept either without importing the
+    optional ``websockets``-backed module.
+    """
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def data(self) -> Any: ...
 
 DEFAULT_BASE_URL = "https://api.e2a.dev"
 
@@ -102,6 +124,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         return model_cls()  # type: ignore[call-arg]
     if isinstance(body, model_cls):
         return body
+    # A DIFFERENT generated model — e.g. the View returned by a GET fed back
+    # into a write whose body type is the Request twin (protection's
+    # read-modify-write flow after the request/response schema split). Convert
+    # via its dict form so the natural get -> modify -> replace loop keeps
+    # working; pydantic then validates against the Request schema as usual.
+    if hasattr(body, "to_dict"):
+        body = body.to_dict()  # type: ignore[union-attr]
     try:
         return model_cls.model_validate(body)  # type: ignore[attr-defined]
     except ValidationError as e:
@@ -115,13 +144,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         ) from e
 
 
-class E2AClient:
+class AsyncE2AClient:
     """Async client for the e2a /v1 API.
 
     Use as an async context manager so the underlying HTTP connections are
     closed::
 
-        async with E2AClient(api_key="e2a_...") as client:
+        async with AsyncE2AClient(api_key="e2a_...") as client:
             agents = await client.agents.list().to_list(limit=100)
     """
 
@@ -192,7 +221,7 @@ class E2AClient:
     async def aclose(self) -> None:
         await self._api_client.close()
 
-    async def __aenter__(self) -> "E2AClient":
+    async def __aenter__(self) -> "AsyncE2AClient":
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
@@ -224,8 +253,14 @@ class E2AClient:
     def listen(self, email: str) -> Any:
         """Open a notification stream for an agent's inbox.
 
-        Yields lightweight notifications; fetch the body with
-        ``client.messages.get(email, id)``.
+        Yields :class:`~e2a.v1.websocket.WSEvent` envelopes — the same
+        versioned shape as webhook deliveries (``email.received`` today;
+        tolerate unknown types). Fetch the body when you need it::
+
+            async for event in client.listen("bot@acme.dev"):
+                if event.type != "email.received":
+                    continue
+                msg = await client.messages.get(event.data["delivered_to"], event.data["message_id"])
         """
         if not email:
             raise E2AError(
@@ -244,7 +279,7 @@ def _page(items: Optional[Sequence[T]], next_cursor: Optional[str] = None) -> Pa
 
 
 class AgentsResource:
-    def __init__(self, api: AgentsApi, client: E2AClient) -> None:
+    def __init__(self, api: AgentsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -279,22 +314,23 @@ class AgentsResource:
     async def replace_protection(self, email: str, config: Body) -> ProtectionConfigView:
         """Replace an agent's protection config wholesale (all three top-level
         keys required). Beta; account scope only. PUT is idempotent."""
-        req = _coerce(ProtectionConfigView, config)
+        req = _coerce(ProtectionConfigRequest, config)
         return await self._c._write_idempotent(
             lambda h: self._api.put_agent_protection(email, req, _headers=h)
         )
 
-    async def delete(self, email: str) -> None:
+    async def delete(self, email: str) -> DeleteAgentResult:
         # The typed .delete() call is the confirmation; the SDK supplies the
-        # ?confirm=DELETE guard the raw API requires (AG-6).
-        await self._c._write_idempotent(lambda h: self._api.delete_agent(email, confirm="DELETE", _headers=h))
+        # ?confirm=DELETE guard the raw API requires (AG-6). Returns the deletion
+        # receipt ({deleted, email, messages_deleted}).
+        return await self._c._write_idempotent(lambda h: self._api.delete_agent(email, confirm="DELETE", _headers=h))
 
     async def test(self, email: str) -> SendResultView:
         return await self._c._write_unsafe(lambda h: self._api.test_agent(email, _headers=h))
 
 
 class MessagesResource:
-    def __init__(self, api: MessagesApi, client: E2AClient) -> None:
+    def __init__(self, api: MessagesApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -398,7 +434,7 @@ class ReviewsResource:
     path — reviews are addressed by message id alone, no inbox email. Account-
     scoped credentials only; an agent cannot see or resolve holds."""
 
-    def __init__(self, api: ReviewsApi, client: E2AClient) -> None:
+    def __init__(self, api: ReviewsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -442,18 +478,20 @@ class TemplatesResource:
     ``template_alias`` / ``template_data``, mutually exclusive with a literal
     subject/body)."""
 
-    def __init__(self, api: TemplatesApi, client: E2AClient) -> None:
+    def __init__(self, api: TemplatesApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[TemplateSummaryView]:
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[TemplateSummaryView]:
         """List the account's stored templates, newest first. Summary rows only
         (no text/html sources) — ``get(id)`` returns the full sources."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -479,10 +517,10 @@ class TemplatesResource:
             lambda h: self._api.update_template(template_id, req, _headers=h)
         )
 
-    async def delete(self, template_id: str) -> None:
+    async def delete(self, template_id: str) -> DeleteTemplateResult:
         # In-flight sends are unaffected (rendering happens at send time). DELETE
-        # is idempotent → safe to retry.
-        await self._c._write_idempotent(lambda h: self._api.delete_template(template_id, confirm="DELETE", _headers=h))
+        # is idempotent → safe to retry. Returns the deletion object ({deleted, id}).
+        return await self._c._write_idempotent(lambda h: self._api.delete_template(template_id, confirm="DELETE", _headers=h))
 
     async def validate(self, body: Body) -> ValidateTemplateResponse:
         """Dry-run template source without persisting: per-part parse errors, a
@@ -492,15 +530,17 @@ class TemplatesResource:
         req = _coerce(ValidateTemplateRequest, body)
         return await self._c._read(lambda h: self._api.validate_template(req, _headers=h))
 
-    def list_starters(self) -> AutoPager[StarterTemplateView]:
+    def list_starters(self, *, limit: Optional[int] = None) -> AutoPager[StarterTemplateView]:
         """List the pre-built starter templates shipped with the deployment
         (catalog metadata + variables; ``get_starter(alias)`` adds the full body
         sources)."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_starter_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_starter_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -511,7 +551,7 @@ class TemplatesResource:
 
 
 class ConversationsResource:
-    def __init__(self, api: ConversationsApi, client: E2AClient) -> None:
+    def __init__(self, api: ConversationsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -541,7 +581,7 @@ class ConversationsResource:
 
 
 class DomainsResource:
-    def __init__(self, api: DomainsApi, client: E2AClient) -> None:
+    def __init__(self, api: DomainsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -560,15 +600,16 @@ class DomainsResource:
         req = _coerce(RegisterDomainRequest, body)
         return await self._c._write_unsafe(lambda h: self._api.register_domain(req, _headers=h))
 
-    async def delete(self, domain: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_domain(domain, confirm="DELETE", _headers=h))
+    async def delete(self, domain: str) -> DeleteDomainResult:
+        # Returns the deletion object ({deleted, domain}).
+        return await self._c._write_idempotent(lambda h: self._api.delete_domain(domain, confirm="DELETE", _headers=h))
 
     async def verify(self, domain: str) -> VerifyDomainView:
         return await self._c._write_unsafe(lambda h: self._api.verify_domain(domain, _headers=h))
 
 
 class EventsResource:
-    def __init__(self, api: EventsApi, client: E2AClient) -> None:
+    def __init__(self, api: EventsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -612,16 +653,19 @@ class EventsResource:
 
 
 class WebhooksResource:
-    def __init__(self, api: WebhooksApi, client: E2AClient) -> None:
+    def __init__(self, api: WebhooksApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
-    async def fetch_message(self, event: WebhookEvent) -> MessageView:
+    async def fetch_message(self, event: EventLike) -> MessageView:
         """Fetch the full message referenced by an ``email.received`` event.
 
-        The event is a metadata-only notification; this resolves its
-        ``(delivered_to, message_id)`` fetch keys and returns the full
-        :class:`MessageView` (body, attachments, signed headers). Raises
+        Accepts any envelope-shaped event — a verified
+        :class:`~e2a.v1.webhook_signature.WebhookEvent` or the WebSocket
+        channel's :class:`~e2a.v1.websocket.WSEvent` (both channels carry the
+        same envelope). The event is a metadata-only notification; this
+        resolves its ``(delivered_to, message_id)`` fetch keys and returns the
+        full :class:`MessageView` (body, attachments, signed headers). Raises
         ``ValueError`` if the event is not an ``email.received`` carrying those
         keys.
         """
@@ -655,8 +699,9 @@ class WebhooksResource:
             lambda h: self._api.update_webhook(webhook_id, req, _headers=h)
         )
 
-    async def delete(self, webhook_id: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, confirm="DELETE", _headers=h))
+    async def delete(self, webhook_id: str) -> DeleteWebhookResult:
+        # Returns the deletion object ({deleted, id}).
+        return await self._c._write_idempotent(lambda h: self._api.delete_webhook(webhook_id, confirm="DELETE", _headers=h))
 
     async def rotate_secret(self, webhook_id: str) -> RotateSecretResponse:
         # Server-deduped via Idempotency-Key: a retried rotate replays the first
@@ -690,7 +735,7 @@ class WebhooksResource:
 
 
 class SuppressionsResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -702,12 +747,13 @@ class SuppressionsResource:
 
         return AutoPager(fetch)
 
-    async def delete(self, email: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_suppression(email, confirm="DELETE", _headers=h))
+    async def delete(self, email: str) -> DeleteSuppressionResult:
+        # Returns the deletion object ({deleted, address}).
+        return await self._c._write_idempotent(lambda h: self._api.delete_suppression(email, confirm="DELETE", _headers=h))
 
 
 class APIKeysResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -726,12 +772,13 @@ class APIKeysResource:
         req = _coerce(CreateAPIKeyRequest, body)
         return await self._c._write_unsafe(lambda h: self._api.create_api_key(req, _headers=h))
 
-    async def delete(self, key_id: str) -> None:
-        await self._c._write_idempotent(lambda h: self._api.delete_api_key(key_id, confirm="DELETE", _headers=h))
+    async def delete(self, key_id: str) -> DeleteApiKeyResult:
+        # Returns the deletion object ({deleted, id}).
+        return await self._c._write_idempotent(lambda h: self._api.delete_api_key(key_id, confirm="DELETE", _headers=h))
 
 
 class AccountResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
         self.suppressions = SuppressionsResource(api, client)

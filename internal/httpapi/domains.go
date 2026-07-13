@@ -233,8 +233,8 @@ func (s *Server) registerDomains() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "deleteDomain", Method: http.MethodDelete, Path: "/v1/domains/{domain}",
 		Summary: "Delete a domain", Tags: []string{"domains"},
-		Description: "Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible).",
-		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusNoContent,
+		Description: "Deprovisions the domain's sending identity and breaks sending for every agent on it. Requires ?confirm=DELETE (irreversible). Returns 200 with a deletion object ({deleted:true, domain}).",
+		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteDomain)
 
 	huma.Register(s.API, huma.Operation{
@@ -400,15 +400,16 @@ func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInp
 		if errors.Is(err, identity.ErrDomainTaken) {
 			return nil, NewError(http.StatusConflict, "domain_taken", "domain is already claimed by another account")
 		}
-		return nil, NewError(http.StatusBadRequest, "domain_unavailable", "failed to register domain")
-	}
-	if d == nil {
-		return nil, NewError(http.StatusBadRequest, "domain_unavailable", "failed to register domain")
+		// Any non-taken failure here is a store/lookup error, not a client
+		// error (ClaimOrCreateDomain returns a domain, ErrDomainTaken, or a
+		// wrapped DB error — never nil, nil), so it is a 500 — the former
+		// 400 "domain_unavailable" misclassified it as the caller's fault.
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register domain")
 	}
 	return &domainCreateOutput{Body: s.domainView(d)}, nil
 }
 
-type deleteDomainOutput struct{}
+type deleteDomainOutput struct{ Body DeleteDomainResult }
 
 // deleteDomainInput adds the confirmation guard (D-5). Deleting a domain
 // deprovisions its SES sending identity and breaks sending for every agent on
@@ -445,5 +446,5 @@ func (s *Server) handleDeleteDomain(ctx context.Context, in *deleteDomainInput) 
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to delete domain")
 		}
 	}
-	return &deleteDomainOutput{}, nil
+	return &deleteDomainOutput{Body: DeleteDomainResult{Deleted: true, Domain: in.Domain}}, nil
 }

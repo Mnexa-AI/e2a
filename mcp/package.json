@@ -40,7 +40,7 @@
   "homepage": "https://github.com/Mnexa-AI/e2a/tree/main/mcp",
   "bugs": "https://github.com/Mnexa-AI/e2a/issues",
   "dependencies": {
-    "@e2a/sdk": "^4.0.0",
+    "@e2a/sdk": "^5.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cors": "^2.8.5",
     "express": "^5.0.0",

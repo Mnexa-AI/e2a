@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
+	"github.com/Mnexa-AI/e2a/internal/eventpayload/goldenassert"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -43,13 +45,143 @@ func TestBuildSentEvent_PopulatesEnvelope(t *testing.T) {
 	if ev.ConversationID != "conv_42" {
 		t.Errorf("ConversationID = %q, want conv_42", ev.ConversationID)
 	}
-	data, ok := ev.Data.(map[string]interface{})
+	data, ok := ev.Data.(eventpayload.EmailSentData)
 	if !ok {
-		t.Fatalf("Data is not a map: %T", ev.Data)
+		t.Fatalf("Data is not the canonical typed payload: %T", ev.Data)
 	}
-	if data["subject"] != "hello" {
-		t.Errorf("subject = %v, want hello", data["subject"])
+	if data.Subject != "hello" {
+		t.Errorf("subject = %v, want hello", data.Subject)
 	}
+	if data.Direction != "outbound" || data.AgentEmail != agent.EmailAddress() {
+		t.Errorf("data = %+v", data)
+	}
+}
+
+// TestSentEventGoldenPayloads is this package's side of the cross-channel
+// drift lock, and the sync/async identity proof: the synchronous
+// buildSentEvent and the async worker's buildEmailSentEventFromRow must BOTH
+// marshal byte-identical to the same committed fixture, and the async
+// email.failed builder to its fixture — the files the eventpayload envelope
+// test and the TS/Python SDK tests also assert against.
+func TestSentEventGoldenPayloads(t *testing.T) {
+	const fixture = "../eventpayload/testdata/"
+	agent := &identity.AgentIdentity{
+		ID:     "support@agents.example.com",
+		Domain: "agents.example.com",
+		UserID: "user_7a6b5c4d",
+	}
+
+	t.Run("email.sent sync builder", func(t *testing.T) {
+		a := &API{}
+		ev := a.buildSentEvent(
+			agent,
+			&identity.Message{ID: "msg_01h2xcejqtf2nbrexx3vqjhp42"},
+			&outbound.SendResult{
+				MessageID: "0100019283abcdef-1a2b3c4d-0000",
+				Method:    "smtp",
+				To:        []string{"alice@customer.example.com"},
+				CC:        []string{"ops@customer.example.com"},
+				BCC:       []string{"audit@agents.example.com"},
+			},
+			outbound.SendRequest{
+				Subject:        "Re: Order #1234 delayed",
+				ConversationID: "conv_9f8e7d6c",
+			},
+			"reply",
+		)
+		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
+	})
+
+	t.Run("email.sent async builder emits the identical payload", func(t *testing.T) {
+		ev := buildEmailSentEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:             "msg_01h2xcejqtf2nbrexx3vqjhp42",
+				AgentID:        agent.ID,
+				Sender:         "support@agents.example.com",
+				Method:         "smtp",
+				ToRecipients:   []string{"alice@customer.example.com"},
+				CC:             []string{"ops@customer.example.com"},
+				BCC:            []string{"audit@agents.example.com"},
+				Subject:        "Re: Order #1234 delayed",
+				Type:           "reply",
+				ConversationID: "conv_9f8e7d6c",
+			},
+		}, "0100019283abcdef-1a2b3c4d-0000")
+		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
+	})
+
+	t.Run("email.failed async builder", func(t *testing.T) {
+		ev := buildEmailFailedEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:             "msg_01h2xcejqtf2nbrexx3vqjhp43",
+				AgentID:        agent.ID,
+				Sender:         "support@agents.example.com",
+				Method:         "smtp",
+				ToRecipients:   []string{"alice@customer.example.com"},
+				CC:             []string{"ops@customer.example.com"},
+				BCC:            []string{"audit@agents.example.com"},
+				Subject:        "Re: Order #1234 delayed",
+				Type:           "send",
+				ConversationID: "conv_9f8e7d6c",
+			},
+		}, "550 5.1.1 user unknown")
+		goldenassert.Data(t, fixture+"email.failed.json", ev.Data)
+	})
+
+	// Minimal (required-fields-only) variants: the same builders fed only the
+	// required inputs must byte-match the .min.json fixtures, locking the
+	// omitempty presence semantics (no cc/bcc/conversation_id on the wire when
+	// unset) that the fully-populated fixtures above can't detect.
+
+	t.Run("email.sent sync builder minimal", func(t *testing.T) {
+		a := &API{}
+		ev := a.buildSentEvent(
+			agent,
+			&identity.Message{ID: "msg_01h2xcejqtf2nbrexx3vqjhp42"},
+			&outbound.SendResult{
+				MessageID: "0100019283abcdef-1a2b3c4d-0000",
+				Method:    "smtp",
+				To:        []string{"alice@customer.example.com"},
+			},
+			outbound.SendRequest{Subject: "Re: Order #1234 delayed"},
+			"reply",
+		)
+		goldenassert.Data(t, fixture+"email.sent.min.json", ev.Data)
+	})
+
+	t.Run("email.sent async builder minimal emits the identical payload", func(t *testing.T) {
+		ev := buildEmailSentEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:           "msg_01h2xcejqtf2nbrexx3vqjhp42",
+				AgentID:      agent.ID,
+				Sender:       "support@agents.example.com",
+				Method:       "smtp",
+				ToRecipients: []string{"alice@customer.example.com"},
+				Subject:      "Re: Order #1234 delayed",
+				Type:         "reply",
+			},
+		}, "0100019283abcdef-1a2b3c4d-0000")
+		goldenassert.Data(t, fixture+"email.sent.min.json", ev.Data)
+	})
+
+	t.Run("email.failed async builder minimal", func(t *testing.T) {
+		ev := buildEmailFailedEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:           "msg_01h2xcejqtf2nbrexx3vqjhp43",
+				AgentID:      agent.ID,
+				Sender:       "support@agents.example.com",
+				Method:       "smtp",
+				ToRecipients: []string{"alice@customer.example.com"},
+				Subject:      "Re: Order #1234 delayed",
+				Type:         "send",
+			},
+		}, "550 5.1.1 user unknown")
+		goldenassert.Data(t, fixture+"email.failed.min.json", ev.Data)
+	})
 }
 
 func TestBuildSentEvent_NilOutMsgUsesEmptyMessageID(t *testing.T) {
@@ -69,8 +201,15 @@ func TestBuildPendingApprovalEvent(t *testing.T) {
 	msg := &identity.Message{ID: "pend_1", ApprovalExpiresAt: &expiry}
 	req := outbound.SendRequest{To: []string{"alice@example.com"}, Subject: "review me"}
 	ev := a.buildPendingApprovalEvent(agent, msg, req, "send")
-	if ev.Type != webhookpub.EventEmailPendingReview {
-		t.Errorf("Type = %q, want email.pending_review", ev.Type)
+	if ev.Type != webhookpub.EventEmailReviewRequested {
+		t.Errorf("Type = %q, want email.review_requested", ev.Type)
+	}
+	pdata := ev.Data.(map[string]interface{})
+	if pdata["message_type"] != "send" {
+		t.Errorf("message_type = %v, want send", pdata["message_type"])
+	}
+	if pdata["agent_email"] != agent.ID {
+		t.Errorf("agent_email = %v, want %q", pdata["agent_email"], agent.ID)
 	}
 	if ev.MessageID != "pend_1" {
 		t.Errorf("MessageID = %q, want pend_1", ev.MessageID)
@@ -103,8 +242,14 @@ func TestBuildApprovedEvent(t *testing.T) {
 	if data["edited"] != true {
 		t.Errorf("edited = %v, want true", data["edited"])
 	}
-	if data["reviewed_by_user_id"] != "u_reviewer" {
-		t.Errorf("reviewed_by_user_id = %v", data["reviewed_by_user_id"])
+	if data["message_type"] != "send" {
+		t.Errorf("message_type = %v, want send", data["message_type"])
+	}
+	if data["agent_email"] != agent.ID {
+		t.Errorf("agent_email = %v, want %q", data["agent_email"], agent.ID)
+	}
+	if _, ok := data["reviewed_by_user_id"]; ok {
+		t.Errorf("reviewed_by_user_id must not be exposed, got %v", data["reviewed_by_user_id"])
 	}
 }
 
@@ -119,8 +264,17 @@ func TestBuildRejectedEvent(t *testing.T) {
 		t.Errorf("MessageID = %q", ev.MessageID)
 	}
 	data := ev.Data.(map[string]interface{})
-	if data["rejection_reason"] != "off-policy" {
-		t.Errorf("rejection_reason = %v", data["rejection_reason"])
+	if data["reason"] != "off-policy" {
+		t.Errorf("reason = %v, want off-policy", data["reason"])
+	}
+	if data["message_type"] != "send" {
+		t.Errorf("message_type = %v, want send", data["message_type"])
+	}
+	if data["agent_email"] != "bot@x.example.com" {
+		t.Errorf("agent_email = %v, want bot@x.example.com", data["agent_email"])
+	}
+	if _, ok := data["reviewed_by_user_id"]; ok {
+		t.Errorf("reviewed_by_user_id must not be exposed")
 	}
 }
 

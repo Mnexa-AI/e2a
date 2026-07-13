@@ -6,6 +6,7 @@ from e2a.v1.errors import (
     E2AConnectionError,
     E2AError,
     E2AIdempotencyError,
+    E2ALimitExceededError,
     E2ANotFoundError,
     E2APermissionError,
     E2ARateLimitError,
@@ -27,6 +28,7 @@ def _exc(status, body=None, headers=None):
 def test_status_to_class_mapping():
     cases = {
         401: E2AAuthError,
+        402: E2ALimitExceededError,
         403: E2APermissionError,
         404: E2ANotFoundError,
         409: E2AConflictError,
@@ -46,6 +48,33 @@ def test_retryable_flags():
     assert from_api_exception(_exc(500, body="{}")).retryable is True
     assert from_api_exception(_exc(404, body="{}")).retryable is False
     assert from_api_exception(_exc(422, body="{}")).retryable is False
+
+
+def test_402_429_split():
+    # The permanent GA split: 402 limit_exceeded is a QUOTA cap (NOT retryable);
+    # 429 rate_limited is a request-RATE limit (retryable). Clients branch on the
+    # exception type / HTTP status.
+    quota = from_api_exception(
+        _exc(402, body='{"error":{"code":"limit_exceeded","message":"monthly cap"}}')
+    )
+    assert isinstance(quota, E2ALimitExceededError)
+    assert not isinstance(quota, E2ARateLimitError)
+    assert quota.retryable is False
+
+    rate = from_api_exception(
+        _exc(429, body='{"error":{"code":"rate_limited","message":"slow"}}')
+    )
+    assert isinstance(rate, E2ARateLimitError)
+    assert not isinstance(rate, E2ALimitExceededError)
+    assert rate.retryable is True
+
+    # Code-first: limit_exceeded on an unexpected status still routes to the
+    # quota class (never the rate-limit class).
+    odd = from_api_exception(
+        _exc(400, body='{"error":{"code":"limit_exceeded","message":"cap"}}')
+    )
+    assert isinstance(odd, E2ALimitExceededError)
+    assert odd.retryable is False
 
 
 def test_idempotency_code_wins_over_status():
@@ -134,6 +163,72 @@ def test_known_code_maps_by_code_on_unexpected_status():
     )
     assert isinstance(rl, E2ARateLimitError)
     assert rl.retryable is True
+
+
+def test_code_family_patterns():
+    # The *_taken conflict family (agent_taken / domain_taken / alias_taken)
+    # maps code-first regardless of status.
+    for code in ("agent_taken", "domain_taken", "alias_taken"):
+        err = from_api_exception(
+            _exc(200, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2AConflictError)
+        assert err.retryable is False
+
+    # invalid_* refinements of invalid_request are validation errors even when
+    # the individual code is not in the table.
+    for code in ("invalid_slug", "invalid_filter", "invalid_expires_at"):
+        err = from_api_exception(
+            _exc(200, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2AValidationError)
+
+
+def test_catalog_family_overrides():
+    # 501 not_implemented / events_log_disabled: server family but NOT
+    # retryable — while a plain 501 with an unknown code stays retryable.
+    for code in ("not_implemented", "events_log_disabled"):
+        err = from_api_exception(
+            _exc(501, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2AServerError)
+        assert err.retryable is False
+    unknown = from_api_exception(
+        _exc(501, body='{"error":{"code":"totally_unknown_code","message":"x"}}')
+    )
+    assert unknown.retryable is True
+
+    # 400 fixed per-account caps map to the quota family, not validation.
+    for code in ("template_limit_reached", "webhook_limit_reached"):
+        err = from_api_exception(
+            _exc(400, body='{"error":{"code":"%s","message":"x"}}' % code)
+        )
+        assert isinstance(err, E2ALimitExceededError)
+        assert err.retryable is False
+
+    # Outbound policy + review-hold + suppression + retention codes.
+    assert isinstance(
+        from_api_exception(
+            _exc(403, body='{"error":{"code":"blocked_by_policy","message":"x"}}')
+        ),
+        E2APermissionError,
+    )
+    assert isinstance(
+        from_api_exception(
+            _exc(409, body='{"error":{"code":"message_not_pending","message":"x"}}')
+        ),
+        E2AConflictError,
+    )
+    assert isinstance(
+        from_api_exception(
+            _exc(422, body='{"error":{"code":"recipient_suppressed","message":"x"}}')
+        ),
+        E2AValidationError,
+    )
+    assert isinstance(
+        from_api_exception(_exc(410, body='{"error":{"code":"gone","message":"x"}}')),
+        E2ANotFoundError,
+    )
 
 
 def test_unknown_code_falls_back_to_status_bucket():

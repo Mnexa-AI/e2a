@@ -75,6 +75,22 @@ class AutoPager(Generic[T]):
                 seen.add(cursor)
             cursor = nxt
 
+    async def page(self, cursor: Optional[str] = None) -> "Page[T]":
+        """Fetch a SINGLE page for caller-driven pagination: pass the previous
+        page's ``next_cursor`` (omit for the first page) and get back a
+        :class:`Page` of ``items`` + ``next_cursor``. A ``None`` ``next_cursor``
+        in the result means there are no more pages. This is the primitive
+        behind the cursor+limit shape the MCP tools expose and is available to
+        SDK users who want manual paging (e.g. checkpoint/resume from a queue)
+        instead of ``async for`` / ``to_list``. The page size is governed by the
+        ``limit`` baked into the list call that produced this pager."""
+        p = await self._fetch_page(cursor or None)
+        # Normalize a null/empty next_cursor to None (= no more pages), matching
+        # the iterator's own `not nxt` termination. A bare passthrough would leak
+        # an empty-string cursor as a truthy "more pages".
+        nxt = p.next_cursor
+        return Page(items=p.items or [], next_cursor=nxt if nxt else None)
+
     async def to_list(self, *, limit: int) -> List[T]:
         """Collect up to ``limit`` items. The limit is required — it caps memory
         for an inbox that could page indefinitely."""

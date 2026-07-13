@@ -10,6 +10,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
+import { DeleteWebhookResult } from '../models/DeleteWebhookResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
@@ -72,7 +73,7 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Delete a webhook subscriber by id. Requires ?confirm=DELETE.
+     * Delete a webhook subscriber by id. Requires ?confirm=DELETE. Returns 200 with a deletion object ({deleted:true, id}).
      * Delete a webhook
      * @param id 
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -262,10 +263,10 @@ export class WebhooksApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
      * Rotate a webhook signing secret
      * @param id 
-     * @param idempotencyKey 
+     * @param idempotencyKey Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      */
     public async rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
@@ -463,10 +464,14 @@ export class WebhooksApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteWebhook
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteWebhookWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteWebhookResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteWebhookResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteWebhookResult", ""
+            ) as DeleteWebhookResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -478,10 +483,10 @@ export class WebhooksApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteWebhookResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteWebhookResult", ""
+            ) as DeleteWebhookResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 
@@ -612,12 +617,26 @@ export class WebhooksApiResponseProcessor {
             ) as RotateSecretResponse;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("409", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request\&#39;s response instead of re-executing the side effect.", body, response.headers);
+        }
+        if (isCodeInRange("422", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body.", body, response.headers);
+        }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
-            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
@@ -684,12 +703,19 @@ export class WebhooksApiResponseProcessor {
             ) as WebhookView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("409", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. Retry after the cooldown, or fix the endpoint first.", body, response.headers);
+        }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
-            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml

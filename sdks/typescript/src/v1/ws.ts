@@ -1,6 +1,13 @@
 import WebSocket from "ws";
 import { EventEmitter } from "node:events";
-import { E2AError, E2AAuthError, E2APermissionError, E2ANotFoundError } from "./errors.js";
+import {
+  E2AError,
+  E2AAuthError,
+  E2AConnectionReplacedError,
+  E2APermissionError,
+  E2ANotFoundError,
+} from "./errors.js";
+import type { WebhookEvent } from "./webhook-signature.js";
 
 // Map a fatal (non-retryable) WebSocket handshake rejection status to a typed
 // error — mirrors the Python SDK's _fatal_error_for_status (F6). A 4xx means the
@@ -13,27 +20,75 @@ function fatalErrorForStatus(status: number): E2AError {
   // 404 — the agent doesn't exist OR isn't yours (the server collapses the
   // cross-tenant case into not_found so the handshake can't enumerate agents).
   if (status === 404) return new E2ANotFoundError({ code: "not_found", message, status, retryable: false });
-  return new E2AError({ code: "websocket_rejected", message, status, retryable: false });
+  return new E2AError({ code: "ws_handshake_rejected", message, status, retryable: false });
 }
 
 /**
- * A lightweight notification pushed by the e2a relay when new mail
- * arrives for an agent. Mirror of the Python SDK's `WSNotification`.
- *
- * The body is intentionally not included — fetch it via REST when (and
- * only when) you actually need it:
- *
- *     const email = await client.messages.get(notif.delivered_to, notif.message_id);
+ * e2a application close code: a NEWER connection for this agent superseded
+ * this one (the server holds one connection per agent). Terminal — do not
+ * reconnect. See docs/api.md "Connection lifecycle & close codes".
  */
-export interface WSNotification {
-  message_id: string;
-  conversation_id?: string;
-  from: string;
-  /** Per-delivery target (this agent's address). */
-  delivered_to: string;
-  subject: string;
-  received_at: string;
+export const WS_CLOSE_REPLACED = 4000;
+
+// Map a server close CODE to a fatal (terminal, no-reconnect) typed error, per
+// the documented close-code contract (docs/api.md; mirrors the Python SDK's
+// _fatal_error_for_close):
+//   4000 "replaced"     → E2AConnectionReplacedError — a newer connection for
+//                         this agent took over; reconnecting would steal the
+//                         socket back and loop.
+//   1008                → E2APermissionError — genuine policy rejection;
+//                         retrying the same connection cannot succeed.
+//   4001–4999           → reserved e2a application codes; unknown ones are
+//                         fatal by contract (forward-compat).
+// Everything else (1001 shutting_down / ping_timeout, 1006 abnormal, 1011
+// internal error, …) is transient → returns null → backoff reconnect.
+function fatalErrorForClose(code: number, reason: string): E2AError | null {
+  const suffix = `WebSocket closed by server: code=${code} reason="${reason}"`;
+  if (code === WS_CLOSE_REPLACED) {
+    return new E2AConnectionReplacedError({
+      code: "ws_replaced",
+      message: `a newer connection for this agent superseded this one; not reconnecting (one connection per agent) — ${suffix}`,
+      status: 0,
+      retryable: false,
+    });
+  }
+  if (code === 1008) {
+    return new E2APermissionError({
+      code: "ws_policy_violation",
+      message: `connection rejected by server policy; not reconnecting — ${suffix}`,
+      status: 0,
+      retryable: false,
+    });
+  }
+  if (code >= 4000 && code <= 4999) {
+    return new E2AError({
+      code: "ws_closed",
+      message: `terminal application close; not reconnecting — ${suffix}`,
+      status: 0,
+      retryable: false,
+    });
+  }
+  return null;
 }
+
+/**
+ * A WebSocket frame from the e2a relay: the SAME versioned event envelope a
+ * webhook delivery carries — `{type, id, schema_version, created_at, data}`.
+ * Today the relay emits `email.received` events (data: {@link EmailReceivedData});
+ * tolerate unknown `type` values — future WS event kinds parse into the same
+ * envelope. Narrow with {@link isEmailReceived} (or `event.type === "email.received"`).
+ *
+ * The body is intentionally not included — fetch it via REST when (and only
+ * when) you actually need it. `client.webhooks.fetchMessage(event)` is the
+ * bridge (the WS envelope is a WebhookEvent), or directly:
+ *
+ *     if (isEmailReceived(event)) {
+ *       const email = await client.messages.get(event.data.delivered_to, event.data.message_id);
+ *     }
+ *
+ * Mirror of the Python SDK's `WSEvent`.
+ */
+export type WSEvent = WebhookEvent;
 
 export interface WSListenerOptions {
   /** API key, sent as the `Authorization: Bearer` handshake header. */
@@ -45,6 +100,12 @@ export interface WSListenerOptions {
   /**
    * Auto-reconnect on disconnect. Defaults to true.
    * Reconnect uses exponential backoff (1s → maxBackoffMs).
+   *
+   * Applies only to TRANSIENT closes (network drops, server restart/shutdown,
+   * ping timeout, internal error). Terminal close codes — 4000 "replaced" (a
+   * newer connection for this agent took over), 1008 (policy rejection), and
+   * other 4xxx application codes — never reconnect: the stream stops with a
+   * typed error ({@link E2AConnectionReplacedError} for 4000).
    */
   reconnect?: boolean;
   /** Initial reconnect delay in ms. Defaults to 1000 (1 second). */
@@ -54,7 +115,7 @@ export interface WSListenerOptions {
 }
 
 export interface WSListenerEvents {
-  notification: [notification: WSNotification];
+  event: [event: WSEvent];
   open: [];
   close: [code: number, reason: string];
   error: [error: Error];
@@ -63,9 +124,10 @@ export interface WSListenerEvents {
 /**
  * Notification-only WebSocket listener.
  *
- * Connects to `/v1/agents/{address}/ws` and emits `"notification"` events with
- * lightweight metadata. The protocol is server→client only — the client never
- * sends application frames.
+ * Connects to `/v1/agents/{address}/ws` and emits `"event"` events, each a
+ * versioned {@link WSEvent} envelope with lightweight metadata in `data`.
+ * The protocol is server→client only — the client never sends application
+ * frames.
  *
  * Auth: the API key is sent as the `Authorization: Bearer` handshake header, so
  * it never appears in the URL (no leak to access logs / proxy traces / Referer).
@@ -135,15 +197,23 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
 
     ws.on("message", (data: WebSocket.RawData) => {
       try {
-        const notif: WSNotification = JSON.parse(data.toString());
-        this.emit("notification", notif);
+        const parsed: unknown = JSON.parse(data.toString());
+        // Every frame is the versioned event envelope; a frame without a
+        // string `type` is not one. Unknown `type` VALUES are fine (future
+        // WS event kinds) — consumers narrow on type.
+        if (!parsed || typeof parsed !== "object" || typeof (parsed as { type?: unknown }).type !== "string") {
+          this.emit("error", new Error("WS frame is not an event envelope (missing string `type`)"));
+          return;
+        }
+        this.emit("event", parsed as WSEvent);
       } catch (err) {
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       }
     });
 
     ws.on("close", (code: number, reason: Buffer) => {
-      this.emit("close", code, reason.toString());
+      const reasonStr = reason.toString();
+      this.emit("close", code, reasonStr);
       this.ws = null;
       if (fatal) {
         // Fatal handshake (auth/4xx) — surface the typed error and STOP; a
@@ -151,6 +221,17 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
         this.closed = true;
         this.emit("error", fatal);
         return;
+      }
+      // Server-sent terminal close codes (4000 "replaced", 1008 policy, other
+      // 4xxx) — surface the typed error and STOP. Only consulted when we did
+      // not initiate the close ourselves.
+      if (!this.closed) {
+        const fatalClose = fatalErrorForClose(code, reasonStr);
+        if (fatalClose) {
+          this.closed = true;
+          this.emit("error", fatalClose);
+          return;
+        }
       }
       if (!this.closed && this.shouldReconnect) {
         setTimeout(() => this.dial(), this.currentBackoffMs);
@@ -176,24 +257,25 @@ export class WSListener extends EventEmitter<WSListenerEvents> {
 /**
  * Hybrid AsyncIterable + EventEmitter returned by {@link E2AClient.listen}.
  *
- * Iterate for the happy path:
+ * Iterate for the happy path — each item is a {@link WSEvent} envelope:
  *
- *     for await (const notif of client.listen()) {
- *       // …
+ *     for await (const event of client.listen("bot@acme.dev")) {
+ *       if (!isEmailReceived(event)) continue; // tolerate future event kinds
+ *       const email = await client.webhooks.fetchMessage(event);
  *     }
  *
  * Use `.on("error", …)` / `.on("close", …)` for connection-level
  * concerns. Call `.close()` to terminate iteration cleanly.
  */
 export class WSStream extends EventEmitter<WSListenerEvents>
-  implements AsyncIterable<WSNotification> {
+  implements AsyncIterable<WSEvent> {
   private readonly listener: WSListener;
   // Buffered notifications waiting to be yielded. Modest bound; if a
   // consumer is far behind we'd rather log loudly than balloon memory.
-  private readonly buffer: WSNotification[] = [];
+  private readonly buffer: WSEvent[] = [];
   // Pending iterator promises waiting for the next notification.
   private readonly waiters: Array<{
-    resolve: (value: IteratorResult<WSNotification>) => void;
+    resolve: (value: IteratorResult<WSEvent>) => void;
     reject: (err: Error) => void;
   }> = [];
   private closed = false;
@@ -216,8 +298,8 @@ export class WSStream extends EventEmitter<WSListenerEvents>
       this.drainWaitersWithError(err);
     });
 
-    this.listener.on("notification", (notif) => {
-      this.emit("notification", notif);
+    this.listener.on("event", (notif) => {
+      this.emit("event", notif);
       this.deliver(notif);
     });
 
@@ -234,9 +316,9 @@ export class WSStream extends EventEmitter<WSListenerEvents>
     }
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<WSNotification> {
+  [Symbol.asyncIterator](): AsyncIterator<WSEvent> {
     return {
-      next: (): Promise<IteratorResult<WSNotification>> => {
+      next: (): Promise<IteratorResult<WSEvent>> => {
         if (this.buffer.length > 0) {
           return Promise.resolve({ value: this.buffer.shift()!, done: false });
         }
@@ -247,14 +329,14 @@ export class WSStream extends EventEmitter<WSListenerEvents>
           this.waiters.push({ resolve, reject });
         });
       },
-      return: (): Promise<IteratorResult<WSNotification>> => {
+      return: (): Promise<IteratorResult<WSEvent>> => {
         this.close();
         return Promise.resolve({ value: undefined, done: true });
       },
     };
   }
 
-  private deliver(notif: WSNotification): void {
+  private deliver(notif: WSEvent): void {
     if (this.waiters.length > 0) {
       this.waiters.shift()!.resolve({ value: notif, done: false });
     } else {

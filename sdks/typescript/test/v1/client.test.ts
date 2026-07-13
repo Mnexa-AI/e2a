@@ -146,6 +146,18 @@ describe("E2AClient", () => {
     expect(res.email).toBe("new@test.dev");
   });
 
+  it("agents.delete auto-sends confirm=DELETE and returns the deletion receipt", async () => {
+    globalThis.fetch = mockFetch(200, { deleted: true, email: "bot@test.dev", messages_deleted: 12 });
+    const res = await client.agents.delete("bot@test.dev");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("DELETE");
+    expect(url).toContain("/v1/agents/bot%40test.dev");
+    expect(url).toContain("confirm=DELETE");
+    expect(res.deleted).toBe(true);
+    expect(res.email).toBe("bot@test.dev");
+    expect(res.messagesDeleted).toBe(12);
+  });
+
   it("agents.list returns an AutoPager over the agents array", async () => {
     globalThis.fetch = mockFetch(200, { items: [{ id: "ag_1", email: "bot@test.dev" }], next_cursor: null });
     const items = await client.agents.list().toArray({ limit: 10 });
@@ -389,12 +401,14 @@ describe("E2AClient", () => {
     expect(JSON.parse(init.body as string)).toEqual({ subject: "New {{x}}", html: "" });
   });
 
-  it("templates.delete issues DELETE /v1/templates/{id}", async () => {
-    globalThis.fetch = mockFetch(204);
-    await client.templates.delete("tmpl_1");
+  it("templates.delete issues DELETE /v1/templates/{id} and returns the deletion object", async () => {
+    globalThis.fetch = mockFetch(200, { deleted: true, id: "tmpl_1" });
+    const res = await client.templates.delete("tmpl_1");
     const { url, init } = lastCall();
     expect(init.method).toBe("DELETE");
     expect(url).toContain("/v1/templates/tmpl_1");
+    expect(res.deleted).toBe(true);
+    expect(res.id).toBe("tmpl_1");
   });
 
   it("templates.validate POSTs to /v1/templates/validate and maps the response", async () => {

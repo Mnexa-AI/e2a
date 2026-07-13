@@ -193,7 +193,15 @@ describe("AgentSettingsPage", () => {
         init?.method === "DELETE"
       ) {
         deleted = true;
-        return Promise.resolve({ ok: true, status: 204, text: () => Promise.resolve("") });
+        // Uniform delete contract: 200 + {deleted:true, email, messages_deleted}.
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({ deleted: true, email: baseAgent.email, messages_deleted: 0 }),
+            ),
+        });
       }
       return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("not found") });
     });

@@ -108,8 +108,8 @@ export function registerDomainTools(server: McpServer, client: McpClient): void 
             "delete_domain requires confirm:true — refusing to proceed without explicit confirmation.",
           );
         }
-        await client.deleteDomain(args.domain);
-        return { deleted: args.domain };
+        // Return the server's deletion object verbatim: {deleted:true, domain}.
+        return client.deleteDomain(args.domain);
       }),
   );
 }

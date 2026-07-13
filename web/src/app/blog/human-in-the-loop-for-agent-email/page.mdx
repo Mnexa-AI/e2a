@@ -145,7 +145,7 @@ Full spec in the [API reference](/api-docs).
 Off by default. Toggle it on one agent, send a message to yourself, and watch the flow end-to-end:
 
 ```python
-async with E2AClient(api_key="e2a_...") as client:
+async with AsyncE2AClient(api_key="e2a_...") as client:
     # protection is on → this send comes back held, not sent
     result = await client.messages.send(
         "my-agent@agents.e2a.dev",

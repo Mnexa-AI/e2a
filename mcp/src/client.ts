@@ -25,6 +25,7 @@ import type {
   CreateAPIKeyResponse,
   UpdateAgentRequest,
   ProtectionConfigView,
+  ProtectionConfigRequest,
   CreateWebhookRequest,
   UpdateWebhookRequest,
   TestWebhookRequest,
@@ -36,10 +37,15 @@ import type {
   ValidateTemplateResponse,
   StarterTemplateView,
   StarterTemplateDetailView,
+  DeleteAgentResult,
+  DeleteDomainResult,
+  DeleteWebhookResult,
+  DeleteTemplateResult,
   Page,
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
 import type { Scope } from "./tools/tiers.js";
+import { CodedError } from "./tools/util.js";
 
 // Outbound drafts held for human review surface in the message list with
 // this status (the hold vocabulary was unified on `pending_review` across
@@ -147,16 +153,15 @@ export class McpClient {
   }
 
   updateProtection(
-    config: ProtectionConfigView,
+    config: ProtectionConfigRequest,
     explicitAddress?: string,
   ): Promise<ProtectionConfigView> {
     return this.sdk.agents.replaceProtection(this.resolveAddress(explicitAddress), config);
   }
 
-  async deleteAgent(explicitAddress?: string): Promise<string> {
+  async deleteAgent(explicitAddress?: string): Promise<DeleteAgentResult> {
     const address = this.resolveAddress(explicitAddress);
-    await this.sdk.agents.delete(address);
-    return address;
+    return this.sdk.agents.delete(address);
   }
 
   // ── Messages ────────────────────────────────────────────────────
@@ -337,7 +342,11 @@ export class McpClient {
         .toArray({ limit: DEFAULT_LIST_LIMIT });
       if (rows.some((r) => r.id === messageId)) return address;
     }
-    throw new Error(
+    // Not-found/already-resolved, NOT malformed input — carry the server's
+    // canonical `not_found` code so an agent branching on structuredContent
+    // doesn't wrongly re-validate its arguments (PR #453 review).
+    throw new CodedError(
+      "not_found",
       `pending message ${messageId} not found on any owned agent (it may have already been approved, rejected, or expired).`,
     );
   }
@@ -394,8 +403,8 @@ export class McpClient {
     return this.sdk.domains.verify(domain);
   }
 
-  async deleteDomain(domain: string): Promise<void> {
-    await this.sdk.domains.delete(domain);
+  deleteDomain(domain: string): Promise<DeleteDomainResult> {
+    return this.sdk.domains.delete(domain);
   }
 
   // ── Webhooks ────────────────────────────────────────────────────
@@ -432,8 +441,8 @@ export class McpClient {
     return this.sdk.webhooks.update(id, patch as UpdateWebhookRequest);
   }
 
-  async deleteWebhook(id: string): Promise<void> {
-    await this.sdk.webhooks.delete(id);
+  deleteWebhook(id: string): Promise<DeleteWebhookResult> {
+    return this.sdk.webhooks.delete(id);
   }
 
   rotateWebhookSecret(id: string): Promise<RotateSecretResponse> {
@@ -507,8 +516,8 @@ export class McpClient {
     return this.sdk.templates.update(id, patch);
   }
 
-  async deleteTemplate(id: string): Promise<void> {
-    await this.sdk.templates.delete(id);
+  deleteTemplate(id: string): Promise<DeleteTemplateResult> {
+    return this.sdk.templates.delete(id);
   }
 
   validateTemplate(body: ValidateTemplateRequest): Promise<ValidateTemplateResponse> {

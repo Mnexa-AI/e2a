@@ -33,6 +33,11 @@ func TestEnvelope_WireKeyIsType(t *testing.T) {
 	if strings.Contains(got, `"event":`) {
 		t.Errorf("envelope must NOT use the legacy `event` key (breaks SDK construct_event); got %s", got)
 	}
+	// The envelope carries the schema version on the wire (sourced from the
+	// SchemaVersion constant) so consumers can branch before parsing `data`.
+	if !strings.Contains(got, `"schema_version":"1"`) {
+		t.Errorf("envelope must carry schema_version; got %s", got)
+	}
 
 	// Round-trip back through the Stripe-style shape a consumer parses.
 	var back struct {

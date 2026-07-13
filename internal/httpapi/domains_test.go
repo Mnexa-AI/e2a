@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -102,8 +103,15 @@ func TestDeleteDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 204 {
-		t.Fatalf("want 204, got %d", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["deleted"] != true || body["domain"] != "acme.com" {
+		t.Fatalf("want {deleted:true, domain:acme.com}, got %v", body)
 	}
 }
 
