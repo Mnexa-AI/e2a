@@ -157,8 +157,10 @@ const (
 	// maxComposedMessageBytes is the hard cap on a composed outbound message —
 	// subject + text + html + DECODED attachments. The SES v1 stored-message
 	// ceiling (the real upstream limit). Enforced at runtime by
-	// composedMessageSizeError; over → 413 payload_too_large.
-	maxComposedMessageBytes = 10 * 1024 * 1024
+	// composedMessageSizeError; over → 413 payload_too_large. Aliased to the
+	// canonical outbound.MaxComposedMessageBytes so this and the HITL approve-
+	// override path (internal/agent) share one source of truth.
+	maxComposedMessageBytes = outbound.MaxComposedMessageBytes
 )
 
 // maxRecipients caps the combined to+cc+bcc fan-out of a single outbound
@@ -545,26 +547,11 @@ func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string
 // can stay under each individual limit while the composed MIME exceeds what the
 // upstream provider will accept, so the real ceiling is checked here on the
 // fully-composed content. Over → 413 payload_too_large (reuses the existing 413
-// path/error code — no new status). Sizes are computed on DECODED attachment
-// bytes (not the base64-inflated wire size). validateAttachments runs before
-// this, so base64 is known-decodable; a decode failure here falls back to the
-// raw wire length so we never under-count.
+// path/error code — no new status). The byte total (DECODED attachment bytes,
+// not the base64-inflated wire size) is computed by the shared
+// outbound.ComposedSize so this and the HITL approve-override path agree exactly.
 func composedMessageSizeError(subject, text, html string, atts []outbound.Attachment) *ErrorEnvelope {
-	total := len(subject) + len(text) + len(html)
-	for _, att := range atts {
-		clean := strings.Map(func(r rune) rune {
-			if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
-				return -1
-			}
-			return r
-		}, att.Data)
-		decoded, err := base64.StdEncoding.DecodeString(clean)
-		if err != nil {
-			total += len(att.Data) // never under-count on a decode miss
-			continue
-		}
-		total += len(decoded)
-	}
+	total := outbound.ComposedSize(subject, text, html, atts)
 	if total > maxComposedMessageBytes {
 		return NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
 			fmt.Sprintf("composed message too large — %d bytes (subject + text + html + decoded attachments), limit is %d (%d MB)",

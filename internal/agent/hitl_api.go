@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -91,6 +92,28 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	}
 	if !agent.DomainVerified {
 		return nil, &OutboundError{http.StatusForbidden, "domain_not_verified", "agent domain must be verified before sending"}
+	}
+
+	// Composed-message hard cap. A reviewer's edits (new subject/body/attachments)
+	// are merged onto the stored draft, so the true composed size must be checked
+	// on the MERGED message — not just the override fields. The per-field maxLength
+	// (schema layer) and validateAttachments (httpapi) already bound each field and
+	// each attachment individually, but a reviewer can still push a previously-valid
+	// draft over the SES stored-message ceiling by editing the body on top of the
+	// original attachments (or replacing attachments while the original body stays).
+	// Mirror the send/reply/forward composed-cap check (httpapi.deliver) here so the
+	// approve-override path can't bypass it. Applied on a copy so preview is
+	// untouched (both async and sync dispatch below re-derive from it).
+	merged := *preview
+	edits.Apply(&merged)
+	mergedReq, err := buildSendRequestFromMessage(&merged)
+	if err != nil {
+		return nil, &OutboundError{http.StatusBadRequest, "invalid_request", "invalid attachments"}
+	}
+	if total := outbound.ComposedSize(mergedReq.Subject, mergedReq.Body, mergedReq.HTMLBody, mergedReq.Attachments); total > outbound.MaxComposedMessageBytes {
+		return nil, &OutboundError{http.StatusRequestEntityTooLarge, "payload_too_large",
+			fmt.Sprintf("composed message too large — %d bytes (subject + text + html + decoded attachments), limit is %d (%d MB)",
+				total, outbound.MaxComposedMessageBytes, outbound.MaxComposedMessageBytes/(1024*1024))}
 	}
 
 	// Async mode: transition the hold to review_approved + delivery_status='accepted'
