@@ -1,0 +1,10 @@
+{
+  "type": "domain.sending_verified",
+  "id": "evt_0123456789abcdef0123456789abcdef",
+  "schema_version": "1",
+  "created_at": "2026-07-01T10:30:00.123456789Z",
+  "data": {
+    "domain": "mail.customer.example.com",
+    "sending_status": "verified"
+  }
+}

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
+	"github.com/Mnexa-AI/e2a/internal/eventpayload/goldenassert"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
@@ -43,13 +45,143 @@ func TestBuildSentEvent_PopulatesEnvelope(t *testing.T) {
 	if ev.ConversationID != "conv_42" {
 		t.Errorf("ConversationID = %q, want conv_42", ev.ConversationID)
 	}
-	data, ok := ev.Data.(map[string]interface{})
+	data, ok := ev.Data.(eventpayload.EmailSentData)
 	if !ok {
-		t.Fatalf("Data is not a map: %T", ev.Data)
+		t.Fatalf("Data is not the canonical typed payload: %T", ev.Data)
 	}
-	if data["subject"] != "hello" {
-		t.Errorf("subject = %v, want hello", data["subject"])
+	if data.Subject != "hello" {
+		t.Errorf("subject = %v, want hello", data.Subject)
 	}
+	if data.Direction != "outbound" || data.AgentEmail != agent.EmailAddress() {
+		t.Errorf("data = %+v", data)
+	}
+}
+
+// TestSentEventGoldenPayloads is this package's side of the cross-channel
+// drift lock, and the sync/async identity proof: the synchronous
+// buildSentEvent and the async worker's buildEmailSentEventFromRow must BOTH
+// marshal byte-identical to the same committed fixture, and the async
+// email.failed builder to its fixture — the files the eventpayload envelope
+// test and the TS/Python SDK tests also assert against.
+func TestSentEventGoldenPayloads(t *testing.T) {
+	const fixture = "../eventpayload/testdata/"
+	agent := &identity.AgentIdentity{
+		ID:     "support@agents.example.com",
+		Domain: "agents.example.com",
+		UserID: "user_7a6b5c4d",
+	}
+
+	t.Run("email.sent sync builder", func(t *testing.T) {
+		a := &API{}
+		ev := a.buildSentEvent(
+			agent,
+			&identity.Message{ID: "msg_01h2xcejqtf2nbrexx3vqjhp42"},
+			&outbound.SendResult{
+				MessageID: "0100019283abcdef-1a2b3c4d-0000",
+				Method:    "smtp",
+				To:        []string{"alice@customer.example.com"},
+				CC:        []string{"ops@customer.example.com"},
+				BCC:       []string{"audit@agents.example.com"},
+			},
+			outbound.SendRequest{
+				Subject:        "Re: Order #1234 delayed",
+				ConversationID: "conv_9f8e7d6c",
+			},
+			"reply",
+		)
+		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
+	})
+
+	t.Run("email.sent async builder emits the identical payload", func(t *testing.T) {
+		ev := buildEmailSentEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:             "msg_01h2xcejqtf2nbrexx3vqjhp42",
+				AgentID:        agent.ID,
+				Sender:         "support@agents.example.com",
+				Method:         "smtp",
+				ToRecipients:   []string{"alice@customer.example.com"},
+				CC:             []string{"ops@customer.example.com"},
+				BCC:            []string{"audit@agents.example.com"},
+				Subject:        "Re: Order #1234 delayed",
+				Type:           "reply",
+				ConversationID: "conv_9f8e7d6c",
+			},
+		}, "0100019283abcdef-1a2b3c4d-0000")
+		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
+	})
+
+	t.Run("email.failed async builder", func(t *testing.T) {
+		ev := buildEmailFailedEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:             "msg_01h2xcejqtf2nbrexx3vqjhp43",
+				AgentID:        agent.ID,
+				Sender:         "support@agents.example.com",
+				Method:         "smtp",
+				ToRecipients:   []string{"alice@customer.example.com"},
+				CC:             []string{"ops@customer.example.com"},
+				BCC:            []string{"audit@agents.example.com"},
+				Subject:        "Re: Order #1234 delayed",
+				Type:           "send",
+				ConversationID: "conv_9f8e7d6c",
+			},
+		}, "550 5.1.1 user unknown")
+		goldenassert.Data(t, fixture+"email.failed.json", ev.Data)
+	})
+
+	// Minimal (required-fields-only) variants: the same builders fed only the
+	// required inputs must byte-match the .min.json fixtures, locking the
+	// omitempty presence semantics (no cc/bcc/conversation_id on the wire when
+	// unset) that the fully-populated fixtures above can't detect.
+
+	t.Run("email.sent sync builder minimal", func(t *testing.T) {
+		a := &API{}
+		ev := a.buildSentEvent(
+			agent,
+			&identity.Message{ID: "msg_01h2xcejqtf2nbrexx3vqjhp42"},
+			&outbound.SendResult{
+				MessageID: "0100019283abcdef-1a2b3c4d-0000",
+				Method:    "smtp",
+				To:        []string{"alice@customer.example.com"},
+			},
+			outbound.SendRequest{Subject: "Re: Order #1234 delayed"},
+			"reply",
+		)
+		goldenassert.Data(t, fixture+"email.sent.min.json", ev.Data)
+	})
+
+	t.Run("email.sent async builder minimal emits the identical payload", func(t *testing.T) {
+		ev := buildEmailSentEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:           "msg_01h2xcejqtf2nbrexx3vqjhp42",
+				AgentID:      agent.ID,
+				Sender:       "support@agents.example.com",
+				Method:       "smtp",
+				ToRecipients: []string{"alice@customer.example.com"},
+				Subject:      "Re: Order #1234 delayed",
+				Type:         "reply",
+			},
+		}, "0100019283abcdef-1a2b3c4d-0000")
+		goldenassert.Data(t, fixture+"email.sent.min.json", ev.Data)
+	})
+
+	t.Run("email.failed async builder minimal", func(t *testing.T) {
+		ev := buildEmailFailedEventFromRow(&identity.OutboundSentInfo{
+			UserID: "user_7a6b5c4d",
+			Message: &identity.Message{
+				ID:           "msg_01h2xcejqtf2nbrexx3vqjhp43",
+				AgentID:      agent.ID,
+				Sender:       "support@agents.example.com",
+				Method:       "smtp",
+				ToRecipients: []string{"alice@customer.example.com"},
+				Subject:      "Re: Order #1234 delayed",
+				Type:         "send",
+			},
+		}, "550 5.1.1 user unknown")
+		goldenassert.Data(t, fixture+"email.failed.min.json", ev.Data)
+	})
 }
 
 func TestBuildSentEvent_NilOutMsgUsesEmptyMessageID(t *testing.T) {

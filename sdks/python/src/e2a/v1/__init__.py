@@ -42,15 +42,39 @@ from e2a.v1.errors import (  # noqa: F401
 # Auto-pagination.
 from e2a.v1.pagination import AutoPager, Page  # noqa: F401
 
-# Webhook signature verification.
+# Webhook signature verification + the typed per-event payloads and their
+# narrowing guards. NOTE: these *Data types are hand-written WIRE-shape
+# TypedDicts from webhook_signature, matched to the server's canonical structs
+# and the shared golden fixtures. Imported AFTER the generated-models star
+# import above, so they deliberately shadow the same-named codegen pydantic
+# models in this namespace (those remain reachable as ``models.*Data``).
 from e2a.v1.webhook_signature import (  # noqa: F401
+    AttachmentMeta,
+    DomainSendingFailedData,
+    DomainSendingVerifiedData,
+    DomainSuppressionAddedData,
+    EmailBouncedData,
+    EmailComplainedData,
+    EmailDeliveredData,
+    EmailFailedData,
+    EmailReceivedData,
+    EmailSentData,
     WebhookEvent,
     construct_event,
+    is_domain_sending_failed,
+    is_domain_sending_verified,
+    is_domain_suppression_added,
+    is_email_bounced,
+    is_email_complained,
+    is_email_delivered,
+    is_email_failed,
+    is_email_received,
+    is_email_sent,
     verify_webhook_signature,
 )
 
-# Real-time WebSocket stream.
-from e2a.v1.websocket import WSNotification, WSStream  # noqa: F401
+# Real-time WebSocket stream (frames are the same event envelope as webhooks).
+from e2a.v1.websocket import WSEvent, WSStream  # noqa: F401
 
 __all__ = [
     "AsyncE2AClient",
@@ -77,8 +101,29 @@ __all__ = [
     "verify_webhook_signature",
     "construct_event",
     "WebhookEvent",
+    # Typed per-event payloads (stable events).
+    "AttachmentMeta",
+    "EmailReceivedData",
+    "EmailSentData",
+    "EmailFailedData",
+    "EmailDeliveredData",
+    "EmailBouncedData",
+    "EmailComplainedData",
+    "DomainSendingVerifiedData",
+    "DomainSendingFailedData",
+    "DomainSuppressionAddedData",
+    # Narrowing guards.
+    "is_email_received",
+    "is_email_sent",
+    "is_email_failed",
+    "is_email_delivered",
+    "is_email_bounced",
+    "is_email_complained",
+    "is_domain_sending_verified",
+    "is_domain_sending_failed",
+    "is_domain_suppression_added",
     # WebSocket
-    "WSNotification",
+    "WSEvent",
     "WSStream",
     # Generated models namespace
     "models",

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { WSNotification } from "@e2a/sdk/v1";
+import type { EmailReceivedData } from "@e2a/sdk/v1";
 
 import {
   isOpenClawUrl,
@@ -15,12 +15,17 @@ function mockResponse(body: unknown): Response {
   } as Response;
 }
 
-function makeNotification(overrides: Partial<WSNotification> = {}): WSNotification {
+function makeNotification(overrides: Partial<EmailReceivedData> = {}): EmailReceivedData {
   return {
     message_id: "msg_123",
+    agent_email: "bot@agents.e2a.dev",
+    direction: "inbound",
     from: "alice@example.com",
+    authenticated_from: "alice@example.com",
+    to: ["bot@agents.e2a.dev"],
     delivered_to: "bot@agents.e2a.dev",
     subject: "Hello",
+    auth_headers: {},
     received_at: "2025-01-15T10:30:00Z",
     ...overrides,
   };

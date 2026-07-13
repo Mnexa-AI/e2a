@@ -142,6 +142,78 @@ func TestSpecEvolutionStance(t *testing.T) {
 	}
 }
 
+// The stance must also hold for operation-UNREACHABLE components. The typed
+// per-event payload schemas (Email*Data / Domain*Data / AttachmentMeta,
+// published by registerEventPayloadSchemas) are consumer-direction (server →
+// client) but referenced by NO operation's request or response, so the
+// response-reachability pass in applyEvolutionStance never sees them — they
+// open themselves at registration. This test closes the gap the two-pass
+// design leaves: every component schema that is not reachable from a request
+// body (i.e. everything that is not strict-by-design input) must be open, so
+// neither enforcement point can drift without failing here.
+func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
+	doc := renderSpec(t)
+	request, response := specReachability(t, doc)
+
+	comps, _ := doc["components"].(map[string]any)
+	schemas, _ := comps["schemas"].(map[string]any)
+
+	var checkOpen func(name string, node any)
+	checkOpen = func(name string, node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			if _, isRef := n["$ref"]; isRef {
+				return
+			}
+			if n["type"] == "object" {
+				if _, isStruct := n["properties"]; isStruct {
+					if ap := n["additionalProperties"]; ap != true {
+						t.Errorf("%s: non-request component object schema must carry additionalProperties: true (got %v) — consumers must tolerate additive fields", name, ap)
+					}
+				}
+			}
+			for _, v := range n {
+				checkOpen(name, v)
+			}
+		case []any:
+			for _, v := range n {
+				checkOpen(name, v)
+			}
+		}
+	}
+
+	unreachable := map[string]bool{}
+	for name := range schemas {
+		if request[name] {
+			continue // strict by design (input side of the stance)
+		}
+		checkOpen(name, schemas[name])
+		if !response[name] {
+			unreachable[name] = true
+		}
+	}
+
+	// Anchor: the event payload components must exist, be operation-unreachable
+	// (they are documentation/codegen components, not operation bodies), and
+	// therefore be covered by the loop above — a rename or a future "attach
+	// them to an operation" refactor must consciously revisit this test.
+	for _, name := range eventPayloadComponentNames {
+		if _, ok := schemas[name]; !ok {
+			t.Errorf("event payload component %s missing from the rendered spec", name)
+			continue
+		}
+		if request[name] {
+			t.Errorf("event payload component %s became request-reachable — it would now be forced strict, breaking additive payload evolution", name)
+		}
+		if !unreachable[name] {
+			t.Errorf("event payload component %s expected to be operation-unreachable (got reachable) — update this test's assumptions consciously", name)
+		}
+	}
+	if len(unreachable) == 0 {
+		t.Fatal("no operation-unreachable components found — test wiring is wrong")
+	}
+}
+
 // x-stability: experimental on exactly the beta surfaces; the stable core must
 // NOT carry it.
 func TestSpecExperimentalMarkers(t *testing.T) {

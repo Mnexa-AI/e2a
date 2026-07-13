@@ -34,6 +34,13 @@ type Event struct {
 	Kind         EventKind
 	SESMessageID string // the mail.messageId — correlates to messages.provider_message_id
 	Recipients   []RecipientOutcome
+	// BounceType / BounceSubType carry the SES bounce classification (Bounce
+	// events only; empty otherwise). BounceType is normalized to the stable
+	// event vocabulary — permanent | transient | undetermined — the value
+	// email.bounced's bounce_type field emits; BounceSubType is the raw SES
+	// bounceSubType (e.g. General, NoEmail, MailboxFull).
+	BounceType    string
+	BounceSubType string
 }
 
 // sesNotification is the SES event JSON carried in the SNS Message field.
@@ -102,10 +109,12 @@ func ParseSESNotification(messageBody []byte) (*Event, error) {
 	case "Bounce":
 		ev.Kind = KindBounce
 		if n.Bounce != nil {
+			ev.BounceType = normalizeBounceType(n.Bounce.BounceType)
+			ev.BounceSubType = n.Bounce.BounceSubType
 			// Only a Permanent (hard) bounce suppresses; Transient/Undetermined
 			// are recorded as bounced but not auto-suppressed (decision 9: never
 			// suppress on a single unverified/soft signal).
-			hard := strings.EqualFold(n.Bounce.BounceType, "Permanent")
+			hard := ev.BounceType == "permanent"
 			for _, r := range n.Bounce.BouncedRecipients {
 				ev.Recipients = append(ev.Recipients, RecipientOutcome{
 					Address: norm(r.EmailAddress), Status: StatusBounced,
@@ -146,3 +155,18 @@ func ParseSESNotification(messageBody []byte) (*Event, error) {
 }
 
 func norm(addr string) string { return strings.ToLower(strings.TrimSpace(addr)) }
+
+// normalizeBounceType maps SES's bounceType (Permanent | Transient |
+// Undetermined, case per SES docs) to the stable event vocabulary. Anything
+// unrecognized — including a missing value — is "undetermined", so
+// email.bounced's required bounce_type is always one of the three enums.
+func normalizeBounceType(t string) string {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case "permanent":
+		return "permanent"
+	case "transient":
+		return "transient"
+	default:
+		return "undetermined"
+	}
+}

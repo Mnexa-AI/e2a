@@ -722,8 +722,10 @@ func TestWebhooksE2E_ConversationThreadedFromAgentReply(t *testing.T) {
 		t.Fatalf("first inbound: got %d captures, want 1", len(got))
 	}
 	d1, _ := got[0].Envelope["data"].(map[string]any)
-	if cv := fmt.Sprint(d1["conversation_id"]); cv != "" {
-		t.Errorf("first-contact conversation_id = %q, want \"\" (no thread context yet)", cv)
+	// conversation_id is optional-with-omitempty on the typed EmailReceivedData
+	// payload — a first-contact message (no thread context yet) omits the key.
+	if cv, present := d1["conversation_id"]; present && fmt.Sprint(cv) != "" {
+		t.Errorf("first-contact conversation_id = %v, want omitted (no thread context yet)", cv)
 	}
 
 	// (2) The agent replies, stamping its own conversation id. Recorded

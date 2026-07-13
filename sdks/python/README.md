@@ -230,19 +230,26 @@ page = client.messages.list("bot@agents.e2a.dev", limit=100).page()
 ## WebSocket (real-time delivery for local agents)
 
 ```python
-async for notif in client.listen("bot@agents.e2a.dev"):  # falls back to E2A_AGENT_EMAIL
-    email = await client.messages.get(notif.recipient, notif.message_id)
+async for event in client.listen("bot@agents.e2a.dev"):  # falls back to E2A_AGENT_EMAIL
+    if event.type != "email.received":
+        continue  # tolerate future event kinds
+    data = event.data
+    email = await client.messages.get(data["delivered_to"], data["message_id"])
 ```
 
-`client.listen(address)` returns a `WSStream` (async-iterable of
-`WSNotification`) that reconnects with exponential backoff. Requires the `[ws]`
-extra (`pip install "e2a[ws]"`).
+`client.listen(address)` returns a `WSStream` (async-iterable of `WSEvent` —
+the same versioned `{type, id, schema_version, created_at, data}` envelope a
+webhook delivery carries) that reconnects with exponential backoff. Requires
+the `[ws]` extra (`pip install "e2a[ws]"`).
 
 On the sync client, `client.listen(address)` returns a plain iterable instead:
 
 ```python
-for notif in client.listen("bot@agents.e2a.dev"):
-    email = client.messages.get(notif.delivered_to, notif.message_id)
+for event in client.listen("bot@agents.e2a.dev"):
+    if event.type != "email.received":
+        continue  # tolerate future event kinds
+    data = event.data
+    email = client.messages.get(data["delivered_to"], data["message_id"])
 ```
 
 Calling `client.close()` from another thread unblocks a pending iteration and

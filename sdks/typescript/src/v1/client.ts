@@ -84,7 +84,7 @@ import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
 import { E2AError, fromApiException, connectionError } from "./errors.js";
 import { AutoPager } from "./pagination.js";
 import { WSStream } from "./ws.js";
-import type { WebhookEvent, EmailReceivedPayload } from "./webhook-signature.js";
+import type { WebhookEvent, EmailReceivedData } from "./webhook-signature.js";
 
 export interface E2AClientOptions {
   /** Account (`e2a_acct_`) or agent (`e2a_agt_`) key, or an OAuth access token.
@@ -185,11 +185,15 @@ export class E2AClient {
   }
 
   /**
-   * Open a notification stream for an agent's inbox. Yields lightweight
-   * {@link WSNotification}s; fetch the body with `client.messages.get(email, id)`
-   * when you need it.
+   * Open a notification stream for an agent's inbox. Yields versioned
+   * {@link WSEvent} envelopes — the same shape as webhook deliveries
+   * (`email.received` today; tolerate unknown types). Fetch the body with
+   * `client.webhooks.fetchMessage(event)` when you need it.
    *
-   *     for await (const n of client.listen("bot@acme.dev")) { ... }
+   *     for await (const event of client.listen("bot@acme.dev")) {
+   *       if (!isEmailReceived(event)) continue;
+   *       const email = await client.webhooks.fetchMessage(event);
+   *     }
    */
   listen(email: string): WSStream {
     if (!email) {
@@ -472,7 +476,7 @@ class WebhooksResource {
    * those keys.
    */
   fetchMessage(event: WebhookEvent): Promise<MessageView> {
-    const d = event.data as EmailReceivedPayload | undefined;
+    const d = event.data as EmailReceivedData | undefined;
     if (event.type !== "email.received" || !d?.message_id || !d?.delivered_to) {
       throw new Error(
         "fetchMessage expects an email.received event with message_id and delivered_to",

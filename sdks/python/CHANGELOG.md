@@ -23,8 +23,9 @@
 
 ## 5.0.0
 
-Breaking: the async client class was renamed, and the freed name now ships a
-synchronous client.
+Breaking: the async client class was renamed (the freed name now ships a
+synchronous client), and the WebSocket frame is now the versioned event
+envelope (server #456).
 
 ### Changed
 - **`E2AClient` → `AsyncE2AClient`.** The 4.x client was async-only, but its
@@ -33,8 +34,30 @@ synchronous client.
   name the synchronous client needs. The class, exports (`e2a` and `e2a.v1`),
   docs, and examples all now use `AsyncE2AClient`; its behavior is unchanged.
   Migration from 4.x is mechanical: `from e2a.v1 import AsyncE2AClient`.
+- **The WebSocket frame is the versioned event envelope** — the same
+  ``{type, id, schema_version, created_at, data}`` shape a webhook delivery
+  carries, so one parser (and one dedup key: the event ``id``) serves both
+  channels. Frames were previously a flat ad-hoc notification object.
+- **`WSNotification` is removed.** ``client.listen(...)`` now yields
+  ``WSEvent`` envelopes: branch on ``event.type`` (tolerate unknown values —
+  forward-compat) and read the payload from ``event.data`` (for
+  ``email.received`` the flat ``notif.message_id`` / ``notif.delivered_to``
+  attributes become ``event.data["message_id"]`` /
+  ``event.data["delivered_to"]``). The ``is_email_*`` / ``is_domain_*``
+  guards narrow the stable payloads.
 
 ### Added
+- **Typed per-event payload models** for the nine stable event types
+  (``EmailReceivedData``, ``EmailSentData``, ``EmailFailedData``,
+  ``EmailDeliveredData``, ``EmailBouncedData``, ``EmailComplainedData``,
+  ``DomainSendingVerifiedData``, ``DomainSendingFailedData``,
+  ``DomainSuppressionAddedData``, plus ``AttachmentMeta``) with narrowing
+  guards (``is_email_received``, ``is_email_sent``, …) shared by the webhook
+  and WS channels. The shapes are locked to the server's committed golden
+  fixtures.
+- ``client.webhooks.fetch_message(event)`` accepts both a verified
+  ``WebhookEvent`` and a ``WSEvent`` (any envelope-shaped object with
+  ``type`` and ``data``).
 - **`E2AClient` — the synchronous client** — under the name the rename freed
   (there is deliberately no compatibility alias to the async client). It is a
   facade over `AsyncE2AClient`: a background daemon thread runs an event loop
@@ -47,8 +70,9 @@ synchronous client.
     the same as in async code.
   - List endpoints return a **sync pager**: plain `for` iteration, plus
     `page(cursor)` / `to_list(limit=N)` / `for_each(fn)`.
-  - `client.listen(address)` returns a plain iterable of `WSNotification`;
-    `close()` from another thread unblocks a pending iteration cleanly.
+  - `client.listen(address)` returns a plain iterable of `WSEvent` envelopes
+    (the same envelope the async `listen()` yields); `close()` from another
+    thread unblocks a pending iteration cleanly.
   - Lifecycle: use as a context manager or call `close()` (idempotent). An
     unclosed client is cleaned up at GC/interpreter exit and cannot hang
     shutdown.
@@ -57,6 +81,7 @@ synchronous client.
     ("use AsyncE2AClient") instead of blocking the loop. 4.x code that still
     imports `E2AClient` now gets the sync client — update those imports to
     `AsyncE2AClient`.
+
 ## 4.3.0
 
 ### Breaking (pre-GA)

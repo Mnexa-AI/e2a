@@ -17,6 +17,9 @@ export class EventJSON {
     'agentEmail'?: string;
     'conversationId'?: string;
     'createdAt': Date;
+    /**
+    * Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas: email.received → EmailReceivedData, email.sent → EmailSentData, email.failed → EmailFailedData, email.delivered → EmailDeliveredData, email.bounced → EmailBouncedData, email.complained → EmailComplainedData, domain.sending_verified → DomainSendingVerifiedData, domain.sending_failed → DomainSendingFailedData, domain.suppression_added → DomainSuppressionAddedData. The beta events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) have open payloads that may change before they are declared stable.
+    */
     'data': { [key: string]: any; };
     'deliveryStatus'?: DeliveryStatusJSON;
     'id': string;
@@ -30,7 +33,7 @@ export class EventJSON {
     */
     'status': string;
     /**
-    * Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added.
+    * Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Stable types have frozen data schemas — see the data field.
     */
     'type': string;
 

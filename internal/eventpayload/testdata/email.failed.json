@@ -1,0 +1,26 @@
+{
+  "type": "email.failed",
+  "id": "evt_74441517b32a27387294795ff726dce1",
+  "schema_version": "1",
+  "created_at": "2026-07-01T10:30:00.123456789Z",
+  "data": {
+    "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp43",
+    "agent_email": "support@agents.example.com",
+    "direction": "outbound",
+    "conversation_id": "conv_9f8e7d6c",
+    "method": "smtp",
+    "from": "support@agents.example.com",
+    "to": [
+      "alice@customer.example.com"
+    ],
+    "cc": [
+      "ops@customer.example.com"
+    ],
+    "bcc": [
+      "audit@agents.example.com"
+    ],
+    "subject": "Re: Order #1234 delayed",
+    "message_type": "send",
+    "reason": "550 5.1.1 user unknown"
+  }
+}

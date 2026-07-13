@@ -1,7 +1,8 @@
-"""Tests for e2a.v1.websocket — WS URL building, notification streaming, no ACKs.
+"""Tests for e2a.v1.websocket — WS URL building, event streaming, no ACKs.
 
-The listener is intentionally lightweight: it yields :class:`WSNotification`
-metadata only, never fetches the full message via REST. Callers do that
+The listener is intentionally lightweight: it yields :class:`WSEvent`
+envelopes (the same versioned shape as a webhook delivery) with metadata-only
+``data``, never fetching the full message via REST. Callers do that
 explicitly when they want the body.
 """
 
@@ -11,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from e2a.v1.websocket import WSNotification, _build_ws_url
+from e2a.v1.websocket import WSEvent, _build_ws_url
 
 
 # ── _build_ws_url ────────────────────────────────────────────────
@@ -45,37 +46,43 @@ def test_build_ws_url_uses_v1_path():
     assert "/api/agents/" not in url.replace("/v1/agents/", "")
 
 
-# ── WSNotification.from_payload ──────────────────────────────────
+# ── WSEvent.from_payload ─────────────────────────────────────────
 
 
-def test_ws_notification_from_payload():
-    n = WSNotification.from_payload({
+def _envelope(data: dict, type_: str = "email.received") -> dict:
+    return {
+        "type": type_,
+        "id": "evt_abc",
+        "schema_version": "1",
+        "created_at": "2026-04-27T10:00:00Z",
+        "data": data,
+    }
+
+
+def test_ws_event_from_payload():
+    e = WSEvent.from_payload(_envelope({
         "message_id": "msg_1",
         "from": "alice@example.com",
         "delivered_to": "bot@agents.e2a.dev",
         "subject": "Hi",
         "received_at": "2026-04-27T10:00:00Z",
         "conversation_id": "conv_xyz",
-    })
-    assert n.message_id == "msg_1"
-    assert n.from_ == "alice@example.com"
-    assert n.delivered_to == "bot@agents.e2a.dev"
-    assert n.subject == "Hi"
-    assert n.received_at == "2026-04-27T10:00:00Z"
-    assert n.conversation_id == "conv_xyz"
+    }))
+    assert e.type == "email.received"
+    assert e.id == "evt_abc"
+    assert e.schema_version == "1"
+    assert e.created_at == "2026-04-27T10:00:00Z"
+    assert e.data["message_id"] == "msg_1"
+    assert e.data["from"] == "alice@example.com"
+    assert e.data["delivered_to"] == "bot@agents.e2a.dev"
+    assert e.raw["type"] == "email.received"
 
 
-def test_ws_notification_from_payload_legacy_to_field():
-    """Older payloads used `to` instead of `delivered_to` — tolerate it."""
-    n = WSNotification.from_payload({
-        "message_id": "msg_legacy",
-        "from": "alice@example.com",
-        "to": "bot@agents.e2a.dev",
-        "subject": "",
-        "received_at": "",
-    })
-    assert n.delivered_to == "bot@agents.e2a.dev"
-    assert n.conversation_id is None
+def test_ws_event_tolerates_unknown_type():
+    """Future WS event kinds parse into the same envelope (forward-compat)."""
+    e = WSEvent.from_payload(_envelope({"anything": True}, type_="email.future_kind"))
+    assert e.type == "email.future_kind"
+    assert e.data == {"anything": True}
 
 
 # ── _connect_and_stream ──────────────────────────────────────────
@@ -112,17 +119,17 @@ def _patch_websockets_connect(fake_ws):
 
 @pytest.mark.anyio
 async def test_connect_and_stream_yields_notifications_no_fetch():
-    """Lightweight by design: yield WSNotification, never call get_message()."""
+    """Lightweight by design: yield WSEvent envelopes, never call get_message()."""
     from e2a.v1.websocket import _connect_and_stream
 
-    payload = json.dumps({
+    payload = json.dumps(_envelope({
         "message_id": "msg_123",
         "from": "alice@example.com",
         "delivered_to": "bot@agents.e2a.dev",
         "subject": "Hi",
         "received_at": "2026-04-27T10:00:00Z",
         "conversation_id": "conv_xyz",
-    })
+    }))
     fake_ws = FakeWebSocket([payload])
 
     with _patch_websockets_connect(fake_ws):
@@ -131,32 +138,28 @@ async def test_connect_and_stream_yields_notifications_no_fetch():
             results.append(notif)
 
     assert len(results) == 1
-    n = results[0]
-    assert isinstance(n, WSNotification)
-    assert n.message_id == "msg_123"
-    assert n.from_ == "alice@example.com"
-    assert n.delivered_to == "bot@agents.e2a.dev"
-    assert n.subject == "Hi"
-    assert n.conversation_id == "conv_xyz"
+    e = results[0]
+    assert isinstance(e, WSEvent)
+    assert e.type == "email.received"
+    assert e.schema_version == "1"
+    assert e.data["message_id"] == "msg_123"
+    assert e.data["from"] == "alice@example.com"
+    assert e.data["delivered_to"] == "bot@agents.e2a.dev"
+    assert e.data["subject"] == "Hi"
+    assert e.data["conversation_id"] == "conv_xyz"
 
 
 @pytest.mark.anyio
-async def test_connect_and_stream_tolerates_legacy_to_field():
-    """Older payloads used `to: string` instead of `delivered_to`."""
+async def test_connect_and_stream_yields_unknown_event_types():
+    """Unknown `type` values are yielded, not dropped (forward-compat)."""
     from e2a.v1.websocket import _connect_and_stream
 
-    payload = json.dumps({
-        "message_id": "msg_legacy",
-        "from": "alice@example.com",
-        "to": "bot@agents.e2a.dev",
-        "subject": "Hi",
-        "received_at": "2026-04-27T10:00:00Z",
-    })
+    payload = json.dumps(_envelope({"x": 1}, type_="email.future_kind"))
     fake_ws = FakeWebSocket([payload])
 
     with _patch_websockets_connect(fake_ws):
         async for notif in _connect_and_stream("wss://e2a.dev/ws", "k", "bot@agents.e2a.dev"):
-            assert notif.delivered_to == "bot@agents.e2a.dev"
+            assert notif.type == "email.future_kind"
 
 
 @pytest.mark.anyio
@@ -164,7 +167,7 @@ async def test_connect_and_stream_no_ack_sent():
     """The WS client must NEVER send any frames (no ACK)."""
     from e2a.v1.websocket import _connect_and_stream
 
-    payload = json.dumps({"message_id": "msg_123", "from": "a@b.c", "delivered_to": "bot@agents.e2a.dev", "subject": "", "received_at": ""})
+    payload = json.dumps(_envelope({"message_id": "msg_123", "from": "a@b.c", "delivered_to": "bot@agents.e2a.dev", "subject": "", "received_at": ""}))
     fake_ws = FakeWebSocket([payload])
 
     with _patch_websockets_connect(fake_ws):
@@ -176,12 +179,12 @@ async def test_connect_and_stream_no_ack_sent():
 
 @pytest.mark.anyio
 async def test_connect_and_stream_skips_malformed():
-    """Notifications without message_id should be skipped, not crash."""
+    """Frames without a string `type` (not an envelope) are skipped, not crash."""
     from e2a.v1.websocket import _connect_and_stream
 
     messages_in = [
-        json.dumps({"from": "alice@example.com"}),  # no message_id — drop
-        json.dumps({"message_id": "msg_456", "from": "bob@example.com", "delivered_to": "bot@agents.e2a.dev", "subject": "", "received_at": ""}),
+        json.dumps({"from": "alice@example.com"}),  # no type — not an envelope, drop
+        json.dumps(_envelope({"message_id": "msg_456", "from": "bob@example.com", "delivered_to": "bot@agents.e2a.dev", "subject": "", "received_at": ""})),
     ]
     fake_ws = FakeWebSocket(messages_in)
 
@@ -191,7 +194,7 @@ async def test_connect_and_stream_skips_malformed():
             results.append(notif)
 
     assert len(results) == 1
-    assert results[0].message_id == "msg_456"
+    assert results[0].data["message_id"] == "msg_456"
 
 
 # ── WSStream ─────────────────────────────────────────────────────
@@ -213,7 +216,7 @@ async def test_ws_connect_sends_authorization_header():
     from e2a.v1.websocket import _connect_and_stream
 
     fake_ws = FakeWebSocket([
-        json.dumps({"message_id": "m1", "from": "a@b.c", "delivered_to": "bot@x.dev", "subject": "", "received_at": ""})
+        json.dumps(_envelope({"message_id": "m1", "from": "a@b.c", "delivered_to": "bot@x.dev", "subject": "", "received_at": ""}))
     ])
     mock_module = MagicMock()
     mock_module.connect = MagicMock(return_value=fake_ws)
@@ -245,12 +248,15 @@ async def test_wsstream_no_reconnect_exits():
     """With reconnect=False, the stream exits after the first disconnect."""
     from e2a.v1.websocket import WSStream
 
-    fake_notif = WSNotification(
-        message_id="msg_1",
-        from_="alice@example.com",
-        delivered_to="bot@agents.e2a.dev",
-        subject="Hi",
-        received_at="2026-04-27T10:00:00Z",
+    fake_notif = WSEvent(
+        type="email.received",
+        data={
+            "message_id": "msg_1",
+            "from": "alice@example.com",
+            "delivered_to": "bot@agents.e2a.dev",
+            "subject": "Hi",
+            "received_at": "2026-04-27T10:00:00Z",
+        },
     )
     call_count = 0
 

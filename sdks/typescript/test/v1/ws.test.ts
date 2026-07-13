@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import type { WSNotification } from "../../src/v1/ws.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { WSEvent } from "../../src/v1/ws.js";
+import { isEmailReceived } from "../../src/v1/webhook-signature.js";
 
 // These are pure unit tests for the WS surface. Network-level tests
 // would require spinning up a fake WS server, which isn't worth it for
@@ -7,36 +10,35 @@ import type { WSNotification } from "../../src/v1/ws.js";
 // reading the code, and the iteration semantics are tested in
 // client.test.ts where we can mock the WSListener.
 
-describe("WSNotification interface", () => {
-  it("matches the server's notification shape", () => {
-    // Type-only assertion: if the field set drifts, tsc fails.
-    const n: WSNotification = {
-      message_id: "msg_1",
-      from: "alice@example.com",
-      delivered_to: "bot@agents.e2a.dev",
-      subject: "Hi",
-      received_at: "2026-04-27T10:00:00Z",
-    };
-    expect(n.delivered_to).toBe("bot@agents.e2a.dev");
-
-    const withConv: WSNotification = {
-      ...n,
-      conversation_id: "conv_xyz",
-    };
-    expect(withConv.conversation_id).toBe("conv_xyz");
+describe("WSEvent envelope", () => {
+  it("is the versioned event envelope — the same shape as a webhook delivery", () => {
+    // Parse the shared golden fixture: the WS channel emits the SAME
+    // envelope+payload the webhook channel delivers (the server's ws tests
+    // assert frame parity against this very file).
+    const raw = readFileSync(
+      join(__dirname, "../../../../internal/eventpayload/testdata/email.received.json"),
+      "utf8",
+    );
+    const event: WSEvent = JSON.parse(raw);
+    expect(event.type).toBe("email.received");
+    expect(event.schema_version).toBe("1");
+    expect(event.id).toMatch(/^evt_/);
+    if (!isEmailReceived(event)) throw new Error("guard should narrow email.received");
+    expect(event.data.message_id).toMatch(/^msg_/);
+    expect(event.data.delivered_to).toBe("support@agents.example.com");
+    expect(event.data.direction).toBe("inbound");
   });
 
-  it("does not have the legacy `to` field", () => {
-    // @ts-expect-error — `to` was removed in TS 1.7 to match the
-    // server's wire shape (the server emits `delivered_to`).
-    const _bad: WSNotification = {
-      message_id: "msg_1",
-      from: "a@b.c",
-      to: "bot@agents.e2a.dev",
-      subject: "",
-      received_at: "",
+  it("tolerates unknown event types (forward-compat)", () => {
+    const event: WSEvent = {
+      type: "email.some_future_kind",
+      id: "evt_x",
+      schema_version: "1",
+      created_at: "2026-07-01T10:30:00Z",
+      data: { anything: true },
     };
-    expect(true).toBe(true);
+    expect(isEmailReceived(event)).toBe(false);
+    expect(event.type).toBe("email.some_future_kind");
   });
 });
 

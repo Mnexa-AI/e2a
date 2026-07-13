@@ -19,6 +19,7 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/auth"
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/delivery"
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/hitlnotify"
 	"github.com/Mnexa-AI/e2a/internal/hitlworker"
@@ -55,7 +56,7 @@ import (
 // derived deterministically from dedupKey so duplicate SNS notifications
 // produce the same id — receivers dedup on it (at-least-once delivery).
 func deliveryEventFirer(pub webhookpub.Publisher) delivery.Firer {
-	return func(ctx context.Context, userID, agentID, eventType string, data map[string]any, dedupKey string) {
+	return func(ctx context.Context, userID, agentID, eventType string, data any, dedupKey string) {
 		pub.Publish(ctx, webhookpub.Event{
 			ID:        webhookpub.DeterministicEventID(dedupKey),
 			Type:      eventType,
@@ -69,15 +70,21 @@ func deliveryEventFirer(pub webhookpub.Publisher) delivery.Firer {
 
 func senderIdentityEventFirer(pub webhookpub.Publisher) senderidentity.EventFirer {
 	return func(ctx context.Context, domain, userID string, status senderidentity.Status, errMsg string) {
-		eventType := webhookpub.EventDomainSendingVerified
-		data := map[string]any{"domain": domain, "sending_status": string(status)}
+		// Canonical typed payloads (contract freeze PR-2) — golden-fixture-locked.
 		if status == senderidentity.StatusFailed {
-			eventType = webhookpub.EventDomainSendingFailed
-			if errMsg != "" {
-				data["reason"] = errMsg
-			}
+			pub.Publish(ctx, webhookpub.NewEvent(webhookpub.EventDomainSendingFailed, userID,
+				eventpayload.DomainSendingFailedData{
+					Domain:        domain,
+					SendingStatus: string(status),
+					Reason:        errMsg,
+				}))
+			return
 		}
-		pub.Publish(ctx, webhookpub.NewEvent(eventType, userID, data))
+		pub.Publish(ctx, webhookpub.NewEvent(webhookpub.EventDomainSendingVerified, userID,
+			eventpayload.DomainSendingVerifiedData{
+				Domain:        domain,
+				SendingStatus: string(status),
+			}))
 	}
 }
 

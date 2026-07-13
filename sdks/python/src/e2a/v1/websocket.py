@@ -1,14 +1,21 @@
 """Notification-only WebSocket stream for e2a /v1.
 
-Connects to ``/v1/agents/{address}/ws`` and yields lightweight
-:class:`WSNotification` objects — one per inbound message. The protocol is
-server-to-client only; the client never sends application frames.
+Connects to ``/v1/agents/{address}/ws`` and yields :class:`WSEvent` objects —
+each frame is the SAME versioned event envelope a webhook delivery carries
+(``{type, id, schema_version, created_at, data}``). Today the relay emits
+``email.received`` events (``data`` is the :class:`~e2a.v1.webhook_signature.EmailReceivedData`
+shape); tolerate unknown ``type`` values — future WS event kinds parse into
+the same envelope. The protocol is server-to-client only; the client never
+sends application frames.
 
-The notification carries metadata (message_id, sender, subject, …). Fetch the
-full body via REST when you want it::
+The event carries metadata (message_id, sender, subject, …), never the body.
+Fetch the full message via REST when you want it::
 
-    async for notif in client.listen("bot@agents.e2a.dev"):
-        email = await client.messages.get(notif.delivered_to, notif.message_id)
+    async for event in client.listen("bot@agents.e2a.dev"):
+        if event.type != "email.received":
+            continue  # forward-compat: skip unknown event kinds
+        data = event.data
+        email = await client.messages.get(data["delivered_to"], data["message_id"])
 
 Requires ``websockets`` (``pip install e2a[ws]``).
 """
@@ -18,13 +25,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Dict, Mapping, Optional
 from urllib.parse import quote, urlparse, urlunparse
 
 from .errors import E2AAuthError, E2AError, E2ANotFoundError, E2APermissionError
 
-__all__ = ["WSNotification", "WSStream"]
+__all__ = ["WSEvent", "WSStream"]
 
 logger = logging.getLogger("e2a.v1.websocket")
 
@@ -88,30 +95,36 @@ def _fatal_error_for_status(status: int, exc: BaseException) -> Optional[E2AErro
     return None
 
 
-@dataclass
-class WSNotification:
-    """Lightweight notification pushed over the WebSocket on new inbound mail.
+@dataclass(frozen=True)
+class WSEvent:
+    """One WebSocket frame: the versioned event envelope (same shape as a
+    webhook delivery / ``GET /v1/events/{id}``).
 
-    ``from_`` is spelled with a trailing underscore to avoid Python's reserved
-    word, matching the convention used elsewhere in the SDK.
+    ``data`` is the per-event payload dict. For ``email.received`` it matches
+    :class:`~e2a.v1.webhook_signature.EmailReceivedData`; unknown/beta types
+    stay generic dicts (tolerate them — forward-compat). ``id`` is stable
+    across channels for the same event, so a consumer receiving both the
+    webhook and the WS frame can dedup on it.
     """
 
-    message_id: str
-    from_: str
-    delivered_to: str
-    subject: str
-    received_at: str
-    conversation_id: Optional[str] = None
+    type: str
+    data: Dict[str, Any] = field(default_factory=dict)
+    id: Optional[str] = None
+    created_at: Optional[str] = None
+    schema_version: Optional[str] = None
+    #: The full parsed envelope (all fields, for forward-compatibility).
+    raw: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_payload(cls, payload: dict) -> "WSNotification":
+    def from_payload(cls, payload: dict) -> "WSEvent":
+        data = payload.get("data")
         return cls(
-            message_id=payload.get("message_id", ""),
-            from_=payload.get("from", ""),
-            delivered_to=payload.get("delivered_to") or payload.get("to") or "",
-            subject=payload.get("subject", ""),
-            received_at=payload.get("received_at", ""),
-            conversation_id=payload.get("conversation_id"),
+            type=payload.get("type", ""),
+            data=data if isinstance(data, dict) else {},
+            id=payload.get("id"),
+            created_at=payload.get("created_at"),
+            schema_version=payload.get("schema_version"),
+            raw=payload,
         )
 
 
@@ -129,11 +142,11 @@ def _build_ws_url(base_url: str, agent_email: str) -> str:
 
 
 class WSStream:
-    """Async-iterable notification stream returned by ``client.listen(address)``.
+    """Async-iterable event stream returned by ``client.listen(address)``.
 
-    Iterate it directly::
+    Iterate it directly — each item is a :class:`WSEvent` envelope::
 
-        async for notif in client.listen("bot@agents.e2a.dev"):
+        async for event in client.listen("bot@agents.e2a.dev"):
             ...
 
     Reconnects with exponential backoff (1s → ``max_backoff``) by default.
@@ -154,10 +167,10 @@ class WSStream:
         self._reconnect = reconnect
         self._max_backoff = max_backoff
 
-    def __aiter__(self) -> AsyncIterator[WSNotification]:
+    def __aiter__(self) -> AsyncIterator[WSEvent]:
         return self._stream()
 
-    async def _stream(self) -> AsyncIterator[WSNotification]:
+    async def _stream(self) -> AsyncIterator[WSEvent]:
         try:
             import websockets  # noqa: F401
         except ImportError:  # pragma: no cover - optional dep
@@ -209,17 +222,20 @@ def _ws_connect(ws_url: str, api_key: str):
 
 async def _connect_and_stream(
     ws_url: str, api_key: str, agent_email: str
-) -> AsyncIterator[WSNotification]:
-    """Connect once and yield notifications until disconnect. Sends no frames."""
+) -> AsyncIterator[WSEvent]:
+    """Connect once and yield event envelopes until disconnect. Sends no frames."""
     async with _ws_connect(ws_url, api_key) as ws:
         logger.info("Connected to WebSocket for %s", agent_email)
         async for raw in ws:
             try:
                 payload = json.loads(raw)
-                if not payload.get("message_id"):
-                    logger.warning("WS notification missing message_id: %s", raw)
+                # Every frame is the versioned event envelope; a frame without
+                # a string `type` is not one. Unknown type VALUES are yielded
+                # (forward-compat) — consumers branch on event.type.
+                if not isinstance(payload, dict) or not isinstance(payload.get("type"), str) or not payload["type"]:
+                    logger.warning("WS frame is not an event envelope (missing `type`): %s", raw)
                     continue
-                yield WSNotification.from_payload(payload)
+                yield WSEvent.from_payload(payload)
             except Exception:  # noqa: BLE001
-                logger.exception("Error processing WS notification")
+                logger.exception("Error processing WS event")
                 continue

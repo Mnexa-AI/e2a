@@ -487,21 +487,23 @@ func (r *runner) execWSRead(t *testing.T, s *step) {
 	if s.Expect == nil {
 		return
 	}
+	// WS frames are the versioned event envelope; assertions use dot-paths
+	// ("data.message_id") resolved with the same evaluator as body_match.
 	for _, field := range s.Expect.FieldsPresent {
 		resolvedField := r.resolve(field)
-		if _, ok := notif[resolvedField]; !ok {
-			t.Fatalf("step %s: expected field %q in notification", s.ID, resolvedField)
+		if _, ok := jsonPathGet(notif, resolvedField); !ok {
+			t.Fatalf("step %s: expected field %q in notification: %s", s.ID, resolvedField, data)
 		}
 	}
 	for _, field := range s.Expect.FieldsAbsent {
 		resolvedField := r.resolve(field)
-		if _, ok := notif[resolvedField]; ok {
+		if _, ok := jsonPathGet(notif, resolvedField); ok {
 			t.Fatalf("step %s: unexpected field %q in notification", s.ID, resolvedField)
 		}
 	}
 	for key, expected := range s.Expect.FieldMatch {
 		resolvedKey := r.resolve(key)
-		actual, ok := notif[resolvedKey]
+		actual, ok := jsonPathGet(notif, resolvedKey)
 		if !ok {
 			t.Fatalf("step %s: field %q not found in notification", s.ID, resolvedKey)
 		}

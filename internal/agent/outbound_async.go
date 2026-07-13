@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Mnexa-AI/e2a/internal/eventpayload"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/outboundsend"
@@ -125,23 +126,24 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, at
 }
 
 // buildEmailSentEventFromRow reconstructs the email.sent event from a stored row
-// (the async worker has no live SendRequest). Carries the same Data keys as
-// buildSentEvent so subscribers see an identical envelope on both paths.
+// (the async worker has no live SendRequest). Emits the SAME canonical
+// eventpayload.EmailSentData struct as the synchronous buildSentEvent, so
+// subscribers see an identical envelope on both paths (golden-fixture-locked).
 func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessageID string) webhookpub.Event {
 	m := info.Message
-	data := map[string]interface{}{
-		"message_id":          m.ID,
-		"direction":           "outbound",
-		"agent_email":         m.Sender,
-		"provider_message_id": providerMessageID,
-		"method":              m.Method,
-		"from":                m.Sender,
-		"to":                  m.ToRecipients,
-		"cc":                  m.CC,
-		"bcc":                 m.BCC,
-		"subject":             m.Subject,
-		"message_type":        m.Type,
-		"conversation_id":     m.ConversationID,
+	data := eventpayload.EmailSentData{
+		MessageID:         m.ID,
+		AgentEmail:        m.Sender,
+		Direction:         "outbound",
+		ConversationID:    m.ConversationID,
+		ProviderMessageID: providerMessageID,
+		Method:            m.Method,
+		From:              m.Sender,
+		To:                orEmpty(m.ToRecipients),
+		CC:                m.CC,
+		BCC:               m.BCC,
+		Subject:           m.Subject,
+		MessageType:       m.Type,
 	}
 	return webhookpub.Event{
 		Type:           webhookpub.EventEmailSent,
@@ -156,21 +158,26 @@ func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessage
 
 // buildEmailFailedEventFromRow builds the email.failed event for a terminal
 // outbound send failure.
+//
+// ReasonCode and Retryable stay unset: MarkFailed only receives the diagnostic
+// string — the retry classification (permanent vs exhausted) is consumed inside
+// the send worker and not plumbed here. The schema keeps both fields optional;
+// populate them if/when the worker passes its classification through.
 func buildEmailFailedEventFromRow(info *identity.OutboundSentInfo, detail string) webhookpub.Event {
 	m := info.Message
-	data := map[string]interface{}{
-		"message_id":      m.ID,
-		"direction":       "outbound",
-		"agent_email":     m.Sender,
-		"method":          m.Method,
-		"from":            m.Sender,
-		"to":              m.ToRecipients,
-		"cc":              m.CC,
-		"bcc":             m.BCC,
-		"subject":         m.Subject,
-		"message_type":    m.Type,
-		"conversation_id": m.ConversationID,
-		"reason":          detail,
+	data := eventpayload.EmailFailedData{
+		MessageID:      m.ID,
+		AgentEmail:     m.Sender,
+		Direction:      "outbound",
+		ConversationID: m.ConversationID,
+		Method:         m.Method,
+		From:           m.Sender,
+		To:             orEmpty(m.ToRecipients),
+		CC:             m.CC,
+		BCC:            m.BCC,
+		Subject:        m.Subject,
+		MessageType:    m.Type,
+		Reason:         detail,
 	}
 	return webhookpub.Event{
 		Type:           webhookpub.EventEmailFailed,
