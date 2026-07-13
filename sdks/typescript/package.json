@@ -48,10 +48,10 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.1.1",
     "@types/ws": "^8.18.1",
     "typescript": "^5.4",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.10",
     "yaml": "^2.9.0"
   }
 }
