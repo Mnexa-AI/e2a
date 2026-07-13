@@ -99,7 +99,8 @@ func (s *Server) registerReviews() {
 		OperationID: "approveReview", Method: http.MethodPost, Path: "/v1/reviews/{id}/approve",
 		Summary: "Approve a held message", Tags: []string{"reviews"},
 		Description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).",
-		Security:    []map[string][]string{{"bearer": {}}},
+		Security:     []map[string][]string{{"bearer": {}}},
+		MaxBodyBytes: maxOutboundBytes, // matches send/reply/forward: a reviewer editing attachments needs the same 40 MB body budget as the original send path.
 		Responses: map[string]*huma.Response{
 			"202": s.jsonResponse(reflect.TypeOf(SendResultView{}), "SendResultView",
 				"Accepted — the approved outbound message was durably queued for async submission (status=accepted); terminal outcome via GET/webhook events."),

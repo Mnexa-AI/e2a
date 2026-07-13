@@ -19,12 +19,12 @@ import (
 // The body field names match send/reply: the wire names are `text` and
 // `html` (Go fields stay BodyText/BodyHTML).
 type approveRequest struct {
-	Subject     *string                `json:"subject,omitempty"`
-	BodyText    *string                `json:"text,omitempty"`
-	BodyHTML    *string                `json:"html,omitempty"`
-	To          *[]string              `json:"to,omitempty" nullable:"false"`
-	CC          *[]string              `json:"cc,omitempty" nullable:"false"`
-	BCC         *[]string              `json:"bcc,omitempty" nullable:"false"`
+	Subject     *string                `json:"subject,omitempty" maxLength:"2000"`
+	BodyText    *string                `json:"text,omitempty" maxLength:"1048576"`
+	BodyHTML    *string                `json:"html,omitempty" maxLength:"1048576"`
+	To          *[]string              `json:"to,omitempty" nullable:"false" maxItems:"50"`
+	CC          *[]string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
+	BCC         *[]string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
 	Attachments *[]outbound.Attachment `json:"attachments,omitempty"`
 }
 

@@ -140,6 +140,27 @@ const (
 	maxAttachmentsTotalBytes = 25 * 1024 * 1024
 )
 
+// Per-field GA contract limits on outbound request bodies. These are the named
+// source-of-truth for the maxLength / maxItems struct tags on SendEmailRequest,
+// ReplyRequest, ForwardRequest, and agent.ApproveOverrides — the tags use the
+// numeric literals (struct tags can't reference consts), so keep the literals in
+// sync with these values (TestOutboundFieldLimitTagsMatchConsts guards against
+// drift). Grounded in provider research: subject matches Resend/Postmark parity
+// (SES accepts it); the 1 MiB body field is a per-field backstop independent of
+// the composed-message ceiling; maxItems mirrors the runtime maxRecipients cap.
+const (
+	// maxSubjectLen caps a single subject line. Enforced via maxLength struct tags.
+	maxSubjectLen = 2000
+	// maxBodyFieldBytes caps a single text/html body field (1 MiB). Enforced via
+	// maxLength struct tags. Distinct from the composed-message ceiling below.
+	maxBodyFieldBytes = 1 << 20
+	// maxComposedMessageBytes is the hard cap on a composed outbound message —
+	// subject + text + html + DECODED attachments. The SES v1 stored-message
+	// ceiling (the real upstream limit). Enforced at runtime by
+	// composedMessageSizeError; over → 413 payload_too_large.
+	maxComposedMessageBytes = 10 * 1024 * 1024
+)
+
 // maxRecipients caps the combined to+cc+bcc fan-out of a single outbound
 // message. A body-size ceiling alone doesn't bound recipient count, so a tiny
 // body could still address thousands of addresses; this keeps a single send
@@ -170,12 +191,12 @@ func recipientCountError(groups ...[]string) *ErrorEnvelope {
 // processing. subject/text moved from schema-required to handler-enforced so
 // the template shape can omit them.
 type SendEmailRequest struct {
-	To             []string              `json:"to" nullable:"false"`
-	CC             []string              `json:"cc,omitempty" nullable:"false"`
-	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
-	Subject        string                `json:"subject,omitempty" doc:"Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
-	Body           string                `json:"text,omitempty" doc:"Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
-	HTMLBody       string                `json:"html,omitempty" doc:"Literal HTML body. Mutually exclusive with template_id/template_alias."`
+	To             []string              `json:"to" nullable:"false" maxItems:"50"`
+	CC             []string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
+	Subject        string                `json:"subject,omitempty" maxLength:"2000" doc:"Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
+	Body           string                `json:"text,omitempty" maxLength:"1048576" doc:"Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
+	HTMLBody       string                `json:"html,omitempty" maxLength:"1048576" doc:"Literal HTML body. Mutually exclusive with template_id/template_alias."`
 	TemplateID     string                `json:"template_id,omitempty" doc:"Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
 	TemplateAlias  string                `json:"template_alias,omitempty" doc:"Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."`
 	TemplateData   TemplateData          `json:"template_data,omitempty" doc:"Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."`
@@ -296,11 +317,11 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 
 // ReplyRequest mirrors the legacy reply body.
 type ReplyRequest struct {
-	Body           string                `json:"text"` // required (MSG-3); to/subject derived from the original
-	HTMLBody       string                `json:"html,omitempty"`
+	Body           string                `json:"text" maxLength:"1048576"` // required (MSG-3); to/subject derived from the original
+	HTMLBody       string                `json:"html,omitempty" maxLength:"1048576"`
 	ReplyAll       bool                  `json:"reply_all,omitempty"`
-	CC             []string              `json:"cc,omitempty" nullable:"false"`
-	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
+	CC             []string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
@@ -432,11 +453,11 @@ func (s *Server) replyRecipients(msg *identity.Message, replyAll bool, extraCC [
 
 // ForwardRequest mirrors the legacy forward body.
 type ForwardRequest struct {
-	To             []string              `json:"to" nullable:"false"` // required (MSG-3)
-	CC             []string              `json:"cc,omitempty" nullable:"false"`
-	BCC            []string              `json:"bcc,omitempty" nullable:"false"`
-	Body           string                `json:"text"` // required (MSG-3); subject derived as "Fwd:"
-	HTMLBody       string                `json:"html,omitempty"`
+	To             []string              `json:"to" nullable:"false" maxItems:"50"` // required (MSG-3)
+	CC             []string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
+	Body           string                `json:"text" maxLength:"1048576"` // required (MSG-3); subject derived as "Fwd:"
+	HTMLBody       string                `json:"html,omitempty" maxLength:"1048576"`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
@@ -513,6 +534,45 @@ func (s *Server) validateOutboundBody(subject, body string, to, cc, bcc []string
 	}
 	if err := validateConversationID(conversationID); err != nil {
 		return NewError(http.StatusBadRequest, "invalid_request", err.Error())
+	}
+	return nil
+}
+
+// composedMessageSizeError enforces the composed-message hard cap: the sum of
+// subject + text + html + DECODED attachment bytes must stay under the SES v1
+// stored-message ceiling (maxComposedMessageBytes — the real upstream limit).
+// This is distinct from the per-attachment and per-wire-body limits: a caller
+// can stay under each individual limit while the composed MIME exceeds what the
+// upstream provider will accept, so the real ceiling is checked here on the
+// fully-composed content. Over → 413 payload_too_large (reuses the existing 413
+// path/error code — no new status). Sizes are computed on DECODED attachment
+// bytes (not the base64-inflated wire size). validateAttachments runs before
+// this, so base64 is known-decodable; a decode failure here falls back to the
+// raw wire length so we never under-count.
+func composedMessageSizeError(subject, text, html string, atts []outbound.Attachment) *ErrorEnvelope {
+	total := len(subject) + len(text) + len(html)
+	for _, att := range atts {
+		clean := strings.Map(func(r rune) rune {
+			if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
+				return -1
+			}
+			return r
+		}, att.Data)
+		decoded, err := base64.StdEncoding.DecodeString(clean)
+		if err != nil {
+			total += len(att.Data) // never under-count on a decode miss
+			continue
+		}
+		total += len(decoded)
+	}
+	if total > maxComposedMessageBytes {
+		return NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
+			fmt.Sprintf("composed message too large — %d bytes (subject + text + html + decoded attachments), limit is %d (%d MB)",
+				total, maxComposedMessageBytes, maxComposedMessageBytes/(1024*1024))).
+			WithDetails(map[string]any{
+				"composed_bytes":     total,
+				"max_composed_bytes": maxComposedMessageBytes,
+			})
 	}
 	return nil
 }
@@ -648,6 +708,9 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 			return 0, SendResultView{}, env
 		}
 		if env := validateAttachments(req.Attachments); env != nil {
+			return 0, SendResultView{}, env
+		}
+		if env := composedMessageSizeError(req.Subject, req.Body, req.HTMLBody, req.Attachments); env != nil {
 			return 0, SendResultView{}, env
 		}
 		if env := s.checkSendLimit(ag.ID); env != nil {

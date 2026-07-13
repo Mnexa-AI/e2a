@@ -19,6 +19,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from e2a.v1.generated.models.attachment import Attachment
 from typing import Optional, Set
 from typing_extensions import Self
@@ -28,13 +29,13 @@ class ReplyRequest(BaseModel):
     ReplyRequest
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = Field(default=None, description="File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.")
-    bcc: Optional[List[StrictStr]] = None
-    cc: Optional[List[StrictStr]] = None
+    bcc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    cc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
     conversation_id: Optional[StrictStr] = None
-    html: Optional[StrictStr] = None
+    html: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = None
     reply_all: Optional[StrictBool] = None
     reply_to: Optional[StrictStr] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.")
-    text: StrictStr
+    text: Annotated[str, Field(strict=True, max_length=1048576)]
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_all", "reply_to", "text"]
 

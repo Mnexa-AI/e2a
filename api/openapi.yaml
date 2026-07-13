@@ -240,20 +240,26 @@ components:
         bcc:
           items:
             type: string
+          maxItems: 50
           type: array
         cc:
           items:
             type: string
+          maxItems: 50
           type: array
         html:
+          maxLength: 1048576
           type: string
         subject:
+          maxLength: 2000
           type: string
         text:
+          maxLength: 1048576
           type: string
         to:
           items:
             type: string
+          maxItems: 50
           type: array
       type: object
     Attachment:
@@ -1287,23 +1293,28 @@ components:
         bcc:
           items:
             type: string
+          maxItems: 50
           type: array
         cc:
           items:
             type: string
+          maxItems: 50
           type: array
         conversation_id:
           type: string
         html:
+          maxLength: 1048576
           type: string
         reply_to:
           description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
           type: string
         text:
+          maxLength: 1048576
           type: string
         to:
           items:
             type: string
+          maxItems: 50
           type: array
       required:
         - to
@@ -2301,14 +2312,17 @@ components:
         bcc:
           items:
             type: string
+          maxItems: 50
           type: array
         cc:
           items:
             type: string
+          maxItems: 50
           type: array
         conversation_id:
           type: string
         html:
+          maxLength: 1048576
           type: string
         reply_all:
           type: boolean
@@ -2316,6 +2330,7 @@ components:
           description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
           type: string
         text:
+          maxLength: 1048576
           type: string
       required:
         - text
@@ -2401,21 +2416,25 @@ components:
         bcc:
           items:
             type: string
+          maxItems: 50
           type: array
         cc:
           items:
             type: string
+          maxItems: 50
           type: array
         conversation_id:
           type: string
         html:
           description: Literal HTML body. Mutually exclusive with template_id/template_alias.
+          maxLength: 1048576
           type: string
         reply_to:
           description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. "Support <support@acme.com>"). Defaults to the sending agent's own address.
           type: string
         subject:
           description: Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
+          maxLength: 2000
           type: string
         template_alias:
           description: "Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
@@ -2432,10 +2451,12 @@ components:
           x-stability: experimental
         text:
           description: Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
+          maxLength: 1048576
           type: string
         to:
           items:
             type: string
+          maxItems: 50
           type: array
       required:
         - to
