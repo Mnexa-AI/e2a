@@ -256,6 +256,9 @@ func TestMarkOutboundFailedTx(t *testing.T) {
 			return err
 		}
 		sentMsgID = m.ID
+		if _, err := tx.Exec(ctx, `UPDATE messages SET delivery_status='sending' WHERE id=$1`, sentMsgID); err != nil {
+			return err
+		}
 		_, err = store.MarkOutboundSentTx(ctx, tx, sentMsgID, "<provider-sent>")
 		return err
 	}); err != nil {

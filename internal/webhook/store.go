@@ -92,7 +92,7 @@ func (s *DeliveryStore) GetPendingDeliveries(ctx context.Context, limit int) ([]
 	// atomically with the read. RETURNING gives us the same shape the
 	// caller previously got from the plain SELECT.
 	//
-	// Trash gate (migration 062): a message moved to the trash — or a whole
+	// Trash gate (migration 063): a message moved to the trash — or a whole
 	// inbox moved there — must not keep delivering. Its pending row simply
 	// sits unclaimed: a restore inside the retry window resumes it, otherwise
 	// the TTL prune drops it.

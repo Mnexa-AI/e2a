@@ -1,4 +1,4 @@
--- 062_soft_delete_trash.sql
+-- 063_soft_delete_trash.sql
 --
 -- Trash / soft delete for agent inboxes and messages (docs/design/
 -- trash-soft-delete.md). deleted_at IS NULL = live; non-NULL = in trash since

@@ -129,7 +129,7 @@ type AgentIdentity struct {
 	// distinguish "no webhook configured" from "healthy".
 	WebhookStatus string `json:"webhook_status,omitempty" doc:"Webhook posture for this agent, derived from the account's webhook subscribers that match it (a webhook with no agent filter matches every agent). Open set; tolerate unknown values. Known values: none (no webhook matches this agent), healthy (an enabled webhook matches and none serving this agent has a terminally-failed delivery in the last 24h), failing (an enabled webhook matches but at least one delivery on a matching enabled webhook terminally failed in the last 24h), disabled (webhooks match but every one is disabled, turned off manually), auto_disabled (webhooks match, every one is disabled, and at least one was auto-disabled by the chronic-failure sweep). Present on enriched surfaces (account export, dashboard agent list); absent where not computed."`
 	// DeletedAt is non-nil while the agent is in the trash (soft-deleted,
-	// migration 062): hidden from every live lookup, restorable until the
+	// migration 063): hidden from every live lookup, restorable until the
 	// janitor purges it after TrashRetention. Populated only by the
 	// any-state / trash load paths; live lookups filter it out entirely.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
@@ -328,7 +328,7 @@ type Message struct {
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 	// DeletedAt is non-nil while the message is in the trash (soft-deleted,
-	// migration 062): hidden from every agent-facing read path except the
+	// migration 063): hidden from every agent-facing read path except the
 	// single-message get (so the trash view can open it), restorable until
 	// the janitor purges it after TrashRetention. While trashed the natural
 	// expiry clock (ExpiresAt) is suspended; RestoreMessage shifts ExpiresAt

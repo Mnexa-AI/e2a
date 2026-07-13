@@ -209,6 +209,9 @@ func (f *terminalFixture) seed(t *testing.T, label, messageStatus, jobState stri
 			return err
 		}
 		if messageStatus == "sent" {
+			if _, err = tx.Exec(ctx, `UPDATE messages SET delivery_status='sending' WHERE id=$1`, messageID); err != nil {
+				return err
+			}
 			_, err = f.store.MarkOutboundSentTx(ctx, tx, messageID, "<provider-"+label+">")
 		}
 		return err
@@ -318,9 +321,10 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 
 type failingTerminalStore struct{ err error }
 
-func (s failingTerminalStore) LoadForSend(context.Context, string) (*outboundsend.SendJob, error) {
+func (s failingTerminalStore) ClaimSend(context.Context, string, int64) (*outboundsend.SendJob, error) {
 	return nil, nil
 }
+func (s failingTerminalStore) ReleaseSend(context.Context, string, int64) error       { return nil }
 func (s failingTerminalStore) MarkSent(context.Context, string, string, string) error { return nil }
 func (s failingTerminalStore) MarkFailed(context.Context, string, int, string) error {
 	return s.err

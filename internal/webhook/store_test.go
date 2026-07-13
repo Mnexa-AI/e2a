@@ -225,7 +225,7 @@ func TestDeliveryStatusUpdatesByMessageID(t *testing.T) {
 	}
 }
 
-// TestGetPendingDeliveriesSkipsTrash: migration 062's trash gate — a pending
+// TestGetPendingDeliveriesSkipsTrash: migration 063's trash gate — a pending
 // delivery whose message (or whole inbox) was soft-deleted must not be
 // claimed; it resumes if the message is restored inside the retry window.
 func TestGetPendingDeliveriesSkipsTrash(t *testing.T) {

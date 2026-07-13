@@ -336,7 +336,7 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	ag, err := s.deps.CreateAgent(ctx, email, domain, req.Name, "", "", user.ID)
 	if err != nil {
 		if isUniqueViolation(err) {
-			// Soft-delete (migration 062) keeps the trashed row's PK, so the
+			// Soft-delete (migration 063) keeps the trashed row's PK, so the
 			// address stays reserved: a user who trashed an inbox and tries to
 			// recreate the same address hits this conflict. If the duplicate is
 			// the caller's own trashed inbox, point them at the trash (restore

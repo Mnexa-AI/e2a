@@ -92,7 +92,7 @@ func TestCountAgentsByUser_ExcludesOrphanedAgents(t *testing.T) {
 	}
 }
 
-// TestCountAgentsByUser_ExcludesTrashedAgents mirrors migration 062's trash
+// TestCountAgentsByUser_ExcludesTrashedAgents mirrors migration 063's trash
 // exclusion: a soft-deleted agent is invisible to ListAgentsByUser, so it
 // must neither show up as usage nor consume a max_agents slot — the user can
 // create a replacement while the old inbox sits in the trash.

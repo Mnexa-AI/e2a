@@ -13,7 +13,7 @@ Gmail/Outlook-style deletion for agent inboxes and messages:
   janitor.
 - Permanent deletion ("delete forever") is available from the trash.
 
-## Schema (migrations 062-063)
+## Schema (migrations 063-064)
 
 `deleted_at TIMESTAMPTZ NULL` on `agent_identities` and `messages`.
 `NULL` = live; non-NULL = in trash since that instant. Partial indexes serve
