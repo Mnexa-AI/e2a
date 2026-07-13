@@ -8,7 +8,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
-  dts: true,
+  dts: false,
   // dist/ is committed (consumed by web via file: + verified fresh in CI), so
   // skip sourcemaps to keep the tracked artifact minimal.
   sourcemap: false,
