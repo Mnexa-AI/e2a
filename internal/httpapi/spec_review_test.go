@@ -125,6 +125,20 @@ func TestSpecOutbound202Declared(t *testing.T) {
 	}
 }
 
+// Async outbound approval is another non-terminal enqueue and follows the same
+// 202 Accepted convention as send/reply/forward. Terminal sent/released
+// approval outcomes remain represented by the operation's inferred 200.
+func TestSpecApprove202Declared(t *testing.T) {
+	doc := renderSpec(t)
+	resp := operationResponses(t, doc, "approveReview")
+	if ref := responseSchemaRef(resp, "202"); ref != "#/components/schemas/SendResultView" {
+		t.Errorf("approveReview: 202 must be declared with SendResultView, got %q; codes=%v", ref, keysOf(resp))
+	}
+	if ref := responseSchemaRef(resp, "200"); ref != "#/components/schemas/SendResultView" {
+		t.Errorf("approveReview: terminal 200 must remain declared with SendResultView, got %q; codes=%v", ref, keysOf(resp))
+	}
+}
+
 // verifyDomain must NOT declare a 412: a not-yet-published record is the normal
 // verified:false outcome, returned as 200. 412 (Precondition Failed) is reserved
 // for conditional-request failures; clients branch on the body's `verified`, not
@@ -202,6 +216,7 @@ func TestSpec402_429Split(t *testing.T) {
 //   - A field whose value set the server may grow (delivery/review/send/event
 //     status, sending_status, sent_as, method, event types) is an OPEN string with
 //     no enum, so adding a value later doesn't break strict spec-generated clients.
+//
 // This test pins both halves so neither regresses: an open field must not silently
 // re-acquire a closed enum, and direction must not lose its enum.
 func TestSpecStatusEnums(t *testing.T) {

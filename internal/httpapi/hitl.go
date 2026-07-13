@@ -2,9 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Mnexa-AI/e2a/internal/agent"
+	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 )
 
@@ -17,7 +21,8 @@ import (
 // approveOutput returns the unified SendResultView (MSG-9) — approve is a send,
 // so it shares send/reply/forward's result shape (with edited set).
 type approveOutput struct {
-	Body SendResultView
+	Status int
+	Body   SendResultView
 }
 
 // RejectResultView is the reject response. Reject is not a send, so it keeps
@@ -58,56 +63,83 @@ func (s *Server) resolveHeldDirection(ctx context.Context, messageID, agentID st
 // caller MUST have proven account scope + ownership of agentEmail. Branches on
 // direction: inbound holds release to the inbox; outbound holds send via SES
 // (with send-limit + idempotency).
-func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail string, body agent.ApproveOverrides, idemKey string, rawBody []byte) (SendResultView, error) {
+func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail string, body agent.ApproveOverrides, idemKey string, rawBody []byte) (int, SendResultView, error) {
 	meta, inbound, err := s.resolveHeldDirection(ctx, msgID, agentEmail)
 	if err != nil {
-		return SendResultView{}, err
+		return 0, SendResultView{}, err
 	}
 	if inbound {
 		if s.deps.ApproveInboundReview == nil {
-			return SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
+			return 0, SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
 		}
 		if derr := s.deps.ApproveInboundReview(ctx, userID, meta); derr != nil {
-			return SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
-		return SendResultView{Status: identity.MessageStatusReviewApproved, MessageID: meta.ID}, nil
+		return http.StatusOK, SendResultView{Status: identity.MessageStatusReviewApproved, MessageID: meta.ID}, nil
 	}
 	// An approve that edits the held draft can replace its attachments; enforce the
 	// same per-attachment / count / total limits here so this outbound path can't
 	// bypass what send/reply/forward enforce at compose time.
 	if body.Attachments != nil {
 		if env := validateAttachments(*body.Attachments); env != nil {
-			return SendResultView{}, env
+			return 0, SendResultView{}, env
 		}
 	}
-	if env := s.checkSendLimit(agentEmail); env != nil {
-		return SendResultView{}, env
-	}
 	if s.deps.ApprovePending == nil {
-		return SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
+		return 0, SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
 	}
-	_, view, err := runIdempotent(s, ctx, userID, idemKey, "/v1/approve/"+msgID, rawBody, func() (int, SendResultView, error) {
-		sent, derr := s.deps.ApprovePending(ctx, userID, msgID, agentEmail, body)
+	// Async approval resolves the hold and enqueues delivery in one transaction.
+	// Complete a keyed request in that SAME transaction so a crash after commit
+	// still replays the exact accepted response instead of re-running approval.
+	var idemCompleteTx agent.ApproveIdemCompleter
+	if idemKey != "" && s.deps.Idempotency != nil {
+		nsKey := idemUserNS + idemKey
+		uid := userID
+		idemCompleteTx = func(ctx context.Context, tx pgx.Tx, sent *identity.Message) error {
+			status, view := approveResult(sent)
+			raw, marshalErr := json.Marshal(view)
+			if marshalErr != nil {
+				raw = []byte("{}")
+			}
+			return s.deps.Idempotency.CompleteTx(ctx, tx, uid, nsKey, idempotency.CachedResponse{
+				StatusCode: status, ContentType: "application/json", Body: raw,
+			})
+		}
+	}
+	status, view, err := runIdempotent(s, ctx, userID, idemKey, "/v1/approve/"+msgID, rawBody, func() (int, SendResultView, error) {
+		// Mutable rate-limit state is evaluated only after the idempotency claim,
+		// so a completed keyed retry replays its cached response without consuming
+		// another token or being replaced by a later 429.
+		if env := s.checkSendLimit(agentEmail); env != nil {
+			return 0, SendResultView{}, env
+		}
+		sent, derr := s.deps.ApprovePending(ctx, userID, msgID, agentEmail, body, idemCompleteTx)
 		if derr != nil {
 			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
 		}
-		edited := sent.Edited
-		// Async mode returns the hold resolved to approved with delivery_status
-		// 'accepted' (the SendWorker submits later, emitting email.sent/failed) —
-		// surface "accepted" like any async send. Sync mode sent inline → "sent".
-		status := "sent"
-		if sent.DeliveryStatus == "accepted" {
-			status = "accepted"
-		}
-		return http.StatusOK, SendResultView{
-			Status: status, MessageID: sent.ID, ProviderMessageID: sent.ProviderMessageID,
-			SentAs: sent.SentAs, Method: sent.Method, Edited: &edited,
-		}, nil
+		status, view := approveResult(sent)
+		return status, view, nil
 	})
 	if err != nil {
-		return SendResultView{}, err
+		return 0, SendResultView{}, err
 	}
-	return view, nil
+	return status, view, nil
+}
+
+// approveResult is the single source of the approval response's status + body,
+// shared by the live response and the in-transaction idempotency cache.
+func approveResult(sent *identity.Message) (int, SendResultView) {
+	statusCode := http.StatusOK
+	status := "sent"
+	if sent.DeliveryStatus == "accepted" {
+		statusCode = http.StatusAccepted
+		status = "accepted"
+	}
+	edited := sent.Edited
+	return statusCode, SendResultView{
+		Status: status, MessageID: sent.ID, ProviderMessageID: sent.ProviderMessageID,
+		SentAs: sent.SentAs, Method: sent.Method, Edited: &edited,
+	}
 }
 
 // rejectHeld is the shared reject dispatch behind /reviews/{id}/reject. Caller

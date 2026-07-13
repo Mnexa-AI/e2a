@@ -383,11 +383,11 @@ type Message struct {
 	// users row, populated only by GetOutboundMessageForUser. List
 	// endpoints leave this empty to avoid a join-per-row cost — the
 	// pending-detail page is where reviewer attribution matters.
-	ReviewedByName  *string         `json:"reviewed_by_name,omitempty"`
-	RejectionReason string `json:"rejection_reason,omitempty"`
-	Edited          bool   `json:"edited,omitempty"`
-	BodyText        string `json:"text,omitempty"`
-	BodyHTML        string `json:"html,omitempty"`
+	ReviewedByName  *string `json:"reviewed_by_name,omitempty"`
+	RejectionReason string  `json:"rejection_reason,omitempty"`
+	Edited          bool    `json:"edited,omitempty"`
+	BodyText        string  `json:"text,omitempty"`
+	BodyHTML        string  `json:"html,omitempty"`
 	// AttachmentsJSON is the INTERNAL storage blob for a held draft's
 	// attachments (messages.attachments_json): the []outbound.Attachment
 	// shape {filename, content_type, data} with data as base64 bytes. It
@@ -2653,7 +2653,8 @@ type AcceptedSend struct {
 // actual SMTP submit + email.sent/failed + metering; this method does NOT send and
 // does NOT use the send_attempts gate (async idempotency is the accept-tx atomicity
 // + the worker's delivery_status/alreadyDone guard). reviewedByUserID is "" (→ NULL)
-// for the sweep.
+// for the sweep. When completeIdempotency is non-nil, it runs after the send job
+// is stamped but before commit; an error rolls back the approval, job, and key.
 //
 // The WHERE status='pending_review' is the compare-and-set guard: RETURNING no row
 // means a human/other worker already resolved the hold → ErrNotPendingApproval (a
@@ -2664,6 +2665,7 @@ func (s *Store) ApproveAndAccept(
 	edited bool,
 	acc AcceptedSend,
 	enqueue func(ctx context.Context, tx pgx.Tx, messageID string) (int64, error),
+	completeIdempotency func(ctx context.Context, tx pgx.Tx, approved *Message) error,
 ) (*Message, error) {
 	var out *Message
 	err := s.WithTx(ctx, func(tx pgx.Tx) error {
@@ -2724,6 +2726,11 @@ func (s *Store) ApproveAndAccept(
 		// provider_message_id stays empty — the SendWorker fills it on email.sent.
 		m.Method = acc.Method
 		m.SentAs = acc.SentAs
+		if completeIdempotency != nil {
+			if err := completeIdempotency(ctx, tx, &m); err != nil {
+				return err
+			}
+		}
 		out = &m
 		return nil
 	})

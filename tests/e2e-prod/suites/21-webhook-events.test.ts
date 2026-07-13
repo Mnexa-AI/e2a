@@ -400,8 +400,8 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
     heldId = send.body!.message_id!;
 
     const ap = await client.post<SendResult>(`/v1/reviews/${heldId}/approve`, { body: {} });
-    assert.equal(ap.status, 200, `approve→send (to simulator) expected 200, got ${ap.status}: ${ap.raw.slice(0, 200)}`);
-    assert.equal(ap.body?.status, "sent", "approved hold to the simulator sends successfully");
+    assert.ok(ap.status === 200 || ap.status === 202, `approve→send expected 200 terminal or 202 enqueued, got ${ap.status}: ${ap.raw.slice(0, 200)}`);
+    assert.equal(ap.body?.status, ap.status === 202 ? "accepted" : "sent", "HTTP status matches the approval outcome");
     resolved = true;
 
     const ev = await pollEvent({ type: "email.review_approved", agentId: email, since }, (e) =>

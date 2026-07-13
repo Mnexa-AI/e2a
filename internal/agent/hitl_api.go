@@ -66,9 +66,10 @@ type ApproveOverrides = approveRequest
 // and publishes the approved event. Both the legacy handler and the v1 layer
 // call it. expectedAgentEmail (when non-empty) must equal the message's
 // agent's email — mirrors the legacy verifyURLAgentEmail URL guard.
-// On a nil-error return the SES send has committed; the idempotency key must
-// be Completed (cached), never Released.
-func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr ApproveOverrides) (*identity.Message, *OutboundError) {
+// On a nil-error return the synchronous send or async enqueue has committed;
+// the idempotency key must be Completed (cached), never Released. In async mode
+// idemCompleteTx is invoked inside the approve-and-enqueue transaction.
+func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr ApproveOverrides, idemCompleteTx ApproveIdemCompleter) (*identity.Message, *OutboundError) {
 	edits, err := ovr.toEdit()
 	if err != nil {
 		return nil, &OutboundError{http.StatusBadRequest, "invalid_request", "invalid attachments"}
@@ -97,7 +98,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	// email.sent/failed + metering. The reviewer gets "accepted" back (the send is
 	// durably queued). Self-sends fall through to the sync loopback path below.
 	if a.outboundEnq != nil {
-		sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits)
+		sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits, idemCompleteTx)
 		if aerr != nil {
 			return nil, approveAsyncError(agent.ID, messageID, aerr)
 		}
@@ -173,7 +174,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 // resolution is recorded via reviewed_by_user_id + the review_approved event, and
 // delivery_status ('accepted' → 'sent'/'failed') tracks the async send. (The TTL
 // sweep uses review_expired_approved instead — see hitlworker.autoApproveAsync.)
-func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit) (*identity.Message, bool, error) {
+func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
 	editedByReviewer := edits.Apply(draft)
 	sendReq, err := buildSendRequestFromMessage(draft)
 	if err != nil {
@@ -191,7 +192,7 @@ func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIde
 		To: comp.To, CC: comp.CC, BCC: comp.BCC, Subject: sendReq.Subject,
 		Method: comp.Method, EnvelopeFrom: comp.EnvelopeFrom, SentAs: comp.SentAs, Raw: comp.Raw,
 	}
-	sent, err := a.store.ApproveAndAccept(ctx, messageID, userID, identity.MessageStatusSent, editedByReviewer, acc, a.outboundEnq.EnqueueSendTx)
+	sent, err := a.store.ApproveAndAccept(ctx, messageID, userID, identity.MessageStatusSent, editedByReviewer, acc, a.outboundEnq.EnqueueSendTx, idemCompleteTx)
 	if err != nil {
 		return nil, false, err
 	}

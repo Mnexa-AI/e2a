@@ -192,7 +192,7 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 			writeMagicMessage(w, http.StatusNotFound, "Message not found", "This message no longer exists.")
 			return
 		}
-		sent, handled, aerr := a.approveOutboundAsync(r.Context(), agent, messageID, userID, draft, identity.PendingApprovalEdit{})
+		sent, handled, aerr := a.approveOutboundAsync(r.Context(), agent, messageID, userID, draft, identity.PendingApprovalEdit{}, nil)
 		if aerr != nil {
 			writeMagicApproveError(w, messageID, aerr)
 			return

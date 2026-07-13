@@ -155,7 +155,7 @@ type Deps struct {
 	// Optional — nil disables the wait valve (accepted is returned immediately).
 	PollSendOutcome func(ctx context.Context, messageID string) (identity.SendOutcome, error)
 	// HITL approve/reject (the held-draft decision)
-	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError)
+	ApprovePending     func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides, idemCompleteTx agent.ApproveIdemCompleter) (*identity.Message, *agent.OutboundError)
 	RejectPending      func(ctx context.Context, userID, messageID, expectedAgentEmail, reason string) (*identity.Message, *agent.OutboundError)
 	EnforceMessageSend func(ctx context.Context, userID string) error
 	// Inbound review release — the held-screening decision (design 2026-06-22 §5).

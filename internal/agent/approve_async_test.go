@@ -26,7 +26,22 @@ func TestApprovePendingCore_AsyncExternal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sent, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{})
+	idemCompleted := false
+	complete := func(ctx context.Context, tx pgx.Tx, approved *identity.Message) error {
+		var deliveryStatus string
+		var sendJobID *int64
+		if err := tx.QueryRow(ctx,
+			`SELECT delivery_status, send_job_id FROM messages WHERE id=$1`, approved.ID,
+		).Scan(&deliveryStatus, &sendJobID); err != nil {
+			return err
+		}
+		if deliveryStatus != "accepted" || sendJobID == nil || *sendJobID != 999 {
+			t.Fatalf("idempotency completion ran before async accept was durable in tx: delivery_status=%q send_job_id=%v", deliveryStatus, sendJobID)
+		}
+		idemCompleted = true
+		return nil
+	}
+	sent, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{}, complete)
 	if oerr != nil {
 		t.Fatalf("ApprovePendingCore: status=%d code=%s msg=%s", oerr.Status, oerr.Code, oerr.Msg)
 	}
@@ -38,6 +53,9 @@ func TestApprovePendingCore_AsyncExternal(t *testing.T) {
 	}
 	if sent.Method != "smtp" {
 		t.Errorf("Method = %q, want smtp (should be populated on the accepted view)", sent.Method)
+	}
+	if !idemCompleted {
+		t.Error("async approval did not complete idempotency inside the accept transaction")
 	}
 
 	var deliveryStatus, providerID string
@@ -76,7 +94,7 @@ func TestApprovePendingCore_AsyncSelfSendStaysSync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sent, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{})
+	sent, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{}, nil)
 	if oerr != nil {
 		t.Fatalf("ApprovePendingCore: status=%d code=%s msg=%s", oerr.Status, oerr.Code, oerr.Msg)
 	}

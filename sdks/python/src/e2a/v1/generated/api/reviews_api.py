@@ -65,7 +65,7 @@ class ReviewsApi:
     ) -> SendResultView:
         """Approve a held message
 
-        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
+        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
 
         :param id: (required)
         :type id: str
@@ -107,6 +107,7 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '202': "SendResultView",
             '409': "ErrorEnvelope",
             '422': "ErrorEnvelope",
             '429': "RateLimitedEnvelope",
@@ -143,7 +144,7 @@ class ReviewsApi:
     ) -> ApiResponse[SendResultView]:
         """Approve a held message
 
-        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
+        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
 
         :param id: (required)
         :type id: str
@@ -185,6 +186,7 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '202': "SendResultView",
             '409': "ErrorEnvelope",
             '422': "ErrorEnvelope",
             '429': "RateLimitedEnvelope",
@@ -221,7 +223,7 @@ class ReviewsApi:
     ) -> RESTResponseType:
         """Approve a held message
 
-        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
+        Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
 
         :param id: (required)
         :type id: str
@@ -263,6 +265,7 @@ class ReviewsApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
+            '202': "SendResultView",
             '409': "ErrorEnvelope",
             '422': "ErrorEnvelope",
             '429': "RateLimitedEnvelope",

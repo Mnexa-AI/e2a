@@ -98,7 +98,7 @@ test("forwardMessage: forward an inbound message to the simulator (200)", async 
   assert.ok(r.body?.message_id, "forward returned a message id");
 });
 
-test("approveReview: approve a HITL-held outbound (200)", async () => {
+test("approveReview: approve a HITL-held outbound (200 terminal or 202 enqueued)", async () => {
   const email = await freshAgent("covap", true); // holds all outbound for review
   const send = await client.post<{ status: string; message_id: string }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
@@ -108,9 +108,10 @@ test("approveReview: approve a HITL-held outbound (200)", async () => {
   const id = send.body!.message_id;
   const ap = await client.post<{ message_id: string; status: string }>(
     `/v1/reviews/${id}/approve`,
-    { body: {}, expect: 200 },
+    { body: {}, expect: [200, 202] },
   );
   assert.equal(ap.body?.message_id, id);
+  assert.equal(ap.body?.status, ap.status === 202 ? "accepted" : "sent");
 });
 
 after(async () => {

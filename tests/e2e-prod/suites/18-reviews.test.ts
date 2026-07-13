@@ -200,7 +200,7 @@ test("reviews: rejectReview discards the hold; re-reject → 409; nonexistent �
   }
 });
 
-test("reviews: approveReview resolves the outbound hold (200 SendResultView; staging SES send-fail tolerated)", async () => {
+test("reviews: approveReview resolves the outbound hold (200 terminal or 202 enqueued; staging send-fail tolerated)", async () => {
   const { email, id } = await createHeldReview("approve");
   let resolved = false;
   try {
@@ -208,9 +208,10 @@ test("reviews: approveReview resolves the outbound hold (200 SendResultView; sta
       `/v1/reviews/${id}/approve`,
       { body: {} },
     );
-    if (r.status === 200) {
-      // Happy path: SendResultView. approveReview sends the outbound draft via SES.
+    if (r.status === 200 || r.status === 202) {
+      // Happy path: synchronous delivery is sent/200; async enqueue is accepted/202.
       assert.equal(r.body?.message_id, id, "SendResultView echoes the approved message id");
+      assert.equal(r.body?.status, r.status === 202 ? "accepted" : "sent", "HTTP status matches the approval outcome");
       resolved = true;
       // Re-approving a sent hold must 409.
       const again = await client.post(`/v1/reviews/${id}/approve`, { body: {} });
@@ -221,7 +222,7 @@ test("reviews: approveReview resolves the outbound hold (200 SendResultView; sta
       // send leg 500s ("send failed"). Verified during authoring that the fault
       // is the send transport on staging, not the /v1/reviews routing/authz. The hold
       // stays pending_review after the failed send, so we reject it below to
-      // clean up. If prod ever runs this against a deliverable sink, the 200
+      // clean up. If prod ever runs this against a deliverable sink, the 2xx
       // branch above is the real assertion.
       info(SUITE, "approve-send-failed-staging", `approveReview reached the send leg but SES failed on staging (500 "send failed") — endpoint routing/authz OK; hold left pending and cleaned via reject. request handled id=${id}`);
     } else {

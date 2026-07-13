@@ -486,7 +486,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 		SendTest: func(ctx context.Context, ag *identity.AgentIdentity) (*agent.OutboundResult, *agent.OutboundError) {
 			return &agent.OutboundResult{MessageID: "msg_test_1", Method: "smtp"}, nil
 		},
-		ApprovePending: func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides) (*identity.Message, *agent.OutboundError) {
+		ApprovePending: func(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr agent.ApproveOverrides, _ agent.ApproveIdemCompleter) (*identity.Message, *agent.OutboundError) {
 			switch messageID {
 			case "msg_pending":
 				return &identity.Message{ID: "msg_pending", Status: "sent", ProviderMessageID: "<prov@ses>", Method: "smtp"}, nil

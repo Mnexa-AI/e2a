@@ -29,6 +29,12 @@ import (
 // no Idempotency-Key (or no idempotency store is wired).
 type AcceptIdemCompleter func(ctx context.Context, tx pgx.Tx, messageID string) error
 
+// ApproveIdemCompleter completes an approval's idempotency key inside the
+// async approve-and-enqueue transaction. It receives the resolved message so
+// the httpapi layer can cache the exact SendResultView (including edited,
+// method, and sent_as) that the live request returns.
+type ApproveIdemCompleter func(ctx context.Context, tx pgx.Tx, approved *identity.Message) error
+
 // OutboundEnqueuer is the accept-tx's handle on the shared River client — it
 // inserts the outbound_send job in the same transaction as the message row.
 // *outboundsend.Jobs satisfies it. Injected via SetOutboundEnqueuer; nil keeps

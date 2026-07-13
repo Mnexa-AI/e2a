@@ -50,7 +50,7 @@ func TestApproveAndAccept(t *testing.T) {
 		EnvelopeFrom: "bot@aa.example.com", SentAs: "relay", Raw: []byte("raw-mime"),
 	}
 
-	out, err := store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewApproved, false, acc, enqueue)
+	out, err := store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewApproved, false, acc, enqueue, nil)
 	if err != nil {
 		t.Fatalf("ApproveAndAccept: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestApproveAndAccept(t *testing.T) {
 	}
 
 	// Idempotent: a second attempt (row no longer pending_review) is a no-op.
-	if _, err := store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewApproved, false, acc, enqueue); err != identity.ErrNotPendingApproval {
+	if _, err := store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewApproved, false, acc, enqueue, nil); err != identity.ErrNotPendingApproval {
 		t.Errorf("second ApproveAndAccept err = %v, want ErrNotPendingApproval", err)
 	}
 	if enqueued != 1 {

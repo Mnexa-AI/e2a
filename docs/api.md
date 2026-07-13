@@ -365,7 +365,10 @@ cannot see or resolve its own holds (self-approval would defeat the gate).
   held message.
 - `POST /v1/reviews/{id}/approve` — branches on direction: an outbound draft is
   sent via SES (honors `Idempotency-Key` + optional reviewer overrides); an
-  inbound hold is released to the inbox.
+  inbound hold is released to the inbox. Returns `202 Accepted` with
+  `status=accepted` when the outbound delivery is durably queued for async
+  submission; synchronous `sent` and inbound `review_approved` outcomes return
+  `200 OK`.
 - `POST /v1/reviews/{id}/reject` — outbound draft discarded (never sent); inbound
   hold dropped (never reaches the agent; payload retained, hidden, for forensics).
 

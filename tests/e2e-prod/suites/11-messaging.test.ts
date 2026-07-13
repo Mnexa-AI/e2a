@@ -144,7 +144,7 @@ test("messaging: /agents/{email}/test on HITL agent returns 202 with message_id 
   }
 });
 
-test("messaging: HITL approve flow — send queues, approve sends, status→sent", async () => {
+test("messaging: HITL approve flow — send queues, approve sends or enqueues", async () => {
   const email = await createHitlAgent("appr");
   const s = await client.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
     body: { to: [SINK_EMAIL], subject: uniqueSubject("approve"), text: "approve me" },
@@ -158,16 +158,18 @@ test("messaging: HITL approve flow — send queues, approve sends, status→sent
 
   // Approve — empty body approves as-is. Goes out via SMTP to blackhole sink.
   const ap = await client.post<{ message_id: string; status: string }>(`/v1/reviews/${id}/approve`, { body: {} });
-  if (ap.status !== 200) {
-    fail(SUITE, "approve-non-200", `approve returned ${ap.status}: ${ap.raw.slice(0, 200)}`);
+  const validApprove = (ap.status === 200 && ap.body?.status === "sent") ||
+    (ap.status === 202 && ap.body?.status === "accepted");
+  if (!validApprove) {
+    fail(SUITE, "approve-status-mismatch", `approve returned ${ap.status} status=${ap.body?.status}: ${ap.raw.slice(0, 200)}`);
     return;
   }
   assert.equal(ap.body?.message_id, id);
-  // Status should be "sent" or whatever the post-approve canonical is.
+  // Synchronous delivery is terminal sent/200; async enqueue is accepted/202.
   const finalStatus = ap.body?.status;
   info(SUITE, "approve-final-status", `approve returned status="${finalStatus}"`);
 
-  // Re-approve must fail with 409 (already sent).
+  // Re-approve must fail with 409 (the hold was resolved before sync send/async enqueue).
   const ap2 = await client.post(`/v1/reviews/${id}/approve`, { body: {} });
   if (ap2.status !== 409) {
     info(SUITE, "double-approve-non-409", `re-approve of sent message returned ${ap2.status} instead of 409: ${ap2.raw.slice(0, 200)}`);
@@ -184,9 +186,9 @@ test("messaging: reject of a sent message returns 409 (state guard)", async () =
     return;
   }
   const id = s.body.message_id;
-  // First approve so it transitions to sent.
+  // First approve so the hold resolves (sent synchronously or accepted async).
   const ap = await client.post(`/v1/reviews/${id}/approve`, { body: {} });
-  if (ap.status !== 200) {
+  if (ap.status !== 200 && ap.status !== 202) {
     info(SUITE, "rej-after-send-approve-failed", `approve returned ${ap.status}, can't test reject-after-send`);
     return;
   }
@@ -214,8 +216,8 @@ test("messaging: approve with field overrides applies them before send", async (
     `/v1/reviews/${id}/approve`,
     { body: { subject: "overridden subject (approve-time)", text: "overridden body" } },
   );
-  if (ap.status !== 200) {
-    info(SUITE, "approve-override-non-200", `override approve returned ${ap.status}: ${ap.raw.slice(0, 200)}`);
+  if (ap.status !== 200 && ap.status !== 202) {
+    info(SUITE, "approve-override-non-2xx", `override approve returned ${ap.status}: ${ap.raw.slice(0, 200)}`);
     return;
   }
   // Fetch the message to see whether the override was actually persisted to the

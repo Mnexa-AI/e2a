@@ -221,7 +221,7 @@ func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIden
 		To: comp.To, CC: comp.CC, BCC: comp.BCC, Subject: req.Subject,
 		Method: comp.Method, EnvelopeFrom: comp.EnvelopeFrom, SentAs: comp.SentAs, Raw: comp.Raw,
 	}
-	sent, err := w.store.ApproveAndAccept(ctx, c.MessageID, "", identity.MessageStatusReviewExpiredApproved, false, acc, w.outboundEnq.EnqueueSendTx)
+	sent, err := w.store.ApproveAndAccept(ctx, c.MessageID, "", identity.MessageStatusReviewExpiredApproved, false, acc, w.outboundEnq.EnqueueSendTx, nil)
 	if err != nil {
 		if errors.Is(err, identity.ErrNotPendingApproval) {
 			return true // resolved between load and transition
