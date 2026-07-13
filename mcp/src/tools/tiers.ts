@@ -87,6 +87,14 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "validate_template",
   "list_starter_templates",
   "get_starter_template",
+  // API keys are admin-tier AND further restricted inside the tool surface:
+  // create_api_key mints ONLY agent-scoped keys (scope is hardwired in
+  // McpClient.createAgentApiKey, not an input), so MCP can never mint an
+  // account-scoped (workspace-admin) credential — that stays a dashboard /
+  // raw-API action. list is metadata-only; delete revokes (de-escalation).
+  "list_api_keys",
+  "create_api_key",
+  "delete_api_key",
 ]);
 
 export type Scope = "account" | "agent";

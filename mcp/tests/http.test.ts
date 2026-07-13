@@ -268,6 +268,9 @@ describe("HTTP MCP server", () => {
         "validate_template",
         "list_starter_templates",
         "get_starter_template",
+        "list_api_keys",
+        "create_api_key",
+        "delete_api_key",
       ].sort(),
     );
     await transport.close();
@@ -303,6 +306,8 @@ describe("HTTP MCP server", () => {
     expect(names.has("list_webhooks")).toBe(false);
     // approve/reject are account-scope (self-approval would defeat HITL).
     expect(names.has("approve_review")).toBe(false);
+    // credential minting is account-scope (an agent must not mint itself keys).
+    expect(names.has("create_api_key")).toBe(false);
     expect(names.has("reject_review")).toBe(false);
     await transport.close();
   });

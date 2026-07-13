@@ -151,7 +151,7 @@ The mental model in this skill carries over unchanged: the REST/SDK responses us
    - **account** — workspace admin: provision agents, domains, webhooks, and approve/reject review holds. Use for a backend that manages inboxes or drives the HITL queue.
    - **agent** — bound to one inbox (`agent` email at creation): send / read / reply for that identity only. Use for a service that *is* a single sender.
 
-   The secret is returned **once** at creation — store it in the app's secret manager, never in source. (Keys + scopes: https://e2a.dev/auth.md.)
+   The secret is returned **once** at creation — store it in the app's secret manager, never in source. (Keys + scopes: https://e2a.dev/auth.md.) An account-scoped MCP session can mint **agent**-scoped keys directly with `create_api_key`; **account**-scoped keys can only be issued from the dashboard or the raw API.
 
 2. **Have an agent identity to send as.** Mail goes out FROM an agent address — `name@agents.e2a.dev` out of the box, or `name@their-domain.com` after the custom-domain verify dance (see "Add a custom domain" above). Create it once (`create_agent` / `POST /v1/agents`) or reuse an existing one.
 
@@ -190,5 +190,5 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 - Webhook + SDK code: https://e2a.dev/sdk.md
 - Exact tool signatures: call `tools/list` (authoritative).
 - OpenAPI contract: https://e2a.dev/openapi.yaml
-- The MCP surface is **45 tools** (14 runtime/inbox + 31 admin/setup) spanning agents, messages, HITL review, attachments, domains, events, webhooks, and templates (beta). The set you see depends on your credential's scope: an agent-scoped credential sees the 14 runtime tools; an account-scoped credential sees all 45. Tool descriptions teach behavior; this skill teaches the mental model.
+- The MCP surface is **48 tools** (14 runtime/inbox + 34 admin/setup) spanning agents, messages, HITL review, attachments, domains, events, webhooks, API keys, and templates (beta). The set you see depends on your credential's scope: an agent-scoped credential sees the 14 runtime tools; an account-scoped credential sees all 48. Tool descriptions teach behavior; this skill teaches the mental model. (`create_api_key` mints **agent-scoped** keys only — account-scoped keys come from the dashboard or raw API.)
 - Plugin homepage / docs index: https://e2a.dev (machine-readable index: https://e2a.dev/llms.txt)

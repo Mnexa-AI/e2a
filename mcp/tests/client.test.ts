@@ -103,3 +103,45 @@ describe("McpClient templates (SDK-backed)", () => {
     expect(sdk.templates.getStarter).toHaveBeenCalledWith("welcome");
   });
 });
+
+describe("McpClient API keys (agent-scope-only minting)", () => {
+  const mockApiKeysSdk = () => ({
+    account: {
+      apiKeys: {
+        list: vi.fn(() => ({ page: async () => ({ items: [{ id: "key_1" }], next_cursor: undefined }) })),
+        create: vi.fn(async (req: Record<string, unknown>) => ({ id: "key_new", key: "plaintext-once", ...req })),
+        delete: vi.fn(async () => undefined),
+      },
+    },
+  });
+
+  // THE privilege boundary: the real wrapper (not a stub) must stamp
+  // scope=agent on the SDK request. The MCP tool suite stubs the wrapper, so
+  // this is the only test observing the enforcement line itself.
+  it("createAgentApiKey hardwires scope=agent on the SDK request", async () => {
+    const sdk = mockApiKeysSdk();
+    const c = new McpClient(sdk as never, "", "account");
+    await c.createAgentApiKey({ agentEmail: "bot@test.dev", name: "ci" });
+    expect(sdk.account.apiKeys.create).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "agent", agentEmail: "bot@test.dev", name: "ci" }),
+    );
+  });
+
+  it("createAgentApiKey stamps scope=agent even over a smuggled scope field", async () => {
+    const sdk = mockApiKeysSdk();
+    const c = new McpClient(sdk as never, "", "account");
+    // The types forbid a scope param; simulate a caller forcing one past them —
+    // the wrapper's spread order must still win.
+    await c.createAgentApiKey({ agentEmail: "bot@test.dev", scope: "account" } as never);
+    const req = sdk.account.apiKeys.create.mock.calls[0]![0] as { scope: string };
+    expect(req.scope).toBe("agent");
+  });
+
+  it("listApiKeys pages and deleteApiKey forwards the id", async () => {
+    const sdk = mockApiKeysSdk();
+    const c = new McpClient(sdk as never, "", "account");
+    expect(await c.listApiKeys()).toEqual({ items: [{ id: "key_1" }], next_cursor: undefined });
+    await c.deleteApiKey("key_1");
+    expect(sdk.account.apiKeys.delete).toHaveBeenCalledWith("key_1");
+  });
+});

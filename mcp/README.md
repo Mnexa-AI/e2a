@@ -114,14 +114,15 @@ Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as
 
 ## Tools
 
-The server exposes up to **45** tools spanning agents, messages, human-in-the-loop
-approval, attachments, domains, events, webhooks, and email templates (beta).
+The server exposes up to **48** tools spanning agents, messages, human-in-the-loop
+approval, attachments, domains, events, webhooks, API keys, and email templates
+(beta).
 **The visible set depends on your credential's scope:** an **agent**-scoped
 credential sees the 14 runtime/inbox tools (read, send, reply, and view its
-pending queue); an **account**-scoped credential also sees the 31 admin/setup
-tools (agent/domain/webhook/event/template management — **and HITL
+pending queue); an **account**-scoped credential also sees the 34 admin/setup
+tools (agent/domain/webhook/event/template/API-key management — **and HITL
 approve/reject, which is an account-owner action, never agent self-approval**)
-— all 45.
+— all 48.
 Every tool carries MCP annotations (`readOnlyHint`/`destructiveHint`/
 `idempotentHint`) so hosts can auto-approve reads and flag destructive actions.
 The tables below highlight the most commonly used ones — your MCP host's tool list
@@ -170,6 +171,19 @@ shows the set your scope allows, with per-tool descriptions.
 | Tool | Description |
 | --- | --- |
 | `register_domain` | Register a custom sending domain; returns the MX + TXT DNS records to publish. (Admin/account-scoped.) |
+
+### API keys
+
+All admin/account-scoped. `create_api_key` mints **agent-scoped keys only** —
+the key is bound to one inbox and can act only as that agent. Account-scoped
+(workspace-admin) keys cannot be created over MCP; mint those from the
+dashboard or the raw API, where a human is in the loop.
+
+| Tool | Description |
+| --- | --- |
+| `list_api_keys` | List the account's API keys — metadata only (secrets are shown once, at creation). |
+| `create_api_key` | Mint a new agent-scoped key bound to an inbox; returns the plaintext key ONCE — store it immediately. |
+| `delete_api_key` | Revoke a key permanently (requires `confirm: true`). |
 
 ### Templates (beta)
 

@@ -12,6 +12,7 @@ import { registerReviewTools } from "../src/tools/review.js";
 import { registerWebhookTools } from "../src/tools/webhooks.js";
 import { registerEventTools } from "../src/tools/events.js";
 import { registerTemplateTools } from "../src/tools/templates.js";
+import { registerApiKeyTools } from "../src/tools/apikeys.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Build a small RFC822 blob with one attachment so the MessageView's
@@ -231,6 +232,33 @@ function makeStubClient(
       ],
       next_cursor: undefined,
     })),
+    // API keys — list is metadata-only; create is the wrapper's agent-scoped
+    // minter (scope hardwired inside McpClient.createAgentApiKey, so the stub
+    // signature has no scope param, mirroring the real wrapper).
+    listApiKeys: vi.fn(async () => ({
+      items: [
+        {
+          id: "key_1",
+          name: "prod bot",
+          keyPrefix: "e2a_agt_abc1",
+          scope: "agent",
+          agentEmail: "bot@example.com",
+          createdAt: "2026-06-01T00:00:00Z",
+        },
+      ],
+      next_cursor: undefined,
+    })),
+    createAgentApiKey: vi.fn(async (body: { agentEmail: string; name?: string; expiresAt?: Date }) => ({
+      id: "key_new",
+      name: body.name ?? "",
+      keyPrefix: "e2a_agt_new1",
+      scope: "agent",
+      agentEmail: body.agentEmail,
+      createdAt: "2026-06-01T00:00:00Z",
+      ...(body.expiresAt ? { expiresAt: body.expiresAt.toISOString() } : {}),
+      key: "e2a_agt_new1_PLAINTEXT_ONCE",
+    })),
+    deleteApiKey: vi.fn(async () => undefined),
     getStarterTemplate: vi.fn(async (alias: string) => ({
       alias,
       name: "Approval request",
@@ -314,6 +342,9 @@ describe("e2a MCP server", () => {
         "validate_template",
         "list_starter_templates",
         "get_starter_template",
+        "list_api_keys",
+        "create_api_key",
+        "delete_api_key",
       ].sort(),
     );
   });
@@ -340,8 +371,9 @@ describe("e2a MCP server", () => {
     registerWebhookTools(recorder, stub);
     registerEventTools(recorder, stub);
     registerTemplateTools(recorder, stub);
+    registerApiKeyTools(recorder, stub);
 
-    expect(names).toHaveLength(45);
+    expect(names).toHaveLength(48);
     // Throws if any registered tool is untiered / double-tiered / phantom.
     expect(() => assertToolTiersComplete(names)).not.toThrow();
   });
@@ -350,13 +382,13 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(toolNamesForScope("account").size).toBe(45);
+    expect(toolNamesForScope("account").size).toBe(48);
   });
 
-  it("account scope exposes all 45 tools (runtime + admin)", async () => {
+  it("account scope exposes all 48 tools (runtime + admin)", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
-    expect(tools).toHaveLength(45);
+    expect(tools).toHaveLength(48);
   });
 
   it("agent scope exposes only the 14 runtime tools — admin tools hidden", async () => {
@@ -385,6 +417,8 @@ describe("e2a MCP server", () => {
       // Templates (beta) are account-scope end to end (requireAccountUser).
       "list_templates", "get_template", "create_template", "update_template",
       "delete_template", "validate_template", "list_starter_templates", "get_starter_template",
+      // API keys: credential management is never an agent-scope capability.
+      "list_api_keys", "create_api_key", "delete_api_key",
     ]) {
       expect(names.has(n), `admin tool ${n} must be hidden from agent scope`).toBe(false);
     }
@@ -410,7 +444,7 @@ describe("e2a MCP server", () => {
   // ── §6a tool annotations (#2) ───────────────────────────────────────
 
   it("every tool carries MCP annotations with the correct hints", async () => {
-    const { tools } = await client.listTools(); // account scope → all 45
+    const { tools } = await client.listTools(); // account scope → all 48
     const byName = new Map(tools.map((t) => [t.name, t.annotations ?? {}]));
 
     // Every tool has an annotations object.
@@ -419,11 +453,11 @@ describe("e2a MCP server", () => {
     }
 
     // Reads → readOnlyHint.
-    for (const n of ["list_messages", "get_message", "whoami", "list_domains", "get_event", "list_webhook_deliveries", "list_templates", "get_template", "validate_template", "list_starter_templates", "get_starter_template"]) {
+    for (const n of ["list_messages", "get_message", "whoami", "list_domains", "get_event", "list_webhook_deliveries", "list_templates", "get_template", "validate_template", "list_starter_templates", "get_starter_template", "list_api_keys"]) {
       expect(byName.get(n)?.readOnlyHint, `${n} readOnlyHint`).toBe(true);
     }
     // Deletes → destructive + idempotent.
-    for (const n of ["delete_agent", "delete_domain", "delete_webhook", "delete_template"]) {
+    for (const n of ["delete_agent", "delete_domain", "delete_webhook", "delete_template", "delete_api_key"]) {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(true);
       expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);
     }
@@ -434,7 +468,7 @@ describe("e2a MCP server", () => {
     }
     // Non-destructive writes (create/send) are explicitly non-destructive,
     // and NOT read-only.
-    for (const n of ["create_agent", "send_message", "approve_review", "create_webhook", "create_template"]) {
+    for (const n of ["create_agent", "send_message", "approve_review", "create_webhook", "create_template", "create_api_key"]) {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
       expect(byName.get(n)?.readOnlyHint ?? false, `${n} not read-only`).toBe(false);
     }
@@ -833,6 +867,78 @@ describe("e2a MCP server", () => {
     expect(stub.deleteDomain).toHaveBeenCalledWith("mail.acme.com");
     const content = res.content as Array<{ type: string; text: string }>;
     expect(content[0]?.text).toMatch(/mail\.acme\.com/);
+  });
+
+  // ── API keys (admin tier; create is agent-scope-only by construction) ─────
+
+  it("list_api_keys forwards cursor/limit and returns metadata rows", async () => {
+    const res = await client.callTool({
+      name: "list_api_keys",
+      arguments: { cursor: "c1", limit: 10 },
+    });
+    expect(stub.listApiKeys).toHaveBeenCalledWith({ cursor: "c1", limit: 10 });
+    const content = res.content as Array<{ type: string; text: string }>;
+    const body = JSON.parse(content[0]!.text) as { api_keys: Array<{ keyPrefix: string }>; next_cursor?: string };
+    expect(body.api_keys[0]?.keyPrefix).toBe("e2a_agt_abc1");
+    expect(body.next_cursor).toBeUndefined();
+  });
+
+  it("create_api_key mints via createAgentApiKey (scope hardwired, never an input)", async () => {
+    const res = await client.callTool({
+      name: "create_api_key",
+      arguments: {
+        agent_email: "bot@example.com",
+        name: "ci runner",
+        expires_at: "2027-01-01T00:00:00Z",
+      },
+    });
+    expect(stub.createAgentApiKey).toHaveBeenCalledWith({
+      agentEmail: "bot@example.com",
+      name: "ci runner",
+      expiresAt: new Date("2027-01-01T00:00:00Z"),
+    });
+    // The one-time plaintext key is surfaced in the result.
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toMatch(/PLAINTEXT_ONCE/);
+  });
+
+  it("create_api_key rejects a scope argument — account-scoped keys cannot be requested", async () => {
+    const res = await client.callTool({
+      name: "create_api_key",
+      arguments: { agent_email: "bot@example.com", scope: "account" },
+    });
+    // strict schema: unknown key `scope` is a validation error, not silently
+    // stripped — the ONLY scope this tool can mint is agent (set in the wrapper).
+    expect(res.isError).toBe(true);
+    expect(stub.createAgentApiKey).not.toHaveBeenCalled();
+  });
+
+  it("create_api_key requires agent_email (there is no unbound/account form)", async () => {
+    const res = await client.callTool({
+      name: "create_api_key",
+      arguments: { name: "oops" },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.createAgentApiKey).not.toHaveBeenCalled();
+  });
+
+  it("delete_api_key requires confirm:true — schema validator catches the omission", async () => {
+    const res = await client.callTool({
+      name: "delete_api_key",
+      arguments: { id: "key_1" },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.deleteApiKey).not.toHaveBeenCalled();
+  });
+
+  it("delete_api_key forwards on explicit confirm:true", async () => {
+    const res = await client.callTool({
+      name: "delete_api_key",
+      arguments: { id: "key_1", confirm: true },
+    });
+    expect(stub.deleteApiKey).toHaveBeenCalledWith("key_1");
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toMatch(/key_1/);
   });
 
   it("list_reviews calls the SDK", async () => {

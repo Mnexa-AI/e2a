@@ -1,4 +1,4 @@
-import { E2AClient } from "@e2a/sdk/v1";
+import { E2AClient, CreateAPIKeyRequestScopeEnum } from "@e2a/sdk/v1";
 import type {
   AccountView,
   AgentView,
@@ -20,6 +20,9 @@ import type {
   RotateSecretResponse,
   TestWebhookResponse,
   Attachment,
+  APIKeyView,
+  CreateAPIKeyRequest,
+  CreateAPIKeyResponse,
   UpdateAgentRequest,
   ProtectionConfigView,
   CreateWebhookRequest,
@@ -450,6 +453,35 @@ export class McpClient {
   ): Promise<Page<WebhookDeliveryView>> {
     const { cursor, ...rest } = params;
     return this.sdk.webhooks.deliveries(id, rest).page(cursor);
+  }
+
+  // ── API keys ────────────────────────────────────────────────────
+
+  // Metadata only (GET /v1/account/api-keys) — secrets appear once, at
+  // creation, and are never in list rows. Cursor-paginated.
+  listApiKeys(params: { cursor?: string; limit?: number } = {}): Promise<Page<APIKeyView>> {
+    const { cursor, limit } = params;
+    return this.sdk.account.apiKeys.list(limit !== undefined ? { limit } : {}).page(cursor);
+  }
+
+  // createAgentApiKey mints an AGENT-scoped key only. scope is hardwired here —
+  // not caller-supplied — so no MCP code path can mint an account-scoped
+  // (workspace-admin) credential; that stays a dashboard / raw-API action.
+  // The response carries the one-time plaintext key in `.key`.
+  createAgentApiKey(body: {
+    agentEmail: string;
+    name?: string;
+    expiresAt?: Date;
+  }): Promise<CreateAPIKeyResponse> {
+    // Typed request, no cast: if a codegen regen ever renames/retypes `scope`,
+    // this line must fail to compile rather than silently drop the field on
+    // the wire (the backend defaults an omitted scope to account — admin).
+    const req: CreateAPIKeyRequest = { ...body, scope: CreateAPIKeyRequestScopeEnum.Agent };
+    return this.sdk.account.apiKeys.create(req);
+  }
+
+  async deleteApiKey(id: string): Promise<void> {
+    await this.sdk.account.apiKeys.delete(id);
   }
 
   // ── Templates (beta) ────────────────────────────────────────────
