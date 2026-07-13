@@ -366,13 +366,19 @@ class _FakeWS:
         return self._messages.pop(0)
 
 
-def test_listen_returns_sync_stream_and_yields_notifications():
+def test_listen_returns_sync_stream_and_yields_events():
     payload = json.dumps({
-        "message_id": "msg_123",
-        "from": "alice@example.com",
-        "delivered_to": "bot@agents.e2a.dev",
-        "subject": "Hi",
-        "received_at": "2026-04-27T10:00:00Z",
+        "type": "email.received",
+        "id": "evt_abc",
+        "schema_version": "1",
+        "created_at": "2026-04-27T10:00:00Z",
+        "data": {
+            "message_id": "msg_123",
+            "from": "alice@example.com",
+            "delivered_to": "bot@agents.e2a.dev",
+            "subject": "Hi",
+            "received_at": "2026-04-27T10:00:00Z",
+        },
     })
     mock_module = MagicMock()
     mock_module.connect = MagicMock(return_value=_FakeWS([payload]))
@@ -384,25 +390,30 @@ def test_listen_returns_sync_stream_and_yields_notifications():
             for notif in stream:
                 got.append(notif)
                 break  # the real stream reconnects forever; one item is the test
-    assert got[0].message_id == "msg_123"
-    assert got[0].from_ == "alice@example.com"
+    assert got[0].type == "email.received"
+    assert got[0].id == "evt_abc"
+    assert got[0].data["message_id"] == "msg_123"
+    assert got[0].data["from"] == "alice@example.com"
 
 
 def test_listen_stream_ends_cleanly_when_source_ends():
     # A bounded async source ends the sync iteration with StopIteration.
     async def bounded():
-        from e2a.v1.websocket import WSNotification
+        from e2a.v1.websocket import WSEvent
 
         for i in range(2):
-            yield WSNotification(
-                message_id=f"msg_{i}", from_="a@b.c", delivered_to="bot@x.dev",
-                subject="", received_at="",
-            )
+            yield WSEvent.from_payload({
+                "type": "email.received",
+                "id": f"evt_{i}",
+                "schema_version": "1",
+                "created_at": "2026-04-27T10:00:00Z",
+                "data": {"message_id": f"msg_{i}", "delivered_to": "bot@x.dev"},
+            })
 
     c = _client()
     try:
         c._async_client.listen = lambda email: bounded()  # instance-attr shadow
-        ids = [n.message_id for n in c.listen("bot@x.dev")]
+        ids = [e.data["message_id"] for e in c.listen("bot@x.dev")]
         assert ids == ["msg_0", "msg_1"]
     finally:
         c.close()
