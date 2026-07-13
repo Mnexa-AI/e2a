@@ -22,9 +22,16 @@ rm -rf "$TMP"
 # on CI's non-root runner. HOME is a writable path for tools that expect it.
 # (Docker Desktop/macOS maps ownership already, so this is a no-op there but
 # required on Linux CI.)
+# --name-mappings / --parameter-name-mappings: the wire field `from` is a
+# Python keyword, which the generator would otherwise escape to the ugly
+# `var_from`. Map it to the PEP-8-standard `from_` (trailing underscore), the
+# same spelling the hand-written layer already uses for request-side params,
+# so the SDK teaches exactly one spelling. Wire JSON stays `from` (the pydantic
+# alias / query-param name are unchanged).
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
   -i /work/api/openapi.yaml -g python \
   -o /work/sdks/python/.oag-tmp \
+  --name-mappings from=from_ --parameter-name-mappings from=from_ \
   --additional-properties=packageName=e2a.v1.generated,library=httpx >/dev/null
 
 rm -rf "$DEST"

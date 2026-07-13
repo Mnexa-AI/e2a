@@ -32,7 +32,7 @@ export class Message {
     'expiresAt': Date;
     'flagReason'?: string;
     'flagged'?: boolean;
-    '_from': string;
+    'from_': string;
     'html'?: string;
     'id': string;
     'labels'?: Array<string> | null;
@@ -173,7 +173,7 @@ export class Message {
             "format": ""
         },
         {
-            "name": "_from",
+            "name": "from_",
             "baseName": "from",
             "type": "string",
             "format": ""

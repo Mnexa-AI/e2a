@@ -441,7 +441,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         return {
           id: email.id,
           conversation_id: email.conversationId,
-          from: email._from,
+          from: email.from_,
           delivered_to: email.deliveredTo,
           to: email.to,
           cc: email.cc,

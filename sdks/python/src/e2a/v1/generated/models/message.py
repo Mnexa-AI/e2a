@@ -46,7 +46,7 @@ class Message(BaseModel):
     expires_at: datetime
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    var_from: StrictStr = Field(alias="from")
+    from_: StrictStr = Field(alias="from")
     html: Optional[StrictStr] = None
     id: StrictStr
     labels: Optional[List[StrictStr]] = None

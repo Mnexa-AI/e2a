@@ -36,7 +36,7 @@ class EmailReceivedData(BaseModel):
     conversation_id: Optional[StrictStr] = None
     delivered_to: StrictStr = Field(description="The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message.")
     direction: StrictStr = Field(description="Always \"inbound\" on this event.")
-    var_from: StrictStr = Field(description="Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.", alias="from")
+    from_: StrictStr = Field(description="Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.", alias="from")
     message_id: StrictStr
     received_at: datetime
     reply_to: Optional[List[StrictStr]] = None

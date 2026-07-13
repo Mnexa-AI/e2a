@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.2.0
+
+### Breaking (pre-GA)
+- **The reserved-word wire field `from` is now uniformly exposed as `from_`
+  (PEP 8 trailing underscore) on generated models** (was the generator-mangled
+  `var_from`). Affected models: `Message`, `MessageView`, `MessageSummaryView`,
+  `ReviewView`, `EmailReceivedData`, `EmailSentData`, `EmailFailedData`
+  (generated), plus the generated `list_messages` sender filter parameter. The
+  hand-written layer's `messages.list(from_=...)` already used `from_`, so the
+  SDK now teaches exactly one spelling; the TypeScript SDK exposes the same
+  `from_`. The wire JSON is unchanged — requests and responses still carry
+  `from` (pydantic alias). The webhook/WS `data` payload TypedDicts are
+  wire-true dicts and keep the literal `"from"` key (access as
+  `data["from"]`). Migrate: `message.var_from` → `message.from_`.
+
 ## 5.1.0
 
 ### Breaking (pre-GA)

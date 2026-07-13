@@ -70,7 +70,7 @@ export async function messagesList(opts: MessagesListOptions): Promise<void> {
       process.stdout.write(JSON.stringify(withWireFrom(m)) + "\n");
     } else {
       process.stdout.write(
-        `${m.id}\t${sanitizeTsvField(m._from)}\t${m.createdAt.toISOString()}\n`,
+        `${m.id}\t${sanitizeTsvField(m.from_)}\t${m.createdAt.toISOString()}\n`,
       );
     }
     count++;
@@ -88,16 +88,16 @@ export function sanitizeTsvField(s: string): string {
 }
 
 /**
- * The generated TS model escapes the reserved-ish `from` property to `_from`
- * (an OpenAPI Generator artifact that a generator bump could change). Rename
- * it back before JSON output so scripts read the wire-stable `.from`, not a
+ * The generated TS model exposes the reserved-word `from` property as `from_`
+ * (name-mapped in generate-oag.sh so both SDKs share one spelling). Rename it
+ * back before JSON output so scripts read the wire-stable `.from`, not a
  * codegen implementation detail.
  */
 function withWireFrom(model: object): Record<string, unknown> {
   const obj: Record<string, unknown> = { ...model };
-  if ("_from" in obj) {
-    obj.from = obj._from;
-    delete obj._from;
+  if ("from_" in obj) {
+    obj.from = obj.from_;
+    delete obj.from_;
   }
   return obj;
 }

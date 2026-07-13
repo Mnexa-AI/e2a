@@ -932,7 +932,7 @@ export class PromiseMessagesApi {
      * @param [direction] Defaults to inbound.
      * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
-     * @param [_from] Case-insensitive substring match on sender.
+     * @param [from_] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
      * @param [conversationId]
      * @param [labels] Repeatable; AND-matched.
@@ -941,9 +941,9 @@ export class PromiseMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
+    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listMessagesWithHttpInfo(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
+        const result = this.api.listMessagesWithHttpInfo(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 
@@ -954,7 +954,7 @@ export class PromiseMessagesApi {
      * @param [direction] Defaults to inbound.
      * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
-     * @param [_from] Case-insensitive substring match on sender.
+     * @param [from_] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
      * @param [conversationId]
      * @param [labels] Repeatable; AND-matched.
@@ -963,9 +963,9 @@ export class PromiseMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageMessageSummaryView> {
+    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageMessageSummaryView> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.listMessages(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
+        const result = this.api.listMessages(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, observableOptions);
         return result.toPromise();
     }
 

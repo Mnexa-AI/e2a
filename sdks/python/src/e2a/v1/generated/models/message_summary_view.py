@@ -38,7 +38,7 @@ class MessageSummaryView(BaseModel):
     direction: StrictStr
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    var_from: StrictStr = Field(alias="from")
+    from_: StrictStr = Field(alias="from")
     id: StrictStr
     labels: List[StrictStr]
     read_status: StrictStr

@@ -31,7 +31,7 @@ class EmailSentData(BaseModel):
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
     direction: StrictStr = Field(description="Always \"outbound\" on this event.")
-    var_from: StrictStr = Field(alias="from")
+    from_: StrictStr = Field(alias="from")
     message_id: StrictStr
     message_type: StrictStr = Field(description="Send kind. Open set; tolerate unknown values. Known values: send, reply, forward.")
     method: StrictStr = Field(description="Transport used for the send. Open set; tolerate unknown values. Known values: smtp.")

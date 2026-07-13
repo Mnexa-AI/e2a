@@ -349,9 +349,10 @@ class MessagesResource:
         until: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> AutoPager[MessageSummaryView]:
-        # `from` is a Python keyword; expose the idiomatic `from_` (PEP 8 trailing
-        # underscore) and translate to the generated base's `var_from` here so the
-        # generator's mangled name never leaks into the public SDK surface.
+        # `from` is a Python keyword; the generator is configured (via
+        # --name-mappings/--parameter-name-mappings in generate-oag.sh) to expose
+        # the idiomatic `from_` (PEP 8 trailing underscore) everywhere, so the
+        # public surface and the generated base share one spelling.
         async def fetch(cursor: Optional[str]) -> Page:
             resp = await self._c._read(
                 lambda h: self._api.list_messages(
@@ -359,7 +360,7 @@ class MessagesResource:
                     direction=direction,
                     read_status=read_status,
                     sort=sort,
-                    var_from=from_,
+                    from_=from_,
                     subject_contains=subject_contains,
                     conversation_id=conversation_id,
                     labels=labels,

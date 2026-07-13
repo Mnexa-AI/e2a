@@ -1186,7 +1186,7 @@ export interface MessagesApiListMessagesRequest {
      * @type string
      * @memberof MessagesApilistMessages
      */
-    _from?: string
+    from_?: string
     /**
      * Case-insensitive substring match on subject.
      * Defaults to: undefined
@@ -1397,7 +1397,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public listMessagesWithHttpInfo(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
-        return this.api.listMessagesWithHttpInfo(param.email, param.direction, param.readStatus, param.sort, param._from, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listMessagesWithHttpInfo(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -1406,7 +1406,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public listMessages(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<PageMessageSummaryView> {
-        return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param._from, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
+        return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit,  options).toPromise();
     }
 
     /**

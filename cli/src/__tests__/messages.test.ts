@@ -16,13 +16,13 @@ function summaries(...items: Array<Record<string, unknown>>) {
 
 const M1 = {
   id: "msg_1",
-  _from: "you@example.com",
+  from_: "you@example.com",
   createdAt: new Date("2026-07-01T10:00:00Z"),
   subject: "re: status",
 };
 const M2 = {
   id: "msg_2",
-  _from: "other@example.com",
+  from_: "other@example.com",
   createdAt: new Date("2026-07-01T10:05:00Z"),
   subject: "re: status",
 };
@@ -73,7 +73,7 @@ describe("messages commands", () => {
     mockList.mockReturnValue(
       summaries({
         id: "msg_evil",
-        _from: 'Evil\tName\n"attacker@x.com"',
+        from_: 'Evil\tName\n"attacker@x.com"',
         createdAt: new Date("2026-07-01T10:00:00Z"),
         subject: "s",
       }),
@@ -88,7 +88,7 @@ describe("messages commands", () => {
     expect(line).toContain('Evil Name "attacker@x.com"');
   });
 
-  it("emits NDJSON with --json, renaming the generated _from to wire-stable from", async () => {
+  it("emits NDJSON with --json, renaming the generated from_ to wire-stable from", async () => {
     mockList.mockReturnValue(summaries(M1));
     const { messagesList } = await import("../commands/messages.js");
     await messagesList({ json: true });
@@ -96,7 +96,7 @@ describe("messages commands", () => {
     const line = mockStdout.mock.calls[0][0] as string;
     const parsed = JSON.parse(line);
     expect(parsed.from).toBe("you@example.com");
-    expect(parsed._from).toBeUndefined();
+    expect(parsed.from_).toBeUndefined();
     expect(parsed.id).toBe("msg_1");
     expect(parsed.createdAt).toBe("2026-07-01T10:00:00.000Z");
   });

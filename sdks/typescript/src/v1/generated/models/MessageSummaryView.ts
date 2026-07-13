@@ -30,7 +30,7 @@ export class MessageSummaryView {
     'direction': MessageSummaryViewDirectionEnum;
     'flagReason'?: string;
     'flagged'?: boolean;
-    '_from': string;
+    'from_': string;
     'id': string;
     'labels': Array<string>;
     'readStatus': string;
@@ -118,7 +118,7 @@ export class MessageSummaryView {
             "format": ""
         },
         {
-            "name": "_from",
+            "name": "from_",
             "baseName": "from",
             "type": "string",
             "format": ""

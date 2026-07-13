@@ -62,7 +62,7 @@ _REQUIRED_DEFAULTS = {
     "inbound_policy": "open",
     "name": "n",
     "direction": "inbound",
-    "var_from": "a@x.com",
+    "from_": "a@x.com",
     "labels": [],
     "message_id": "msg_1",
     "delivered_to": "bot@test.dev",

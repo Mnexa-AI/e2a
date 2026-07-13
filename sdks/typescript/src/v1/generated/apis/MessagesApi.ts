@@ -216,7 +216,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param direction Defaults to inbound.
      * @param readStatus Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param sort Defaults to desc (newest first).
-     * @param _from Case-insensitive substring match on sender.
+     * @param from_ Case-insensitive substring match on sender.
      * @param subjectContains Case-insensitive substring match on subject.
      * @param conversationId 
      * @param labels Repeatable; AND-matched.
@@ -225,7 +225,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param cursor 
      * @param limit 
      */
-    public async listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
+    public async listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
@@ -269,8 +269,8 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         }
 
         // Query Params
-        if (_from !== undefined) {
-            requestContext.setQueryParam("from", ObjectSerializer.serialize(_from, "string", ""));
+        if (from_ !== undefined) {
+            requestContext.setQueryParam("from", ObjectSerializer.serialize(from_, "string", ""));
         }
 
         // Query Params

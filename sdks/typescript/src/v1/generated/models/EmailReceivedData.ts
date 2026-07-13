@@ -37,7 +37,7 @@ export class EmailReceivedData {
     /**
     * Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.
     */
-    '_from': string;
+    'from_': string;
     'messageId': string;
     'receivedAt': Date;
     'replyTo'?: Array<string>;
@@ -98,7 +98,7 @@ export class EmailReceivedData {
             "format": ""
         },
         {
-            "name": "_from",
+            "name": "from_",
             "baseName": "from",
             "type": "string",
             "format": ""

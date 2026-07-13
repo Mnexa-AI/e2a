@@ -92,7 +92,7 @@ except E2AWebhookSignatureError:
 if event.type == "email.received":
     data = event.data
     inbound = await client.messages.get(data["delivered_to"], data["message_id"])
-    # inbound.var_from, inbound.subject, inbound.parsed.text
+    # inbound.from_, inbound.subject, inbound.parsed.text
     await client.messages.reply(data["delivered_to"], data["message_id"], {"text": "On it."})
 ```
 

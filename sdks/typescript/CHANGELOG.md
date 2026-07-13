@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.2.0
+
+### Breaking (pre-GA)
+- **The reserved-word wire field `from` is now uniformly exposed as `from_` on
+  generated models and the `listMessages` sender filter** (was the
+  private-looking `_from`, an OpenAPI Generator escape artifact). Affected
+  models: `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`,
+  `EmailReceivedData`, `EmailSentData`, `EmailFailedData` (generated). The
+  Python SDK exposes the same `from_` spelling, so both SDKs now teach exactly
+  one name. The wire JSON is unchanged — requests and responses still carry
+  `from`. The hand-written webhook/WS payload interfaces in
+  `webhook-signature.ts` are wire-true and keep the literal `from` property
+  (legal in TS) — those are raw-JSON shapes, not generated models. Migrate:
+  `message._from` → `message.from_`; `list(..., { _from })` → `{ from_ }`.
+
 ## 5.1.0
 
 ### Breaking (pre-GA)

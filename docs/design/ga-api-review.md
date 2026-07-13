@@ -177,7 +177,7 @@ warrants a major version bump at publish time.)
 
 **Generated layers — reviewed, strong, no changes:**
 - TS: camelCase, `Date` for `date-time`, typed `ApiException<ErrorEnvelope>` (`error.code`/`requestId` typed), all reshaped models present (`SendResultView`, `AuthVerdict`, `CreateWebhookResponse`; `ApproveResultView` gone).
-- Python: snake_case, `from`→`var_from` alias round-trips, `datetime` for date-time, enum fields are plain `StrictStr` post-strip (forward-compat-tolerant + ergonomic).
+- Python: snake_case, `from`→`from_` alias round-trips (generator name-mapped from the default `var_from` mangle; Tier-2 item #33), `datetime` for date-time, enum fields are plain `StrictStr` post-strip (forward-compat-tolerant + ergonomic).
 
 **Decisions:**
 - **HL-1 ✅** rename hand-layer agent param `address`→`email` (both SDKs) — every email-address param is now `email`. *(Note: BSD `sed` ignores `\b`; used `perl`.)*

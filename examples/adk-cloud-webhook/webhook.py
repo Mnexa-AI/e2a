@@ -173,7 +173,7 @@ def _format_email_for_agent(inbound) -> str:
     """
     body = inbound.parsed.text if inbound.parsed else ""
     return (
-        f"From: {inbound.var_from}\n"
+        f"From: {inbound.from_}\n"
         f"Subject: {inbound.subject}\n"
         f"\n"
         f"{body}"

@@ -1279,7 +1279,7 @@ export class ObservableMessagesApi {
      * @param [direction] Defaults to inbound.
      * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
-     * @param [_from] Case-insensitive substring match on sender.
+     * @param [from_] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
      * @param [conversationId]
      * @param [labels] Repeatable; AND-matched.
@@ -1288,10 +1288,10 @@ export class ObservableMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageMessageSummaryView>> {
+    public listMessagesWithHttpInfo(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageMessageSummaryView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.listMessages(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, _config);
+        const requestContextPromise = this.requestFactory.listMessages(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -1315,7 +1315,7 @@ export class ObservableMessagesApi {
      * @param [direction] Defaults to inbound.
      * @param [readStatus] Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.
      * @param [sort] Defaults to desc (newest first).
-     * @param [_from] Case-insensitive substring match on sender.
+     * @param [from_] Case-insensitive substring match on sender.
      * @param [subjectContains] Case-insensitive substring match on subject.
      * @param [conversationId]
      * @param [labels] Repeatable; AND-matched.
@@ -1324,8 +1324,8 @@ export class ObservableMessagesApi {
      * @param [cursor]
      * @param [limit]
      */
-    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', _from?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageMessageSummaryView> {
-        return this.listMessagesWithHttpInfo(email, direction, readStatus, sort, _from, subjectContains, conversationId, labels, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageMessageSummaryView>) => apiResponse.data));
+    public listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageMessageSummaryView> {
+        return this.listMessagesWithHttpInfo(email, direction, readStatus, sort, from_, subjectContains, conversationId, labels, since, until, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageMessageSummaryView>) => apiResponse.data));
     }
 
     /**

@@ -998,7 +998,7 @@ class MessagesApi:
         direction: Annotated[Optional[StrictStr], Field(description="Defaults to inbound.")] = None,
         read_status: Annotated[Optional[StrictStr], Field(description="Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.")] = None,
         sort: Annotated[Optional[StrictStr], Field(description="Defaults to desc (newest first).")] = None,
-        var_from: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
+        from_: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
         subject_contains: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on subject.")] = None,
         conversation_id: Optional[StrictStr] = None,
         labels: Annotated[Optional[List[StrictStr]], Field(description="Repeatable; AND-matched.")] = None,
@@ -1031,8 +1031,8 @@ class MessagesApi:
         :type read_status: str
         :param sort: Defaults to desc (newest first).
         :type sort: str
-        :param var_from: Case-insensitive substring match on sender.
-        :type var_from: str
+        :param from_: Case-insensitive substring match on sender.
+        :type from_: str
         :param subject_contains: Case-insensitive substring match on subject.
         :type subject_contains: str
         :param conversation_id:
@@ -1074,7 +1074,7 @@ class MessagesApi:
             direction=direction,
             read_status=read_status,
             sort=sort,
-            var_from=var_from,
+            from_=from_,
             subject_contains=subject_contains,
             conversation_id=conversation_id,
             labels=labels,
@@ -1109,7 +1109,7 @@ class MessagesApi:
         direction: Annotated[Optional[StrictStr], Field(description="Defaults to inbound.")] = None,
         read_status: Annotated[Optional[StrictStr], Field(description="Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.")] = None,
         sort: Annotated[Optional[StrictStr], Field(description="Defaults to desc (newest first).")] = None,
-        var_from: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
+        from_: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
         subject_contains: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on subject.")] = None,
         conversation_id: Optional[StrictStr] = None,
         labels: Annotated[Optional[List[StrictStr]], Field(description="Repeatable; AND-matched.")] = None,
@@ -1142,8 +1142,8 @@ class MessagesApi:
         :type read_status: str
         :param sort: Defaults to desc (newest first).
         :type sort: str
-        :param var_from: Case-insensitive substring match on sender.
-        :type var_from: str
+        :param from_: Case-insensitive substring match on sender.
+        :type from_: str
         :param subject_contains: Case-insensitive substring match on subject.
         :type subject_contains: str
         :param conversation_id:
@@ -1185,7 +1185,7 @@ class MessagesApi:
             direction=direction,
             read_status=read_status,
             sort=sort,
-            var_from=var_from,
+            from_=from_,
             subject_contains=subject_contains,
             conversation_id=conversation_id,
             labels=labels,
@@ -1220,7 +1220,7 @@ class MessagesApi:
         direction: Annotated[Optional[StrictStr], Field(description="Defaults to inbound.")] = None,
         read_status: Annotated[Optional[StrictStr], Field(description="Inbound only. Filters by inbox read-state (MSG-1). Defaults to unread for inbound, all otherwise.")] = None,
         sort: Annotated[Optional[StrictStr], Field(description="Defaults to desc (newest first).")] = None,
-        var_from: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
+        from_: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on sender.")] = None,
         subject_contains: Annotated[Optional[StrictStr], Field(description="Case-insensitive substring match on subject.")] = None,
         conversation_id: Optional[StrictStr] = None,
         labels: Annotated[Optional[List[StrictStr]], Field(description="Repeatable; AND-matched.")] = None,
@@ -1253,8 +1253,8 @@ class MessagesApi:
         :type read_status: str
         :param sort: Defaults to desc (newest first).
         :type sort: str
-        :param var_from: Case-insensitive substring match on sender.
-        :type var_from: str
+        :param from_: Case-insensitive substring match on sender.
+        :type from_: str
         :param subject_contains: Case-insensitive substring match on subject.
         :type subject_contains: str
         :param conversation_id:
@@ -1296,7 +1296,7 @@ class MessagesApi:
             direction=direction,
             read_status=read_status,
             sort=sort,
-            var_from=var_from,
+            from_=from_,
             subject_contains=subject_contains,
             conversation_id=conversation_id,
             labels=labels,
@@ -1326,7 +1326,7 @@ class MessagesApi:
         direction,
         read_status,
         sort,
-        var_from,
+        from_,
         subject_contains,
         conversation_id,
         labels,
@@ -1371,9 +1371,9 @@ class MessagesApi:
             
             _query_params.append(('sort', sort))
             
-        if var_from is not None:
+        if from_ is not None:
             
-            _query_params.append(('from', var_from))
+            _query_params.append(('from', from_))
             
         if subject_contains is not None:
             

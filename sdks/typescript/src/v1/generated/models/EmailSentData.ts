@@ -21,7 +21,7 @@ export class EmailSentData {
     * Always \"outbound\" on this event.
     */
     'direction': string;
-    '_from': string;
+    'from_': string;
     'messageId': string;
     /**
     * Send kind. Open set; tolerate unknown values. Known values: send, reply, forward.
@@ -71,7 +71,7 @@ export class EmailSentData {
             "format": ""
         },
         {
-            "name": "_from",
+            "name": "from_",
             "baseName": "from",
             "type": "string",
             "format": ""

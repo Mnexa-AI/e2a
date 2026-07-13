@@ -36,7 +36,7 @@ export class MessageView {
     'direction': MessageViewDirectionEnum;
     'flagReason'?: string;
     'flagged'?: boolean;
-    '_from': string;
+    'from_': string;
     'id': string;
     'labels': Array<string>;
     'parsed'?: MessageParsedView;
@@ -144,7 +144,7 @@ export class MessageView {
             "format": ""
         },
         {
-            "name": "_from",
+            "name": "from_",
             "baseName": "from",
             "type": "string",
             "format": ""

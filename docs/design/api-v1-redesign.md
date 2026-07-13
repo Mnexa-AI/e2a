@@ -1564,7 +1564,9 @@ Break the current `/api/v1` surface directly and move it to
     * **Python: the `python` generator** (pydantic v2 + urllib3) — works as-is:
       typed status-mapped exception hierarchy, safe-by-default retries
       (urllib3 v2 excludes POST, so no duplicate-send on 5xx), `from`→`var_from`
-      alias round-trips correctly.
+      alias round-trips correctly. *(Superseded: the generator is now configured
+      with `--name-mappings from=from_` so both SDKs uniformly expose `from_`;
+      GA review Tier-2 item #33.)*
     * **Pin the image to a released tag** (e.g. `openapitools/openapi-generator-cli:v7.16.0`,
       not `:latest`/SNAPSHOT) and assert the version in the regen-diff gate.
       Output is **deterministic** (regen twice = byte-identical), so

@@ -136,7 +136,7 @@ function makeStubClient(
     getMessage: vi.fn(async (id: string, _addr?: string) => ({
       id,
       conversationId: "conv_x",
-      _from: "alice@example.com",
+      from_: "alice@example.com",
       deliveredTo: "bot@example.com",
       to: ["bot@example.com"],
       cc: [],
