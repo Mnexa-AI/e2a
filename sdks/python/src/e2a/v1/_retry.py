@@ -25,7 +25,9 @@ import httpx
 
 from .errors import (
     E2AError,
+    IDEMPOTENCY_IN_FLIGHT_CODE,
     connection_error,
+    error_code_from_api_exception,
     from_api_exception,
     is_retryable_status,
 )
@@ -124,7 +126,16 @@ async def request_with_retry(
         except ApiException as e:
             api_exc = e
             exc = e
-            can_retry = retryable and is_retryable_status(int(getattr(e, "status", 0) or 0))
+            status = int(getattr(e, "status", 0) or 0)
+            can_retry = retryable and is_retryable_status(status)
+            # 409 isn't in is_retryable_status (idempotency_key_reuse — a caller
+            # body-mismatch bug — must never be retried), but
+            # idempotency_in_flight IS retry-safe. Only requests that already
+            # carry an Idempotency-Key (idempotency=True: send/reply/forward/
+            # approve, PUT/PATCH/DELETE) can ever see this code, so gate the
+            # (body-parsing) check on that population rather than every 409.
+            if not can_retry and retryable and idempotency and status == 409:
+                can_retry = error_code_from_api_exception(e) == IDEMPOTENCY_IN_FLIGHT_CODE
         except httpx.TransportError as e:  # connection-level: no HTTP response
             exc = e
             can_retry = retryable

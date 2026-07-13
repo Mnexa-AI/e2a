@@ -9,8 +9,8 @@
 
 import { from, Observable } from "./generated/rxjsStub.js";
 import { HttpMethod } from "./generated/http/http.js";
-import type { HttpLibrary, RequestContext, ResponseContext } from "./generated/http/http.js";
-import { isRetryableStatus } from "./errors.js";
+import type { HttpLibrary, RequestContext, ResponseBody, ResponseContext } from "./generated/http/http.js";
+import { isRetryableStatus, parseErrorEnvelope } from "./errors.js";
 
 export interface RetryOptions {
   /** Max retry attempts after the first try. Default 2. */
@@ -37,6 +37,13 @@ export interface RetryOptions {
 }
 
 const IDEMPOTENCY_HEADER = "Idempotency-Key";
+
+// 409 code the server uses to signal "same Idempotency-Key already in flight
+// on another attempt" (internal/httpapi/idempotency.go) — safe to retry (the
+// server dedupes on the key). idempotency_key_reuse also rides a bare 409 but
+// means "same key, different body" — a caller bug — and must NEVER be
+// retried, so the code string is matched exactly rather than the status alone.
+const IDEMPOTENCY_IN_FLIGHT_CODE = "idempotency_in_flight";
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -104,7 +111,15 @@ export class RetryHttpLibrary implements HttpLibrary {
       this.throwIfAborted(signal);
 
       const isConn = resp === undefined;
-      const retryable = retrySafe && (isConn || isRetryableStatus(resp!.httpStatusCode));
+      let retryable = retrySafe && (isConn || isRetryableStatus(resp!.httpStatusCode));
+      // A bare 409 is not in isRetryableStatus (idempotency_key_reuse — a
+      // caller body-mismatch bug — must never be retried), but
+      // idempotency_in_flight IS retry-safe. Only server-deduped keyed writes
+      // (the population that can ever see this code) pay the cost of parsing
+      // the body to tell the two apart.
+      if (!retryable && retrySafe && !isConn && resp!.httpStatusCode === 409 && this.hasIdempotencyHeader(request)) {
+        retryable = await this.isIdempotencyInFlight(resp!);
+      }
       if (!retryable || attempt >= max) {
         if (resp !== undefined) return resp;
         throw connErr;
@@ -165,6 +180,29 @@ export class RetryHttpLibrary implements HttpLibrary {
       if (k.toLowerCase() === IDEMPOTENCY_HEADER.toLowerCase()) return true;
     }
     return false;
+  }
+
+  // Whether a 409 response's envelope carries `error.code ===
+  // "idempotency_in_flight"`. Wraps resp.body in a memoizing decorator FIRST
+  // (and reassigns it onto resp) so reading it here doesn't consume the
+  // underlying fetch body stream out from under the generated layer, which
+  // reads response.body.text() again once this returns.
+  private async isIdempotencyInFlight(resp: ResponseContext): Promise<boolean> {
+    resp.body = this.memoizeBody(resp.body);
+    try {
+      const text = await resp.body.text();
+      return parseErrorEnvelope(text)?.error?.code === IDEMPOTENCY_IN_FLIGHT_CODE;
+    } catch {
+      return false; // unreadable/unparseable body — treat as a bare 409, don't retry
+    }
+  }
+
+  private memoizeBody(body: ResponseBody): ResponseBody {
+    let cached: Promise<string> | undefined;
+    return {
+      text: () => (cached ??= body.text()),
+      binary: () => body.binary(),
+    };
   }
 
   // DELETE /v1/account (account deletion) — irreversible; exclude from retry.

@@ -8,7 +8,24 @@ import {
 import type { HttpLibrary } from "../../src/v1/generated/http/http.js";
 import { from, Observable } from "../../src/v1/generated/rxjsStub.js";
 
-type Step = { status?: number; headers?: Record<string, string>; throw?: unknown };
+type Step = { status?: number; headers?: Record<string, string>; throw?: unknown; body?: string };
+
+// A body stub that mimics a real fetch Response: `.text()` may only be
+// consumed ONCE (a second call would throw "body stream already read" on a
+// real fetch). Catches any regression where the retry layer's 409
+// idempotency_in_flight body-peek forgets to memoize before handing the
+// response back upstream.
+function singleReadBody(content: string) {
+  let read = false;
+  return {
+    text: async () => {
+      if (read) throw new Error("body already read (stream consumed twice)");
+      read = true;
+      return content;
+    },
+    binary: async () => new Blob([content]),
+  };
+}
 
 // Records what each attempt saw (method + idempotency key) and replays a script.
 class FakeHttp implements HttpLibrary {
@@ -21,8 +38,7 @@ class FakeHttp implements HttpLibrary {
     const step = this.steps.shift();
     if (!step) throw new Error("FakeHttp: no scripted step left");
     if (step.throw !== undefined) return from(Promise.reject(step.throw));
-    // The retry layer never reads the body — a minimal stub suffices.
-    const body = { binary: async () => new Blob([]), text: async () => "" } as never;
+    const body = singleReadBody(step.body ?? "") as never;
     return from(Promise.resolve(new ResponseContext(step.status!, step.headers ?? {}, body)));
   }
 }
@@ -292,5 +308,72 @@ describe("RetryHttpLibrary per-operation gating", () => {
     const resp = await retry.send(patch()).toPromise();
     expect(resp.httpStatusCode).toBe(200);
     expect(fake.methods.length).toBe(2);
+  });
+});
+
+// 409 is NOT in isRetryableStatus (a bare 409 is never retried), but the
+// server's idempotency_in_flight code on a server-deduped keyed write IS
+// retry-safe (same key, still committing) — while idempotency_key_reuse rides
+// the identical status and must never be retried (a caller body-mismatch
+// bug). The transport must tell them apart by parsing the envelope, not the
+// status alone.
+describe("RetryHttpLibrary 409 idempotency_in_flight", () => {
+  const envelope = (code: string) => JSON.stringify({ error: { code, message: "x" } });
+
+  it("retries a 409 idempotency_in_flight then returns the 200", async () => {
+    const fake = new FakeHttp([
+      { status: 409, body: envelope("idempotency_in_flight") },
+      { status: 200 },
+    ]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(post()).toPromise();
+    expect(resp.httpStatusCode).toBe(200);
+    expect(fake.methods.length).toBe(2);
+  });
+
+  it("does NOT retry a 409 idempotency_key_reuse, and the body stays readable once returned", async () => {
+    const body = envelope("idempotency_key_reuse");
+    const fake = new FakeHttp([{ status: 409, body }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(post()).toPromise();
+    expect(resp.httpStatusCode).toBe(409);
+    expect(fake.methods.length).toBe(1); // never retried — caller bug, not transient
+    // The retry layer already peeked the body to read the code; a downstream
+    // consumer (the generated Api layer building the thrown ApiException)
+    // must still be able to read it exactly once more via the memoized body.
+    await expect(resp.body.text()).resolves.toBe(body);
+  });
+
+  it("does NOT retry a bare 409 carrying an unrelated code", async () => {
+    const fake = new FakeHttp([{ status: 409, body: envelope("conflict") }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(post()).toPromise();
+    expect(resp.httpStatusCode).toBe(409);
+    expect(fake.methods.length).toBe(1);
+  });
+
+  it("does NOT peek/retry a 409 idempotency_in_flight on a request with no Idempotency-Key", async () => {
+    // GET is retry-safe in general, but carries no Idempotency-Key — this
+    // response shape can't legitimately occur for it, and the gate must not
+    // fire regardless.
+    const fake = new FakeHttp([{ status: 409, body: envelope("idempotency_in_flight") }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(get()).toPromise();
+    expect(resp.httpStatusCode).toBe(409);
+    expect(fake.methods.length).toBe(1);
+  });
+
+  it("routes the 409 retry through the existing Retry-After backoff", async () => {
+    const delays: number[] = [];
+    const fake = new FakeHttp([
+      { status: 409, body: envelope("idempotency_in_flight"), headers: { "retry-after": "3" } },
+      { status: 200 },
+    ]);
+    const retry = new RetryHttpLibrary(fake, {
+      sleep: async (ms) => { delays.push(ms); },
+      maxRetries: 1,
+    });
+    await retry.send(post()).toPromise();
+    expect(delays).toEqual([3000]);
   });
 });

@@ -254,6 +254,26 @@ export function toE2AError(args: {
   });
 }
 
+// Parse a raw envelope body — a JSON string (the shape ApiException.body takes
+// for operations with no `default` response, e.g. sendMessage/replyToMessage/
+// forwardMessage) or an already-parsed object — into the envelope shape, or
+// undefined if missing/unparseable. Shared by fromApiException and the retry
+// transport's 409 idempotency_in_flight gate (see retry.ts), so both read the
+// `{ error: { code, ... } }` shape the same way instead of hand-rolling it twice.
+export function parseErrorEnvelope(raw: unknown): Partial<ErrorEnvelope> | undefined {
+  let body: unknown = raw;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      // Not JSON — fall through to the status bucket (no code), same as the
+      // pre-fix behavior for an unparseable body.
+      return undefined;
+    }
+  }
+  return body as Partial<ErrorEnvelope> | undefined;
+}
+
 /** Map a generated `ApiException<ErrorEnvelope>` (thrown by the generated `*Api`
  *  classes on a non-2xx response) to a typed E2AError. */
 export function fromApiException(e: ApiException<unknown>): E2AError {
@@ -271,18 +291,8 @@ export function fromApiException(e: ApiException<unknown>): E2AError {
   // `e.body` is the parsed envelope for operations that declare a `default`
   // error response in the spec. Operations that declare ONLY success codes
   // (e.g. sendMessage / replyToMessage / forwardMessage) hand back the RAW
-  // body STRING instead — parse it so the machine `code` and the clean
-  // envelope message survive regardless of which operations declared `default`.
-  let body: unknown = e.body;
-  if (typeof body === "string") {
-    try {
-      body = JSON.parse(body);
-    } catch {
-      // Not JSON — leave `body` as the string; we fall through to the status
-      // bucket below (no code), preserving the pre-fix behavior for that case.
-    }
-  }
-  const env = body as Partial<ErrorEnvelope> | undefined;
+  // body STRING instead — parseErrorEnvelope normalizes both.
+  const env = parseErrorEnvelope(e.body);
   if (env && env.error) {
     code = env.error.code ?? "";
     message = env.error.message ?? message;
