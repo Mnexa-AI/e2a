@@ -23,6 +23,7 @@ export * from '../models/DNSRecord.js';
 export * from '../models/DeleteAgentResult.js';
 export * from '../models/DeleteApiKeyResult.js';
 export * from '../models/DeleteDomainResult.js';
+export * from '../models/DeleteMessageResult.js';
 export * from '../models/DeleteSuppressionResult.js';
 export * from '../models/DeleteTemplateResult.js';
 export * from '../models/DeleteUserDataResult.js';
@@ -148,6 +149,7 @@ import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
 import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteMessageResult } from '../models/DeleteMessageResult.js';
 import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
 import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
@@ -312,6 +314,7 @@ let typeMap: {[index: string]: any} = {
     "DeleteAgentResult": DeleteAgentResult,
     "DeleteApiKeyResult": DeleteApiKeyResult,
     "DeleteDomainResult": DeleteDomainResult,
+    "DeleteMessageResult": DeleteMessageResult,
     "DeleteSuppressionResult": DeleteSuppressionResult,
     "DeleteTemplateResult": DeleteTemplateResult,
     "DeleteUserDataResult": DeleteUserDataResult,

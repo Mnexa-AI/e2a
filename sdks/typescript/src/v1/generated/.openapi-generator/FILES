@@ -41,6 +41,7 @@ models/DNSRecord.ts
 models/DeleteAgentResult.ts
 models/DeleteApiKeyResult.ts
 models/DeleteDomainResult.ts
+models/DeleteMessageResult.ts
 models/DeleteSuppressionResult.ts
 models/DeleteTemplateResult.ts
 models/DeleteUserDataResult.ts

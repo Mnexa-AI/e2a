@@ -28,6 +28,7 @@ import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
 import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteMessageResult } from '../models/DeleteMessageResult.js';
 import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
 import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
@@ -1200,7 +1201,7 @@ export class ObservableMessagesApi {
      * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
      * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
      */
-    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: string, _options?: ConfigurationOptions): Observable<HttpInfo<void>> {
+    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: string, _options?: ConfigurationOptions): Observable<HttpInfo<DeleteMessageResult>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.deleteMessage(email, id, permanent, confirm, _config);
@@ -1228,8 +1229,8 @@ export class ObservableMessagesApi {
      * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
      * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
      */
-    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: string, _options?: ConfigurationOptions): Observable<void> {
-        return this.deleteMessageWithHttpInfo(email, id, permanent, confirm, _options).pipe(map((apiResponse: HttpInfo<void>) => apiResponse.data));
+    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: string, _options?: ConfigurationOptions): Observable<DeleteMessageResult> {
+        return this.deleteMessageWithHttpInfo(email, id, permanent, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteMessageResult>) => apiResponse.data));
     }
 
     /**

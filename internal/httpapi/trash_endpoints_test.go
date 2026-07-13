@@ -69,8 +69,11 @@ func TestDeleteMessageMovesToTrash(t *testing.T) {
 	var c trashCalls
 	srv := testServer(t, withTrashDeps(&c))
 	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1", "good", nil)
-	if code != 204 {
-		t.Fatalf("want 204, got %d %v", code, body)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if body["deleted"] != true || body["id"] != "msg_1" {
+		t.Fatalf("unexpected body %v", body)
 	}
 	if c.softMsg != 1 || c.purgeMsg != 0 {
 		t.Fatalf("soft=%d purge=%d, want soft delete only", c.softMsg, c.purgeMsg)
@@ -120,8 +123,11 @@ func TestDeleteMessagePermanent(t *testing.T) {
 	var c trashCalls
 	srv := testServer(t, withTrashDeps(&c))
 	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1?permanent=true&confirm=DELETE", "good", nil)
-	if code != 204 {
-		t.Fatalf("want 204, got %d %v", code, body)
+	if code != 200 {
+		t.Fatalf("want 200, got %d %v", code, body)
+	}
+	if body["deleted"] != true || body["id"] != "msg_1" {
+		t.Fatalf("unexpected body %v", body)
 	}
 	if c.purgeMsg != 1 || c.softMsg != 0 {
 		t.Fatalf("soft=%d purge=%d, want purge only", c.softMsg, c.purgeMsg)
@@ -390,8 +396,11 @@ func TestDeleteMessagePermanentIsAccountOnly(t *testing.T) {
 	// The reversible soft delete on its own agent still works.
 	code, body = sendJSON(t, "DELETE",
 		srv.URL+"/v1/agents/support%40acme.com/messages/msg_1", "agentkey", nil)
-	if code != 204 {
-		t.Fatalf("soft delete by agent-scoped key on own agent: want 204, got %d %v", code, body)
+	if code != 200 {
+		t.Fatalf("soft delete by agent-scoped key on own agent: want 200, got %d %v", code, body)
+	}
+	if body["deleted"] != true || body["id"] != "msg_1" {
+		t.Fatalf("unexpected body %v", body)
 	}
 }
 

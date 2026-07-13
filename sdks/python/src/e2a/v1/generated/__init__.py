@@ -62,6 +62,7 @@ __all__ = [
     "DeleteAgentResult",
     "DeleteApiKeyResult",
     "DeleteDomainResult",
+    "DeleteMessageResult",
     "DeleteSuppressionResult",
     "DeleteTemplateResult",
     "DeleteUserDataResult",
@@ -212,6 +213,7 @@ from e2a.v1.generated.models.dns_record import DNSRecord as DNSRecord
 from e2a.v1.generated.models.delete_agent_result import DeleteAgentResult as DeleteAgentResult
 from e2a.v1.generated.models.delete_api_key_result import DeleteApiKeyResult as DeleteApiKeyResult
 from e2a.v1.generated.models.delete_domain_result import DeleteDomainResult as DeleteDomainResult
+from e2a.v1.generated.models.delete_message_result import DeleteMessageResult as DeleteMessageResult
 from e2a.v1.generated.models.delete_suppression_result import DeleteSuppressionResult as DeleteSuppressionResult
 from e2a.v1.generated.models.delete_template_result import DeleteTemplateResult as DeleteTemplateResult
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult as DeleteUserDataResult

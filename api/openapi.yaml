@@ -712,6 +712,20 @@ components:
         - deleted
         - domain
       type: object
+    DeleteMessageResult:
+      additionalProperties: true
+      properties:
+        deleted:
+          description: Always true — the message is deleted (moved to trash or purged). A failed delete is an error envelope, never deleted:false.
+          type: boolean
+        id:
+          description: ID of the deleted message.
+          type: string
+      required:
+        - deleted
+        - id
+      type: object
+      x-stability: experimental
     DeleteSuppressionResult:
       additionalProperties: true
       properties:
@@ -2945,9 +2959,7 @@ components:
           description: The fields that failed validation. May be empty when the failure is request-wide rather than field-specific.
           items:
             $ref: "#/components/schemas/FieldError"
-          type:
-            - array
-            - "null"
+          type: array
       required:
         - fields
       type: object
@@ -3899,8 +3911,12 @@ paths:
             description: Must be the literal DELETE when permanent=true.
             type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteMessageResult"
+          description: OK
         default:
           content:
             application/json:

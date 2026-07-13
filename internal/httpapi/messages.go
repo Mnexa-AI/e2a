@@ -400,7 +400,6 @@ func (s *Server) registerMessages() {
 		Description:   "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
 		Tags:          []string{"messages"},
 		Security:      []map[string][]string{{"bearer": {}}},
-		DefaultStatus: http.StatusNoContent,
 		Extensions:    experimental(),
 	}, s.handleDeleteMessage)
 
@@ -523,7 +522,9 @@ type deleteMessageInput struct {
 	Confirm   string `query:"confirm" doc:"Must be the literal DELETE when permanent=true."`
 }
 
-type deleteMessageOutput struct{}
+type deleteMessageOutput struct {
+	Body DeleteMessageResult
+}
 
 // mapTrashErr converts the store's trash sentinel errors to the wire envelope.
 func mapTrashErr(err error, resource string) error {
@@ -571,7 +572,7 @@ func (s *Server) handleDeleteMessage(ctx context.Context, in *deleteMessageInput
 		if err := s.deps.PurgeMessage(ctx, in.MessageID, ag.ID); err != nil {
 			return nil, mapTrashErr(err, "message")
 		}
-		return &deleteMessageOutput{}, nil
+		return &deleteMessageOutput{Body: DeleteMessageResult{Deleted: true, ID: in.MessageID}}, nil
 	}
 	if s.deps.DeleteMessage == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
@@ -579,7 +580,7 @@ func (s *Server) handleDeleteMessage(ctx context.Context, in *deleteMessageInput
 	if err := s.deps.DeleteMessage(ctx, in.MessageID, ag.ID); err != nil {
 		return nil, mapTrashErr(err, "message")
 	}
-	return &deleteMessageOutput{}, nil
+	return &deleteMessageOutput{Body: DeleteMessageResult{Deleted: true, ID: in.MessageID}}, nil
 }
 
 // handleRestoreMessage brings a trashed message back to the inbox and returns

@@ -27,6 +27,7 @@ import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
 import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteMessageResult } from '../models/DeleteMessageResult.js';
 import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
 import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
@@ -877,7 +878,7 @@ export class PromiseMessagesApi {
      * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
      * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
      */
-    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteMessageResult>> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteMessageWithHttpInfo(email, id, permanent, confirm, observableOptions);
         return result.toPromise();
@@ -891,7 +892,7 @@ export class PromiseMessagesApi {
      * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
      * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
      */
-    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: string, _options?: PromiseConfigurationOptions): Promise<void> {
+    public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: string, _options?: PromiseConfigurationOptions): Promise<DeleteMessageResult> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteMessage(email, id, permanent, confirm, observableOptions);
         return result.toPromise();

@@ -17,19 +17,19 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List
-from e2a.v1.generated.models.field_error import FieldError
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ValidationErrorDetails(BaseModel):
+class DeleteMessageResult(BaseModel):
     """
-    ValidationErrorDetails
+    DeleteMessageResult
     """ # noqa: E501
-    fields: List[FieldError] = Field(description="The fields that failed validation. May be empty when the failure is request-wide rather than field-specific.")
+    deleted: StrictBool = Field(description="Always true — the message is deleted (moved to trash or purged). A failed delete is an error envelope, never deleted:false.")
+    id: StrictStr = Field(description="ID of the deleted message.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["fields"]
+    __properties: ClassVar[List[str]] = ["deleted", "id"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -49,7 +49,7 @@ class ValidationErrorDetails(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ValidationErrorDetails from a JSON string"""
+        """Create an instance of DeleteMessageResult from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -72,13 +72,6 @@ class ValidationErrorDetails(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in fields (list)
-        _items = []
-        if self.fields:
-            for _item_fields in self.fields:
-                if _item_fields:
-                    _items.append(_item_fields.to_dict())
-            _dict['fields'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -88,7 +81,7 @@ class ValidationErrorDetails(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ValidationErrorDetails from a dict"""
+        """Create an instance of DeleteMessageResult from a dict"""
         if obj is None:
             return None
 
@@ -96,7 +89,8 @@ class ValidationErrorDetails(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "fields": [FieldError.from_dict(_item) for _item in obj["fields"]] if obj.get("fields") is not None else None
+            "deleted": obj.get("deleted"),
+            "id": obj.get("id")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

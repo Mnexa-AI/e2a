@@ -10,14 +10,17 @@
  * Do not edit the class manually.
  */
 
-import { FieldError } from '../models/FieldError.js';
 import { HttpFile } from '../http/http.js';
 
-export class ValidationErrorDetails {
+export class DeleteMessageResult {
     /**
-    * The fields that failed validation. May be empty when the failure is request-wide rather than field-specific.
+    * Always true — the message is deleted (moved to trash or purged). A failed delete is an error envelope, never deleted:false.
     */
-    'fields': Array<FieldError>;
+    'deleted': boolean;
+    /**
+    * ID of the deleted message.
+    */
+    'id': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -25,14 +28,20 @@ export class ValidationErrorDetails {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "fields",
-            "baseName": "fields",
-            "type": "Array<FieldError>",
+            "name": "deleted",
+            "baseName": "deleted",
+            "type": "boolean",
+            "format": ""
+        },
+        {
+            "name": "id",
+            "baseName": "id",
+            "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return ValidationErrorDetails.attributeTypeMap;
+        return DeleteMessageResult.attributeTypeMap;
     }
 
     public constructor() {

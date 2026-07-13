@@ -9,6 +9,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 
 import { AttachmentView } from '../models/AttachmentView.js';
+import { DeleteMessageResult } from '../models/DeleteMessageResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
@@ -656,10 +657,14 @@ export class MessagesApiResponseProcessor {
      * @params response Response returned by the server for a request to deleteMessage
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async deleteMessageWithHttpInfo(response: ResponseContext): Promise<HttpInfo<void >> {
+     public async deleteMessageWithHttpInfo(response: ResponseContext): Promise<HttpInfo<DeleteMessageResult >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
-        if (isCodeInRange("204", response.httpStatusCode)) {
-            return new HttpInfo(response.httpStatusCode, response.headers, response.body, undefined);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: DeleteMessageResult = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "DeleteMessageResult", ""
+            ) as DeleteMessageResult;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
@@ -671,10 +676,10 @@ export class MessagesApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: void = ObjectSerializer.deserialize(
+            const body: DeleteMessageResult = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "void", ""
-            ) as void;
+                "DeleteMessageResult", ""
+            ) as DeleteMessageResult;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

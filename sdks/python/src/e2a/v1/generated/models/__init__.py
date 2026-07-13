@@ -38,6 +38,7 @@ from e2a.v1.generated.models.dns_record import DNSRecord
 from e2a.v1.generated.models.delete_agent_result import DeleteAgentResult
 from e2a.v1.generated.models.delete_api_key_result import DeleteApiKeyResult
 from e2a.v1.generated.models.delete_domain_result import DeleteDomainResult
+from e2a.v1.generated.models.delete_message_result import DeleteMessageResult
 from e2a.v1.generated.models.delete_suppression_result import DeleteSuppressionResult
 from e2a.v1.generated.models.delete_template_result import DeleteTemplateResult
 from e2a.v1.generated.models.delete_user_data_result import DeleteUserDataResult

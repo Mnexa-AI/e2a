@@ -75,7 +75,7 @@ type FieldError struct {
 // limit_exceeded detail for the 402 quota path), so codegen emits a concrete
 // model clients can read after branching on code == "invalid_request".
 type ValidationErrorDetails struct {
-	Fields []FieldError `json:"fields" doc:"The fields that failed validation. May be empty when the failure is request-wide rather than field-specific."`
+	Fields []FieldError `json:"fields" nullable:"false" doc:"The fields that failed validation. May be empty when the failure is request-wide rather than field-specific."`
 }
 
 // TransformSchema types the polymorphic error.details in the generated OpenAPI:

@@ -62,3 +62,10 @@ type DeleteWebhookResult struct {
 	Deleted bool   `json:"deleted" doc:"Always true — the webhook no longer exists. A failed delete is an error envelope, never deleted:false."`
 	ID      string `json:"id" doc:"ID of the deleted webhook."`
 } // @name DeleteWebhookResult
+
+// DeleteMessageResult confirms a message delete.
+type DeleteMessageResult struct {
+	Deleted bool   `json:"deleted" doc:"Always true — the message is deleted (moved to trash or purged). A failed delete is an error envelope, never deleted:false."`
+	ID      string `json:"id" doc:"ID of the deleted message."`
+} // @name DeleteMessageResult
+

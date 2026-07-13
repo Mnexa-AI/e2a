@@ -27,6 +27,7 @@ import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
 import { DeleteDomainResult } from '../models/DeleteDomainResult.js';
+import { DeleteMessageResult } from '../models/DeleteMessageResult.js';
 import { DeleteSuppressionResult } from '../models/DeleteSuppressionResult.js';
 import { DeleteTemplateResult } from '../models/DeleteTemplateResult.js';
 import { DeleteUserDataResult } from '../models/DeleteUserDataResult.js';
@@ -1439,7 +1440,7 @@ export class ObjectMessagesApi {
      * Delete a message (move to trash)
      * @param param the request object
      */
-    public deleteMessageWithHttpInfo(param: MessagesApiDeleteMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<void>> {
+    public deleteMessageWithHttpInfo(param: MessagesApiDeleteMessageRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteMessageResult>> {
         return this.api.deleteMessageWithHttpInfo(param.email, param.id, param.permanent, param.confirm,  options).toPromise();
     }
 
@@ -1448,7 +1449,7 @@ export class ObjectMessagesApi {
      * Delete a message (move to trash)
      * @param param the request object
      */
-    public deleteMessage(param: MessagesApiDeleteMessageRequest, options?: ConfigurationOptions): Promise<void> {
+    public deleteMessage(param: MessagesApiDeleteMessageRequest, options?: ConfigurationOptions): Promise<DeleteMessageResult> {
         return this.api.deleteMessage(param.email, param.id, param.permanent, param.confirm,  options).toPromise();
     }
 

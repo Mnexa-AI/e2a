@@ -20,6 +20,7 @@ from pydantic import Field, StrictBool, StrictStr, field_validator
 from typing import List, Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.attachment_view import AttachmentView
+from e2a.v1.generated.models.delete_message_result import DeleteMessageResult
 from e2a.v1.generated.models.forward_request import ForwardRequest
 from e2a.v1.generated.models.message_view import MessageView
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView
@@ -66,7 +67,7 @@ class MessagesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> None:
+    ) -> DeleteMessageResult:
         """Delete a message (move to trash)
 
         Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
@@ -113,7 +114,7 @@ class MessagesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteMessageResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -145,7 +146,7 @@ class MessagesApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[None]:
+    ) -> ApiResponse[DeleteMessageResult]:
         """Delete a message (move to trash)
 
         Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
@@ -192,7 +193,7 @@ class MessagesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteMessageResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -271,7 +272,7 @@ class MessagesApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '204': None,
+            '200': "DeleteMessageResult",
         }
         response_data = await self.api_client.call_api(
             *_param,
