@@ -45,9 +45,9 @@ pip install e2a
 The SDK is async-only. A few lines:
 
 ```python
-from e2a.v1 import E2AClient
+from e2a.v1 import AsyncE2AClient
 
-async with E2AClient(api_key="e2a_...") as client:
+async with AsyncE2AClient(api_key="e2a_...") as client:
     await client.messages.send(
         "research-assistant@agents.e2a.dev",
         {
@@ -67,7 +67,7 @@ Two modes, depending on whether your agent has a public URL:
 **Webhook delivery** — subscribe a webhook (`POST /v1/webhooks`), and when Alice replies, e2a POSTs the signed event to your server. Verify the signature with `construct_event` (it raises on a bad signature or a replay):
 
 ```python
-from e2a.v1 import E2AClient, construct_event
+from e2a.v1 import AsyncE2AClient, construct_event
 
 @app.post("/webhook")
 async def inbox(request):
@@ -75,7 +75,7 @@ async def inbox(request):
     event = construct_event(raw, request.headers["X-E2A-Signature"], WEBHOOK_SECRET)
     msg = event.data  # metadata only (ids, sender, subject) — fetch the body via messages.get if you need it
     print(f"{msg['from']}: {msg['subject']}")
-    async with E2AClient(api_key="e2a_...") as client:
+    async with AsyncE2AClient(api_key="e2a_...") as client:
         await client.messages.reply(
             msg["delivered_to"], msg["message_id"], {"text": "Got it. Does Thursday 2pm work?"}
         )
@@ -85,9 +85,9 @@ async def inbox(request):
 **WebSocket delivery** — no public URL needed. Great for running agents on your laptop or behind a firewall:
 
 ```python
-from e2a.v1 import E2AClient
+from e2a.v1 import AsyncE2AClient
 
-async with E2AClient(api_key="e2a_...") as client:
+async with AsyncE2AClient(api_key="e2a_...") as client:
     async for notif in client.listen("research-assistant@agents.e2a.dev"):
         msg = await client.messages.get(notif.delivered_to, notif.message_id)
         print(f"{notif.from_}: {notif.subject}")
@@ -118,7 +118,7 @@ Works across humans replying from Gmail and other e2a agents replying via the pl
 Inbound messages carry SPF/DKIM results so you can decide how much to trust them, and webhook deliveries are signed end-to-end. Always verify the signature on a webhook before acting on the payload — `construct_event` does it for you and raises on a bad signature or a replay older than five minutes:
 
 ```python
-from e2a.v1 import E2AClient, construct_event
+from e2a.v1 import AsyncE2AClient, construct_event
 from e2a.v1.errors import E2AWebhookSignatureError
 
 try:

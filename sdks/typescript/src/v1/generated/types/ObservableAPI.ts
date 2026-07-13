@@ -68,11 +68,16 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
+import { ProtectionDirectionRequest } from '../models/ProtectionDirectionRequest.js';
 import { ProtectionDirectionView } from '../models/ProtectionDirectionView.js';
 import { ProtectionEventExportEntry } from '../models/ProtectionEventExportEntry.js';
+import { ProtectionGateRequest } from '../models/ProtectionGateRequest.js';
 import { ProtectionGateView } from '../models/ProtectionGateView.js';
+import { ProtectionHoldsRequest } from '../models/ProtectionHoldsRequest.js';
 import { ProtectionHoldsView } from '../models/ProtectionHoldsView.js';
+import { ProtectionScanRequest } from '../models/ProtectionScanRequest.js';
 import { ProtectionScanView } from '../models/ProtectionScanView.js';
 import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
 import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
@@ -113,6 +118,7 @@ import { ValidateTemplateResponse } from '../models/ValidateTemplateResponse.js'
 import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { VerifyDomainView } from '../models/VerifyDomainView.js';
 import { WebhookDeliveryView } from '../models/WebhookDeliveryView.js';
+import { WebhookFiltersRequest } from '../models/WebhookFiltersRequest.js';
 import { WebhookFiltersView } from '../models/WebhookFiltersView.js';
 import { WebhookView } from '../models/WebhookView.js';
 
@@ -604,12 +610,12 @@ export class ObservableAgentsApi {
      * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
      * Replace an agent\'s protection config (beta)
      * @param email The agent\&#39;s full email address.
-     * @param protectionConfigView
+     * @param protectionConfigRequest
      */
-    public putAgentProtectionWithHttpInfo(email: string, protectionConfigView: ProtectionConfigView, _options?: ConfigurationOptions): Observable<HttpInfo<ProtectionConfigView>> {
+    public putAgentProtectionWithHttpInfo(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: ConfigurationOptions): Observable<HttpInfo<ProtectionConfigView>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
-        const requestContextPromise = this.requestFactory.putAgentProtection(email, protectionConfigView, _config);
+        const requestContextPromise = this.requestFactory.putAgentProtection(email, protectionConfigRequest, _config);
         // build promise chain
         let middlewarePreObservable = from<RequestContext>(requestContextPromise);
         for (const middleware of _config.middleware) {
@@ -630,10 +636,10 @@ export class ObservableAgentsApi {
      * Replace the agent\'s protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable.
      * Replace an agent\'s protection config (beta)
      * @param email The agent\&#39;s full email address.
-     * @param protectionConfigView
+     * @param protectionConfigRequest
      */
-    public putAgentProtection(email: string, protectionConfigView: ProtectionConfigView, _options?: ConfigurationOptions): Observable<ProtectionConfigView> {
-        return this.putAgentProtectionWithHttpInfo(email, protectionConfigView, _options).pipe(map((apiResponse: HttpInfo<ProtectionConfigView>) => apiResponse.data));
+    public putAgentProtection(email: string, protectionConfigRequest: ProtectionConfigRequest, _options?: ConfigurationOptions): Observable<ProtectionConfigView> {
+        return this.putAgentProtectionWithHttpInfo(email, protectionConfigRequest, _options).pipe(map((apiResponse: HttpInfo<ProtectionConfigView>) => apiResponse.data));
     }
 
     /**
@@ -1148,7 +1154,7 @@ export class ObservableMessagesApi {
      * @param email
      * @param id
      * @param forwardRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public forwardMessageWithHttpInfo(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
@@ -1177,7 +1183,7 @@ export class ObservableMessagesApi {
      * @param email
      * @param id
      * @param forwardRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
@@ -1185,7 +1191,7 @@ export class ObservableMessagesApi {
     }
 
     /**
-     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected with 413 attachment_too_large. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param email
      * @param id
@@ -1213,7 +1219,7 @@ export class ObservableMessagesApi {
     }
 
     /**
-     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected with 413 attachment_too_large. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param email
      * @param id
@@ -1322,7 +1328,7 @@ export class ObservableMessagesApi {
      * @param email
      * @param id
      * @param replyRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public replyToMessageWithHttpInfo(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
@@ -1351,7 +1357,7 @@ export class ObservableMessagesApi {
      * @param email
      * @param id
      * @param replyRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
@@ -1363,7 +1369,7 @@ export class ObservableMessagesApi {
      * Send a new email
      * @param email
      * @param sendEmailRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public sendMessageWithHttpInfo(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
@@ -1391,7 +1397,7 @@ export class ObservableMessagesApi {
      * Send a new email
      * @param email
      * @param sendEmailRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param [wait] Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, wait?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
@@ -1509,7 +1515,7 @@ export class ObservableReviewsApi {
      * Approve a held message
      * @param id
      * @param approveRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      */
     public approveReviewWithHttpInfo(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<SendResultView>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -1536,7 +1542,7 @@ export class ObservableReviewsApi {
      * Approve a held message
      * @param id
      * @param approveRequest
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      */
     public approveReview(id: string, approveRequest: ApproveRequest, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<SendResultView> {
         return this.approveReviewWithHttpInfo(id, approveRequest, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<SendResultView>) => apiResponse.data));
@@ -2141,10 +2147,10 @@ export class ObservableWebhooksApi {
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
      * Rotate a webhook signing secret
      * @param id
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      */
     public rotateWebhookSecretWithHttpInfo(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<HttpInfo<RotateSecretResponse>> {
         const _config = mergeConfiguration(this.configuration, _options);
@@ -2167,10 +2173,10 @@ export class ObservableWebhooksApi {
     }
 
     /**
-     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+     * Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
      * Rotate a webhook signing secret
      * @param id
-     * @param [idempotencyKey]
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      */
     public rotateWebhookSecret(id: string, idempotencyKey?: string, _options?: ConfigurationOptions): Observable<RotateSecretResponse> {
         return this.rotateWebhookSecretWithHttpInfo(id, idempotencyKey, _options).pipe(map((apiResponse: HttpInfo<RotateSecretResponse>) => apiResponse.data));

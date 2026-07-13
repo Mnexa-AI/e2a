@@ -117,10 +117,16 @@ type AgentIdentity struct {
 	Outbound7d     int        `json:"outbound_7d"`
 	PendingCount   int        `json:"pending_count"`
 	LastDeliveryAt *time.Time `json:"last_delivery_at,omitempty"`
-	// WebhookHealthy is false iff there's been a failed webhook delivery
-	// in the last 24h. Defaults to true for agents with no deliveries
-	// yet — avoids painting fresh agents red.
-	WebhookHealthy bool `json:"webhook_healthy"`
+	// WebhookStatus summarizes the webhook posture serving this agent,
+	// derived from the /v1/webhooks subscriber resource: which of the
+	// account's webhooks match this agent (an empty agent filter matches
+	// every agent) and how their recent deliveries have fared. One of the
+	// WebhookStatus* constants below; open set. Computed only on enriched
+	// read paths (ListAgentsByUser, the account export) — other load paths
+	// leave it empty, and omitempty keeps the un-computed zero value off
+	// the wire. Replaces the pre-GA webhook_healthy bool, which could not
+	// distinguish "no webhook configured" from "healthy".
+	WebhookStatus string `json:"webhook_status,omitempty" doc:"Webhook posture for this agent, derived from the account's webhook subscribers that match it (a webhook with no agent filter matches every agent). Open set; tolerate unknown values. Known values: none (no webhook matches this agent), healthy (an enabled webhook matches and none serving this agent has a terminally-failed delivery in the last 24h), failing (an enabled webhook matches but at least one delivery on a matching enabled webhook terminally failed in the last 24h), disabled (webhooks match but every one is disabled, turned off manually), auto_disabled (webhooks match, every one is disabled, and at least one was auto-disabled by the chronic-failure sweep). Present on enriched surfaces (account export, dashboard agent list); absent where not computed."`
 	// InboundPolicy is the per-agent inbound ingestion gate (migration 033 /
 	// Slice 7): one of inboundpolicy.{Open,Allowlist,Domain}.
 	// Defaults to 'open' (the column default). InboundAllowlist holds the
@@ -154,6 +160,72 @@ type AgentIdentity struct {
 	// re-checked at the token endpoint; a bump invalidates prior tokens.
 	AssertionVersion int `json:"-"`
 }
+
+// WebhookStatus* are the known AgentIdentity.WebhookStatus values. The set is
+// open — API consumers must tolerate unknown values — but the server only
+// emits these five today. Precedence when several webhooks match one agent:
+// any enabled webhook wins (healthy/failing per recent deliveries); among
+// all-disabled matches, an auto-disabled one wins over a manual disable.
+const (
+	// WebhookStatusNone: no webhook subscriber matches this agent.
+	WebhookStatusNone = "none"
+	// WebhookStatusHealthy: at least one enabled webhook matches, and no
+	// matching enabled webhook has a terminally-failed delivery in the
+	// last 24h.
+	WebhookStatusHealthy = "healthy"
+	// WebhookStatusFailing: at least one enabled webhook matches, but a
+	// matching enabled webhook had a terminally-failed delivery (retries
+	// exhausted) in the last 24h.
+	WebhookStatusFailing = "failing"
+	// WebhookStatusDisabled: webhooks match this agent but every one is
+	// disabled, all by hand (no auto_disabled_at).
+	WebhookStatusDisabled = "disabled"
+	// WebhookStatusAutoDisabled: webhooks match this agent, every one is
+	// disabled, and at least one was tripped by the chronic-failure sweep
+	// (AutoDisableFailingWebhooks).
+	WebhookStatusAutoDisabled = "auto_disabled"
+)
+
+// webhookMatchesAgentSQL is the SQL twin of webhookpub's matches() agent rule:
+// a webhook scopes to an agent when its filters.agent_ids is absent/empty (no
+// constraint) or contains the agent id. Expects `w` (webhooks) and `a`
+// (agent_identities) aliases in scope. Conversation/label filters are event
+// dimensions, not agent dimensions, so they don't participate here.
+const webhookMatchesAgentSQL = `(COALESCE(jsonb_array_length(w.filters->'agent_ids'), 0) = 0
+	             OR w.filters->'agent_ids' ? a.id)`
+
+// webhookStatusSQL derives AgentIdentity.WebhookStatus for the agent row
+// aliased `a`. Health reads webhook_subscriber_deliveries (the live
+// /v1/webhooks pipeline), NOT the legacy webhook_deliveries table, which is
+// retained only for janitor draining and no longer receives rows. Failure
+// attribution is per matching webhook (endpoint), not per event: if an
+// endpoint serving this agent is failing, the agent's events are at risk
+// regardless of which agent's event tripped the failure.
+const webhookStatusSQL = `CASE
+	 WHEN EXISTS (
+	     SELECT 1 FROM webhooks w
+	     WHERE w.user_id = a.user_id AND w.enabled
+	       AND ` + webhookMatchesAgentSQL + `
+	 ) THEN CASE WHEN EXISTS (
+	     SELECT 1 FROM webhook_subscriber_deliveries wsd
+	     JOIN webhooks w ON w.id = wsd.webhook_id
+	     WHERE w.user_id = a.user_id AND w.enabled
+	       AND ` + webhookMatchesAgentSQL + `
+	       AND wsd.status = 'failed'
+	       AND wsd.last_attempt_at > now() - interval '24 hours'
+	 ) THEN '` + WebhookStatusFailing + `' ELSE '` + WebhookStatusHealthy + `' END
+	 WHEN EXISTS (
+	     SELECT 1 FROM webhooks w
+	     WHERE w.user_id = a.user_id AND w.auto_disabled_at IS NOT NULL
+	       AND ` + webhookMatchesAgentSQL + `
+	 ) THEN '` + WebhookStatusAutoDisabled + `'
+	 WHEN EXISTS (
+	     SELECT 1 FROM webhooks w
+	     WHERE w.user_id = a.user_id
+	       AND ` + webhookMatchesAgentSQL + `
+	 ) THEN '` + WebhookStatusDisabled + `'
+	 ELSE '` + WebhookStatusNone + `'
+	END`
 
 // HITL constants mirror the CHECK constraints in migration 003_hitl.sql.
 const (
@@ -1110,10 +1182,10 @@ func (s *Store) UpdateAgentName(ctx context.Context, agentID, userID, name strin
 }
 
 // Agents are joined with domain verification AND enriched with per-agent stats
-// for the dashboard. Five correlated subqueries compute inbound/outbound 7-day
-// counts, pending approvals, last delivery, and webhook health in a single
+// for the dashboard. Correlated subqueries compute inbound/outbound 7-day
+// counts, pending approvals, last delivery, and webhook status in a single
 // round-trip. Other load paths (GetAgentByID, GetAgentByEmail) intentionally
-// don't compute these — only the dashboard needs them.
+// don't compute these — only the dashboard and the account export need them.
 //
 // ListAgentsByUser returns one page of the user's agents, newest-first,
 // keyset-paginated on (created_at, id). limit<=0 returns every agent
@@ -1142,13 +1214,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string, limit int, 
 		        (SELECT max(m.created_at) FROM messages m
 		           WHERE m.agent_id = a.id AND m.direction = 'outbound'
 		             AND m.status = 'sent') AS last_delivery_at,
-		        NOT EXISTS (
-		           SELECT 1 FROM webhook_deliveries wd
-		           JOIN messages m ON m.id = wd.message_id
-		           WHERE m.agent_id = a.id
-		             AND wd.status = 'failed'
-		             AND wd.last_attempt_at > now() - interval '24 hours'
-		        ) AS webhook_healthy
+		        ` + webhookStatusSQL + ` AS webhook_status
 		 FROM agent_identities a
 		 JOIN domains d ON a.domain = d.domain
 		 WHERE a.user_id = $1`
@@ -1183,7 +1249,7 @@ func (s *Store) ListAgentsByUser(ctx context.Context, userID string, limit int, 
 			&a.InboundScanSensitivity, &a.OutboundScanSensitivity,
 			&a.DomainVerified,
 			&a.Inbound7d, &a.Outbound7d, &a.PendingCount,
-			&lastDeliveryAt, &a.WebhookHealthy); err != nil {
+			&lastDeliveryAt, &a.WebhookStatus); err != nil {
 			return nil, err
 		}
 		a.LastDeliveryAt = lastDeliveryAt

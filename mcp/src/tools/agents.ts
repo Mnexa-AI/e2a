@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ProtectionConfigRequest } from "@e2a/sdk/v1";
 import type { McpClient } from "../client.js";
 import { z } from "zod";
 import { runTool, strictInputSchema, paginationInput } from "./util.js";
@@ -204,7 +205,11 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
         if (args.holds_ttl_seconds !== undefined) cfg.holds.ttlSeconds = args.holds_ttl_seconds;
         if (args.holds_on_expiry !== undefined)
           cfg.holds.onExpiry = args.holds_on_expiry as typeof cfg.holds.onExpiry;
-        return client.updateProtection(cfg, args.email);
+        // ProtectionConfigRequest is the View's field-for-field request twin
+        // (the spec splits them only so responses can be additive-open while
+        // requests stay strict), but the generated enum types are nominal, so
+        // the shape-identical view needs an explicit cast to PUT back.
+        return client.updateProtection(cfg as unknown as ProtectionConfigRequest, args.email);
       }),
   );
 

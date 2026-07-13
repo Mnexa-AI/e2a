@@ -1,6 +1,6 @@
 /**
  * e2a API
- * e2a — authenticated email gateway for AI agents. v1 contract.
+ * e2a — authenticated email gateway for AI agents. v1 contract.  ## Stability policy  The v1 surface is stable and evolves **additively only**: new endpoints, new optional request fields, new response fields, and new values in open string sets (event types, statuses) may appear at any time without a version bump. Clients MUST tolerate unknown response fields and unknown values in open string sets. This is machine-readable in the schemas: response schemas declare `additionalProperties: true`; request schemas stay strict (`additionalProperties: false` — an unknown request field is rejected with 422).  Operations and schemas marked `x-stability: experimental` are exempt from this freeze and may change or be removed without a major version. A field marked `x-experimental-values` is itself stable, but the listed values (and their event payloads) are experimental. Everything not marked experimental is stable.  Removing or changing stable surface only happens on a new major version path (/v2); deprecations are announced ahead of time via `deprecated: true` in this document and keep working within v1.
  *
  * OpenAPI spec version: 1.0.0
  * 
@@ -40,7 +40,10 @@ export class AgentIdentity {
     '_public': boolean;
     'ttlSeconds': number;
     'userId': string;
-    'webhookHealthy': boolean;
+    /**
+    * Webhook posture for this agent, derived from the account\'s webhook subscribers that match it (a webhook with no agent filter matches every agent). Open set; tolerate unknown values. Known values: none (no webhook matches this agent), healthy (an enabled webhook matches and none serving this agent has a terminally-failed delivery in the last 24h), failing (an enabled webhook matches but at least one delivery on a matching enabled webhook terminally failed in the last 24h), disabled (webhooks match but every one is disabled, turned off manually), auto_disabled (webhooks match, every one is disabled, and at least one was auto-disabled by the chronic-failure sweep). Present on enriched surfaces (account export, dashboard agent list); absent where not computed.
+    */
+    'webhookStatus'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -210,9 +213,9 @@ export class AgentIdentity {
             "format": ""
         },
         {
-            "name": "webhookHealthy",
-            "baseName": "webhook_healthy",
-            "type": "boolean",
+            "name": "webhookStatus",
+            "baseName": "webhook_status",
+            "type": "string",
             "format": ""
         }    ];
 

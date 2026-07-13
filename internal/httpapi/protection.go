@@ -69,9 +69,9 @@ type ProtectionHoldsView struct {
 	OnExpiry   string `json:"on_expiry,omitempty" enum:"approve,reject" default:"reject" doc:"What happens to a held item when its TTL expires."`
 }
 
-// ProtectionConfigView is the GET response and the PUT body (full replace).
-// The three top-level keys are required (no silent section reset); leaves are
-// optional and fill from defaults.
+// ProtectionConfigView is the GET (and PUT echo) RESPONSE. The PUT body is the
+// separate ProtectionConfigRequest below — see its comment for why the two are
+// distinct types despite the identical shape.
 type ProtectionConfigView struct {
 	Inbound  ProtectionDirectionView `json:"inbound"`
 	Outbound ProtectionDirectionView `json:"outbound"`
@@ -92,7 +92,49 @@ func protectionViewFromIdentity(ag *identity.AgentIdentity) ProtectionConfigView
 	}
 }
 
-func protectionConfigFromView(v ProtectionConfigView) identity.ProtectionConfig {
+// ProtectionGateRequest / ProtectionScanRequest / ProtectionDirectionRequest /
+// ProtectionHoldsRequest / ProtectionConfigRequest mirror the *View shapes
+// field-for-field as the PUT body. They are dedicated INPUT types (not the
+// Views) because the spec's forward-compat stance is asymmetric: request
+// schemas stay `additionalProperties: false` (strict validation — an unknown
+// key is a 422, not a silent no-op on a security posture), while response
+// schemas are open (`additionalProperties: true`) so clients tolerate additive
+// fields. One shared schema cannot carry both; the stability pass in
+// stability.go panics if a schema is reachable from both sides. Keep the
+// validation tags here in lockstep with the View tags above.
+type ProtectionGateRequest struct {
+	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
+	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."`
+	Action    string   `json:"action,omitempty" enum:"flag,review,block" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block."`
+}
+
+// ProtectionScanRequest mirrors ProtectionScanView for the PUT body.
+type ProtectionScanRequest struct {
+	Sensitivity string `json:"sensitivity,omitempty" enum:"off,low,medium,high" default:"off" doc:"Content-scan sensitivity: off disables; low|medium|high increase aggressiveness."`
+}
+
+// ProtectionDirectionRequest mirrors ProtectionDirectionView for the PUT body.
+type ProtectionDirectionRequest struct {
+	Gate ProtectionGateRequest `json:"gate"`
+	Scan ProtectionScanRequest `json:"scan"`
+}
+
+// ProtectionHoldsRequest mirrors ProtectionHoldsView for the PUT body.
+type ProtectionHoldsRequest struct {
+	TTLSeconds int    `json:"ttl_seconds,omitempty" minimum:"0" default:"604800" doc:"How long a held item waits before its on_expiry action fires."`
+	OnExpiry   string `json:"on_expiry,omitempty" enum:"approve,reject" default:"reject" doc:"What happens to a held item when its TTL expires."`
+}
+
+// ProtectionConfigRequest is the PUT body (full replace). The three top-level
+// keys are required (no silent section reset); leaves are optional and fill
+// from defaults.
+type ProtectionConfigRequest struct {
+	Inbound  ProtectionDirectionRequest `json:"inbound"`
+	Outbound ProtectionDirectionRequest `json:"outbound"`
+	Holds    ProtectionHoldsRequest     `json:"holds"`
+}
+
+func protectionConfigFromRequest(v ProtectionConfigRequest) identity.ProtectionConfig {
 	return identity.ProtectionConfig{
 		InboundGatePolicy:       v.Inbound.Gate.Policy,
 		InboundAllowlist:        v.Inbound.Gate.Allowlist,
@@ -117,7 +159,7 @@ type protectionOutput struct {
 
 type putProtectionInput struct {
 	Address string `path:"email" doc:"The agent's full email address."`
-	Body    ProtectionConfigView
+	Body    ProtectionConfigRequest
 }
 
 func (s *Server) registerAgentProtection() {
@@ -129,6 +171,7 @@ func (s *Server) registerAgentProtection() {
 		Description: "Read the agent's protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. " + protectionBetaDoc,
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
 	}, s.handleGetProtection)
 
 	huma.Register(s.API, huma.Operation{
@@ -139,6 +182,7 @@ func (s *Server) registerAgentProtection() {
 		Description: "Replace the agent's protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. " + protectionBetaDoc,
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
 	}, s.handlePutProtection)
 }
 
@@ -166,7 +210,7 @@ func (s *Server) handlePutProtection(ctx context.Context, in *putProtectionInput
 	if s.deps.UpdateAgentProtection == nil {
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "update unavailable")
 	}
-	cfg := protectionConfigFromView(in.Body)
+	cfg := protectionConfigFromRequest(in.Body)
 	// Content scan is gated off by default for GA (see identity.ContentScanEnabled).
 	// Clamp the scan knob to "off" rather than store a sensitivity that would
 	// silently never run — so get_protection reads back the honest, effective

@@ -32,7 +32,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param email 
      * @param id 
      * @param forwardRequest 
-     * @param idempotencyKey 
+     * @param idempotencyKey Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param wait Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public async forwardMessage(email: string, id: string, forwardRequest: ForwardRequest, idempotencyKey?: string, wait?: string, _options?: Configuration): Promise<RequestContext> {
@@ -78,9 +78,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 
         // Body Params
         const contentType = ObjectSerializer.getPreferredMediaType([
-            "application/json",
-        
-            "application/octet-stream"
+            "application/json"
         ]);
         requestContext.setHeaderParam("Content-Type", contentType);
         const serializedBody = ObjectSerializer.stringify(
@@ -105,7 +103,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message\'s `attachments[]`.
+     * Returns one attachment\'s metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent\'s context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected with 413 attachment_too_large. `index` is the 0-based attachment index from the message\'s `attachments[]`.
      * Get an attachment (metadata + short-lived download URL)
      * @param email 
      * @param id 
@@ -332,7 +330,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param email 
      * @param id 
      * @param replyRequest 
-     * @param idempotencyKey 
+     * @param idempotencyKey Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param wait Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public async replyToMessage(email: string, id: string, replyRequest: ReplyRequest, idempotencyKey?: string, wait?: string, _options?: Configuration): Promise<RequestContext> {
@@ -378,9 +376,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 
         // Body Params
         const contentType = ObjectSerializer.getPreferredMediaType([
-            "application/json",
-        
-            "application/octet-stream"
+            "application/json"
         ]);
         requestContext.setHeaderParam("Content-Type", contentType);
         const serializedBody = ObjectSerializer.stringify(
@@ -409,7 +405,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * Send a new email
      * @param email 
      * @param sendEmailRequest 
-     * @param idempotencyKey 
+     * @param idempotencyKey Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
      * @param wait Sync-compat valve. wait&#x3D;sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
      */
     public async sendMessage(email: string, sendEmailRequest: SendEmailRequest, idempotencyKey?: string, wait?: string, _options?: Configuration): Promise<RequestContext> {
@@ -448,9 +444,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
 
         // Body Params
         const contentType = ObjectSerializer.getPreferredMediaType([
-            "application/json",
-        
-            "application/octet-stream"
+            "application/json"
         ]);
         requestContext.setHeaderParam("Content-Type", contentType);
         const serializedBody = ObjectSerializer.stringify(
@@ -579,12 +573,26 @@ export class MessagesApiResponseProcessor {
             ) as LimitExceededEnvelope;
             throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.", body, response.headers);
         }
+        if (isCodeInRange("409", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request\&#39;s response instead of re-executing the side effect.", body, response.headers);
+        }
         if (isCodeInRange("413", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Payload Too Large — an attachment exceeds 10 MB decoded, or the combined attachments exceed 25 MB decoded. error.code &#x3D; payload_too_large; error.details carries the offending size and the limit.", body, response.headers);
+        }
+        if (isCodeInRange("422", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body.", body, response.headers);
         }
         if (isCodeInRange("429", response.httpStatusCode)) {
             const body: RateLimitedEnvelope = ObjectSerializer.deserialize(
@@ -629,12 +637,19 @@ export class MessagesApiResponseProcessor {
             ) as AttachmentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
+        if (isCodeInRange("413", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Payload Too Large — code attachment_too_large: &#x60;?inline&#x3D;true&#x60; was requested for an attachment over the 256 KB inline cap. Fetch the bytes via download_url instead; the metadata (and this error) tells you the size.", body, response.headers);
+        }
         if (isCodeInRange("0", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
-            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
         }
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
@@ -758,12 +773,26 @@ export class MessagesApiResponseProcessor {
             ) as LimitExceededEnvelope;
             throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.", body, response.headers);
         }
+        if (isCodeInRange("409", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request\&#39;s response instead of re-executing the side effect.", body, response.headers);
+        }
         if (isCodeInRange("413", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Payload Too Large — an attachment exceeds 10 MB decoded, or the combined attachments exceed 25 MB decoded. error.code &#x3D; payload_too_large; error.details carries the offending size and the limit.", body, response.headers);
+        }
+        if (isCodeInRange("422", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body.", body, response.headers);
         }
         if (isCodeInRange("429", response.httpStatusCode)) {
             const body: RateLimitedEnvelope = ObjectSerializer.deserialize(
@@ -829,12 +858,26 @@ export class MessagesApiResponseProcessor {
             ) as LimitExceededEnvelope;
             throw new ApiException<LimitExceededEnvelope>(response.httpStatusCode, "Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.&lt;resource&gt; / limits.max_&lt;resource&gt;. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.", body, response.headers);
         }
+        if (isCodeInRange("409", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request\&#39;s response instead of re-executing the side effect.", body, response.headers);
+        }
         if (isCodeInRange("413", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Payload Too Large — an attachment exceeds 10 MB decoded, or the combined attachments exceed 25 MB decoded. error.code &#x3D; payload_too_large; error.details carries the offending size and the limit.", body, response.headers);
+        }
+        if (isCodeInRange("422", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body.", body, response.headers);
         }
         if (isCodeInRange("429", response.httpStatusCode)) {
             const body: RateLimitedEnvelope = ObjectSerializer.deserialize(

@@ -43,10 +43,10 @@ for (const e of events) console.log(e.id, e.type, e.created_at);
 In Python:
 
 ```python
-from e2a.v1 import E2AClient
+from e2a.v1 import AsyncE2AClient
 import os
 
-client = E2AClient(api_key=os.environ["E2A_API_KEY"])
+client = AsyncE2AClient(api_key=os.environ["E2A_API_KEY"])
 for e in client.events.list(type="email.received", limit=20):
     print(e.id, e.type, e.created_at)
 ```

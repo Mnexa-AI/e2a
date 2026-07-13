@@ -44,9 +44,9 @@ await client.messages.reply("bot@agents.e2a.dev", messageId, {
 ### Python
 
 ```python
-from e2a.v1 import E2AClient
+from e2a.v1 import AsyncE2AClient
 
-async with E2AClient(api_key=os.environ["E2A_API_KEY"]) as client:
+async with AsyncE2AClient(api_key=os.environ["E2A_API_KEY"]) as client:
     await client.messages.send("bot@agents.e2a.dev", {
         "to": ["person@example.com"],
         "subject": "Hello from my agent",

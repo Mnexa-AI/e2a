@@ -1,10 +1,16 @@
-"""Public surface of the e2a v1 SDK (async-only).
+"""Public surface of the e2a v1 SDK.
 
 The canonical request/response types are the OpenAPI-Generator ``generated``
-models; the hand-written ergonomic layer (:class:`E2AClient` + resources, the
-typed error hierarchy, retry/pagination, webhook verification, WS) wraps them.
-The legacy flat/sync ``api`` / ``client`` / ``handler`` surface and the old
-swag-generated Pydantic types have been retired in favour of this.
+models; the hand-written ergonomic layer (:class:`AsyncE2AClient` + resources,
+the typed error hierarchy, retry/pagination, webhook verification, WS) wraps
+them. The legacy flat/sync ``api`` / ``client`` / ``handler`` surface and the
+old swag-generated Pydantic types have been retired in favour of this.
+
+Naming follows the httpx/openai/anthropic convention: the plain name
+:class:`E2AClient` is the synchronous client, ``Async*`` is the async one.
+The sync client is a facade over the async client (one implementation of
+resources/retry/errors/pagination, bridged through a background event loop) —
+see :mod:`e2a.v1.sync_client`.
 """
 
 # Generated request/response models (the canonical types).
@@ -12,7 +18,10 @@ from e2a.v1.generated import models  # noqa: F401
 from e2a.v1.generated.models import *  # noqa: F401,F403
 
 # High-level async client.
-from e2a.v1.client import E2AClient  # noqa: F401
+from e2a.v1.client import AsyncE2AClient  # noqa: F401
+
+# Synchronous facade over the async client.
+from e2a.v1.sync_client import E2AClient, SyncAutoPager, SyncStream  # noqa: F401
 
 # Typed error hierarchy.
 from e2a.v1.errors import (  # noqa: F401
@@ -68,7 +77,10 @@ from e2a.v1.webhook_signature import (  # noqa: F401
 from e2a.v1.websocket import WSEvent, WSStream  # noqa: F401
 
 __all__ = [
+    "AsyncE2AClient",
     "E2AClient",
+    "SyncAutoPager",
+    "SyncStream",
     # Errors
     "E2AError",
     "E2AAuthError",

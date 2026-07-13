@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -162,9 +163,14 @@ func (s *Server) registerAttachments() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages/{id}/attachments/{index}",
 		Summary:     "Get an attachment (metadata + short-lived download URL)",
-		Description: "Returns one attachment's metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent's context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message's `attachments[]`.",
+		Description: "Returns one attachment's metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent's context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected with 413 attachment_too_large. `index` is the 0-based attachment index from the message's `attachments[]`.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Responses: map[string]*huma.Response{
+			"413": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+				"Payload Too Large — code attachment_too_large: `?inline=true` was requested for an attachment over the 256 KB inline cap. Fetch the bytes via download_url instead; the metadata (and this error) tells you the size."),
+			"default": s.errorEnvelopeResponse(),
+		},
 	}, s.handleGetAttachment)
 }
 

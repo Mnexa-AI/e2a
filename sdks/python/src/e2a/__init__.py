@@ -1,18 +1,20 @@
 # Top-level convenience alias — points to the current stable API version (v1).
 #
 # The pinned contract path is `e2a.v1`:
-#   from e2a.v1 import E2AClient
+#   from e2a.v1 import E2AClient        # sync
+#   from e2a.v1 import AsyncE2AClient   # async
 #
 # The top-level `e2a` package re-exports that surface for convenience.
 
 from e2a.v1 import (  # noqa: F401
+    AsyncE2AClient,
     AttachmentMeta,
     AutoPager,
     DomainSendingFailedData,
     DomainSendingVerifiedData,
     DomainSuppressionAddedData,
-    E2AAuthError,
     E2AClient,
+    E2AAuthError,
     E2AConflictError,
     E2AConnectionError,
     E2AError,
@@ -31,6 +33,8 @@ from e2a.v1 import (  # noqa: F401
     EmailReceivedData,
     EmailSentData,
     Page,
+    SyncAutoPager,
+    SyncStream,
     WebhookEvent,
     WSEvent,
     WSStream,
@@ -50,6 +54,9 @@ from e2a.v1 import (  # noqa: F401
 
 __all__ = [
     "E2AClient",
+    "AsyncE2AClient",
+    "SyncAutoPager",
+    "SyncStream",
     "E2AError",
     "E2AAuthError",
     "E2APermissionError",

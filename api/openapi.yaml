@@ -1,7 +1,7 @@
 components:
   schemas:
     APIKeyExportEntry:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         created_at:
           format: date-time
@@ -25,7 +25,7 @@ components:
         - created_at
       type: object
     APIKeyView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           description: Bound inbox email for agent-scoped keys; omitted for account scope.
@@ -60,7 +60,7 @@ components:
         - created_at
       type: object
     AccountUserView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         email:
           type: string
@@ -71,7 +71,7 @@ components:
         - email
       type: object
     AccountView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           type: string
@@ -99,7 +99,7 @@ components:
         - upgrade_url
       type: object
     AgentIdentity:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         created_at:
           format: date-time
@@ -173,8 +173,9 @@ components:
           type: integer
         user_id:
           type: string
-        webhook_healthy:
-          type: boolean
+        webhook_status:
+          description: "Webhook posture for this agent, derived from the account's webhook subscribers that match it (a webhook with no agent filter matches every agent). Open set; tolerate unknown values. Known values: none (no webhook matches this agent), healthy (an enabled webhook matches and none serving this agent has a terminally-failed delivery in the last 24h), failing (an enabled webhook matches but at least one delivery on a matching enabled webhook terminally failed in the last 24h), disabled (webhooks match but every one is disabled, turned off manually), auto_disabled (webhooks match, every one is disabled, and at least one was auto-disabled by the chronic-failure sweep). Present on enriched surfaces (account export, dashboard agent list); absent where not computed."
+          type: string
       required:
         - domain
         - email
@@ -188,7 +189,6 @@ components:
         - inbound_7d
         - outbound_7d
         - pending_count
-        - webhook_healthy
         - inbound_policy
         - inbound_policy_action
         - outbound_policy
@@ -203,7 +203,7 @@ components:
         - outbound_scan_sensitivity
       type: object
     AgentView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         created_at:
           format: date-time
@@ -289,7 +289,7 @@ components:
         - index
       type: object
     AttachmentMetaView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         content_type:
           type: string
@@ -306,7 +306,7 @@ components:
         - size_bytes
       type: object
     AttachmentView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         content_type:
           type: string
@@ -332,7 +332,7 @@ components:
         - expires_at
       type: object
     AuthVerdict:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         dkim:
           $ref: "#/components/schemas/CheckResult"
@@ -346,7 +346,7 @@ components:
         - dmarc
       type: object
     CheckResult:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         detail:
           type: string
@@ -356,7 +356,7 @@ components:
         - status
       type: object
     ConversationDetailView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         first_message_at:
           format: date-time
@@ -408,7 +408,7 @@ components:
         - latest_from
       type: object
     ConversationSummaryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         first_message_at:
           format: date-time
@@ -465,7 +465,7 @@ components:
           type: string
       type: object
     CreateAPIKeyResponse:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           description: Bound inbox email for agent-scoped keys; omitted for account scope.
@@ -535,6 +535,7 @@ components:
           description: Plain-text body template source (no HTML escaping). Required unless from_starter is set.
           type: string
       type: object
+      x-stability: experimental
     CreateWebhookRequest:
       additionalProperties: false
       properties:
@@ -560,8 +561,14 @@ components:
               - email.review_requested
             type: string
           type: array
+          x-experimental-values:
+            - email.flagged
+            - email.blocked
+            - email.review_requested
+            - email.review_approved
+            - email.review_rejected
         filters:
-          $ref: "#/components/schemas/WebhookFiltersView"
+          $ref: "#/components/schemas/WebhookFiltersRequest"
         url:
           type: string
       required:
@@ -569,7 +576,7 @@ components:
         - events
       type: object
     CreateWebhookResponse:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         auto_disabled_at:
           format: date-time
@@ -586,6 +593,12 @@ components:
           items:
             type: string
           type: array
+          x-experimental-values:
+            - email.flagged
+            - email.blocked
+            - email.review_requested
+            - email.review_approved
+            - email.review_rejected
         filters:
           $ref: "#/components/schemas/WebhookFiltersView"
         id:
@@ -608,7 +621,7 @@ components:
         - created_at
       type: object
     DNSRecord:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         name:
           description: Record name (host). The apex domain for ownership/inbound_mx; an FQDN for dkim/mail_from records.
@@ -640,7 +653,7 @@ components:
         - status
       type: object
     DeleteUserDataResult:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agents_deleted:
           format: int64
@@ -685,7 +698,7 @@ components:
         - user_deleted
       type: object
     DeliveryStatusJSON:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         delivered:
           format: int64
@@ -706,7 +719,7 @@ components:
         - failed
       type: object
     DeploymentInfoView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         public_url:
           type: string
@@ -722,7 +735,7 @@ components:
         - slug_registration_enabled
       type: object
     Domain:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_count:
           format: int64
@@ -811,7 +824,7 @@ components:
         - source
       type: object
     DomainView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_count:
           format: int64
@@ -1088,7 +1101,7 @@ components:
         - message_type
       type: object
     ErrorBody:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         code:
           description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Known values: invalid_request, unauthorized, forbidden, not_found, conflict, gone, method_not_allowed, payload_too_large, unsupported_media_type, rate_limited, limit_exceeded, internal_error — plus resource-specific codes (e.g. domain_not_verified, invalid_cursor, idempotency_in_flight, idempotency_key_reuse) and the *_not_found / *_exists suffix families. A single canonical code, invalid_request, covers all input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid)."
@@ -1109,7 +1122,7 @@ components:
         - message
       type: object
     ErrorEnvelope:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         error:
           $ref: "#/components/schemas/ErrorBody"
@@ -1117,7 +1130,7 @@ components:
         - error
       type: object
     EventJSON:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           type: string
@@ -1154,7 +1167,7 @@ components:
         - data
       type: object
     FieldError:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         location:
           description: Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field.
@@ -1199,7 +1212,7 @@ components:
         - text
       type: object
     LimitExceededDetails:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         current:
           description: The account's usage at the time the cap was hit (matches usage.<resource>).
@@ -1229,7 +1242,7 @@ components:
         - current
       type: object
     LimitExceededEnvelope:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         error:
           $ref: "#/components/schemas/LimitExceededErrorBody"
@@ -1237,7 +1250,7 @@ components:
         - error
       type: object
     LimitExceededErrorBody:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         code:
           description: Always limit_exceeded for this response.
@@ -1256,7 +1269,7 @@ components:
         - details
       type: object
     LimitsCapsView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         max_agents:
           format: int64
@@ -1277,7 +1290,7 @@ components:
         - max_storage_bytes
       type: object
     LimitsUsageView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agents:
           format: int64
@@ -1298,7 +1311,7 @@ components:
         - storage_bytes
       type: object
     Message:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           type: string
@@ -1428,7 +1441,7 @@ components:
         - expires_at
       type: object
     MessageBodyView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         html:
           type: string
@@ -1436,7 +1449,7 @@ components:
           type: string
       type: object
     MessageParsedView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         html:
           type: string
@@ -1449,7 +1462,7 @@ components:
         - truncated
       type: object
     MessageSummaryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         auth:
           $ref: "#/components/schemas/AuthVerdict"
@@ -1525,7 +1538,7 @@ components:
         - created_at
       type: object
     MessageView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         attachments:
           items:
@@ -1621,7 +1634,7 @@ components:
         - attachments
       type: object
     OAuthConnectionEntry:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           type: string
@@ -1648,7 +1661,7 @@ components:
         - issued_at
       type: object
     PageAPIKeyView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1663,7 +1676,7 @@ components:
         - next_cursor
       type: object
     PageAgentView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1678,7 +1691,7 @@ components:
         - next_cursor
       type: object
     PageConversationSummaryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1693,7 +1706,7 @@ components:
         - next_cursor
       type: object
     PageDomainView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1708,7 +1721,7 @@ components:
         - next_cursor
       type: object
     PageEventJSON:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1723,7 +1736,7 @@ components:
         - next_cursor
       type: object
     PageMessageSummaryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1738,7 +1751,7 @@ components:
         - next_cursor
       type: object
     PageReviewView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1753,7 +1766,7 @@ components:
         - next_cursor
       type: object
     PageStarterTemplateView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1767,8 +1780,9 @@ components:
         - items
         - next_cursor
       type: object
+      x-stability: experimental
     PageSuppression:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1783,7 +1797,7 @@ components:
         - next_cursor
       type: object
     PageTemplateSummaryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1797,8 +1811,9 @@ components:
         - items
         - next_cursor
       type: object
+      x-stability: experimental
     PageWebhookDeliveryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1813,7 +1828,7 @@ components:
         - next_cursor
       type: object
     PageWebhookView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         items:
           items:
@@ -1827,8 +1842,23 @@ components:
         - items
         - next_cursor
       type: object
-    ProtectionConfigView:
+    ProtectionConfigRequest:
       additionalProperties: false
+      properties:
+        holds:
+          $ref: "#/components/schemas/ProtectionHoldsRequest"
+        inbound:
+          $ref: "#/components/schemas/ProtectionDirectionRequest"
+        outbound:
+          $ref: "#/components/schemas/ProtectionDirectionRequest"
+      required:
+        - inbound
+        - outbound
+        - holds
+      type: object
+      x-stability: experimental
+    ProtectionConfigView:
+      additionalProperties: true
       properties:
         holds:
           $ref: "#/components/schemas/ProtectionHoldsView"
@@ -1841,8 +1871,21 @@ components:
         - outbound
         - holds
       type: object
-    ProtectionDirectionView:
+      x-stability: experimental
+    ProtectionDirectionRequest:
       additionalProperties: false
+      properties:
+        gate:
+          $ref: "#/components/schemas/ProtectionGateRequest"
+        scan:
+          $ref: "#/components/schemas/ProtectionScanRequest"
+      required:
+        - gate
+        - scan
+      type: object
+      x-stability: experimental
+    ProtectionDirectionView:
+      additionalProperties: true
       properties:
         gate:
           $ref: "#/components/schemas/ProtectionGateView"
@@ -1852,8 +1895,9 @@ components:
         - gate
         - scan
       type: object
+      x-stability: experimental
     ProtectionEventExportEntry:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         action:
           type: string
@@ -1889,7 +1933,7 @@ components:
         - action
         - created_at
       type: object
-    ProtectionGateView:
+    ProtectionGateRequest:
       additionalProperties: false
       properties:
         action:
@@ -1915,7 +1959,35 @@ components:
             - domain
           type: string
       type: object
-    ProtectionHoldsView:
+      x-stability: experimental
+    ProtectionGateView:
+      additionalProperties: true
+      properties:
+        action:
+          default: flag
+          description: "What a gate non-match does: flag (deliver + annotate), review (hold), block."
+          enum:
+            - flag
+            - review
+            - block
+          type: string
+        allowlist:
+          description: "Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."
+          items:
+            type: string
+          maxItems: 1000
+          type: array
+        policy:
+          default: open
+          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."
+          enum:
+            - open
+            - allowlist
+            - domain
+          type: string
+      type: object
+      x-stability: experimental
+    ProtectionHoldsRequest:
       additionalProperties: false
       properties:
         on_expiry:
@@ -1932,7 +2004,26 @@ components:
           minimum: 0
           type: integer
       type: object
-    ProtectionScanView:
+      x-stability: experimental
+    ProtectionHoldsView:
+      additionalProperties: true
+      properties:
+        on_expiry:
+          default: reject
+          description: What happens to a held item when its TTL expires.
+          enum:
+            - approve
+            - reject
+          type: string
+        ttl_seconds:
+          default: 604800
+          description: How long a held item waits before its on_expiry action fires.
+          format: int64
+          minimum: 0
+          type: integer
+      type: object
+      x-stability: experimental
+    ProtectionScanRequest:
       additionalProperties: false
       properties:
         sensitivity:
@@ -1945,8 +2036,23 @@ components:
             - high
           type: string
       type: object
+      x-stability: experimental
+    ProtectionScanView:
+      additionalProperties: true
+      properties:
+        sensitivity:
+          default: "off"
+          description: "Content-scan sensitivity: off disables; low|medium|high increase aggressiveness."
+          enum:
+            - "off"
+            - low
+            - medium
+            - high
+          type: string
+      type: object
+      x-stability: experimental
     RateLimitedDetails:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         retry_after_seconds:
           description: Seconds to wait before retrying; mirrors the Retry-After response header. Always ≥ 1.
@@ -1956,7 +2062,7 @@ components:
         - retry_after_seconds
       type: object
     RateLimitedEnvelope:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         error:
           $ref: "#/components/schemas/RateLimitedErrorBody"
@@ -1964,7 +2070,7 @@ components:
         - error
       type: object
     RateLimitedErrorBody:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         code:
           description: Always rate_limited for this response.
@@ -1983,7 +2089,7 @@ components:
         - details
       type: object
     RedeliverDelivery:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         delivery_id:
           type: string
@@ -2005,7 +2111,7 @@ components:
           type: string
       type: object
     RedeliverView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         deliveries:
           items:
@@ -2039,7 +2145,7 @@ components:
           type: string
       type: object
     RejectResultView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         message_id:
           type: string
@@ -2052,7 +2158,7 @@ components:
         - message_id
       type: object
     RenderedTemplateView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         html:
           type: string
@@ -2064,6 +2170,7 @@ components:
         - subject
         - text
       type: object
+      x-stability: experimental
     ReplyRequest:
       additionalProperties: false
       properties:
@@ -2095,7 +2202,7 @@ components:
         - text
       type: object
     Result:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         dkim:
           $ref: "#/components/schemas/CheckResult"
@@ -2109,7 +2216,7 @@ components:
         - dmarc
       type: object
     ReviewView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           description: The inbox (agent address) the held message belongs to.
@@ -2153,7 +2260,7 @@ components:
         - created_at
       type: object
     RotateSecretResponse:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         previous_secret_expires_at:
           format: date-time
@@ -2194,13 +2301,16 @@ components:
         template_alias:
           description: "Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
+          x-stability: experimental
         template_data:
           additionalProperties: {}
           description: "Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable."
           type: object
+          x-stability: experimental
         template_id:
           description: "Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
+          x-stability: experimental
         text:
           description: Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
           type: string
@@ -2212,7 +2322,7 @@ components:
         - to
       type: object
     SendResultView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         approval_expires_at:
           format: date-time
@@ -2238,7 +2348,7 @@ components:
         - message_id
       type: object
     StarterTemplateDetailView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         alias:
           type: string
@@ -2271,8 +2381,9 @@ components:
         - subject
         - variables
       type: object
+      x-stability: experimental
     StarterTemplateVariableView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         description:
           type: string
@@ -2294,8 +2405,9 @@ components:
         - description
         - example
       type: object
+      x-stability: experimental
     StarterTemplateView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         alias:
           type: string
@@ -2320,8 +2432,9 @@ components:
         - subject
         - variables
       type: object
+      x-stability: experimental
     Suppression:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         address:
           type: string
@@ -2340,7 +2453,7 @@ components:
         - created_at
       type: object
     SuppressionExportEntry:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         address:
           type: string
@@ -2357,7 +2470,7 @@ components:
         - created_at
       type: object
     TemplatePartError:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         message:
           type: string
@@ -2368,8 +2481,9 @@ components:
         - part
         - message
       type: object
+      x-stability: experimental
     TemplateSummaryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         alias:
           description: Optional per-user unique handle usable as template_alias on send.
@@ -2393,8 +2507,9 @@ components:
         - created_at
         - updated_at
       type: object
+      x-stability: experimental
     TemplateView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         alias:
           description: Optional per-user unique handle usable as template_alias on send.
@@ -2431,6 +2546,7 @@ components:
         - created_at
         - updated_at
       type: object
+      x-stability: experimental
     TestWebhookRequest:
       additionalProperties: false
       properties:
@@ -2456,7 +2572,7 @@ components:
           type: string
       type: object
     TestWebhookResponse:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         delivery_id:
           type: string
@@ -2484,7 +2600,7 @@ components:
           type: array
       type: object
     UpdateMessageResultView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         labels:
           items:
@@ -2512,6 +2628,7 @@ components:
         text:
           type: string
       type: object
+      x-stability: experimental
     UpdateWebhookRequest:
       additionalProperties: false
       properties:
@@ -2539,13 +2656,19 @@ components:
               - email.review_requested
             type: string
           type: array
+          x-experimental-values:
+            - email.flagged
+            - email.blocked
+            - email.review_requested
+            - email.review_approved
+            - email.review_rejected
         filters:
-          $ref: "#/components/schemas/WebhookFiltersView"
+          $ref: "#/components/schemas/WebhookFiltersRequest"
         url:
           type: string
       type: object
     UsageEventEntry:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agent_email:
           type: string
@@ -2569,7 +2692,7 @@ components:
         - created_at
       type: object
     UserExport:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         agents:
           items:
@@ -2622,7 +2745,7 @@ components:
         - protection_events
       type: object
     UserExportUser:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         created_at:
           format: date-time
@@ -2653,8 +2776,9 @@ components:
         text:
           type: string
       type: object
+      x-stability: experimental
     ValidateTemplateResponse:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         errors:
           items:
@@ -2673,8 +2797,9 @@ components:
         - valid
         - errors
       type: object
+      x-stability: experimental
     ValidationErrorDetails:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         fields:
           description: The fields that failed validation. May be empty when the failure is request-wide rather than field-specific.
@@ -2687,7 +2812,7 @@ components:
         - fields
       type: object
     VerifyDomainView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         dkim:
           description: "Live DKIM probe state. Known values: found, missing, deferred, mismatch. 'mismatch' means a DKIM record IS published at the selector but its key doesn't match the issued one — almost always a truncated/clipped TXT (the value is ~400 chars and must be published in full, ending in 'AQAB'). On 'mismatch', re-publish the complete DKIM record; do not just wait."
@@ -2708,7 +2833,7 @@ components:
         - verified
       type: object
     WebhookDeliveryView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         attempts:
           format: int64
@@ -2743,7 +2868,7 @@ components:
         - next_retry_at
         - created_at
       type: object
-    WebhookFiltersView:
+    WebhookFiltersRequest:
       additionalProperties: false
       properties:
         agent_emails:
@@ -2759,8 +2884,24 @@ components:
             type: string
           type: array
       type: object
+    WebhookFiltersView:
+      additionalProperties: true
+      properties:
+        agent_emails:
+          items:
+            type: string
+          type: array
+        conversation_ids:
+          items:
+            type: string
+          type: array
+        labels:
+          items:
+            type: string
+          type: array
+      type: object
     WebhookView:
-      additionalProperties: false
+      additionalProperties: true
       properties:
         auto_disabled_at:
           format: date-time
@@ -2777,6 +2918,12 @@ components:
           items:
             type: string
           type: array
+          x-experimental-values:
+            - email.flagged
+            - email.blocked
+            - email.review_requested
+            - email.review_approved
+            - email.review_rejected
         filters:
           $ref: "#/components/schemas/WebhookFiltersView"
         id:
@@ -2801,7 +2948,16 @@ components:
       scheme: bearer
       type: http
 info:
-  description: e2a — authenticated email gateway for AI agents. v1 contract.
+  description: |-
+    e2a — authenticated email gateway for AI agents. v1 contract.
+
+    ## Stability policy
+
+    The v1 surface is stable and evolves **additively only**: new endpoints, new optional request fields, new response fields, and new values in open string sets (event types, statuses) may appear at any time without a version bump. Clients MUST tolerate unknown response fields and unknown values in open string sets. This is machine-readable in the schemas: response schemas declare `additionalProperties: true`; request schemas stay strict (`additionalProperties: false` — an unknown request field is rejected with 422).
+
+    Operations and schemas marked `x-stability: experimental` are exempt from this freeze and may change or be removed without a major version. A field marked `x-experimental-values` is itself stable, but the listed values (and their event payloads) are experimental. Everything not marked experimental is stable.
+
+    Removing or changing stable surface only happens on a new major version path (/v2); deprecations are announced ahead of time via `deprecated: true` in this document and keep working within v1.
   title: e2a API
   version: 1.0.0
 openapi: 3.1.0
@@ -3457,9 +3613,11 @@ paths:
           required: true
           schema:
             type: string
-        - in: header
+        - description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
+          in: header
           name: Idempotency-Key
           schema:
+            description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
             type: string
         - description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
           explode: false
@@ -3473,11 +3631,6 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/SendEmailRequest"
-          application/octet-stream:
-            schema:
-              contentMediaType: application/octet-stream
-              format: binary
-              type: string
         required: true
       responses:
         "200":
@@ -3504,12 +3657,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Payload Too Large — an attachment exceeds 10 MB decoded, or the combined attachments exceed 25 MB decoded. error.code = payload_too_large; error.details carries the offending size and the limit.
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
         "429":
           content:
             application/json:
@@ -3604,7 +3769,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/attachments/{index}:
     get:
-      description: Returns one attachment's metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent's context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected. `index` is the 0-based attachment index from the message's `attachments[]`.
+      description: Returns one attachment's metadata plus a short-lived `download_url` (+ `expires_at`) to fetch the bytes out of band — so binary content never streams through an agent's context. Pass `?inline=true` to also receive base64 `data` for small attachments (<= 256 KB); larger inline requests are rejected with 413 attachment_too_large. `index` is the 0-based attachment index from the message's `attachments[]`.
       operationId: getAttachment
       parameters:
         - in: path
@@ -3638,12 +3803,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/AttachmentView"
           description: OK
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Payload Too Large — code attachment_too_large: `?inline=true` was requested for an attachment over the 256 KB inline cap. Fetch the bytes via download_url instead; the metadata (and this error) tells you the size."
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Get an attachment (metadata + short-lived download URL)
@@ -3664,9 +3835,11 @@ paths:
           required: true
           schema:
             type: string
-        - in: header
+        - description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
+          in: header
           name: Idempotency-Key
           schema:
+            description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
             type: string
         - description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
           explode: false
@@ -3680,11 +3853,6 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ForwardRequest"
-          application/octet-stream:
-            schema:
-              contentMediaType: application/octet-stream
-              format: binary
-              type: string
         required: true
       responses:
         "200":
@@ -3711,12 +3879,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Payload Too Large — an attachment exceeds 10 MB decoded, or the combined attachments exceed 25 MB decoded. error.code = payload_too_large; error.details carries the offending size and the limit.
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
         "429":
           content:
             application/json:
@@ -3749,9 +3929,11 @@ paths:
           required: true
           schema:
             type: string
-        - in: header
+        - description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
+          in: header
           name: Idempotency-Key
           schema:
+            description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
             type: string
         - description: "Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."
           explode: false
@@ -3765,11 +3947,6 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ReplyRequest"
-          application/octet-stream:
-            schema:
-              contentMediaType: application/octet-stream
-              format: binary
-              type: string
         required: true
       responses:
         "200":
@@ -3796,12 +3973,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Payload Too Large — an attachment exceeds 10 MB decoded, or the combined attachments exceed 25 MB decoded. error.code = payload_too_large; error.details carries the offending size and the limit.
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
         "429":
           content:
             application/json:
@@ -3849,6 +4038,7 @@ paths:
       summary: Get an agent's protection config (beta)
       tags:
         - agents
+      x-stability: experimental
     put:
       description: "Replace the agent's protection posture wholesale. The three top-level keys (inbound, outbound, holds) are required; leaves default. Account scope only. Beta: the agent protection config is unstable — its shape may change before it is declared stable."
       operationId: putAgentProtection
@@ -3864,7 +4054,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ProtectionConfigView"
+              $ref: "#/components/schemas/ProtectionConfigRequest"
         required: true
       responses:
         "200":
@@ -3884,6 +4074,7 @@ paths:
       summary: Replace an agent's protection config (beta)
       tags:
         - agents
+      x-stability: experimental
   /v1/agents/{email}/test:
     post:
       description: Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
@@ -4330,20 +4521,17 @@ paths:
           required: true
           schema:
             type: string
-        - in: header
+        - description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
+          in: header
           name: Idempotency-Key
           schema:
+            description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
             type: string
       requestBody:
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/ApproveRequest"
-          application/octet-stream:
-            schema:
-              contentMediaType: application/octet-stream
-              format: binary
-              type: string
         required: true
       responses:
         "200":
@@ -4352,6 +4540,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — branch on error.code. message_not_pending: the hold was already resolved (approved/rejected/expired) and cannot be re-approved. idempotency_in_flight: a request with this Idempotency-Key is still executing — wait for it to finish, then retry with the SAME key and byte-identical body to replay its response."
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
         "429":
           content:
             application/json:
@@ -4444,6 +4644,7 @@ paths:
       summary: List starter templates (beta)
       tags:
         - templates
+      x-stability: experimental
   /v1/starter-templates/{alias}:
     get:
       description: "Fetch one starter template by alias, including its full plain-text and HTML body sources. Beta: templates are unstable — their shape may change before they are declared stable."
@@ -4474,6 +4675,7 @@ paths:
       summary: Get a starter template (beta)
       tags:
         - templates
+      x-stability: experimental
   /v1/templates:
     get:
       description: "List the account's templates, newest first. Returns metadata only (no text/html); fetch one by id for the full sources. Beta: templates are unstable — their shape may change before they are declared stable."
@@ -4515,6 +4717,7 @@ paths:
       summary: List templates (beta)
       tags:
         - templates
+      x-stability: experimental
     post:
       description: "Create a reusable email template. subject and text (and html when present) must parse: {{variable}} interpolation with dot paths; {{{variable}}} renders raw in the HTML part. Alternatively set from_starter to copy a starter template verbatim. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: createTemplate
@@ -4542,6 +4745,7 @@ paths:
       summary: Create a template (beta)
       tags:
         - templates
+      x-stability: experimental
   /v1/templates/validate:
     post:
       description: "Dry-run template source without persisting: reports per-part parse errors, a rendered preview (against test_data when provided), and suggested_data — a placeholder value for every variable the source references. Beta: templates are unstable — their shape may change before they are declared stable."
@@ -4570,6 +4774,7 @@ paths:
       summary: Validate template source (beta)
       tags:
         - templates
+      x-stability: experimental
   /v1/templates/{id}:
     delete:
       description: "Delete a template. In-flight sends are unaffected (rendering happens at send time). Requires ?confirm=DELETE. Beta: templates are unstable — their shape may change before they are declared stable."
@@ -4604,6 +4809,7 @@ paths:
       summary: Delete a template (beta)
       tags:
         - templates
+      x-stability: experimental
     get:
       description: "Fetch one template by id. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: getTemplate
@@ -4631,6 +4837,7 @@ paths:
       summary: Get a template (beta)
       tags:
         - templates
+      x-stability: experimental
     patch:
       description: "Partial update. Changed template parts are re-parsed; set alias or html to \"\" to clear them. Beta: templates are unstable — their shape may change before they are declared stable."
       operationId: updateTemplate
@@ -4664,6 +4871,7 @@ paths:
       summary: Update a template (beta)
       tags:
         - templates
+      x-stability: experimental
   /v1/webhooks:
     get:
       description: List the webhooks owned by the authenticated account, newest first, with cursor pagination.
@@ -4813,12 +5021,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookView"
           description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. Retry after the cooldown, or fix the endpoint first."
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Update a webhook
@@ -4879,7 +5093,7 @@ paths:
         - webhooks
   /v1/webhooks/{id}/rotate-secret:
     post:
-      description: Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice.
+      description: Mint a new signing secret; the previous one stays valid for a 24h grace window. Returns the new secret (shown once). Honors Idempotency-Key so a retried rotate replays the same secret instead of rotating twice (rotate has no request body, so the dedup hash covers the route alone — the same key on a different webhook id is a 422 idempotency_key_reuse).
       operationId: rotateWebhookSecret
       parameters:
         - in: path
@@ -4887,9 +5101,11 @@ paths:
           required: true
           schema:
             type: string
-        - in: header
+        - description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
+          in: header
           name: Idempotency-Key
           schema:
+            description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."
             type: string
       responses:
         "200":
@@ -4898,12 +5114,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/RotateSecretResponse"
           description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Error — the standard envelope; branch on error.code.
       security:
         - bearer: []
       summary: Rotate a webhook signing secret

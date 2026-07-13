@@ -3,6 +3,7 @@ import { E2AError } from "@e2a/sdk/v1";
 
 export type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
+  structuredContent?: { [key: string]: unknown };
   isError?: boolean;
 };
 
@@ -62,30 +63,100 @@ export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
           : JSON.stringify(result, null, 2);
     return { content: [{ type: "text", text }] };
   } catch (err) {
+    // Every tool error carries BOTH representations (GA review Tier-2 #12/#31):
+    //
+    //  * `content` (text) — the human/legacy form. Its wording is a de-facto
+    //    FROZEN contract (`e2a error [code](retryable)?: msg` for API errors,
+    //    `e2a error: msg` for wrapper errors) because deployed agents regex it.
+    //    Do NOT change it.
+    //  * `structuredContent` — the sanctioned machine-branchable form (see
+    //    structuredError below): { code, retryable, status?, request_id?,
+    //    retry_after_seconds?, details? }. New agents should branch on this
+    //    instead of parsing the text.
+    //
+    // The MCP SDK explicitly exempts isError results from outputSchema
+    // validation and allows structuredContent without a declared schema, so
+    // this is additive and non-breaking for every client.
+    const structured = structuredError(err);
     // Surface the API envelope's machine-branchable `code` (§6a #4) so an agent
     // can branch on a stable code (e.g. domain_not_verified, message_not_pending,
     // recipient_suppressed) instead of parsing prose. The retryable hint tells
     // it whether a retry could ever help. Errors thrown by the wrapper itself
     // (plain Error — e.g. "email is required") have no code and fall through to
-    // the prose form.
+    // the prose form (text stays code-less; structuredContent still carries a
+    // stable code).
     if (err instanceof E2AError && err.code) {
       const retry = err.retryable ? " (retryable)" : "";
       // Only the `code` (a trusted snake_case token) goes inside the brackets.
       // The message is free-form and can echo caller/recipient input, so bound +
       // sanitize it: strip control chars/newlines (keep the `[code]` convention
-      // parseable) and cap length (avoid context blowup). We surface code +
-      // message only — never the raw response body, headers, or request_id.
+      // parseable) and cap length (avoid context blowup). The text carries code +
+      // message only; request_id/details ride in structuredContent (details
+      // size-capped there).
       return {
         content: [{ type: "text", text: `e2a error [${err.code}]${retry}: ${sanitizeMessage(err.message)}` }],
+        structuredContent: structured,
         isError: true,
       };
     }
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `e2a error: ${sanitizeMessage(message)}` }],
+      structuredContent: structured,
       isError: true,
     };
   }
+}
+
+// structuredError builds the machine-branchable error payload emitted as
+// `structuredContent` on every isError tool result.
+//
+// Shape (stable, additive-only post-GA):
+//   code                 stable snake_case token — ALWAYS present. API errors
+//                        carry the envelope code (domain_not_verified,
+//                        rate_limited, …); wrapper-thrown validation errors
+//                        (missing agent arg, confirm guard) reuse the server's
+//                        canonical validation code `invalid_request`.
+//   retryable            boolean — ALWAYS present; true when a retry could
+//                        plausibly succeed (429 / 5xx / connection).
+//   status               HTTP status of the API response (0 = connection-level
+//                        failure). ABSENT for wrapper errors: no request was
+//                        ever made.
+//   request_id           server X-Request-Id — quote it in support requests.
+//   retry_after_seconds  back-off hint (Retry-After header or the send-path
+//                        429's details.retry_after_seconds).
+//   details              envelope `error.details` (field-level validation
+//                        info). Omitted when it doesn't JSON-serialize or its
+//                        JSON exceeds MAX_DETAILS_JSON_LEN (context-blowup /
+//                        echoed-input guard, mirroring sanitizeMessage).
+const MAX_DETAILS_JSON_LEN = 2000;
+function structuredError(err: unknown): { [key: string]: unknown } {
+  if (err instanceof E2AError) {
+    const out: { [key: string]: unknown } = {
+      // toE2AError always synthesizes a code; "error" only guards a
+      // hand-constructed codeless E2AError (mirrors the SDK's own fallback).
+      code: err.code || "error",
+      retryable: err.retryable,
+      status: err.status,
+    };
+    if (err.requestId) out.request_id = err.requestId;
+    if (err.retryAfterSeconds !== undefined) out.retry_after_seconds = err.retryAfterSeconds;
+    if (err.details !== undefined) {
+      try {
+        const json = JSON.stringify(err.details);
+        if (json !== undefined && json.length <= MAX_DETAILS_JSON_LEN) out.details = err.details;
+      } catch {
+        // Unserializable (cycles, BigInt) — omit rather than fail the result.
+      }
+    }
+    return out;
+  }
+  // Wrapper-thrown validation error (plain Error from the MCP layer itself —
+  // e.g. "delete_agent requires confirm:true", missing agent selection). It is
+  // always a caller-input problem, so reuse the server's canonical validation
+  // code instead of surfacing no code at all. No status/request_id: no HTTP
+  // exchange happened.
+  return { code: "invalid_request", retryable: false };
 }
 
 // sanitizeMessage makes an error message safe to splice into the single-line

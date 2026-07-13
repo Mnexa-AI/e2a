@@ -1,15 +1,17 @@
-"""Unit tests for the namespaced async E2AClient (Slice 8c-2).
+"""Unit tests for the namespaced AsyncE2AClient (Slice 8c-2).
 
 Mocks httpx (the layer the generated base uses) so these exercise the full
 stack: namespaced resource -> generated *Api -> bearer auth -> retry layer ->
 httpx -> envelope unwrap -> typed-error mapping.
 """
 
+import json
+
 import httpx
 import pytest
 
 from e2a.v1._retry import RetryConfig
-from e2a.v1.client import E2AClient
+from e2a.v1.client import AsyncE2AClient
 from e2a.v1.errors import (
     E2AConflictError,
     E2AConnectionError,
@@ -116,7 +118,7 @@ def _client():
     async def no_sleep(_s):
         return None
 
-    return E2AClient(
+    return AsyncE2AClient(
         api_key="e2a_test", base_url=BASE, _retry_config=RetryConfig(sleep=no_sleep)
     )
 
@@ -125,7 +127,7 @@ def _client():
 
 def test_requires_api_key():
     with pytest.raises(E2AError, match="api_key is required"):
-        E2AClient(base_url=BASE)
+        AsyncE2AClient(base_url=BASE)
 
 
 def test_resources_exposed():
@@ -146,7 +148,7 @@ def test_resources_exposed():
 )
 def test_timeout_ms_to_seconds(timeout_ms, expected_s):
     kwargs = {} if timeout_ms is None else {"timeout_ms": timeout_ms}
-    c = E2AClient(api_key="e2a_test", base_url=BASE, **kwargs)
+    c = AsyncE2AClient(api_key="e2a_test", base_url=BASE, **kwargs)
     assert c._timeout_s == expected_s
 
 
@@ -164,7 +166,7 @@ async def test_timeout_injected_into_transport(monkeypatch):
         raise httpx.ConnectError("boom")  # short-circuit; we only inspect the arg
 
     monkeypatch.setattr(_rest_mod.RESTClientObject, "request", spy)
-    c = E2AClient(api_key="e2a_test", base_url=BASE, timeout_ms=5_000.0)
+    c = AsyncE2AClient(api_key="e2a_test", base_url=BASE, timeout_ms=5_000.0)
     with pytest.raises(httpx.ConnectError):
         await c._api_client.rest_client.request("GET", "http://test.local/x")
     assert seen["timeout"] == 5.0
@@ -179,7 +181,7 @@ async def test_request_timeout_surfaces_as_connection_error(httpx_mock):
     async def no_sleep(_s):
         return None
 
-    c = E2AClient(
+    c = AsyncE2AClient(
         api_key="e2a_test",
         base_url=BASE,
         timeout_ms=50.0,
@@ -419,8 +421,8 @@ async def test_suppressions_list_threads_cursor(httpx_mock):
 
 
 # ── pagination: keyset-cursor list endpoints ────────────────────────
-# agents/domains/webhooks/deliveries/api-keys are all keyset-paginated on
-# (created_at, id) now — the AutoPager must thread next_cursor to completion,
+# agents/domains/webhooks/deliveries/api-keys/templates/starters are all
+# keyset-paginated — the AutoPager must thread next_cursor to completion,
 # exactly like messages/events/suppressions. This locks in the
 # consistent-pagination contract (no more silent single-page cap).
 
@@ -459,8 +461,20 @@ async def test_suppressions_list_threads_cursor(httpx_mock):
             lambda c: c.account.api_keys.list(),
             lambda r: r.id,
         ),
+        (
+            {"items": [_valid(TemplateSummaryView, id="tmpl_1")], "next_cursor": "cur_2"},
+            {"items": [_valid(TemplateSummaryView, id="tmpl_2")], "next_cursor": None},
+            lambda c: c.templates.list(),
+            lambda r: r.id,
+        ),
+        (
+            {"items": [_valid(StarterTemplateView, alias="welcome")], "next_cursor": "cur_2"},
+            {"items": [_valid(StarterTemplateView, alias="digest")], "next_cursor": None},
+            lambda c: c.templates.list_starters(),
+            lambda r: r.alias,
+        ),
     ],
-    ids=["agents", "domains", "webhooks", "deliveries", "api_keys"],
+    ids=["agents", "domains", "webhooks", "deliveries", "api_keys", "templates", "starters"],
 )
 async def test_keyset_lists_thread_cursor(httpx_mock, page1, page2, lister, key):
     httpx_mock.add_response(json=page1)
@@ -473,34 +487,57 @@ async def test_keyset_lists_thread_cursor(httpx_mock, page1, page2, lister, key)
     assert "cursor=cur_2" in str(reqs[1].url)
 
 
-# ── pagination: cursorless (single-page) list endpoints ─────────────
-# templates + the starter catalog stay single-page at GA (beta shapes): the
-# AutoPager must NOT thread a next_cursor even if the server echoes one, so it
-# stops after exactly one request. Guards against templates accidentally
-# picking up keyset threading like the endpoints above.
+# ── pagination: multi-page walk + manual page() resume ──────────────
+# End-to-end guard on the two properties auto-pagination must hold: a full
+# multi-page walk yields every item exactly once (no loss, no dupes), and the
+# manual `page(cursor)` primitive lets a caller checkpoint on next_cursor and
+# resume mid-listing (parity with the TS SDK's `pager.page()`).
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "fixture, lister",
-    [
-        (
-            {"items": [_valid(TemplateSummaryView, id="tmpl_1")], "next_cursor": "IGNORE_ME"},
-            lambda c: c.templates.list(),
-        ),
-        (
-            {"items": [_valid(StarterTemplateView, alias="welcome")], "next_cursor": "IGNORE_ME"},
-            lambda c: c.templates.list_starters(),
-        ),
-    ],
-    ids=["templates", "starters"],
-)
-async def test_cursorless_lists_stop_after_one_page(httpx_mock, fixture, lister):
-    httpx_mock.add_response(json=fixture)
+async def test_templates_list_walks_all_pages_no_loss_no_dupes(httpx_mock):
+    httpx_mock.add_response(
+        json={"items": [_valid(TemplateSummaryView, id="tmpl_1"), _valid(TemplateSummaryView, id="tmpl_2")], "next_cursor": "cur_2"}
+    )
+    httpx_mock.add_response(
+        json={"items": [_valid(TemplateSummaryView, id="tmpl_3")], "next_cursor": "cur_3"}
+    )
+    httpx_mock.add_response(
+        json={"items": [_valid(TemplateSummaryView, id="tmpl_4")], "next_cursor": None}
+    )
     async with _client() as c:
-        items = await lister(c).to_list(limit=100)
-    assert len(items) == 1
-    assert len(httpx_mock.get_requests()) == 1
+        items = await c.templates.list(limit=2).to_list(limit=100)
+    ids = [t.id for t in items]
+    assert ids == ["tmpl_1", "tmpl_2", "tmpl_3", "tmpl_4"]  # ordered, no loss
+    assert len(set(ids)) == len(ids)  # no dupes
+    reqs = httpx_mock.get_requests()
+    assert len(reqs) == 3
+    assert "cursor" not in str(reqs[0].url)
+    assert "cursor=cur_2" in str(reqs[1].url) and "limit=2" in str(reqs[1].url)
+    assert "cursor=cur_3" in str(reqs[2].url)
+
+
+@pytest.mark.anyio
+async def test_manual_page_resumes_from_cursor(httpx_mock):
+    # A queue-driven consumer checkpoints next_cursor and resumes later — the
+    # second fetch must carry the stored cursor, and the last page must
+    # normalize its next_cursor to None.
+    httpx_mock.add_response(
+        json={"items": [_valid(AgentView, email="a@test.dev")], "next_cursor": "cur_2"}
+    )
+    async with _client() as c:
+        p1 = await c.agents.list(limit=1).page()
+    assert [a.email for a in p1.items] == ["a@test.dev"]
+    assert p1.next_cursor == "cur_2"  # checkpoint this
+
+    httpx_mock.add_response(
+        json={"items": [_valid(AgentView, email="b@test.dev")], "next_cursor": ""}
+    )
+    async with _client() as c:
+        p2 = await c.agents.list(limit=1).page(p1.next_cursor)  # resume
+    assert [a.email for a in p2.items] == ["b@test.dev"]
+    assert p2.next_cursor is None  # ""/null both normalize to None = done
+    assert "cursor=cur_2" in str(httpx_mock.get_requests()[-1].url)
 
 
 # ── templates (beta) ────────────────────────────────────────────────
@@ -758,3 +795,37 @@ async def test_invalid_request_body_raises_typed_validation_error():
     async with _client() as c:
         with pytest.raises(E2AValidationError):
             await c.agents.create([1, 2, 3])
+
+
+# --- protection read-modify-write (request/response schema-split regression) ---
+
+_PROTECTION_JSON = {
+    "holds": {"ttl_seconds": 3600, "on_expiry": "approve"},
+    "inbound": {
+        "gate": {"policy": "allowlist", "allowlist": ["partner@acme.com"], "action": "review"},
+        "scan": {"sensitivity": "high"},
+    },
+    "outbound": {
+        "gate": {"policy": "domain", "allowlist": ["acme.com"], "action": "block"},
+        "scan": {"sensitivity": "off"},
+    },
+}
+
+
+@pytest.mark.anyio
+async def test_protection_read_modify_write_accepts_view(httpx_mock):
+    """get_protection() returns a ProtectionConfigView; feeding it (mutated)
+    straight back into replace_protection() must coerce to the Request twin —
+    the natural RMW loop broke when the request/response schemas split."""
+    httpx_mock.add_response(json=_PROTECTION_JSON)  # GET
+    httpx_mock.add_response(json=_PROTECTION_JSON)  # PUT echo
+    async with _client() as c:
+        cfg = await c.agents.get_protection("bot@test.dev")
+        cfg.holds.on_expiry = "reject"
+        out = await c.agents.replace_protection("bot@test.dev", cfg)
+    assert out.holds.ttl_seconds == 3600
+    put = httpx_mock.get_requests()[-1]
+    assert put.method == "PUT"
+    body = json.loads(put.content)
+    assert body["holds"]["on_expiry"] == "reject"  # the mutation survived coercion
+    assert body["inbound"]["gate"]["allowlist"] == ["partner@acme.com"]

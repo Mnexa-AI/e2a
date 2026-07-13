@@ -554,12 +554,12 @@ export default function Home() {
             {activeTab === "python" && (
               <>
                 <Line>
-                  <Tok c="keyword">from</Tok> e2a.v1 <Tok c="keyword">import</Tok> E2AClient
+                  <Tok c="keyword">from</Tok> e2a.v1 <Tok c="keyword">import</Tok> AsyncE2AClient
                 </Line>
                 <Line>&nbsp;</Line>
                 <Line c="comment"># conversation_id threads multi-turn replies</Line>
                 <Line>
-                  <Tok c="keyword">async with</Tok> <Tok c="fn">E2AClient</Tok>(api_key=<Tok c="string">&quot;e2a_…&quot;</Tok>) <Tok c="keyword">as</Tok> client:
+                  <Tok c="keyword">async with</Tok> <Tok c="fn">AsyncE2AClient</Tok>(api_key=<Tok c="string">&quot;e2a_…&quot;</Tok>) <Tok c="keyword">as</Tok> client:
                 </Line>
                 <Line>
                   &nbsp;&nbsp;<Tok c="keyword">async for</Tok> n <Tok c="keyword">in</Tok> client.<Tok c="fn">listen</Tok>(<Tok c="string">{`"my-agent@${exampleAgentDomain}"`}</Tok>):

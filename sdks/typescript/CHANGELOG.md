@@ -24,6 +24,20 @@ Breaking: the WebSocket frame is now the versioned event envelope (server #456).
   (`isEmailReceived`, `isEmailSent`, …) shared by the webhook and WS
   channels. The shapes are locked to the server's committed golden fixtures.
 
+## 4.2.0
+
+### Breaking (pre-GA)
+- **`AgentIdentity.webhookHealthy` (boolean) replaced by `AgentIdentity.webhookStatus`
+  (optional string enum).** The bool could not distinguish "no webhook
+  configured" from "healthy". The new field is an open set — tolerate unknown
+  values. Known values: `none` (no webhook matches the agent), `healthy` (an
+  enabled matching webhook, no terminally-failed delivery in the last 24h),
+  `failing` (an enabled matching webhook had a terminally-failed delivery in
+  the last 24h), `disabled` (matching webhooks exist but all are manually
+  disabled), `auto_disabled` (all matching webhooks disabled, at least one by
+  the chronic-failure sweep). `AgentIdentity` only appears in the account
+  export (`account.export()`), so most integrations are unaffected.
+
 ## 4.1.0
 
 Additive, no breaking changes.

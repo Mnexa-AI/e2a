@@ -66,6 +66,7 @@ from .generated.models import (
     TestWebhookResponse,
     TestWebhookRequest,
     ProtectionConfigView,
+    ProtectionConfigRequest,
     CreateTemplateRequest,
     UpdateAgentRequest,
     UpdateMessageRequest,
@@ -81,7 +82,7 @@ from .generated.models import (
 )
 from .pagination import AutoPager, Page
 
-__all__ = ["E2AClient"]
+__all__ = ["AsyncE2AClient"]
 
 T = TypeVar("T")
 _Make = Callable[[Optional["dict[str, str]"]], Awaitable[Any]]
@@ -117,6 +118,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         return model_cls()  # type: ignore[call-arg]
     if isinstance(body, model_cls):
         return body
+    # A DIFFERENT generated model — e.g. the View returned by a GET fed back
+    # into a write whose body type is the Request twin (protection's
+    # read-modify-write flow after the request/response schema split). Convert
+    # via its dict form so the natural get -> modify -> replace loop keeps
+    # working; pydantic then validates against the Request schema as usual.
+    if hasattr(body, "to_dict"):
+        body = body.to_dict()  # type: ignore[union-attr]
     try:
         return model_cls.model_validate(body)  # type: ignore[attr-defined]
     except ValidationError as e:
@@ -130,13 +138,13 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         ) from e
 
 
-class E2AClient:
+class AsyncE2AClient:
     """Async client for the e2a /v1 API.
 
     Use as an async context manager so the underlying HTTP connections are
     closed::
 
-        async with E2AClient(api_key="e2a_...") as client:
+        async with AsyncE2AClient(api_key="e2a_...") as client:
             agents = await client.agents.list().to_list(limit=100)
     """
 
@@ -207,7 +215,7 @@ class E2AClient:
     async def aclose(self) -> None:
         await self._api_client.close()
 
-    async def __aenter__(self) -> "E2AClient":
+    async def __aenter__(self) -> "AsyncE2AClient":
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
@@ -265,7 +273,7 @@ def _page(items: Optional[Sequence[T]], next_cursor: Optional[str] = None) -> Pa
 
 
 class AgentsResource:
-    def __init__(self, api: AgentsApi, client: E2AClient) -> None:
+    def __init__(self, api: AgentsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -300,7 +308,7 @@ class AgentsResource:
     async def replace_protection(self, email: str, config: Body) -> ProtectionConfigView:
         """Replace an agent's protection config wholesale (all three top-level
         keys required). Beta; account scope only. PUT is idempotent."""
-        req = _coerce(ProtectionConfigView, config)
+        req = _coerce(ProtectionConfigRequest, config)
         return await self._c._write_idempotent(
             lambda h: self._api.put_agent_protection(email, req, _headers=h)
         )
@@ -315,7 +323,7 @@ class AgentsResource:
 
 
 class MessagesResource:
-    def __init__(self, api: MessagesApi, client: E2AClient) -> None:
+    def __init__(self, api: MessagesApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -419,7 +427,7 @@ class ReviewsResource:
     path — reviews are addressed by message id alone, no inbox email. Account-
     scoped credentials only; an agent cannot see or resolve holds."""
 
-    def __init__(self, api: ReviewsApi, client: E2AClient) -> None:
+    def __init__(self, api: ReviewsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -463,18 +471,20 @@ class TemplatesResource:
     ``template_alias`` / ``template_data``, mutually exclusive with a literal
     subject/body)."""
 
-    def __init__(self, api: TemplatesApi, client: E2AClient) -> None:
+    def __init__(self, api: TemplatesApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
-    def list(self) -> AutoPager[TemplateSummaryView]:
+    def list(self, *, limit: Optional[int] = None) -> AutoPager[TemplateSummaryView]:
         """List the account's stored templates, newest first. Summary rows only
         (no text/html sources) — ``get(id)`` returns the full sources."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -513,15 +523,17 @@ class TemplatesResource:
         req = _coerce(ValidateTemplateRequest, body)
         return await self._c._read(lambda h: self._api.validate_template(req, _headers=h))
 
-    def list_starters(self) -> AutoPager[StarterTemplateView]:
+    def list_starters(self, *, limit: Optional[int] = None) -> AutoPager[StarterTemplateView]:
         """List the pre-built starter templates shipped with the deployment
         (catalog metadata + variables; ``get_starter(alias)`` adds the full body
         sources)."""
 
-        async def fetch(_cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_starter_templates(_headers=h))
-            # No cursor param: single-page at GA — see AgentsResource.list.
-            return _page(resp.items)
+        # Cursor-paginated: the AutoPager walks next_cursor to completion.
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_starter_templates(cursor=cursor, limit=limit, _headers=h)
+            )
+            return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
 
@@ -532,7 +544,7 @@ class TemplatesResource:
 
 
 class ConversationsResource:
-    def __init__(self, api: ConversationsApi, client: E2AClient) -> None:
+    def __init__(self, api: ConversationsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -562,7 +574,7 @@ class ConversationsResource:
 
 
 class DomainsResource:
-    def __init__(self, api: DomainsApi, client: E2AClient) -> None:
+    def __init__(self, api: DomainsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -589,7 +601,7 @@ class DomainsResource:
 
 
 class EventsResource:
-    def __init__(self, api: EventsApi, client: E2AClient) -> None:
+    def __init__(self, api: EventsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -633,7 +645,7 @@ class EventsResource:
 
 
 class WebhooksResource:
-    def __init__(self, api: WebhooksApi, client: E2AClient) -> None:
+    def __init__(self, api: WebhooksApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -714,7 +726,7 @@ class WebhooksResource:
 
 
 class SuppressionsResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -731,7 +743,7 @@ class SuppressionsResource:
 
 
 class APIKeysResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
 
@@ -755,7 +767,7 @@ class APIKeysResource:
 
 
 class AccountResource:
-    def __init__(self, api: AccountApi, client: E2AClient) -> None:
+    def __init__(self, api: AccountApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
         self.suppressions = SuppressionsResource(api, client)

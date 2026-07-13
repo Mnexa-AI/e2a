@@ -1,6 +1,6 @@
 /**
  * e2a API
- * e2a — authenticated email gateway for AI agents. v1 contract.
+ * e2a — authenticated email gateway for AI agents. v1 contract.  ## Stability policy  The v1 surface is stable and evolves **additively only**: new endpoints, new optional request fields, new response fields, and new values in open string sets (event types, statuses) may appear at any time without a version bump. Clients MUST tolerate unknown response fields and unknown values in open string sets. This is machine-readable in the schemas: response schemas declare `additionalProperties: true`; request schemas stay strict (`additionalProperties: false` — an unknown request field is rejected with 422).  Operations and schemas marked `x-stability: experimental` are exempt from this freeze and may change or be removed without a major version. A field marked `x-experimental-values` is itself stable, but the listed values (and their event payloads) are experimental. Everything not marked experimental is stable.  Removing or changing stable surface only happens on a new major version path (/v2); deprecations are announced ahead of time via `deprecated: true` in this document and keep working within v1.
  *
  * OpenAPI spec version: 1.0.0
  * 
@@ -20,7 +20,7 @@ export class EventJSON {
     /**
     * Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas: email.received → EmailReceivedData, email.sent → EmailSentData, email.failed → EmailFailedData, email.delivered → EmailDeliveredData, email.bounced → EmailBouncedData, email.complained → EmailComplainedData, domain.sending_verified → DomainSendingVerifiedData, domain.sending_failed → DomainSendingFailedData, domain.suppression_added → DomainSuppressionAddedData. The beta events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) have open payloads that may change before they are declared stable.
     */
-    'data': any;
+    'data': { [key: string]: any; };
     'deliveryStatus'?: DeliveryStatusJSON;
     'id': string;
     'messageId'?: string;
@@ -63,7 +63,7 @@ export class EventJSON {
         {
             "name": "data",
             "baseName": "data",
-            "type": "any",
+            "type": "{ [key: string]: any; }",
             "format": ""
         },
         {

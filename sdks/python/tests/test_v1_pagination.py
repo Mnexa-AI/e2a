@@ -27,6 +27,40 @@ async def test_iterates_all_items_until_null_cursor():
 
 
 @pytest.mark.anyio
+async def test_page_fetches_one_page_and_surfaces_next_cursor():
+    # Caller-driven pagination: fetch a single page, checkpoint next_cursor,
+    # resume from it (parity with the TS SDK's `pager.page()`).
+    pager = AutoPager(make_pages(THREE_PAGES))
+    p1 = await pager.page()  # first page (no cursor)
+    assert list(p1.items) == [1, 2]
+    assert p1.next_cursor == "c2"
+    p2 = await pager.page(p1.next_cursor)  # follow the cursor
+    assert list(p2.items) == [3, 4]
+    assert p2.next_cursor == "c3"
+    p3 = await pager.page(p2.next_cursor)
+    assert list(p3.items) == [5]
+    assert p3.next_cursor is None  # null → last page
+
+
+@pytest.mark.anyio
+async def test_page_treats_empty_string_cursor_as_first_page():
+    pager = AutoPager(make_pages(THREE_PAGES))
+    assert list((await pager.page("")).items) == [1, 2]
+
+
+@pytest.mark.anyio
+async def test_page_normalizes_empty_next_cursor_to_none():
+    # A non-conforming server could return "" instead of null; page() must
+    # treat it as "no more pages" so `if page.next_cursor:` works.
+    async def fetch(_cursor):
+        return Page(items=[9], next_cursor="")
+
+    pager = AutoPager(fetch)
+    p = await pager.page()
+    assert p.next_cursor is None
+
+
+@pytest.mark.anyio
 async def test_to_list_respects_limit():
     pager = AutoPager(make_pages(THREE_PAGES))
     assert await pager.to_list(limit=3) == [1, 2, 3]

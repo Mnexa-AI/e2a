@@ -336,7 +336,24 @@ func New(deps Deps) *Server {
 	// request-id stamper.
 	config.CreateHooks = nil
 	config.Transformers = []huma.Transformer{stampRequestID}
-	config.Info.Description = "e2a — authenticated email gateway for AI agents. v1 contract."
+	// The stability policy below is the contract's constitution — the
+	// machine-readable markers it refers to (`additionalProperties`,
+	// `x-stability`, `x-experimental-values`) are stamped onto the document by
+	// applyEvolutionStance (stability.go). Keep the three in sync.
+	config.Info.Description = "e2a — authenticated email gateway for AI agents. v1 contract.\n\n" +
+		"## Stability policy\n\n" +
+		"The v1 surface is stable and evolves **additively only**: new endpoints, new optional request " +
+		"fields, new response fields, and new values in open string sets (event types, statuses) may " +
+		"appear at any time without a version bump. Clients MUST tolerate unknown response fields and " +
+		"unknown values in open string sets. This is machine-readable in the schemas: response schemas " +
+		"declare `additionalProperties: true`; request schemas stay strict (`additionalProperties: false` " +
+		"— an unknown request field is rejected with 422).\n\n" +
+		"Operations and schemas marked `x-stability: experimental` are exempt from this freeze and may " +
+		"change or be removed without a major version. A field marked `x-experimental-values` is itself " +
+		"stable, but the listed values (and their event payloads) are experimental. Everything not marked " +
+		"experimental is stable.\n\n" +
+		"Removing or changing stable surface only happens on a new major version path (/v2); deprecations " +
+		"are announced ahead of time via `deprecated: true` in this document and keep working within v1."
 	// Canonical production host (api-v1-redesign §1: "Canonical base URL
 	// https://api.e2a.dev/v1"). Operations already carry the /v1 prefix, so the
 	// server URL stops at the host — otherwise clients would double it. Without a
@@ -363,6 +380,14 @@ func New(deps Deps) *Server {
 	// handler. Registered once; applies to every operation.
 	api.UseMiddleware(s.rateLimit)
 	s.registerOperations()
+	// Post-registration document passes, in order: drop the phantom
+	// octet-stream request-body variants first (a Huma RawBody artifact), then
+	// stamp the forward-compat stance onto the cleaned document — response
+	// schemas open (additionalProperties: true), request schemas strict,
+	// x-stability markers derived from the experimental operations. See
+	// stability.go.
+	s.suppressRawBodyOctetStream()
+	s.applyEvolutionStance()
 
 	// WebSocket transport — registered directly on chi (not Huma; it's a raw
 	// upgrade, not a JSON operation). First-class /v1 inbound transport.
@@ -431,6 +456,40 @@ func (s *Server) registerOperations() {
 	// Not an operation: exports the typed per-event `data` payload schemas
 	// (EmailReceivedData, …) into components.schemas for docs + codegen.
 	s.registerEventPayloadSchemas()
+}
+
+// suppressRawBodyOctetStream removes the phantom `application/octet-stream`
+// request-body variant Huma adds for every input struct that carries a
+// `RawBody []byte` capture field (send/reply/forward/approve keep the raw
+// bytes for the Idempotency-Key body hash). The field is a server-side
+// artifact — those operations accept ONLY application/json — but Huma
+// unconditionally documents a binary media type for it
+// (setRequestBodyFromRawBody), so clients generating from the spec would see
+// a bogus content type they must "choose" between. Tagging the field with
+// contentType:"application/json" is not an option: Huma would then OVERWRITE
+// the JSON media type's schema with a bare binary string.
+//
+// Runtime behavior is untouched: Huma parses non-multipart request bodies via
+// the Body schema captured at Register time and never consults
+// RequestBody.Content afterwards (the only runtime readers are the multipart
+// path and RequestBody.Required, both unaffected). The octet-stream entry is
+// dropped only where a JSON variant coexists, so a future genuinely-binary
+// endpoint would keep its declared content type.
+func (s *Server) suppressRawBodyOctetStream() {
+	for _, item := range s.API.OpenAPI().Paths {
+		for _, op := range []*huma.Operation{
+			item.Get, item.Put, item.Post, item.Delete,
+			item.Options, item.Head, item.Patch, item.Trace,
+		} {
+			if op == nil || op.RequestBody == nil || op.RequestBody.Content == nil {
+				continue
+			}
+			c := op.RequestBody.Content
+			if c["application/json"] != nil && c["application/octet-stream"] != nil {
+				delete(c, "application/octet-stream")
+			}
+		}
+	}
 }
 
 // reqCtxKey carries the raw *http.Request through to Huma handlers so they

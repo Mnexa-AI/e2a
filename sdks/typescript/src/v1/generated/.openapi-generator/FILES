@@ -82,11 +82,16 @@ models/PageSuppression.ts
 models/PageTemplateSummaryView.ts
 models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
+models/ProtectionConfigRequest.ts
 models/ProtectionConfigView.ts
+models/ProtectionDirectionRequest.ts
 models/ProtectionDirectionView.ts
 models/ProtectionEventExportEntry.ts
+models/ProtectionGateRequest.ts
 models/ProtectionGateView.ts
+models/ProtectionHoldsRequest.ts
 models/ProtectionHoldsView.ts
+models/ProtectionScanRequest.ts
 models/ProtectionScanView.ts
 models/RateLimitedDetails.ts
 models/RateLimitedEnvelope.ts
@@ -127,6 +132,7 @@ models/ValidateTemplateResponse.ts
 models/ValidationErrorDetails.ts
 models/VerifyDomainView.ts
 models/WebhookDeliveryView.ts
+models/WebhookFiltersRequest.ts
 models/WebhookFiltersView.ts
 models/WebhookView.ts
 models/all.ts
