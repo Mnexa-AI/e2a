@@ -165,6 +165,21 @@ describe("E2AClient", () => {
     expect(items[0].email).toBe("bot@test.dev");
   });
 
+  it("agents.list({ deleted: true }) lists the trash", async () => {
+    globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
+    await client.agents.list({ deleted: true }).toArray({ limit: 10 });
+    expect(new URL(lastCall().url).searchParams.get("deleted")).toBe("true");
+  });
+
+  it("agents.restore POSTs to the restore endpoint", async () => {
+    globalThis.fetch = mockFetch(200, { email: "bot@test.dev", domain: "test.dev" });
+    const restored = await client.agents.restore("bot@test.dev");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/agents/bot%40test.dev/restore");
+    expect(restored.email).toBe("bot@test.dev");
+  });
+
   // ── Messages: idempotency + pagination ──────────────────────────
 
   it("messages.send mints an Idempotency-Key for the POST", async () => {
@@ -206,6 +221,25 @@ describe("E2AClient", () => {
     expect(items.map((m) => m.id)).toEqual(["msg_1", "msg_2"]);
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain("cursor=cur_2");
+  });
+
+  it("messages.list({ deleted: true }) lists the trash", async () => {
+    globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
+    await client.messages.list("bot@test.dev", { deleted: true }).toArray({ limit: 10 });
+    expect(new URL(lastCall().url).searchParams.get("deleted")).toBe("true");
+  });
+
+  it("messages.restore POSTs to the restore endpoint", async () => {
+    globalThis.fetch = mockFetch(200, {
+      id: "msg_1", conversation_id: "conv_1", created_at: "2026-01-01T00:00:00Z",
+      delivered_to: "bot@test.dev", direction: "inbound", from: "a@x.dev",
+      raw_message: "", read_status: "unread", review_status: "none", subject: "hi",
+    });
+    const restored = await client.messages.restore("bot@test.dev", "msg_1");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/agents/bot%40test.dev/messages/msg_1/restore");
+    expect(restored.id).toBe("msg_1");
   });
 
   it("messages.getAttachment hits GET …/attachments/{index} and maps the view", async () => {

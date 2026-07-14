@@ -389,6 +389,10 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "AND-match filter on labels. A row is returned only if ALL given labels are present. Use lowercase strings matching `[a-z0-9:_-]+`; `e2a:*` system labels can be filtered even though setting them is server-only.",
           ),
+        deleted: z
+          .boolean()
+          .optional()
+          .describe("List the message trash instead of live messages."),
         email: z.string().optional(),
       }),
     },
@@ -410,10 +414,26 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           ...(args.since !== undefined ? { since: args.since } : {}),
           ...(args.until !== undefined ? { until: args.until } : {}),
           ...(args.labels !== undefined ? { labels: args.labels } : {}),
+          ...(args.deleted !== undefined ? { deleted: args.deleted } : {}),
           ...(args.email !== undefined ? { explicitAddress: args.email } : {}),
         });
         return { messages: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
       }),
+  );
+
+  server.registerTool(
+    "restore_message",
+    {
+      title: "Restore a message from trash",
+      annotations: { destructiveHint: false, idempotentHint: false },
+      description:
+        "Restore a soft-deleted message before its trash-retention window expires. Time spent in trash does not consume the message's normal retention. Returns the restored message; a live message returns `not_in_trash`.",
+      inputSchema: strictInputSchema({
+        message_id: z.string().describe("ID of the trashed message to restore."),
+        email: z.string().optional().describe("Owning agent; defaults to the bound agent."),
+      }),
+    },
+    async (args) => runTool(() => client.restoreMessage(args.message_id, args.email)),
   );
 
   server.registerTool(

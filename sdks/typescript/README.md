@@ -200,6 +200,19 @@ stops with `E2AConnectionReplacedError` (WS close code `4000 "replaced"`)
 instead of reconnecting — reconnecting would steal the socket back and loop.
 The lower-level `WSListener` is also exported for advanced use.
 
+## Trash and restore
+
+Soft-deleted agents and messages remain restorable for about 30 days. List the
+trash with `deleted: true`, then restore an item through the same resource:
+
+```ts
+const trashedAgents = client.agents.list({ deleted: true });
+await client.agents.restore("bot@agents.e2a.dev");
+
+const trashedMessages = client.messages.list("bot@agents.e2a.dev", { deleted: true });
+await client.messages.restore("bot@agents.e2a.dev", "msg_abc123");
+```
+
 ## Conversation threading
 
 `conversationId` is an opaque string that ties multiple emails to one thread

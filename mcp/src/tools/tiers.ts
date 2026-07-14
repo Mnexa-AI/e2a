@@ -27,6 +27,7 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "list_messages",
   "get_message",
   "get_attachment",
+  "restore_message",
   "update_message_labels",
   "list_conversations",
   "get_conversation",
@@ -53,6 +54,7 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "get_protection",
   "update_protection",
   "delete_agent",
+  "restore_agent",
   // Review approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,
   // defeating the review gate). The backend enforces this too: the approve/reject

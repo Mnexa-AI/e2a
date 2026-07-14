@@ -210,10 +210,10 @@ export class E2AClient {
 
 class AgentsResource {
   constructor(private readonly api: PromiseAgentsApi) {}
-  list(params: { limit?: number } = {}): AutoPager<AgentView> {
+  list(params: { limit?: number; deleted?: boolean } = {}): AutoPager<AgentView> {
     // Cursor-paginated: the AutoPager walks next_cursor to completion.
     return new AutoPager(async (cursor) => {
-      const page = await call(() => this.api.listAgents(cursor, params.limit));
+      const page = await call(() => this.api.listAgents(cursor, params.limit, params.deleted));
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
@@ -246,6 +246,10 @@ class AgentsResource {
     // receipt ({deleted:true, email, messages_deleted}).
     return call(() => this.api.deleteAgent(email, "DELETE"));
   }
+  /** Restore an agent from the 30-day trash. Account-scoped credentials only. */
+  restore(email: string): Promise<AgentView> {
+    return call(() => this.api.restoreAgent(email));
+  }
   test(email: string): Promise<SendResultView> {
     return call(() => this.api.testAgent(email));
   }
@@ -262,6 +266,8 @@ export interface ListMessagesParams {
   since?: string;
   until?: string;
   limit?: number;
+  /** List soft-deleted messages in the trash instead of live messages. */
+  deleted?: boolean;
 }
 
 class MessagesResource {
@@ -272,13 +278,17 @@ class MessagesResource {
       const page = await call(() =>
         this.api.listMessages(email, params.direction, params.readStatus, params.sort, params.from,
           params.subjectContains, params.conversationId, params.labels, params.since, params.until,
-          cursor, params.limit),
+          cursor, params.limit, params.deleted),
       );
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
   get(email: string, id: string): Promise<MessageView> {
     return call(() => this.api.getMessage(email, id));
+  }
+  /** Restore a soft-deleted message and resume its retention clock. */
+  restore(email: string, id: string): Promise<MessageView> {
+    return call(() => this.api.restoreMessage(email, id));
   }
   // getAttachment returns one attachment's metadata + a short-lived download_url
   // (+ expires_at). Pass { inline: true } to also receive base64 `data` for small
