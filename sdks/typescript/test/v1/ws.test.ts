@@ -252,7 +252,7 @@ describe("WSStream error handling (async-iterator consumers)", () => {
     }
   }
 
-  async function makeStream(reconnectDelay = 10) {
+  async function makeStream(reconnectDelay = 10, reconnect = true) {
     FakeWS.instances = [];
     vi.resetModules();
     vi.doMock("ws", () => ({ default: FakeWS }));
@@ -261,7 +261,7 @@ describe("WSStream error handling (async-iterator consumers)", () => {
     const stream = new ws.WSStream({
       apiKey: "k",
       agentEmail: "bot@x.dev",
-      reconnect: true,
+      reconnect,
       reconnectDelay,
     });
     return { stream, errors };
@@ -315,6 +315,72 @@ describe("WSStream error handling (async-iterator consumers)", () => {
     FakeWS.instances[0].serverClose(4000, "replaced");
 
     await expect(nextP).rejects.toBeInstanceOf(errors.E2AConnectionReplacedError);
+    expect(FakeWS.instances).toHaveLength(1); // never redialed
+
+    vi.doUnmock("ws");
+    vi.resetModules();
+  });
+
+  it("preserves a fatal error that arrives with no waiter in flight until the next() observes it (P1)", async () => {
+    const { stream, errors } = await makeStream();
+    const iterator = stream[Symbol.asyncIterator]();
+
+    // Simulate the real `for await` window: the loop body is processing an
+    // event, so there is NO pending waiter at the instant the terminal close
+    // lands. Pre-fix, this set `closed` and the typed error was silently lost —
+    // the next `next()` returned a clean `{ done: true }`.
+    FakeWS.instances[0].serverOpen();
+    FakeWS.instances[0].serverClose(4000, "replaced");
+
+    // The next iteration must still surface the typed error, not done:true.
+    await expect(iterator.next()).rejects.toBeInstanceOf(errors.E2AConnectionReplacedError);
+    // Delivered exactly once — a subsequent pull is a clean terminal done.
+    await expect(iterator.next()).resolves.toEqual({ value: undefined, done: true });
+    expect(FakeWS.instances).toHaveLength(1); // never redialed
+
+    vi.doUnmock("ws");
+    vi.resetModules();
+  });
+
+  it("drains buffered events before surfacing a fatal error that arrived with no waiter (P1 ordering)", async () => {
+    const { stream, errors } = await makeStream();
+    const iterator = stream[Symbol.asyncIterator]();
+
+    FakeWS.instances[0].serverOpen();
+    // An event is buffered (no waiter), then the terminal close lands.
+    FakeWS.instances[0].serverMessage({
+      type: "email.received",
+      id: "evt_buffered",
+      schema_version: "1",
+      created_at: "2026-07-01T10:30:00Z",
+      data: {},
+    });
+    FakeWS.instances[0].serverClose(4000, "replaced");
+
+    // Buffered event drains first...
+    const first = await iterator.next();
+    expect(first.done).toBe(false);
+    expect((first.value as { id: string }).id).toBe("evt_buffered");
+    // ...then the typed error surfaces.
+    await expect(iterator.next()).rejects.toBeInstanceOf(errors.E2AConnectionReplacedError);
+
+    vi.doUnmock("ws");
+    vi.resetModules();
+  });
+
+  it("ends iteration on a transient disconnect when reconnect is disabled instead of hanging (P2)", async () => {
+    const { stream } = await makeStream(10, /* reconnect */ false);
+    const iterator = stream[Symbol.asyncIterator]();
+    const nextP = iterator.next(); // registers a waiter
+
+    FakeWS.instances[0].serverOpen();
+    // Transient close (network drop). With reconnect disabled the listener
+    // schedules no redial; pre-fix the stream was never marked closed and this
+    // waiter hung forever. Post-fix iteration ends cleanly (matches Python's
+    // reconnect=False, which returns from iteration after the first disconnect).
+    FakeWS.instances[0].serverClose(1006, "");
+
+    await expect(nextP).resolves.toEqual({ value: undefined, done: true });
     expect(FakeWS.instances).toHaveLength(1); // never redialed
 
     vi.doUnmock("ws");

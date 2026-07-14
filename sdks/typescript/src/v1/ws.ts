@@ -279,15 +279,35 @@ export class WSStream extends EventEmitter<WSListenerEvents>
     reject: (err: Error) => void;
   }> = [];
   private closed = false;
+  // A terminal typed error waiting to be observed by iteration. Set when a
+  // fatal error arrives with no waiter in flight (the `for await` body is busy
+  // between pulls); the next `next()` drains any buffered events, then rejects
+  // with this — so the typed error is never silently dropped. Delivered once.
+  private pendingError: E2AError | null = null;
+  // Whether the underlying listener will auto-reconnect on a transient close.
+  // When false, a transient disconnect is terminal for iteration (there is no
+  // redial coming), so the stream must end rather than leave a pull hanging.
+  private readonly reconnectEnabled: boolean;
 
   constructor(opts: WSListenerOptions) {
     super();
+    this.reconnectEnabled = opts.reconnect ?? true;
     this.listener = new WSListener(opts);
 
     // Forward connection-level events to consumers who prefer the
     // EventEmitter interface (or want both).
     this.listener.on("open", () => this.emit("open"));
-    this.listener.on("close", (code, reason) => this.emit("close", code, reason));
+    this.listener.on("close", (code, reason) => {
+      this.emit("close", code, reason);
+      // A transient close with reconnect disabled emits no "error" (nothing is
+      // fatally wrong) yet the listener schedules no redial — so a pending
+      // next() would hang forever. End iteration cleanly. This is deferred to a
+      // microtask because a fatal close emits its typed "error" synchronously
+      // right after this "close"; letting that run first lets the error path
+      // (finishWithError) win, and finish() then no-ops on the already-closed
+      // stream. Mirrors the Python SDK's reconnect=False behavior.
+      if (!this.reconnectEnabled) queueMicrotask(() => this.finish());
+    });
     this.listener.on("error", (err) => {
       // Node's EventEmitter THROWS when "error" is emitted with no registered
       // "error" listener. The documented usage is `for await (const e of
@@ -297,17 +317,20 @@ export class WSStream extends EventEmitter<WSListenerEvents>
       if (this.listenerCount("error") > 0) this.emit("error", err);
       // Only a typed (fatal) error ends the stream — e.g. an auth/4xx handshake
       // rejection or a terminal server close code. The listener has stopped
-      // reconnecting, so mark closed and reject in-flight awaits so the
-      // for-await throws the typed error rather than hanging (F6).
+      // reconnecting, so end iteration and surface the typed error rather than
+      // hang (F6). If a waiter is in flight it rejects immediately; otherwise
+      // the error is held in `pendingError` until the next pull observes it, so
+      // a terminal close that lands while the for-await body is busy is never
+      // silently swallowed.
       //
       // Transient errors (network blips, a single malformed frame) ride
       // alongside an automatic reconnect in WSListener — swallow them here so
       // the async iterator keeps waiting for the reconnected stream, matching
       // the Python SDK, which logs-and-reconnects and never surfaces transient
-      // failures to `async for`.
+      // failures to `async for`. (When reconnect is disabled, the "close"
+      // handler above ends iteration cleanly instead.)
       if (err instanceof E2AError) {
-        this.closed = true;
-        this.drainWaitersWithError(err);
+        this.finishWithError(err);
       }
     });
 
@@ -322,6 +345,9 @@ export class WSStream extends EventEmitter<WSListenerEvents>
   /** Close the connection and end iteration. */
   close(): void {
     this.closed = true;
+    // Explicit close is a clean stop — drop any pending terminal error so the
+    // loop exits with done=true rather than throwing after the caller asked out.
+    this.pendingError = null;
     this.listener.close();
     // Resolve any in-flight awaits with done=true so the loop exits.
     while (this.waiters.length > 0) {
@@ -332,8 +358,17 @@ export class WSStream extends EventEmitter<WSListenerEvents>
   [Symbol.asyncIterator](): AsyncIterator<WSEvent> {
     return {
       next: (): Promise<IteratorResult<WSEvent>> => {
+        // Buffered events drain first — even after a terminal error — so events
+        // that arrived before the close are delivered in order before the error.
         if (this.buffer.length > 0) {
           return Promise.resolve({ value: this.buffer.shift()!, done: false });
+        }
+        // A terminal error that landed with no waiter in flight surfaces here,
+        // exactly once, then the stream reads as a clean terminal done.
+        if (this.pendingError) {
+          const err = this.pendingError;
+          this.pendingError = null;
+          return Promise.reject(err);
         }
         if (this.closed) {
           return Promise.resolve({ value: undefined, done: true });
@@ -357,9 +392,30 @@ export class WSStream extends EventEmitter<WSListenerEvents>
     }
   }
 
-  private drainWaitersWithError(err: Error): void {
+  // End iteration cleanly (done=true). Idempotent — no-ops once the stream has
+  // already terminated (e.g. a fatal "error" beat this "close"-driven finish).
+  private finish(): void {
+    if (this.closed) return;
+    this.closed = true;
     while (this.waiters.length > 0) {
-      this.waiters.shift()!.reject(err);
+      this.waiters.shift()!.resolve({ value: undefined, done: true });
+    }
+  }
+
+  // End iteration with a terminal typed error. A waiter in flight rejects
+  // immediately; with none, the error is parked in `pendingError` for the next
+  // pull to observe (buffered events drain first — see next()). Idempotent.
+  private finishWithError(err: E2AError): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.pendingError = err;
+    if (this.waiters.length > 0) {
+      // A waiter exists ⇒ the buffer is empty (deliver()/next() invariant), so
+      // reject now and mark the error observed.
+      this.pendingError = null;
+      while (this.waiters.length > 0) {
+        this.waiters.shift()!.reject(err);
+      }
     }
   }
 }
