@@ -58,3 +58,10 @@ show_error_codes = true
 [[tool.mypy.overrides]]
 module = ["pytest", "pytest.*", "_pytest", "_pytest.*"]
 follow_imports = "skip"
+
+# CI installs dependencies under Python 3.12 while checking our public Python
+# 3.9 surface. Newer anyio releases legitimately use 3.10+ syntax, so keep
+# third-party implementation details out of this SDK request-shape gate.
+[[tool.mypy.overrides]]
+module = ["anyio", "anyio.*"]
+follow_imports = "skip"
