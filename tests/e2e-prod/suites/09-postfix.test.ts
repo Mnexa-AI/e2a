@@ -95,13 +95,6 @@ test("postfix #7: bare LF in subject is also rejected (no carriage return)", asy
   assert.equal(r.status, 400, `expected 400 for bare LF, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-// Skipped: actively probing the /send rate limit queues 60+ real HITL
-// notifications to the owner inbox (see auto-memory feedback note). The
-// /agents Retry-After test below covers the header CONTRACT via a cheaper
-// path that doesn't fan out to SMTP. Marked as test.skip so it doesn't
-// pollute the green-pass count.
-test.skip("postfix #1 #2: /send 429 includes Retry-After header (skipped — would queue real HITL notifications)", async () => {});
-
 test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — does NOT send mail)", async () => {
   // Agent creation is a pure CRUD op; failing creates don't fan out to SMTP.
   // Probe until we see a 429 OR exhaust 25 attempts.
@@ -131,15 +124,4 @@ test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — d
   const secs = Number(retryAfter);
   assert.ok(!Number.isNaN(secs) && secs > 0, `Retry-After should be positive seconds, got "${retryAfter}"`);
   info(SUITE, "retry-after-ok", `429 carries Retry-After: ${retryAfter}s — fix landed`);
-});
-
-test("postfix #8: MCP strict-schema fix is in the prod MCP server (informational)", async () => {
-  // Prod MCP server is a separate deployment; the fix needs to be re-deployed.
-  // This test just notes the assertion. The actual schema-strict assertions
-  // ran in suite 08-mcp against the LOCAL MCP server dist.
-  info(
-    SUITE,
-    "mcp-fix-deploy-note",
-    "MCP strict schemas verified against local dist (08-mcp). Prod MCP deployment carries the previous version until re-deployed.",
-  );
 });
