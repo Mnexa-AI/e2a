@@ -20,7 +20,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run test:unit",
+    "test": "npm run typecheck && npm run test:unit",
+    "typecheck": "tsc --project tsconfig.test.json",
     "test:unit": "vitest run test/v1/client.test.ts test/v1/ws.test.ts test/v1/webhook-signature.test.ts test/v1/webhook-payloads.test.ts test/v1/errors.test.ts test/v1/retry.test.ts test/v1/pagination.test.ts",
     "test:contract": "vitest run test/v1/contract.test.ts",
     "test:live": "vitest run test/e2e.test.ts",
