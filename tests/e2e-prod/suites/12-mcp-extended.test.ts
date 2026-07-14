@@ -2,24 +2,18 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { StdioMcpClient, callTool } from "../harness/mcp.ts";
+import { HttpMcpClient, callTool } from "../harness/mcp.ts";
 import { uniqueSlug, uniqueSubject, SINK_EMAIL, holdAllOutbound } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const apiClient = new ApiClient();
 const SUITE = "12-mcp-extended";
-const mcp = new StdioMcpClient();
+// Deployed streamable-HTTP /mcp server (co-versioned mcp-server image) — the
+// shipped surface, not a locally-built stdio binary. Defaults to `${E2A_URL}/mcp`.
+const mcp = new HttpMcpClient(apiClient.env.mcpUrl, apiClient.env.apiKey);
 
 before(async () => {
-  // Default to the repo-relative dist path so the suite works for any
-  // contributor / CI runner. Override with E2A_MCP_DIST if needed.
-  const mcpDist =
-    process.env.E2A_MCP_DIST ?? new URL("../../../mcp/dist/index.js", import.meta.url).pathname;
-  await mcp.start("node", [mcpDist], {
-    E2A_API_KEY: apiClient.env.apiKey,
-    E2A_URL: apiClient.env.apiUrl,
-    E2A_AGENT_EMAIL: apiClient.env.primaryAgentEmail,
-  });
+  info(SUITE, "transport", `MCP over HTTP → ${apiClient.env.mcpUrl}`);
 });
 
 after(async () => {

@@ -2,25 +2,20 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup } from "../harness/cleanup.ts";
-import { StdioMcpClient, callTool } from "../harness/mcp.ts";
+import { HttpMcpClient, callTool } from "../harness/mcp.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const apiClient = new ApiClient();
 const SUITE = "08-mcp";
 
-const mcp = new StdioMcpClient();
+// Talk to the DEPLOYED streamable-HTTP /mcp server (the co-versioned
+// mcp-server image behind Caddy) — the same surface that ships to prod —
+// rather than spawning a locally-built stdio binary. Endpoint defaults to
+// `${E2A_URL}/mcp`; E2A_MCP_URL overrides.
+const mcp = new HttpMcpClient(apiClient.env.mcpUrl, apiClient.env.apiKey);
 
 before(async () => {
-  // Default to the repo-relative dist path so the suite works for any
-  // contributor / CI runner. Hardcoded absolute path was unportable.
-  // Override with E2A_MCP_DIST if the dist lives elsewhere.
-  const mcpDist =
-    process.env.E2A_MCP_DIST ?? new URL("../../../mcp/dist/index.js", import.meta.url).pathname;
-  await mcp.start("node", [mcpDist], {
-    E2A_API_KEY: apiClient.env.apiKey,
-    E2A_URL: apiClient.env.apiUrl,
-    E2A_AGENT_EMAIL: apiClient.env.primaryAgentEmail,
-  });
+  info(SUITE, "transport", `MCP over HTTP → ${apiClient.env.mcpUrl}`);
 });
 
 after(async () => {
