@@ -49,7 +49,7 @@ class MessageView(BaseModel):
     id: StrictStr
     labels: List[StrictStr]
     parsed: Optional[MessageParsedView] = None
-    raw_message: StrictStr
+    raw_message: Optional[StrictStr] = Field(description="Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.")
     read_status: StrictStr
     reply_to: List[StrictStr] = Field(description="The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).")
     review_status: Optional[StrictStr] = Field(default=None, description="Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field.")
@@ -123,6 +123,11 @@ class MessageView(BaseModel):
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
+
+        # set to None if raw_message (nullable) is None
+        # and model_fields_set contains the field
+        if self.raw_message is None and "raw_message" in self.model_fields_set:
+            _dict['raw_message'] = None
 
         return _dict
 

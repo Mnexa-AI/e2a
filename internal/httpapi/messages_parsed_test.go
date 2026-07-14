@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -125,5 +126,50 @@ func TestMessageViewHeldDraftBody(t *testing.T) {
 	sent := messageViewFromIdentity(&identity.Message{ID: "msg_s", Direction: "inbound", RawMessage: []byte("From: a@x\r\n\r\nhi")})
 	if sent.Body != nil {
 		t.Fatalf("inbound/sent must not carry a draft Body, got %+v", sent.Body)
+	}
+}
+
+// The shared message-detail shape always carries raw_message. Before an
+// outbound review draft is approved there is no canonical MIME yet, so the
+// required field is null; once composed, []byte uses the documented base64
+// JSON representation.
+func TestMessageViewRawMessageWireLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msg  *identity.Message
+		want any
+	}{
+		{
+			name: "held outbound draft",
+			msg: &identity.Message{
+				ID: "msg_held", Direction: "outbound", Status: "pending_review", BodyText: "review me",
+			},
+			want: nil,
+		},
+		{
+			name: "composed outbound message",
+			msg: &identity.Message{
+				ID: "msg_sent", Direction: "outbound", Status: "sent", RawMessage: []byte("raw MIME"),
+			},
+			want: "cmF3IE1JTUU=",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(messageViewFromIdentity(tc.msg))
+			if err != nil {
+				t.Fatalf("marshal MessageView: %v", err)
+			}
+			var wire map[string]any
+			if err := json.Unmarshal(raw, &wire); err != nil {
+				t.Fatalf("unmarshal MessageView: %v", err)
+			}
+			got, present := wire["raw_message"]
+			if !present {
+				t.Fatal("raw_message must remain present in every message detail")
+			}
+			if got != tc.want {
+				t.Fatalf("raw_message = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }

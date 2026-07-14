@@ -228,7 +228,9 @@ describe("E2AClient", () => {
 
   // ── webhooks.fetchMessage: email.received is metadata-only ──────
   it("webhooks.fetchMessage resolves (delivered_to, message_id) → GET the full message", async () => {
-    globalThis.fetch = mockFetch(200, { id: "msg_9", subject: "Hi", raw_message: "..." });
+    // Held outbound drafts have no canonical MIME until approval. The field is
+    // required but explicitly null in that lifecycle state.
+    globalThis.fetch = mockFetch(200, { id: "msg_9", subject: "Hi", raw_message: null });
     const event = {
       id: "evt_1",
       type: "email.received",
@@ -241,6 +243,7 @@ describe("E2AClient", () => {
     expect(url).toContain("/messages/msg_9");
     expect(url).toContain("bot%40test.dev");
     expect(msg.id).toBe("msg_9");
+    expect(msg.rawMessage).toBeNull();
   });
 
   it("webhooks.fetchMessage rejects a non-received event or missing fetch keys", async () => {

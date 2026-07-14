@@ -233,8 +233,10 @@ async def test_get_attachment_hits_endpoint_and_maps_view(httpx_mock):
 @pytest.mark.anyio
 async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
     # email.received is metadata-only; fetch_message resolves (delivered_to,
-    # message_id) into the full-message GET.
-    httpx_mock.add_response(json=_valid(MessageView, id="msg_9", subject="Hi"))
+    # message_id) into the full-message GET. A held outbound draft has no
+    # canonical MIME until approval, so the generated model must accept the
+    # required raw_message field with a null value.
+    httpx_mock.add_response(json=_valid(MessageView, id="msg_9", subject="Hi", raw_message=None))
     event = WebhookEvent(
         type="email.received",
         data={"message_id": "msg_9", "delivered_to": "bot@test.dev"},
@@ -243,6 +245,7 @@ async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
     async with _client() as c:
         msg = await c.webhooks.fetch_message(event)
     assert msg.id == "msg_9"
+    assert msg.raw_message is None
     req = httpx_mock.get_requests()[-1]
     assert req.method == "GET"
     assert "/messages/msg_9" in str(req.url)
