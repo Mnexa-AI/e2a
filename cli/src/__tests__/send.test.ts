@@ -74,6 +74,18 @@ describe("send/reply commands", () => {
     expect(process.exitCode).toBe(7);
   });
 
+  it("reports a failed status as terminal and non-retryable", async () => {
+    mockSend.mockResolvedValue({ messageId: "msg_failed", status: "failed" });
+    const { send } = await import("../commands/send.js");
+    await send({ to: ["you@example.com"], subject: "s", body: "b" });
+
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("terminal status \"failed\""));
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("do NOT retry"));
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("msg_failed"));
+    expect(mockStderr).not.toHaveBeenCalledWith(expect.stringContaining("unrecognized"));
+    expect(process.exitCode).toBe(7);
+  });
+
   it("exits OK when an async send is durably accepted", async () => {
     mockSend.mockResolvedValue({ messageId: "msg_accepted", status: "accepted" });
     const { send } = await import("../commands/send.js");

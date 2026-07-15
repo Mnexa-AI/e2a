@@ -114,6 +114,13 @@ function emitSendResult(result: SendResultView, json?: boolean): void {
     // stdout before the message id above flushes, and scripts need that id to
     // approve the held message.
     process.exitCode = EXIT.HELD;
+  } else if (result.status === "failed") {
+    process.stderr.write(
+      `WARNING: send reached terminal status "failed" for message "${result.messageId}". ` +
+        `The server persisted the failure outcome; do NOT retry automatically. ` +
+        `Inspect it with: e2a messages get ${result.messageId}\n`,
+    );
+    process.exitCode = EXIT.SEND_OUTCOME;
   } else if (result.status !== "sent" && result.status !== "accepted") {
     // Response status values are an open set. Do not silently report an
     // unfamiliar outcome as success, but do not misclassify it as a known
@@ -124,7 +131,7 @@ function emitSendResult(result: SendResultView, json?: boolean): void {
         `The message may already be durably persisted; do NOT retry automatically. ` +
         `Inspect it with: e2a messages get ${result.messageId}\n`,
     );
-    process.exitCode = EXIT.UNKNOWN_OUTCOME;
+    process.exitCode = EXIT.SEND_OUTCOME;
   }
 }
 
