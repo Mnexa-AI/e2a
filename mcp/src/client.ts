@@ -269,7 +269,7 @@ export class McpClient {
     direction?: "inbound" | "outbound" | "all";
     readStatus?: "unread" | "read" | "all";
     sort?: "asc" | "desc";
-    from?: string;
+    from_?: string;
     subjectContains?: string;
     conversationId?: string;
     since?: string;

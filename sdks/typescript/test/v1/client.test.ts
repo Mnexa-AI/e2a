@@ -208,6 +208,16 @@ describe("E2AClient", () => {
     expect(calls[1]).toContain("cursor=cur_2");
   });
 
+  it("messages.list exposes from_ and serializes it as the wire from query", async () => {
+    globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
+
+    await client.messages.list("bot@test.dev", { from_: "alice@example.com" }).page();
+
+    const url = new URL(lastCall().url);
+    expect(url.searchParams.get("from")).toBe("alice@example.com");
+    expect(url.searchParams.has("from_")).toBe(false);
+  });
+
   it("messages.getAttachment hits GET …/attachments/{index} and maps the view", async () => {
     globalThis.fetch = mockFetch(200, {
       index: 0,

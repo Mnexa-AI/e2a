@@ -594,13 +594,29 @@ describe("e2a MCP server", () => {
   it("list_messages forwards filters + cursor/limit", async () => {
     await client.callTool({
       name: "list_messages",
-      arguments: { read_status: "unread", limit: 10, cursor: "c_prev" },
+      arguments: {
+        read_status: "unread",
+        from_: "alice@example.com",
+        limit: 10,
+        cursor: "c_prev",
+      },
     });
     expect(stub.listMessages).toHaveBeenCalledWith({
       readStatus: "unread",
+      from_: "alice@example.com",
       limit: 10,
       cursor: "c_prev",
     });
+  });
+
+  it("list_messages rejects the removed from spelling", async () => {
+    const res = await client.callTool({
+      name: "list_messages",
+      arguments: { from: "alice@example.com" },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(stub.listMessages).not.toHaveBeenCalled();
   });
 
   it("list_messages surfaces next_cursor when more pages remain", async () => {

@@ -152,7 +152,7 @@ shows the set your scope allows, with per-tool descriptions.
 | --- | --- |
 | `send_message` | Send a new email. When the agent's outbound policy or content scan holds it for review, the message is held and returns `status: pending_review` instead of `sent`. |
 | `reply_to_message` | Reply to a message — one the agent received (replies to its sender) or one it sent (continues the thread to the original recipients). Preserves In-Reply-To / References for thread continuity. |
-| `list_messages` | List inbound mail. Filter by `read_status` (unread / read / all); cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
+| `list_messages` | List inbound mail. Filter by `read_status` (unread / read / all) and sender with reserved-word-safe `from_`; cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
 | `get_message` | Fetch full body, headers, and attachment metadata for one message. |
 | `get_attachment` | Get one attachment's metadata + a short-lived `download_url` (fetch the bytes out of band); `inline: true` returns base64 `data` for small files (≤256 KB). |
 | `update_message_labels` | Add or remove labels on a message. |

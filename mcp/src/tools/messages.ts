@@ -336,7 +336,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "List messages (inbox or sent)",
       annotations: { readOnlyHint: true },
       description:
-        "List the agent's messages, newest first by default. Use `direction` to pick the folder: `inbound` (the Inbox — received mail, the default), `outbound` (the Sent folder — mail this agent sent, including held drafts), or `all` (both). Filter received mail by `read_status` (unread/read/all; default unread — applies to inbound only; sent mail has no read-state). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest first) to drain in arrival order. **Search filters** (`from`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole folder. Returns summaries only — use `get_message` for the full body.",
+        "List the agent's messages, newest first by default. Use `direction` to pick the folder: `inbound` (the Inbox — received mail, the default), `outbound` (the Sent folder — mail this agent sent, including held drafts), or `all` (both). Filter received mail by `read_status` (unread/read/all; default unread — applies to inbound only; sent mail has no read-state). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest first) to drain in arrival order. **Search filters** (`from_`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole folder. Returns summaries only — use `get_message` for the full body.",
       inputSchema: strictInputSchema({
         direction: z
           .enum(["inbound", "outbound", "all"])
@@ -352,7 +352,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Sort order by created_at. Defaults to `desc` (newest first). Pass `asc` for FIFO polling — drain the inbox in arrival order. Switching sort mid-pagination rejects the existing cursor.",
           ),
-        from: z
+        from_: z
           .string()
           .max(200)
           .optional()
@@ -400,7 +400,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
           ...(args.limit !== undefined ? { limit: args.limit } : {}),
           ...(args.sort !== undefined ? { sort: args.sort } : {}),
-          ...(args.from !== undefined ? { from: args.from } : {}),
+          ...(args.from_ !== undefined ? { from_: args.from_ } : {}),
           ...(args.subject_contains !== undefined
             ? { subjectContains: args.subject_contains }
             : {}),
