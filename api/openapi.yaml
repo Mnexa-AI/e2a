@@ -1269,6 +1269,42 @@ components:
       required:
         - error
       type: object
+    EventEnvelope:
+      additionalProperties: true
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        data:
+          additionalProperties: true
+          description: Event-specific payload. Open at the envelope level; use x-e2a-event-data-schemas for stable event payloads.
+          type: object
+          x-e2a-event-data-schemas:
+            domain.sending_failed: "#/components/schemas/DomainSendingFailedData"
+            domain.sending_verified: "#/components/schemas/DomainSendingVerifiedData"
+            domain.suppression_added: "#/components/schemas/DomainSuppressionAddedData"
+            email.bounced: "#/components/schemas/EmailBouncedData"
+            email.complained: "#/components/schemas/EmailComplainedData"
+            email.delivered: "#/components/schemas/EmailDeliveredData"
+            email.failed: "#/components/schemas/EmailFailedData"
+            email.received: "#/components/schemas/EmailReceivedData"
+            email.sent: "#/components/schemas/EmailSentData"
+        id:
+          description: Stable across retries and push channels; use it to deduplicate at-least-once delivery.
+          type: string
+        schema_version:
+          description: Open envelope-version string; the current server emits 1.
+          type: string
+        type:
+          description: Open event type; clients must tolerate unknown values.
+          type: string
+      required:
+        - type
+        - id
+        - schema_version
+        - created_at
+        - data
+      type: object
     EventJSON:
       additionalProperties: true
       properties:
