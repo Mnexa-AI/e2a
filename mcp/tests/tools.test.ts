@@ -1599,7 +1599,14 @@ describe("e2a MCP server", () => {
 
     expect(byName.get("delete_agent")).toContain("trash");
     expect(byName.get("delete_agent")).not.toContain("Permanently delete");
-    expect(byName.get("delete_domain")).toContain("no agents");
+    expect(byName.get("delete_domain")).toContain(
+      "permanently delete every live or trashed agent",
+    );
+    expect(byName.get("delete_domain")).toContain(
+      "Moving an agent to trash is not sufficient",
+    );
+    expect(byName.get("delete_domain")).toContain("trashed agents still belong to the domain");
+    expect(byName.get("delete_domain")).not.toContain("move those inboxes");
     expect(byName.get("delete_domain")).not.toContain("CASCADES to every agent");
   });
 
