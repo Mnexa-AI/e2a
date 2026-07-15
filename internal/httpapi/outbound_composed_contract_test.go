@@ -69,6 +69,18 @@ func TestSpecDocumentsComposedMessageCeiling(t *testing.T) {
 			fmt.Sprint(outbound.MaxComposedMessageBytes),
 		)
 	}
+
+	errorProps := schemaProps(t, doc, "ErrorBody")
+	details, _ := errorProps["details"].(map[string]any)
+	detailsDescription, _ := details["description"].(string)
+	requireContractText(t, "ErrorBody.details", detailsDescription,
+		"send/reply/forward payload_too_large",
+		"composed_bytes",
+		"max_composed_bytes",
+	)
+	if strings.Contains(detailsDescription, "direct-send payload_too_large") {
+		t.Errorf("ErrorBody.details still narrows composed-size details to send only: %q", detailsDescription)
+	}
 }
 
 // Reviewer overrides are merged with the held draft before enforcing the same
