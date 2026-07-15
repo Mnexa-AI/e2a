@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -99,5 +100,52 @@ func TestHumaErrorConstructorTypedDetails(t *testing.T) {
 	raw, _ := json.Marshal(env)
 	if strings.Contains(string(raw), "should-not-leak") {
 		t.Fatalf("raw value leaked into envelope: %s", raw)
+	}
+}
+
+func TestValidationFieldLocationAlwaysSerializes(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "field-specific",
+			err:  &huma.ErrorDetail{Location: "body.to", Message: "required"},
+			want: "body.to",
+		},
+		{
+			name: "request-wide",
+			err:  errors.New("invalid request"),
+			want: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := humaErrorConstructor(http.StatusUnprocessableEntity, "validation failed", tc.err).(*ErrorEnvelope)
+			raw, err := json.Marshal(env)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var got struct {
+				Error struct {
+					Details struct {
+						Fields []map[string]any `json:"fields"`
+					} `json:"details"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Error.Details.Fields) != 1 {
+				t.Fatalf("fields = %v, want one entry", got.Error.Details.Fields)
+			}
+			location, ok := got.Error.Details.Fields[0]["location"]
+			if !ok || location != tc.want {
+				t.Fatalf("location = %#v, present=%v; want %q in %s", location, ok, tc.want, raw)
+			}
+		})
 	}
 }

@@ -1,4 +1,26 @@
 components:
+  headers:
+    RateLimitLimit:
+      description: Request quota for the current limiter window.
+      schema:
+        type: integer
+    RateLimitRemaining:
+      description: Requests remaining in the current limiter window.
+      schema:
+        type: integer
+    RateLimitReset:
+      description: Seconds until the current limiter window resets.
+      schema:
+        type: integer
+    RetryAfter:
+      description: Positive integer seconds to wait before retrying a transient 429 or 503 response.
+      schema:
+        minimum: 1
+        type: integer
+    XRequestID:
+      description: Always-present request correlation id. Error responses echo the same value in error.request_id.
+      schema:
+        type: string
   schemas:
     APIKeyExportEntry:
       additionalProperties: true
@@ -1222,13 +1244,13 @@ components:
       additionalProperties: true
       properties:
         code:
-          description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). The full vocabulary, grouped — auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."
+          description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Exact current vocabulary (machine-checked): unauthorized, forbidden, blocked_by_policy, invalid_request, invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope, confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty, recipient_suppressed, not_found, attachment_not_found, template_not_found, starter_template_not_found, gone, conflict, agent_taken, domain_taken, alias_taken, address_in_trash, message_held, message_not_pending, not_in_trash, send_in_progress, webhook_disabled, webhook_cooldown, domain_not_registered, domain_has_agents, domain_not_verified, limit_exceeded, rate_limited, template_limit_reached, webhook_limit_reached, idempotency_in_flight, idempotency_key_reuse, payload_too_large, attachment_too_large, not_implemented, events_log_disabled, limits_unavailable, internal_error, method_not_allowed, unsupported_media_type, error. Grouped semantics: auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."
           type: string
         details:
           anyOf:
             - $ref: "#/components/schemas/ValidationErrorDetails"
             - type: object
-          description: Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({"fields":[{"location","message"}]}); rate_limited and limit_exceeded carry {"retry_after_seconds"}; a send/reply/forward payload_too_large caused by the 10 MiB composed-message ceiling carries {"composed_bytes","max_composed_bytes"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes.
+          description: Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({"fields":[{"location","message"}]}); rate_limited and limits_unavailable carry {"retry_after_seconds"}; limit_exceeded carries LimitExceededDetails; a send/reply/forward payload_too_large caused by the 10 MiB composed-message ceiling carries {"composed_bytes","max_composed_bytes"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes.
         message:
           description: Human-readable explanation. Not for branching — use code.
           type: string
@@ -1294,6 +1316,7 @@ components:
           description: Human-readable reason this field is invalid.
           type: string
       required:
+        - location
         - message
       type: object
     ForwardRequest:
@@ -3139,12 +3162,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteUserDataResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Delete your account + all data (irreversible)
@@ -3160,12 +3189,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/AccountView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Service Unavailable — code limits_unavailable: the limits subsystem is temporarily unavailable. Wait Retry-After seconds, then retry."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: "Get account: identity + plan limits + usage (whoami)"
@@ -3201,12 +3247,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageAPIKeyView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List API keys
@@ -3228,12 +3280,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateAPIKeyResponse"
           description: Created
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Create an API key
@@ -3266,12 +3324,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteApiKeyResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Revoke an API key
@@ -3292,12 +3356,17 @@ paths:
             Content-Disposition:
               schema:
                 type: string
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Export your data (GDPR right-of-access)
@@ -3333,12 +3402,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageSuppression"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List suppressed recipient addresses
@@ -3371,12 +3446,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteSuppressionResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Remove an address from the suppression list
@@ -3419,12 +3500,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageAgentView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List agents
@@ -3446,24 +3533,62 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentView"
           description: Created
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "402":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "429":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RateLimitedEnvelope"
           description: "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path."
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Create an agent
@@ -3503,12 +3628,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteAgentResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Delete an agent
@@ -3532,12 +3663,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get an agent
@@ -3565,12 +3702,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Update an agent
@@ -3623,12 +3766,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageConversationSummaryView"
           description: OK
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List conversations
@@ -3656,12 +3817,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConversationDetailView"
           description: OK
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get a conversation
@@ -3781,12 +3960,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageMessageSummaryView"
           description: OK
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List messages
@@ -3827,54 +4024,83 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "202":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Bad Request — request-shape/validation failure. error.code includes invalid_request (e.g. more than 10 attachments), too_many_recipients, invalid_recipient, invalid_attachment (undecodable base64).
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "402":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. For a composed-message breach, error.details = {composed_bytes, max_composed_bytes}, where max_composed_bytes is 10485760. Attachment breaches use their attachment-specific decoded-size detail keys.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "422":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "429":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RateLimitedEnvelope"
           description: "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Send a new email
@@ -3920,12 +4146,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteMessageResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Delete a message (move to trash)
@@ -3933,7 +4165,7 @@ paths:
         - messages
       x-stability: experimental
     get:
-      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.
+      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (~30 days after deletion); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
       operationId: getMessage
       parameters:
         - description: The agent's full email address.
@@ -3957,12 +4189,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageView"
           description: OK
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get a message
@@ -3995,12 +4245,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/UpdateMessageResultView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Update a message (labels)
@@ -4042,18 +4298,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/AttachmentView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Payload Too Large — code attachment_too_large: `?inline=true` was requested for an attachment over the 256 KB inline cap. Fetch the bytes via download_url instead; the metadata (and this error) tells you the size."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get an attachment (metadata + short-lived download URL)
@@ -4100,54 +4365,83 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "202":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Bad Request — request-shape/validation failure. error.code includes invalid_request (e.g. more than 10 attachments), too_many_recipients, invalid_recipient, invalid_attachment (undecodable base64).
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "402":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. For a composed-message breach, error.details = {composed_bytes, max_composed_bytes}, where max_composed_bytes is 10485760. Attachment breaches use their attachment-specific decoded-size detail keys.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "422":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "429":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RateLimitedEnvelope"
           description: "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Forward a message
@@ -4194,54 +4488,83 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "202":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Bad Request — request-shape/validation failure. error.code includes invalid_request (e.g. more than 10 attachments), too_many_recipients, invalid_recipient, invalid_attachment (undecodable base64).
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "402":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. For a composed-message breach, error.details = {composed_bytes, max_composed_bytes}, where max_composed_bytes is 10485760. Attachment breaches use their attachment-specific decoded-size detail keys.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "422":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "429":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RateLimitedEnvelope"
           description: "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Reply to a message
@@ -4273,12 +4596,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Restore a message from the trash
@@ -4304,12 +4633,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProtectionConfigView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get an agent's protection config (beta)
@@ -4340,12 +4675,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProtectionConfigView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Replace an agent's protection config (beta)
@@ -4371,12 +4712,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Restore an agent from the trash
@@ -4402,30 +4749,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "202":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: "Accepted — durably accepted but not yet delivered: status=accepted (queued for async submission; terminal outcome via GET/webhook events) or status=pending_review (held for human approval)."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "402":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "429":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RateLimitedEnvelope"
           description: "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Send a test email to the agent's own address
@@ -4461,12 +4825,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageDomainView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List domains
@@ -4487,24 +4857,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/DomainView"
           description: Created
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "402":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LimitExceededEnvelope"
           description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Conflict — the domain is already claimed by another account (code domain_taken).
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Register a domain
@@ -4537,12 +4919,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteDomainResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Delete a domain
@@ -4563,12 +4951,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DomainView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get a domain
@@ -4591,12 +4985,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/VerifyDomainView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Verify a domain
@@ -4662,12 +5062,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageEventJSON"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List events
@@ -4689,12 +5095,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/EventJSON"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get an event
@@ -4723,12 +5135,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/RedeliverView"
           description: Accepted
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Redeliver an event
@@ -4745,12 +5163,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeploymentInfoView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       summary: Deployment info
       tags:
         - meta
@@ -4784,12 +5208,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageReviewView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List messages awaiting review
@@ -4812,12 +5242,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get a held message (full detail)
@@ -4852,48 +5288,74 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "202":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: Accepted — the approved outbound message was durably queued for async submission (status=accepted); terminal outcome via GET/webhook events.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "400":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Bad Request — invalid reviewer overrides. error.code includes too_many_recipients when to, cc, and bcc contain more than 50 recipients combined; error.details reports max_recipients and provided.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Conflict — branch on error.code. message_not_pending: the hold was already resolved (approved/rejected/expired) and cannot be re-approved. idempotency_in_flight: a request with this Idempotency-Key is still executing — wait for it to finish, then retry with the SAME key and byte-identical body to replay its response."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "413":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Payload Too Large — error.code = payload_too_large: the merged outbound draft exceeds the 10 MiB (10485760 byte) composed-message ceiling after applying reviewer overrides. The measured total is subject + text + html + decoded attachment bytes."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "422":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "429":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RateLimitedEnvelope"
           description: "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Approve a held message
@@ -4922,12 +5384,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/RejectResultView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Reject a held message
@@ -4963,12 +5431,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageStarterTemplateView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List starter templates (beta)
@@ -4994,12 +5468,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/StarterTemplateDetailView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get a starter template (beta)
@@ -5036,12 +5516,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageTemplateSummaryView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List templates (beta)
@@ -5064,12 +5550,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/TemplateView"
           description: Created
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Create a template (beta)
@@ -5093,12 +5585,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidateTemplateResponse"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Validate template source (beta)
@@ -5132,12 +5630,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteTemplateResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Delete a template (beta)
@@ -5160,12 +5664,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/TemplateView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get a template (beta)
@@ -5194,12 +5704,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/TemplateView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Update a template (beta)
@@ -5236,12 +5752,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageWebhookView"
           description: OK
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List webhooks
@@ -5262,12 +5796,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateWebhookResponse"
           description: Created
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Create a webhook
@@ -5300,12 +5840,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteWebhookResult"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Delete a webhook
@@ -5326,12 +5872,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookView"
           description: OK
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Get a webhook
@@ -5359,18 +5923,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookView"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. Retry after the cooldown, or fix the endpoint first."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Update a webhook
@@ -5418,12 +5991,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/PageWebhookDeliveryView"
           description: OK
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: List webhook deliveries
@@ -5452,24 +6043,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/RotateSecretResponse"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "409":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         "422":
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Rotate a webhook signing secret
@@ -5498,12 +6101,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/TestWebhookResponse"
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
           description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
       summary: Fire a synthetic event

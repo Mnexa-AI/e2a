@@ -250,38 +250,38 @@ func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request
 	id := chi.URLParam(r, "id")
 	index, err := strconv.Atoi(chi.URLParam(r, "index"))
 	if err != nil || index < 0 {
-		http.Error(w, "invalid attachment index", http.StatusBadRequest)
+		writeRawError(w, r, http.StatusBadRequest, "invalid_request", "invalid attachment index", nil)
 		return
 	}
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		http.Error(w, "token query parameter required", http.StatusUnauthorized)
+		writeRawError(w, r, http.StatusUnauthorized, "unauthorized", "token query parameter required", nil)
 		return
 	}
 	if s.deps.AttachmentStore == nil || s.deps.GetAgent == nil || s.deps.GetMessage == nil {
-		http.Error(w, "attachment download unavailable", http.StatusInternalServerError)
+		writeRawError(w, r, http.StatusInternalServerError, "internal_error", "attachment download unavailable", nil)
 		return
 	}
 	// Capability check: the token must authorize exactly this message+index.
 	if !s.deps.AttachmentStore.VerifyDownload(token, id, index) {
-		http.Error(w, "invalid or expired download token", http.StatusForbidden)
+		writeRawError(w, r, http.StatusForbidden, "forbidden", "invalid or expired download token", nil)
 		return
 	}
 	// Bind the message to the path agent (GetMessage is keyed by agent id), so a
 	// token can't be replayed against a path naming a different agent.
 	ag, err := s.deps.GetAgent(r.Context(), email)
 	if err != nil || ag == nil {
-		http.Error(w, "agent not found", http.StatusNotFound)
+		writeRawError(w, r, http.StatusNotFound, "not_found", "agent not found", nil)
 		return
 	}
 	msg, err := s.deps.GetMessage(r.Context(), id, ag.ID)
 	if err != nil || msg == nil {
-		http.Error(w, "message not found", http.StatusNotFound)
+		writeRawError(w, r, http.StatusNotFound, "not_found", "message not found", nil)
 		return
 	}
 	att, ok := mailparse.AttachmentAt(msg.RawMessage, index)
 	if !ok {
-		http.Error(w, "attachment not found", http.StatusNotFound)
+		writeRawError(w, r, http.StatusNotFound, "attachment_not_found", "attachment not found", nil)
 		return
 	}
 	ctype := att.ContentType

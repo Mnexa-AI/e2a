@@ -174,6 +174,110 @@ func downloadPathFromURL(t *testing.T, raw string) string {
 	return u.Path + "?" + u.RawQuery
 }
 
+func assertRawDownloadError(t *testing.T, resp *http.Response, status int, code string) {
+	t.Helper()
+	defer resp.Body.Close()
+	if resp.StatusCode != status {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d: %s", resp.StatusCode, status, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Fatalf("Content-Type = %q, want JSON envelope", ct)
+	}
+	var env struct {
+		Error struct {
+			Code      string `json:"code"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Error.Code != code {
+		t.Errorf("error.code = %q, want %q", env.Error.Code, code)
+	}
+	requestID := resp.Header.Get("X-Request-Id")
+	if requestID == "" || env.Error.RequestID != requestID {
+		t.Errorf("request id mismatch: header=%q body=%q", requestID, env.Error.RequestID)
+	}
+}
+
+func TestAttachment_DownloadErrorsUseCanonicalEnvelope(t *testing.T) {
+	store := NewNativeAttachmentStore("test-secret-test-secret", "http://att.test")
+	mint := func(t *testing.T, messageID string, index int) string {
+		t.Helper()
+		raw, _, err := store.DownloadURL("support@acme.com", messageID, index, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return downloadPathFromURL(t, raw)
+	}
+
+	t.Run("invalid index", func(t *testing.T) {
+		srv := attTestServer(t)
+		resp, err := http.Get(srv.URL + "/v1/agents/support@acme.com/messages/msg_att/attachments/nope/download?token=x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRawDownloadError(t, resp, http.StatusBadRequest, "invalid_request")
+	})
+
+	t.Run("missing token", func(t *testing.T) {
+		srv := attTestServer(t)
+		resp, err := http.Get(srv.URL + "/v1/agents/support@acme.com/messages/msg_att/attachments/0/download")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRawDownloadError(t, resp, http.StatusUnauthorized, "unauthorized")
+	})
+
+	t.Run("unavailable", func(t *testing.T) {
+		srv := attTestServer(t, func(d *Deps) { d.GetAgent = nil })
+		resp, err := http.Get(srv.URL + "/v1/agents/support@acme.com/messages/msg_att/attachments/0/download?token=x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRawDownloadError(t, resp, http.StatusInternalServerError, "internal_error")
+	})
+
+	t.Run("invalid token", func(t *testing.T) {
+		srv := attTestServer(t)
+		resp, err := http.Get(srv.URL + "/v1/agents/support@acme.com/messages/msg_att/attachments/0/download?token=bogus")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRawDownloadError(t, resp, http.StatusForbidden, "forbidden")
+	})
+
+	t.Run("agent not found", func(t *testing.T) {
+		srv := attTestServer(t)
+		path := strings.Replace(mint(t, "msg_att", 0), "support@acme.com", "missing@acme.com", 1)
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRawDownloadError(t, resp, http.StatusNotFound, "not_found")
+	})
+
+	t.Run("message not found", func(t *testing.T) {
+		srv := attTestServer(t)
+		resp, err := http.Get(srv.URL + mint(t, "msg_missing", 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRawDownloadError(t, resp, http.StatusNotFound, "not_found")
+	})
+
+	t.Run("attachment not found", func(t *testing.T) {
+		srv := attTestServer(t)
+		resp, err := http.Get(srv.URL + mint(t, "msg_att", 9))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRawDownloadError(t, resp, http.StatusNotFound, "attachment_not_found")
+	})
+}
+
 func TestAttachment_DownloadRoute(t *testing.T) {
 	srv := attTestServer(t)
 	_, meta := getJSONAtt(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_att/attachments/0", "acct")
@@ -194,6 +298,14 @@ func TestAttachment_DownloadRoute(t *testing.T) {
 	}
 	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "report.pdf") {
 		t.Errorf("content-disposition: got %q", cd)
+	}
+	if got := resp.Header.Get("X-Request-Id"); got == "" {
+		t.Error("raw attachment download must carry X-Request-Id")
+	}
+	for name := range resp.Header {
+		if strings.HasPrefix(strings.ToLower(name), "x-ratelimit-") {
+			t.Errorf("raw attachment download emitted legacy header %s", name)
+		}
 	}
 
 	// Bad token → 403.

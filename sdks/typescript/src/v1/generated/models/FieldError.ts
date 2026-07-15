@@ -16,7 +16,7 @@ export class FieldError {
     /**
     * Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field.
     */
-    'location'?: string;
+    'location': string;
     /**
     * Human-readable reason this field is invalid.
     */

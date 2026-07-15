@@ -1437,6 +1437,7 @@ class AccountApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "AccountView",
+            '503': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1500,6 +1501,7 @@ class AccountApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "AccountView",
+            '503': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -1563,6 +1565,7 @@ class AccountApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "AccountView",
+            '503': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,

@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -193,6 +196,135 @@ func TestRestoreMessageNotInTrash(t *testing.T) {
 	code, body := sendJSON(t, "POST", srv.URL+"/v1/agents/support%40acme.com/messages/msg_live/restore", "good", nil)
 	if code != 409 || errCode(body) != "not_in_trash" {
 		t.Fatalf("want 409 not_in_trash, got %d %v", code, body)
+	}
+}
+
+func TestGetTrashedMessageRemainsDirectlyReadable(t *testing.T) {
+	deletedAt := time.Unix(1700001000, 0).UTC()
+	srv := testServer(t, func(d *Deps) {
+		d.GetMessage = func(ctx context.Context, messageID, agentID string) (*identity.Message, error) {
+			return &identity.Message{
+				ID: messageID, AgentID: agentID, Direction: "inbound",
+				Sender: "alice@gmail.com", Subject: "trashed",
+				CreatedAt: time.Unix(1700000000, 0).UTC(), DeletedAt: &deletedAt,
+			}, nil
+		}
+	})
+	code, body := sendJSON(t, "GET", srv.URL+"/v1/agents/support%40acme.com/messages/msg_trashed", "good", nil)
+	if code != http.StatusOK {
+		t.Fatalf("want 200 for direct GET of trashed message, got %d %v", code, body)
+	}
+	if body["id"] != "msg_trashed" || body["deleted_at"] == nil {
+		t.Fatalf("trashed direct-read must include id and deleted_at, got %v", body)
+	}
+}
+
+func TestGetMessageDocumentsTrashVisibility(t *testing.T) {
+	op := New(Deps{}).API.OpenAPI().Paths["/v1/agents/{email}/messages/{id}"].Get
+	if op == nil {
+		t.Fatal("getMessage operation missing")
+	}
+	description := strings.ToLower(op.Description)
+	for _, required := range []string{"direct get", "deleted_at", "ordinary lists", "reply", "purged"} {
+		if !strings.Contains(description, required) {
+			t.Errorf("getMessage description must document %q in trash visibility contract: %q", required, op.Description)
+		}
+	}
+}
+
+func TestMessageTrashLifecycleFreezesVisibilityAndReplyTargets(t *testing.T) {
+	deleted := false
+	deliverCalls := 0
+	deletedAt := time.Unix(1700001000, 0).UTC()
+	message := func() identity.Message {
+		msg := identity.Message{
+			ID: "msg_1", AgentID: "support@acme.com", Direction: "inbound",
+			Sender: "alice@example.com", Recipient: "support@acme.com",
+			Subject: "Help", ConversationID: "conv_1",
+			RawMessage: []byte("From: alice@example.com\r\nTo: support@acme.com\r\nSubject: Help\r\n\r\nhello"),
+			CreatedAt:  time.Unix(1700000000, 0).UTC(),
+		}
+		if deleted {
+			msg.DeletedAt = &deletedAt
+		}
+		return msg
+	}
+
+	srv := testServer(t, func(d *Deps) {
+		d.DeleteMessage = func(ctx context.Context, messageID, agentID string) error {
+			if messageID != "msg_1" || agentID != "support@acme.com" {
+				return identity.ErrMessageNotFound
+			}
+			deleted = true
+			return nil
+		}
+		d.ListMessages = func(ctx context.Context, f identity.MessageListFilter) ([]identity.Message, error) {
+			if f.Deleted != deleted {
+				return nil, nil
+			}
+			return []identity.Message{message()}, nil
+		}
+		d.GetMessage = func(ctx context.Context, messageID, agentID string) (*identity.Message, error) {
+			msg := message()
+			return &msg, nil // direct GET is intentionally any-state
+		}
+		d.GetConversation = func(ctx context.Context, agentID, conversationID string) (*identity.ConversationDetail, error) {
+			detail := &identity.ConversationDetail{ConversationSummary: identity.ConversationSummary{ID: conversationID}}
+			if !deleted {
+				detail.Messages = []identity.Message{message()}
+			}
+			return detail, nil
+		}
+		d.GetRepliableMessage = func(ctx context.Context, messageID string) (*identity.Message, error) {
+			if deleted {
+				return nil, identity.ErrMessageNotFound
+			}
+			msg := message()
+			return &msg, nil
+		}
+		d.DeliverOutbound = func(ctx context.Context, user *identity.User, ag *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message, idemCompleteTx agent.AcceptIdemCompleter) (*agent.OutboundResult, *agent.OutboundError) {
+			deliverCalls++
+			return &agent.OutboundResult{MessageID: "unexpected"}, nil
+		}
+	})
+
+	code, body := sendJSON(t, "DELETE", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1", "good", nil)
+	if code != http.StatusOK || body["deleted"] != true {
+		t.Fatalf("soft delete: want 200 deletion receipt, got %d %v", code, body)
+	}
+
+	code, body = sendJSON(t, "GET", srv.URL+"/v1/agents/support%40acme.com/messages", "good", nil)
+	if code != http.StatusOK || len(body["items"].([]any)) != 0 {
+		t.Fatalf("ordinary list must hide trashed message, got %d %v", code, body)
+	}
+	code, body = sendJSON(t, "GET", srv.URL+"/v1/agents/support%40acme.com/messages?deleted=true", "good", nil)
+	items := body["items"].([]any)
+	if code != http.StatusOK || len(items) != 1 || items[0].(map[string]any)["deleted_at"] == nil {
+		t.Fatalf("trash list must expose deleted_at, got %d %v", code, body)
+	}
+	code, body = sendJSON(t, "GET", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1", "good", nil)
+	if code != http.StatusOK || body["deleted_at"] == nil {
+		t.Fatalf("direct GET must keep trashed message readable, got %d %v", code, body)
+	}
+	code, body = sendJSON(t, "GET", srv.URL+"/v1/agents/support%40acme.com/conversations/conv_1", "good", nil)
+	if code != http.StatusOK || len(body["messages"].([]any)) != 0 {
+		t.Fatalf("conversation must hide trashed message, got %d %v", code, body)
+	}
+
+	for _, tc := range []struct {
+		path string
+		body map[string]any
+	}{
+		{path: "/reply", body: map[string]any{"text": "reply"}},
+		{path: "/forward", body: map[string]any{"to": []string{"bob@example.com"}, "text": "forward"}},
+	} {
+		code, body = sendJSON(t, "POST", srv.URL+"/v1/agents/support%40acme.com/messages/msg_1"+tc.path, "good", tc.body)
+		if code != http.StatusNotFound || errCode(body) != "not_found" {
+			t.Errorf("%s must reject trashed target with 404 not_found, got %d %v", tc.path, code, body)
+		}
+	}
+	if deliverCalls != 0 {
+		t.Fatalf("reply/forward invoked delivery %d times for trashed target", deliverCalls)
 	}
 }
 

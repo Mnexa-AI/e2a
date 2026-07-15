@@ -417,6 +417,7 @@ func New(deps Deps) *Server {
 	// stability.go.
 	s.suppressRawBodyOctetStream()
 	s.applyEvolutionStance()
+	s.applyResponseHeaderContract()
 
 	// WebSocket transport — registered directly on chi (not Huma; it's a raw
 	// upgrade, not a JSON operation). First-class /v1 inbound transport.

@@ -248,10 +248,10 @@ type MessageSummaryView struct {
 	Subject        string   `json:"subject"`
 	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
-	Status         string   `json:"read_status"`
-	HITLStatus     string   `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field."`
-	WebhookStatus  string   `json:"webhook_status,omitempty"`
-	WebhookError   string   `json:"webhook_error,omitempty"`
+	Status        string `json:"read_status"`
+	HITLStatus    string `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field."`
+	WebhookStatus string `json:"webhook_status,omitempty"`
+	WebhookError  string `json:"webhook_error,omitempty"`
 	// DeliveryStatus / DeliveryDetail / SentAs are the outbound delivery
 	// rollup (migration 031). Outbound-only; omitted on inbound rows.
 	DeliveryStatus string `json:"delivery_status,omitempty" doc:"Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)"`
@@ -277,7 +277,6 @@ type MessageSummaryView struct {
 	// Inbound-only; omitted on outbound rows.
 	Auth *AuthVerdict `json:"auth,omitempty"`
 }
-
 
 // AuthVerdict is the wire schema for the structured inbound auth verdict
 // (MSG-11) — a clean public name for emailauth.Result (the trust primitive the
@@ -394,14 +393,14 @@ func (s *Server) registerMessages() {
 	}, s.handleListMessages)
 
 	huma.Register(s.API, huma.Operation{
-		OperationID:   "deleteMessage",
-		Method:        http.MethodDelete,
-		Path:          "/v1/agents/{email}/messages/{id}",
-		Summary:       "Delete a message (move to trash)",
-		Description:   "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
-		Tags:          []string{"messages"},
-		Security:      []map[string][]string{{"bearer": {}}},
-		Extensions:    experimental(),
+		OperationID: "deleteMessage",
+		Method:      http.MethodDelete,
+		Path:        "/v1/agents/{email}/messages/{id}",
+		Summary:     "Delete a message (move to trash)",
+		Description: "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
+		Tags:        []string{"messages"},
+		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  experimental(),
 	}, s.handleDeleteMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -420,7 +419,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Get a message",
-		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. Includes the raw message and inbound auth headers.",
+		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (~30 days after deletion); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, func(ctx context.Context, in *MessageIDParam) (*messageOutput, error) {

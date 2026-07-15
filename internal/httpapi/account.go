@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/identity"
@@ -57,12 +58,19 @@ type LimitsUsageView struct {
 
 type accountOutput struct{ Body AccountView }
 
+const limitsUnavailableRetrySeconds = 5
+
 func (s *Server) registerAccount() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "getAccount", Method: http.MethodGet, Path: "/v1/account",
 		Summary: "Get account: identity + plan limits + usage (whoami)", Tags: []string{"account"},
 		Description: "The authenticated principal's identity (user + scope; agent_email for agent-scoped credentials), plan caps, and current usage. Works for both account- and agent-scoped credentials. (Deployment discovery — shared domain, slug registration — is the separate public GET /v1/info.)",
 		Security:    []map[string][]string{{"bearer": {}}},
+		Responses: map[string]*huma.Response{
+			"503": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+				"Service Unavailable — code limits_unavailable: the limits subsystem is temporarily unavailable. Wait Retry-After seconds, then retry."),
+			"default": s.errorEnvelopeResponse(),
+		},
 	}, s.handleGetMyLimits)
 
 	huma.Register(s.API, huma.Operation{
@@ -250,7 +258,9 @@ func (s *Server) handleGetMyLimits(ctx context.Context, _ *struct{}) (*accountOu
 	}
 	user := p.User
 	if s.deps.GetLimits == nil {
-		return nil, NewError(http.StatusServiceUnavailable, "limits_unavailable", "limits subsystem not configured")
+		return nil, NewError(http.StatusServiceUnavailable, "limits_unavailable", "limits subsystem not configured").
+			WithDetails(RetryAfterDetails{RetryAfterSeconds: limitsUnavailableRetrySeconds}).
+			WithRetryAfter(limitsUnavailableRetrySeconds)
 	}
 	caps, err := s.deps.GetLimits(ctx, user.ID)
 	if err != nil {

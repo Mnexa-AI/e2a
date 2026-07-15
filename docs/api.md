@@ -113,6 +113,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | `invalid_cursor` | 400 | Bad pagination cursor — drop it and re-fetch from the start. |
 | `invalid_filter` | 400 | Bad list-filter parameter (messages/conversations/events). |
 | `invalid_domain`, `invalid_slug`, `invalid_recipient`, `invalid_attachment`, `invalid_template`, `invalid_event_type`, `invalid_webhook_url`, `invalid_expires_at`, `invalid_scope` | 400 | Field/resource-specific refinements of `invalid_request`. |
+| `confirmation_required` | 400 | A destructive operation requires its documented confirmation value. |
 | `reserved_domain` | 400 | The domain is reserved by the deployment (e.g. the shared domain). |
 | `too_many_recipients` | 400 | Send/reply/forward recipient count over the cap. |
 | `template_render_failed`, `template_rendered_empty` | 400 | Template send: rendering failed / produced an empty body. |
@@ -124,7 +125,11 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | **Conflict / state** | | |
 | `conflict` | 409 | Generic state conflict (e.g. redelivery to a webhook that never matched the event). |
 | `agent_taken`, `domain_taken`, `alias_taken` | 409 | The `*_taken` family — the requested identifier (agent address, domain, template alias) is already claimed. |
+| `address_in_trash` | 409 | The requested agent address is reserved by a soft-deleted agent; restore or permanently delete it first. |
+| `message_held` | 409 | The message is held for review and cannot perform the requested operation until the hold is resolved. |
 | `message_not_pending` | 409 | The review hold was already resolved (approved/rejected/expired). |
+| `not_in_trash` | 409 | Restore or permanent-delete was requested for a resource that is not currently in trash. |
+| `send_in_progress` | 409 | The message send is already executing; wait for its terminal outcome. |
 | `webhook_disabled` | 409 | Operation requires an enabled webhook. |
 | `webhook_cooldown` | 409 | The webhook was auto-disabled and cannot be re-enabled until the cooldown elapses — retryable after the cooldown. |
 | `domain_not_registered` | 400 | Create-agent on a domain the account has not registered. |
@@ -159,6 +164,30 @@ server and is always retryable.
 The `/v1` surface is the **stable, generally-available contract** as of e2a 1.0.
 Our commitment, and what you can rely on:
 
+### Experimental operations
+
+This is the complete operation-level exception list. These operations carry
+`x-stability: experimental` and may change before they are promoted to stable;
+every `/v1` operation not listed here is covered by the GA freeze.
+
+| operationId | Method and path | Surface |
+| --- | --- | --- |
+| `createTemplate` | `POST /v1/templates` | Templates |
+| `deleteMessage` | `DELETE /v1/agents/{email}/messages/{id}` | Message trash |
+| `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
+| `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
+| `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
+| `getTemplate` | `GET /v1/templates/{id}` | Templates |
+| `listStarterTemplates` | `GET /v1/starter-templates` | Starter templates |
+| `listTemplates` | `GET /v1/templates` | Templates |
+| `putAgentProtection` | `PUT /v1/agents/{email}/protection` | Protection config |
+| `restoreAgent` | `POST /v1/agents/{email}/restore` | Agent trash |
+| `restoreMessage` | `POST /v1/agents/{email}/messages/{id}/restore` | Message trash |
+| `updateTemplate` | `PATCH /v1/templates/{id}` | Templates |
+| `validateTemplate` | `POST /v1/templates/validate` | Templates |
+
+### Compatibility rules
+
 - **No breaking changes within `/v1`.** We will not remove an endpoint, remove a
   response field, rename anything, tighten a type, or change documented semantics
   under `/v1`. A breaking change means a new major version path (`/v2`), and the
@@ -173,12 +202,12 @@ Our commitment, and what you can rely on:
   `body` vs `text`), not a stability concern.
 - **Experimental surfaces are marked `x-stability: experimental`** in the spec
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
-  send) and `(beta)` in prose — today: templates, starter templates, and the
-  agent protection config. They are **exempt from the
+  send) and `(beta)` in prose — today: templates, starter templates, the agent
+  protection config, and the agent/message trash operations listed above. They are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
-  `email.pending_review`, `email.review_approved`, `email.review_rejected`),
+  `email.review_requested`, `email.review_approved`, `email.review_rejected`),
   the field carries `x-experimental-values` listing exactly those values —
   their payloads may still change; all other event types are stable. Anything
   not marked experimental is stable surface.
@@ -301,7 +330,10 @@ single message.
   async outcomes reported later via SNS and the corresponding webhook events.
 - `GET …/messages/{id}` — fetch one message (inbound or outbound), including the
   raw message and inbound auth headers. Reading an unread inbound message flips it
-  to `read`.
+  to `read`. A soft-deleted message remains readable by this direct GET and carries
+  `deleted_at` until it is permanently purged (normally ~30 days after deletion).
+  Ordinary message lists, conversations, reply targets, and forward targets hide
+  trashed messages; use `GET …/messages?deleted=true` to enumerate the trash.
 - `PATCH …/messages/{id}` — apply a labels delta (`add_labels` / `remove_labels`).
 - `POST …/messages/{id}/reply`, `POST …/messages/{id}/forward` — reply to /
   forward a message; `202` when held for review.

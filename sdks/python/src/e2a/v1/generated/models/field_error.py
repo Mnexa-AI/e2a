@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -26,7 +26,7 @@ class FieldError(BaseModel):
     """
     FieldError
     """ # noqa: E501
-    location: Optional[StrictStr] = Field(default=None, description="Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field.")
+    location: StrictStr = Field(description="Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field.")
     message: StrictStr = Field(description="Human-readable reason this field is invalid.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["location", "message"]

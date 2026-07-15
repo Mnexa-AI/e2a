@@ -5,6 +5,8 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -14,90 +16,91 @@ import (
 	"testing"
 )
 
-// The canonical error.code vocabulary — the machine-branchable discriminator of
-// the frozen /v1 contract. This is the drift gate for that vocabulary: every
-// code the server can emit must be listed here, and every listed code must be
-// documented in the ErrorBody.Code doc tag (which is what `make spec` publishes
-// into the OpenAPI description). Adding a NewError/OutboundError/WriteError
-// site with a new code fails this test until the code is added BOTH here and to
-// the published doc — new codes are allowed (the contract is an open set), but
-// silent, undocumented vocabulary growth is not. Renaming or removing a code is
-// BREAKING for clients that branch on it; treat any red diff here as a contract
-// review, not a test to appease.
-var emittedErrorCodes = []string{
-	// auth
-	"unauthorized",
-	"forbidden",
-	"blocked_by_policy",
-	// validation
-	"invalid_request",
-	"invalid_cursor",
-	"invalid_filter",
-	"invalid_domain",
-	"invalid_slug",
-	"invalid_recipient",
-	"invalid_attachment",
-	"invalid_template",
-	"invalid_event_type",
-	"invalid_webhook_url",
-	"invalid_expires_at",
-	"invalid_scope",
-	"confirmation_required",
-	"reserved_domain",
-	"too_many_recipients",
-	"template_render_failed",
-	"template_rendered_empty",
-	"recipient_suppressed",
-	// not found / gone
-	"not_found",
-	"attachment_not_found",
-	"template_not_found",
-	"starter_template_not_found",
-	"gone",
-	// conflict / state
-	"conflict",
-	"agent_taken",
-	"domain_taken",
-	"alias_taken",
-	"address_in_trash",
-	"message_held",
-	"message_not_pending",
-	"not_in_trash",
-	"send_in_progress",
-	"webhook_disabled",
-	"webhook_cooldown",
-	"domain_not_registered",
-	"domain_has_agents",
-	"domain_not_verified",
-	// capacity
-	"limit_exceeded",
-	"rate_limited",
-	"template_limit_reached",
-	"webhook_limit_reached",
-	// idempotency
-	"idempotency_in_flight",
-	"idempotency_key_reuse",
-	// size
-	"payload_too_large",
-	"attachment_too_large",
-	// availability
-	"not_implemented",
-	"events_log_disabled",
-	"limits_unavailable",
-	// server
-	"internal_error",
+// errorCodeContract is the canonical machine-readable vocabulary metadata used
+// to compare server emitters, OpenAPI prose, and docs/api.md. Status is the
+// exact public table spelling; Family keeps the catalog reviewable and
+// Retryable captures whether an unchanged request may be retried automatically.
+type errorCodeContract struct {
+	Code         string
+	Status       string
+	Family       string
+	Retryable    bool
+	FallbackOnly bool
 }
 
-// fallbackOnlyErrorCodes are produced only by defaultCodeForStatus (no literal
-// call site passes them), for statuses Huma or middleware can surface without a
-// handler-chosen code. They are part of the published vocabulary too.
-var fallbackOnlyErrorCodes = []string{
-	"method_not_allowed",
-	"unsupported_media_type",
-	"error", // generic <500 fallback (e.g. 406 content negotiation)
+var errorCodeCatalog = []errorCodeContract{
+	{Code: "unauthorized", Status: "401", Family: "auth"},
+	{Code: "forbidden", Status: "403", Family: "auth"},
+	{Code: "blocked_by_policy", Status: "403", Family: "auth"},
+	{Code: "invalid_request", Status: "400 / 422", Family: "validation"},
+	{Code: "invalid_cursor", Status: "400", Family: "validation"},
+	{Code: "invalid_filter", Status: "400", Family: "validation"},
+	{Code: "invalid_domain", Status: "400", Family: "validation"},
+	{Code: "invalid_slug", Status: "400", Family: "validation"},
+	{Code: "invalid_recipient", Status: "400", Family: "validation"},
+	{Code: "invalid_attachment", Status: "400", Family: "validation"},
+	{Code: "invalid_template", Status: "400", Family: "validation"},
+	{Code: "invalid_event_type", Status: "400", Family: "validation"},
+	{Code: "invalid_webhook_url", Status: "400", Family: "validation"},
+	{Code: "invalid_expires_at", Status: "400", Family: "validation"},
+	{Code: "invalid_scope", Status: "400", Family: "validation"},
+	{Code: "confirmation_required", Status: "400", Family: "validation"},
+	{Code: "reserved_domain", Status: "400", Family: "validation"},
+	{Code: "too_many_recipients", Status: "400", Family: "validation"},
+	{Code: "template_render_failed", Status: "400", Family: "validation"},
+	{Code: "template_rendered_empty", Status: "400", Family: "validation"},
+	{Code: "recipient_suppressed", Status: "422", Family: "validation"},
+	{Code: "not_found", Status: "404", Family: "not_found"},
+	{Code: "attachment_not_found", Status: "404", Family: "not_found"},
+	{Code: "template_not_found", Status: "404", Family: "not_found"},
+	{Code: "starter_template_not_found", Status: "404", Family: "not_found"},
+	{Code: "gone", Status: "410", Family: "not_found"},
+	{Code: "conflict", Status: "409", Family: "state"},
+	{Code: "agent_taken", Status: "409", Family: "state"},
+	{Code: "domain_taken", Status: "409", Family: "state"},
+	{Code: "alias_taken", Status: "409", Family: "state"},
+	{Code: "address_in_trash", Status: "409", Family: "state"},
+	{Code: "message_held", Status: "409", Family: "state"},
+	{Code: "message_not_pending", Status: "409", Family: "state"},
+	{Code: "not_in_trash", Status: "409", Family: "state"},
+	{Code: "send_in_progress", Status: "409", Family: "state"},
+	{Code: "webhook_disabled", Status: "409", Family: "state"},
+	{Code: "webhook_cooldown", Status: "409", Family: "state"},
+	{Code: "domain_not_registered", Status: "400", Family: "state"},
+	{Code: "domain_has_agents", Status: "400", Family: "state"},
+	{Code: "domain_not_verified", Status: "400 / 403", Family: "state"},
+	{Code: "limit_exceeded", Status: "402", Family: "capacity"},
+	{Code: "rate_limited", Status: "429", Family: "capacity", Retryable: true},
+	{Code: "template_limit_reached", Status: "400", Family: "capacity"},
+	{Code: "webhook_limit_reached", Status: "400", Family: "capacity"},
+	{Code: "idempotency_in_flight", Status: "409", Family: "idempotency", Retryable: true},
+	{Code: "idempotency_key_reuse", Status: "422", Family: "idempotency"},
+	{Code: "payload_too_large", Status: "413", Family: "size"},
+	{Code: "attachment_too_large", Status: "413", Family: "size"},
+	{Code: "not_implemented", Status: "501", Family: "availability"},
+	{Code: "events_log_disabled", Status: "501", Family: "availability"},
+	{Code: "limits_unavailable", Status: "503", Family: "availability", Retryable: true},
+	{Code: "internal_error", Status: "5xx", Family: "server", Retryable: true},
+	{Code: "method_not_allowed", Status: "405", Family: "server", FallbackOnly: true},
+	{Code: "unsupported_media_type", Status: "415", Family: "server", FallbackOnly: true},
+	{Code: "error", Status: "other 4xx", Family: "server", FallbackOnly: true},
 }
+
+func catalogCodes(fallbackOnly bool) []string {
+	codes := make([]string, 0, len(errorCodeCatalog))
+	for _, entry := range errorCodeCatalog {
+		if entry.FallbackOnly == fallbackOnly {
+			codes = append(codes, entry.Code)
+		}
+	}
+	return codes
+}
+
+var emittedErrorCodes = catalogCodes(false)
+var fallbackOnlyErrorCodes = catalogCodes(true)
 
 var snakeCase = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var documentedErrorCode = regexp.MustCompile("`([a-z][a-z0-9_]*)`")
 
 // scanEmittedErrorCodes walks every non-test .go file under internal/ and
 // collects the string-literal codes passed to the envelope constructors:
@@ -199,6 +202,139 @@ func typeName(expr ast.Expr) string {
 	return ""
 }
 
+type emittedErrorStatus struct {
+	Code   string
+	Status int
+	Site   string
+}
+
+func scanLiteralErrorStatuses(t *testing.T) []emittedErrorStatus {
+	t.Helper()
+	root := filepath.Join("..", "..")
+	fset := token.NewFileSet()
+	var found []emittedErrorStatus
+	record := func(codeExpr, statusExpr ast.Expr, node ast.Node) {
+		codeLit, ok := codeExpr.(*ast.BasicLit)
+		if !ok || codeLit.Kind != token.STRING {
+			return
+		}
+		code, err := strconv.Unquote(codeLit.Value)
+		if err != nil {
+			return
+		}
+		status, ok := staticHTTPStatus(statusExpr)
+		if !ok {
+			return
+		}
+		pos := fset.Position(node.Pos())
+		rel, _ := filepath.Rel(root, pos.Filename)
+		found = append(found, emittedErrorStatus{Code: code, Status: status, Site: rel + ":" + strconv.Itoa(pos.Line)})
+	}
+
+	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.CallExpr:
+				switch calleeName(node.Fun) {
+				case "NewError":
+					if len(node.Args) >= 3 {
+						record(node.Args[1], node.Args[0], node)
+					}
+				case "WriteError", "writeRawError":
+					if len(node.Args) >= 5 {
+						record(node.Args[3], node.Args[2], node)
+					}
+				}
+			case *ast.CompositeLit:
+				if typeName(node.Type) != "OutboundError" {
+					return true
+				}
+				var statusExpr, codeExpr ast.Expr
+				for i, elt := range node.Elts {
+					if kv, ok := elt.(*ast.KeyValueExpr); ok {
+						if id, ok := kv.Key.(*ast.Ident); ok {
+							switch id.Name {
+							case "Status":
+								statusExpr = kv.Value
+							case "Code":
+								codeExpr = kv.Value
+							}
+						}
+					} else if i == 0 {
+						statusExpr = elt
+					} else if i == 1 {
+						codeExpr = elt
+					}
+				}
+				if statusExpr != nil && codeExpr != nil {
+					record(codeExpr, statusExpr, node)
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanning literal error statuses: %v", err)
+	}
+	return found
+}
+
+func staticHTTPStatus(expr ast.Expr) (int, bool) {
+	if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.INT {
+		status, err := strconv.Atoi(lit.Value)
+		return status, err == nil
+	}
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return 0, false
+	}
+	statuses := map[string]int{
+		"StatusBadRequest":            http.StatusBadRequest,
+		"StatusUnauthorized":          http.StatusUnauthorized,
+		"StatusPaymentRequired":       http.StatusPaymentRequired,
+		"StatusForbidden":             http.StatusForbidden,
+		"StatusNotFound":              http.StatusNotFound,
+		"StatusMethodNotAllowed":      http.StatusMethodNotAllowed,
+		"StatusConflict":              http.StatusConflict,
+		"StatusGone":                  http.StatusGone,
+		"StatusRequestEntityTooLarge": http.StatusRequestEntityTooLarge,
+		"StatusUnsupportedMediaType":  http.StatusUnsupportedMediaType,
+		"StatusUnprocessableEntity":   http.StatusUnprocessableEntity,
+		"StatusTooManyRequests":       http.StatusTooManyRequests,
+		"StatusInternalServerError":   http.StatusInternalServerError,
+		"StatusNotImplemented":        http.StatusNotImplemented,
+		"StatusServiceUnavailable":    http.StatusServiceUnavailable,
+	}
+	status, ok := statuses[sel.Sel.Name]
+	return status, ok
+}
+
+func statusAllowed(contract string, status int) bool {
+	if contract == "5xx" {
+		return status >= 500 && status < 600
+	}
+	if contract == "other 4xx" {
+		return status >= 400 && status < 500
+	}
+	for _, candidate := range strings.Split(contract, "/") {
+		if strings.TrimSpace(candidate) == strconv.Itoa(status) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestErrorCodeVocabularyMatchesCatalog asserts the set of codes emitted from
 // source exactly equals the canonical catalog above — no unlisted code can ship,
 // and no listed code can silently stop being emitted (a dead catalog entry is a
@@ -238,6 +374,22 @@ func TestErrorCodeVocabularyMatchesCatalog(t *testing.T) {
 	}
 }
 
+func TestLiteralErrorStatusesMatchCatalog(t *testing.T) {
+	contracts := make(map[string]string, len(errorCodeCatalog))
+	for _, entry := range errorCodeCatalog {
+		contracts[entry.Code] = entry.Status
+	}
+	for _, emitted := range scanLiteralErrorStatuses(t) {
+		contract, ok := contracts[emitted.Code]
+		if !ok {
+			continue // the vocabulary test reports the missing catalog entry
+		}
+		if !statusAllowed(contract, emitted.Status) {
+			t.Errorf("%s emits %s with HTTP %d; catalog allows %s", emitted.Site, emitted.Code, emitted.Status, contract)
+		}
+	}
+}
+
 // TestErrorCodeVocabularyIsDocumented asserts every code in the vocabulary —
 // emitted, fallback-only, and everything defaultCodeForStatus can mint —
 // appears verbatim in the ErrorBody.Code doc tag, which is the text `make spec`
@@ -258,17 +410,115 @@ func TestErrorCodeVocabularyIsDocumented(t *testing.T) {
 	for _, status := range []int{400, 401, 403, 404, 405, 406, 409, 413, 415, 422, 429, 500, 503} {
 		all = append(all, defaultCodeForStatus(status))
 	}
-	seen := map[string]bool{}
+	want := map[string]bool{}
 	for _, code := range all {
-		if seen[code] {
+		if want[code] {
 			continue
 		}
-		seen[code] = true
+		want[code] = true
 		if !snakeCase.MatchString(code) {
 			t.Errorf("code %q violates snake_case", code)
 		}
-		if !strings.Contains(doc, code) {
-			t.Errorf("code %q is not documented in the ErrorBody.Code doc tag (the published error.code catalog)", code)
+	}
+
+	const prefix = "Exact current vocabulary (machine-checked): "
+	start := strings.Index(doc, prefix)
+	if start < 0 {
+		t.Fatalf("ErrorBody.Code doc tag is missing %q", prefix)
+	}
+	section := doc[start+len(prefix):]
+	end := strings.Index(section, ". Grouped semantics:")
+	if end < 0 {
+		t.Fatal("ErrorBody.Code exact vocabulary must end before '. Grouped semantics:'")
+	}
+	got := map[string]bool{}
+	for _, token := range strings.Split(section[:end], ",") {
+		code := strings.TrimSpace(token)
+		if code == "" {
+			continue
 		}
+		if got[code] {
+			t.Errorf("ErrorBody.Code exact vocabulary lists %q twice", code)
+		}
+		got[code] = true
+	}
+	var missing, extra []string
+	for code := range want {
+		if !got[code] {
+			missing = append(missing, code)
+		}
+	}
+	for code := range got {
+		if !want[code] {
+			extra = append(extra, code)
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	if len(missing) > 0 || len(extra) > 0 {
+		t.Errorf("ErrorBody.Code exact vocabulary drift: missing=%v extra=%v", missing, extra)
+	}
+}
+
+// TestDocsErrorCodeTableMatchesCatalog freezes docs/api.md as the human-facing
+// view of the same contract catalog used by the server and OpenAPI. Keeping the
+// status spelling exact makes ambiguous pairings (such as 400 / 422) visible.
+func TestDocsErrorCodeTableMatchesCatalog(t *testing.T) {
+	t.Helper()
+	docBytes, err := os.ReadFile(filepath.Join("..", "..", "docs", "api.md"))
+	if err != nil {
+		t.Fatalf("read docs/api.md: %v", err)
+	}
+	doc := string(docBytes)
+	start := strings.Index(doc, "## Error codes")
+	end := strings.Index(doc, "## Versioning & stability")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("docs/api.md must contain an Error codes section before Versioning & stability")
+	}
+
+	documented := map[string]string{}
+	for _, line := range strings.Split(doc[start:end], "\n") {
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := strings.Split(line, "|")
+		if len(cells) < 4 {
+			continue
+		}
+		status := strings.TrimSpace(cells[2])
+		for _, match := range documentedErrorCode.FindAllStringSubmatch(cells[1], -1) {
+			documented[match[1]] = status
+		}
+	}
+
+	want := make(map[string]string, len(errorCodeCatalog))
+	for _, entry := range errorCodeCatalog {
+		want[entry.Code] = entry.Status
+	}
+	var missing, extra, mismatched []string
+	for code, status := range want {
+		got, ok := documented[code]
+		if !ok {
+			missing = append(missing, code)
+		} else if got != status {
+			mismatched = append(mismatched, code+": want "+status+", got "+got)
+		}
+	}
+	for code := range documented {
+		if _, ok := want[code]; !ok {
+			extra = append(extra, code)
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	sort.Strings(mismatched)
+	if len(missing) > 0 {
+		t.Errorf("catalog codes missing from docs/api.md: %s", strings.Join(missing, ", "))
+	}
+	if len(extra) > 0 {
+		t.Errorf("docs/api.md codes missing from the canonical catalog: %s", strings.Join(extra, ", "))
+	}
+	if len(mismatched) > 0 {
+		t.Errorf("docs/api.md status drift:\n  %s", strings.Join(mismatched, "\n  "))
 	}
 }
