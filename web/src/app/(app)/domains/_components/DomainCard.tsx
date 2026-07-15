@@ -227,6 +227,7 @@ export function DomainCard({
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   // Cached per-record diagnostic from the most recent verify probe. Until the
   // user re-checks, this is null and the rows fall back to the server-derived
   // per-record status carried in dns_records.
@@ -265,12 +266,15 @@ export function DomainCard({
   const handleDelete = async () => {
     if (!confirm(`Delete domain ${domain.domain}? This cannot be undone.`))
       return;
+    setDeleteError("");
     setDeleting(true);
     try {
       await deleteDomain(domain.domain);
       onDeleted();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete domain");
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete domain",
+      );
     } finally {
       setDeleting(false);
     }
@@ -409,6 +413,21 @@ export function DomainCard({
             DNS changes can take a few minutes to propagate. Wait a bit and
             try again.
           </p>
+        </div>
+      )}
+
+      {deleteError && (
+        <div
+          className="mt-3 p-3 text-[13px]"
+          role="alert"
+          style={{
+            background: "var(--danger-bg)",
+            color: "var(--danger-strong)",
+            border: "1px solid var(--danger-bg)",
+            borderRadius: "var(--r-md)",
+          }}
+        >
+          {deleteError}
         </div>
       )}
 
