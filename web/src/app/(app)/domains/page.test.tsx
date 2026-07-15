@@ -246,6 +246,46 @@ describe("Domains page — with domains", () => {
     expect(screen.getByText("Create inbox")).toHaveAttribute("href", "/get-started?domain=verified.example.com");
   });
 
+  it("shows an inline error instead of an alert when domain deletion fails", async () => {
+    mockDomainsAndAgents([sampleDomain], []);
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/v1/domains") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [sampleDomain] }),
+        });
+      }
+      if (url === "/v1/agents") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [] }),
+        });
+      }
+      if (
+        url ===
+        `/v1/domains/${encodeURIComponent(sampleDomain.domain)}?confirm=DELETE`
+      ) {
+        return Promise.resolve({
+          ok: false,
+          text: () => Promise.resolve("Deletion is blocked"),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+    jest.spyOn(window, "confirm").mockReturnValue(true);
+    const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+
+    render(<DomainsPage />);
+
+    await userEvent.click(await screen.findByText("Delete"));
+
+    expect(await screen.findByText("Deletion is blocked")).toBeInTheDocument();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
   it("toggles DNS records visibility", async () => {
     mockDomainsAndAgents([sampleDomain], []);
     render(<DomainsPage />);
