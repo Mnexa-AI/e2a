@@ -38,9 +38,8 @@ const (
 	// completes, so this event is the push signal that a send finished:
 	//   - email.failed: terminal failure (retries exhausted / permanent reject /
 	//     block / review-reject-or-expiry). Carries reason.
-	// Emitted synchronously in sync outbound mode (the server already knows the
-	// outcome); the async send pipeline (E2A_OUTBOUND_MODE=async) makes it the
-	// primary signal.
+	// Emitted durably by the queue-first outbound worker as the terminal failure
+	// signal.
 	EventEmailFailed = "email.failed"
 	// Review-hold lifecycle (unified, direction-aware — design 2026-06-22). A held
 	// message fires email.review_requested (defined below); on resolution it fires

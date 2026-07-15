@@ -365,7 +365,7 @@ class MessagesApi:
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -391,7 +391,7 @@ class MessagesApi:
         :type forward_request: ForwardRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -455,7 +455,7 @@ class MessagesApi:
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -481,7 +481,7 @@ class MessagesApi:
         :type forward_request: ForwardRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -545,7 +545,7 @@ class MessagesApi:
         id: StrictStr,
         forward_request: ForwardRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -571,7 +571,7 @@ class MessagesApi:
         :type forward_request: ForwardRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1775,7 +1775,7 @@ class MessagesApi:
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1801,7 +1801,7 @@ class MessagesApi:
         :type reply_request: ReplyRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1865,7 +1865,7 @@ class MessagesApi:
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1891,7 +1891,7 @@ class MessagesApi:
         :type reply_request: ReplyRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1955,7 +1955,7 @@ class MessagesApi:
         id: StrictStr,
         reply_request: ReplyRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1981,7 +1981,7 @@ class MessagesApi:
         :type reply_request: ReplyRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -2407,7 +2407,7 @@ class MessagesApi:
         email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2431,7 +2431,7 @@ class MessagesApi:
         :type send_email_request: SendEmailRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -2493,7 +2493,7 @@ class MessagesApi:
         email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2517,7 +2517,7 @@ class MessagesApi:
         :type send_email_request: SendEmailRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -2579,7 +2579,7 @@ class MessagesApi:
         email: StrictStr,
         send_email_request: SendEmailRequest,
         idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.")] = None,
-        wait: Annotated[Optional[StrictStr], Field(description="Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.")] = None,
+        wait: Annotated[Optional[StrictStr], Field(description="Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -2603,7 +2603,7 @@ class MessagesApi:
         :type send_email_request: SendEmailRequest
         :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay.
         :type idempotency_key: str
-        :param wait: Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome.
+        :param wait: Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code.
         :type wait: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

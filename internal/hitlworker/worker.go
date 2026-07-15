@@ -22,8 +22,8 @@ import (
 )
 
 // OutboundEnqueuer inserts an outbound_send job (QueueOutbound) in the caller's
-// transaction. Satisfied by *outboundsend.Jobs. When wired (E2A_OUTBOUND_MODE=async)
-// the sweep hands an approved outbound send to the async pipeline — transitioning
+// transaction. Satisfied by *outboundsend.Jobs. The sweep hands an approved
+// outbound send to the queue-first pipeline — transitioning
 // the hold to review_expired_approved + delivery_status='accepted' and enqueuing —
 // instead of blocking on Sender.Send. Self-sends never use it (they loopback).
 type OutboundEnqueuer interface {
@@ -49,9 +49,9 @@ type Worker struct {
 	// from internal/agent). Optional — nil leaves the sweep silent (legacy
 	// behavior). Wired via SetPublisher.
 	publisher webhookpub.Publisher
-	// outboundEnq, when non-nil (E2A_OUTBOUND_MODE=async), routes an approved
-	// outbound send onto QueueOutbound instead of a blocking Sender.Send — the
-	// sweep becomes DB-only. Wired via SetOutboundEnqueuer. Self-sends ignore it.
+	// outboundEnq routes an approved external send onto QueueOutbound. Main always
+	// wires it; a nil value fails closed and leaves the hold pending. Self-sends use
+	// the local loopback path.
 	outboundEnq OutboundEnqueuer
 }
 
@@ -59,11 +59,9 @@ type Worker struct {
 // on TTL auto-resolution. Without it the sweep transitions rows silently.
 func (w *Worker) SetPublisher(p webhookpub.Publisher) { w.publisher = p }
 
-// SetOutboundEnqueuer wires the async outbound send enqueuer. When set (async
-// mode), auto-approve transitions the hold + enqueues an outbound_send job and the
-// SendWorker performs the SMTP submit; when nil (sync mode), auto-approve keeps the
-// blocking in-process send. Two-phase wiring: pass the *outboundsend.Jobs pointer;
-// its shared River client is injected later via the jobs client's SetEnqueuer.
+// SetOutboundEnqueuer wires the mandatory outbound send enqueuer. Two-phase
+// wiring: pass the *outboundsend.Jobs pointer; its shared River client is injected
+// later via the jobs client's SetEnqueuer.
 func (w *Worker) SetOutboundEnqueuer(e OutboundEnqueuer) { w.outboundEnq = e }
 
 // New constructs a Worker. fromDomain is the deployment's outbound
@@ -72,11 +70,11 @@ func (w *Worker) SetOutboundEnqueuer(e OutboundEnqueuer) { w.outboundEnq = e }
 // the same way internal/agent does on the user-driven approve path.
 // Pass "" if the deployment has no outbound relay configured; the
 // loopback path falls back to "e2a.local" for the host portion.
-func New(store *identity.Store, sender *outbound.Sender, usage usage.UsageTracker, fromDomain string) *Worker {
+func New(store *identity.Store, sender *outbound.Sender, usageTracker usage.UsageTracker, fromDomain string) *Worker {
 	return &Worker{
 		store:      store,
 		sender:     sender,
-		usage:      usage,
+		usage:      usageTracker,
 		fromDomain: fromDomain,
 		batchSize:  DefaultBatchSize,
 	}
@@ -185,18 +183,22 @@ func (w *Worker) autoApprove(ctx context.Context, c identity.ExpirationCandidate
 		return
 	}
 
-	// Async mode: hand the send to QueueOutbound (DB-only sweep). Returns false
-	// only for self-sends, which fall through to the sync loopback path below.
-	if w.outboundEnq != nil && w.autoApproveAsync(ctx, agent, c) {
+	if w.outboundEnq == nil {
+		log.Printf("[hitl-worker] auto-approve %s: outbound delivery queue unavailable", c.MessageID)
 		return
 	}
-	w.autoApproveSync(ctx, agent, c)
+	// Hand external delivery to QueueOutbound. false means this is a self-send,
+	// which uses the local loopback path below.
+	if w.autoApproveAsync(ctx, agent, c) {
+		return
+	}
+	w.autoApproveLoopback(ctx, agent, c)
 }
 
 // autoApproveAsync transitions the hold to review_expired_approved +
 // delivery_status='accepted' and enqueues an outbound_send job; the SendWorker does
 // the actual submit + email.sent/failed + metering. Returns false (handled nothing)
-// ONLY when the message is a self-send — the caller then uses the sync loopback
+// ONLY when the message is a self-send — the caller then uses the local loopback
 // path. Any other outcome (queued, already-resolved, transient failure left for the
 // next cycle, or a permanent-draft reject) returns true.
 func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIdentity, c identity.ExpirationCandidate) bool {
@@ -218,12 +220,12 @@ func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIden
 	}
 	w.attachReferencesChain(ctx, agent.ID, &req)
 	if loopback.IsSelfSend(req, agent.EmailAddress()) {
-		return false // self-send — fall through to the sync loopback path
+		return false // self-send — fall through to the local loopback path
 	}
 	comp, err := w.sender.ComposeForAccept(agent, req)
 	if err != nil {
 		// Compose failures are deterministic (bad addresses / no visible
-		// recipients) — a retry can't fix them, so reject like the sync path would.
+		// recipients) — a retry can't fix them, so reject the draft.
 		w.autoReject(ctx, c.MessageID, fmt.Sprintf("auto-approve failed: compose: %v", err))
 		return true
 	}
@@ -250,7 +252,7 @@ func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIden
 	return true
 }
 
-func (w *Worker) autoApproveSync(ctx context.Context, agent *identity.AgentIdentity, c identity.ExpirationCandidate) {
+func (w *Worker) autoApproveLoopback(ctx context.Context, agent *identity.AgentIdentity, c identity.ExpirationCandidate) {
 	sent, err := w.store.ExpireApproveAndSend(ctx, c.MessageID,
 		func(msg *identity.Message) (identity.SendResult, error) {
 			req, err := sendRequestFromStoredMessage(msg)
@@ -268,21 +270,10 @@ func (w *Worker) autoApproveSync(ctx context.Context, agent *identity.AgentIdent
 			// the now-sent outbound row, matching the user-driven
 			// approve paths in internal/agent/hitl_api.go and
 			// internal/agent/hitl_magic_api.go.
-			if loopback.IsSelfSend(req, agent.EmailAddress()) {
-				return loopback.DeliverInbound(ctx, w.store, agent, req, w.fromDomain)
+			if !loopback.IsSelfSend(req, agent.EmailAddress()) {
+				return identity.SendResult{}, errors.New("external outbound approval must be queued")
 			}
-			result, err := w.sender.Send(agent, req)
-			if err != nil {
-				return identity.SendResult{}, err
-			}
-			return identity.SendResult{
-				ProviderMessageID: result.MessageID,
-				Method:            result.Method,
-				To:                result.To,
-				CC:                result.CC,
-				BCC:               result.BCC,
-				Raw:               result.Raw,
-			}, nil
+			return loopback.DeliverInbound(ctx, w.store, agent, req, w.fromDomain)
 		})
 	if err != nil {
 		// ErrNotPendingApproval means another worker (or a human) handled
@@ -305,11 +296,12 @@ func (w *Worker) autoApproveSync(ctx context.Context, agent *identity.AgentIdent
 		w.autoReject(ctx, c.MessageID, fmt.Sprintf("auto-approve send failed: %v", err))
 		return
 	}
-
-	// Record usage only after the send actually succeeded.
+	// External sends are metered by the outbound worker after provider success.
+	// Loopback is terminal here, so preserve the same post-delivery accounting.
 	if _, err := w.usage.RecordAndCheck(ctx, agent.UserID, agent.ID, agent.Domain, "outbound"); err != nil {
 		log.Printf("[hitl-worker] usage recording error: %v", err)
 	}
+
 	log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s to=%v auto_sent=true",
 		sent.ID, sent.Type, sent.Status, agent.ID, sent.ToRecipients)
 	// Mirror the user-driven approve: fire email.review_approved (the send

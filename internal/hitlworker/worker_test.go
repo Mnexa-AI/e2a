@@ -31,7 +31,8 @@ func setupWorker(t *testing.T) (
 	store := identity.NewStore(pool)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: smtpAddr.Host, Port: smtpAddr.Port})
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
-	w := hitlworker.New(store, sender, usage.NewNoopUsageTracker(), "test.e2a.dev")
+	w := hitlworker.New(store, sender, usage.NewUsageTracker(usage.NewStore(pool)), "test.e2a.dev")
+	w.SetOutboundEnqueuer(&fakeEnq{})
 	return w, store, pool, smtpDone
 }
 
@@ -127,34 +128,28 @@ func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
 
 	w.RunOnce(ctx)
 
-	msgs := smtpDone()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
-	}
-	if msgs[0].To != "alice@example.com" {
-		t.Errorf("SMTP To = %q", msgs[0].To)
-	}
-	if !strings.Contains(msgs[0].Data, "Auto-send subject") {
-		t.Errorf("missing subject in SMTP body:\n%s", msgs[0].Data)
-	}
-	if !strings.Contains(msgs[0].Data, "plain body") {
-		t.Errorf("missing plain body in SMTP:\n%s", msgs[0].Data)
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("auto-approve submitted %d SMTP messages inline, want zero", len(msgs))
 	}
 
-	var status, providerID string
+	var status, deliveryStatus string
+	var providerID string
 	var bodyText *string
 	err := pool.QueryRow(ctx,
-		`SELECT status, provider_message_id, body_text FROM messages WHERE id = $1`,
+		`SELECT status, delivery_status, provider_message_id, body_text FROM messages WHERE id = $1`,
 		msg.ID,
-	).Scan(&status, &providerID, &bodyText)
+	).Scan(&status, &deliveryStatus, &providerID, &bodyText)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if status != identity.MessageStatusReviewExpiredApproved {
 		t.Errorf("status = %q, want %q", status, identity.MessageStatusReviewExpiredApproved)
 	}
-	if providerID == "" {
-		t.Error("provider_message_id should be populated after auto-send")
+	if deliveryStatus != "accepted" {
+		t.Errorf("delivery_status = %q, want accepted", deliveryStatus)
+	}
+	if providerID != "" {
+		t.Errorf("provider_message_id = %q, want empty before worker delivery", providerID)
 	}
 	if bodyText != nil {
 		t.Errorf("body_text not scrubbed: %v", bodyText)
@@ -162,8 +157,8 @@ func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
 }
 
 // TestWorkerAutoApproveCarriesReplyTo pins the Reply-To override through the
-// SYNC TTL auto-approve path end-to-end: pending row with a caller override →
-// TTL expiry → ExpireApproveAndSend recompose → composed SMTP bytes carry the
+// queue-first TTL auto-approve path end-to-end: pending row with a caller override →
+// TTL expiry → accepted raw MIME carries the
 // override, not the agent's own address. This is the exact seam where a missing
 // reply_to in ExpireApproveAndSend's locked SELECT silently dropped the override.
 func TestWorkerAutoApproveCarriesReplyTo(t *testing.T) {
@@ -180,15 +175,18 @@ func TestWorkerAutoApproveCarriesReplyTo(t *testing.T) {
 
 	w.RunOnce(ctx)
 
-	msgs := smtpDone()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("auto-approve submitted %d SMTP messages inline, want zero", len(msgs))
 	}
-	if !strings.Contains(msgs[0].Data, "Reply-To: "+override) {
-		t.Errorf("SMTP body missing overridden Reply-To %q:\n%s", override, msgs[0].Data)
+	var raw []byte
+	if err := pool.QueryRow(ctx, `SELECT raw_message FROM messages WHERE id=$1`, msg.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(msgs[0].Data, "Reply-To: "+agent.EmailAddress()) {
-		t.Errorf("SMTP body fell back to agent-address Reply-To — override was dropped:\n%s", msgs[0].Data)
+	if !strings.Contains(string(raw), "Reply-To: "+override) {
+		t.Errorf("accepted MIME missing overridden Reply-To %q:\n%s", override, raw)
+	}
+	if strings.Contains(string(raw), "Reply-To: "+agent.EmailAddress()) {
+		t.Errorf("accepted MIME fell back to agent-address Reply-To — override was dropped:\n%s", raw)
 	}
 }
 
@@ -255,21 +253,25 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 	if inboundCount != 1 {
 		t.Errorf("inbound rows after self-send auto-approve = %d, want 1", inboundCount)
 	}
+	var usageCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM usage_events WHERE agent_id=$1 AND direction='outbound'`,
+		agent.ID,
+	).Scan(&usageCount); err != nil {
+		t.Fatal(err)
+	}
+	if usageCount != 1 {
+		t.Errorf("outbound usage events after self-send auto-approve = %d, want 1", usageCount)
+	}
 }
 
 func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
-	// Sender pointed at a bogus port so SMTP dial fails; still share the DB
-	// and store with the fake SMTP from setupWorker to keep setup terse.
-	_, store, pool, _ := setupWorker(t)
+	w, store, pool, _ := setupWorker(t)
 	ctx := context.Background()
-
-	badRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: "127.0.0.1", Port: 1})
-	badSender := outbound.NewSender(badRelay, "test.e2a.dev")
-	w := hitlworker.New(store, badSender, usage.NewNoopUsageTracker(), "test.e2a.dev")
 
 	agent := prepareAgent(t, store, "auto-approve-fail", identity.HITLExpirationApprove)
 	msg, _ := store.CreatePendingOutboundMessage(ctx, agent.ID,
-		[]string{"alice@example.com"}, nil, nil,
+		[]string{"not-an-email"}, nil, nil,
 		"x", "body", "", nil, "send", "", "", "", 60)
 	backdateExpiry(t, pool, msg.ID)
 
@@ -288,8 +290,8 @@ func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
 		t.Errorf("status = %q, want %q (send failure should fall back to rejected)",
 			status, identity.MessageStatusReviewExpiredRejected)
 	}
-	if reason == nil || !strings.Contains(*reason, "auto-approve send failed") {
-		t.Errorf("reason = %v, want containing 'auto-approve send failed'", reason)
+	if reason == nil || !strings.Contains(*reason, "auto-approve failed: compose") {
+		t.Errorf("reason = %v, want containing 'auto-approve failed: compose'", reason)
 	}
 	if bodyText != nil {
 		t.Errorf("body_text not scrubbed: %v", bodyText)

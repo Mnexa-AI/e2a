@@ -3,8 +3,33 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// TestOutboundModeConfigurationRemoved is a source-level contract guard. Outbound
+// delivery is always queue-first for GA, so neither the legacy environment switch
+// nor its configuration model may quietly return in a later refactor.
+func TestOutboundModeConfigurationRemoved(t *testing.T) {
+	t.Helper()
+	files := []string{
+		"config.go",
+		filepath.Join("..", "..", "cmd", "e2a", "main.go"),
+		filepath.Join("..", "..", "config.example.yaml"),
+	}
+	forbidden := []string{"E2A_OUTBOUND_MODE", "OutboundConfig", "cfg.Outbound.Mode"}
+	for _, path := range files {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, token := range forbidden {
+			if strings.Contains(string(body), token) {
+				t.Errorf("%s still contains removed outbound-mode token %q", path, token)
+			}
+		}
+	}
+}
 
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()

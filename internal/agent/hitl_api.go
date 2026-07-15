@@ -67,8 +67,8 @@ type ApproveOverrides = approveRequest
 // and publishes the approved event. Both the legacy handler and the v1 layer
 // call it. expectedAgentEmail (when non-empty) must equal the message's
 // agent's email — mirrors the legacy verifyURLAgentEmail URL guard.
-// On a nil-error return the synchronous send or async enqueue has committed;
-// the idempotency key must be Completed (cached), never Released. In async mode
+// On a nil-error return the local loopback or async enqueue has committed;
+// the idempotency key must be Completed (cached), never Released. For queued delivery
 // idemCompleteTx is invoked inside the approve-and-enqueue transaction.
 func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr ApproveOverrides, idemCompleteTx ApproveIdemCompleter) (*identity.Message, *OutboundError) {
 	edits, err := ovr.toEdit()
@@ -116,47 +116,37 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 				total, outbound.MaxComposedMessageBytes, outbound.MaxComposedMessageBytes/(1024*1024))}
 	}
 
-	// Async mode: transition the hold to review_approved + delivery_status='accepted'
+	// Transition the hold to review_approved + delivery_status='accepted'
 	// and enqueue an outbound_send job; the SendWorker performs the SMTP submit +
 	// email.sent/failed + metering. The reviewer gets "accepted" back (the send is
-	// durably queued). Self-sends fall through to the sync loopback path below.
-	if a.outboundEnq != nil {
-		sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits, idemCompleteTx)
-		if aerr != nil {
-			return nil, approveAsyncError(agent.ID, messageID, aerr)
-		}
-		if handled {
-			slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-			log.Printf("[mail:%s] dir=outbound type=%s status=%s from=%s to=%v slug=%s subject=%q edited=%v approved=user:%s delivery=async",
-				sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, userID)
-			a.publishApproved(ctx, a.buildApprovedEvent(agent, sent, userID), sent)
-			// No metering here — the SendWorker meters on MarkSent.
-			return sent, nil
-		}
+	// durably queued). Self-sends fall through to the local loopback path below.
+	if a.outboundEnq == nil {
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "outbound delivery queue unavailable"}
+	}
+	sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits, idemCompleteTx)
+	if aerr != nil {
+		return nil, approveAsyncError(agent.ID, messageID, aerr)
+	}
+	if handled {
+		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
+		log.Printf("[mail:%s] dir=outbound type=%s status=%s from=%s to=%v slug=%s subject=%q edited=%v approved=user:%s delivery=async",
+			sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, slug, sent.Subject, sent.Edited, userID)
+		a.publishApproved(ctx, a.buildApprovedEvent(agent, sent, userID), sent)
+		// No metering here — the SendWorker meters on MarkSent.
+		return sent, nil
 	}
 
-	sent, err := a.store.ApproveAndSend(ctx, messageID, userID, edits,
+	sent, err = a.store.ApproveAndSend(ctx, messageID, userID, edits,
 		func(locked *identity.Message) (identity.SendResult, error) {
 			sendReq, err := buildSendRequestFromMessage(locked)
 			if err != nil {
 				return identity.SendResult{}, err
 			}
 			attachReferencesChain(ctx, a.store, agent.ID, &sendReq)
-			if isSelfSend(sendReq, agent.EmailAddress()) {
-				return a.selfSendApprovalDelivery(ctx, agent, sendReq)
+			if !isSelfSend(sendReq, agent.EmailAddress()) {
+				return identity.SendResult{}, errors.New("external outbound approval must be queued")
 			}
-			result, err := a.sender.Send(agent, sendReq)
-			if err != nil {
-				return identity.SendResult{}, err
-			}
-			return identity.SendResult{
-				ProviderMessageID: result.MessageID,
-				Method:            result.Method,
-				To:                result.To,
-				CC:                result.CC,
-				BCC:               result.BCC,
-				Raw:               result.Raw,
-			}, nil
+			return a.selfSendApprovalDelivery(ctx, agent, sendReq)
 		})
 	if err != nil {
 		switch {

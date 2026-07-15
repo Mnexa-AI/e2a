@@ -74,6 +74,33 @@ func setupAsyncAPI(t *testing.T) (*agent.API, *identity.Store, webhookpub.Outbox
 	return api, store, outbox, enq
 }
 
+// TestDeliverOutbound_MissingQueueFailsClosed prevents a regression to the
+// pre-GA submit-inline fallback. Queue wiring is mandatory: a miswired process
+// must return an error before provider I/O, never send an email synchronously.
+func TestDeliverOutbound_MissingQueueFailsClosed(t *testing.T) {
+	smtpAddr, smtpDone := testutil.FakeSMTPServer(t)
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: smtpAddr.Host, Port: smtpAddr.Port})
+	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(),
+		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
+	user, ag := selfAgent(t, store, "missingqueue")
+
+	res, oerr := api.DeliverOutbound(context.Background(), user, ag, outbound.SendRequest{
+		To: []string{"alice@external.test"}, Subject: "must queue", Body: "never submit inline",
+	}, "send", "", nil, nil)
+	if res != nil {
+		t.Fatalf("result = %+v, want nil when outbound queue is unavailable", res)
+	}
+	if oerr == nil || oerr.Status != 500 || oerr.Code != "internal_error" {
+		t.Fatalf("error = %+v, want 500 internal_error", oerr)
+	}
+	if got := smtpDone(); len(got) != 0 {
+		t.Fatalf("missing queue submitted %d SMTP messages; want zero", len(got))
+	}
+}
+
 // TestDeliverOutbound_AsyncAccept is the end-to-end slice-C check: with the async
 // enqueuer wired, a real (non-self) send is durably accepted (not submitted
 // inline) — it returns status=accepted, persists a delivery_status='accepted' row

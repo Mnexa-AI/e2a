@@ -1,5 +1,10 @@
 # HITL approve → QueueOutbound (async send)
 
+> **GA resolution (2026-07-15):** queue-first external outbound delivery is
+> mandatory. `E2A_OUTBOUND_MODE` and the submit-inline fallback were removed.
+> Historical sync-mode branches below are retained only as design history;
+> self-send loopback remains a distinct local delivery path.
+
 Status: approved · Owner: backend · Related: `internal/hitlworker`, `internal/agent`, `internal/outboundsend`, `internal/identity`
 
 ## Context / goal

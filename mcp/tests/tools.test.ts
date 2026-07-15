@@ -357,7 +357,7 @@ describe("e2a MCP server", () => {
 
   // The real backend status vocabulary (internal/httpapi/outbound.go
   // SendResultView) includes "accepted" — the async-outbound success status
-  // that REPLACES "sent" when async mode is on. A model that doesn't know
+  // that REPLACES "sent" for queue-first delivery. A model that doesn't know
   // "accepted" is a terminal success can mistake it for an ambiguous/failed
   // result and re-send without reusing idempotency_key, causing a real
   // duplicate send. Guard that all three send-shaped tool descriptions

@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/Mnexa-AI/e2a/internal/agent"
 	"github.com/Mnexa-AI/e2a/internal/approvaltoken"
-	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/config"
 	"github.com/Mnexa-AI/e2a/internal/identity"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
 	"github.com/Mnexa-AI/e2a/internal/testutil"
+	"github.com/Mnexa-AI/e2a/internal/usage"
+	"github.com/gorilla/mux"
 )
 
 const magicLinkSecret = "magic-link-test-secret"
@@ -39,6 +39,7 @@ func setupMagicLinkAPI(t *testing.T) (
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	noopUsage := usage.NewNoopUsageTracker()
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
+	api.SetOutboundEnqueuer(&fakeOutboundEnqueuer{jobID: 999})
 	signer := approvaltoken.NewSigner(magicLinkSecret)
 	api.SetApprovalSigner(signer)
 	router := mux.NewRouter()
@@ -159,7 +160,7 @@ func TestMagicApproveGETRendersConfirmForm(t *testing.T) {
 		`method="POST"`,
 		`action="/v1/approve"`,
 		`name="t"`,
-		tok, // token echoed into the hidden input
+		tok,                 // token echoed into the hidden input
 		"alice@example.com", // recipient shown
 		"Held",              // subject shown
 		"plain body",        // body preview is on the confirm page
@@ -205,7 +206,7 @@ func TestMagicRejectGETRendersConfirmFormWithReasonField(t *testing.T) {
 
 // --- POST executor behavior ---
 
-func TestMagicApprovePOSTSends(t *testing.T) {
+func TestMagicApprovePOSTQueues(t *testing.T) {
 	server, store, signer, smtpDone := setupMagicLinkAPI(t)
 	a, userID := prepareHITLAgent(t, store, "post-approve")
 	msg := issuePending(t, store, a.ID)
@@ -221,14 +222,16 @@ func TestMagicApprovePOSTSends(t *testing.T) {
 		t.Errorf("expected 'Approved' in body, got: %s", body)
 	}
 
-	msgs := smtpDone()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 SMTP message, got %d", len(msgs))
+	if msgs := smtpDone(); len(msgs) != 0 {
+		t.Fatalf("approval submitted %d SMTP messages inline, want zero", len(msgs))
 	}
 
 	got, _ := store.GetOutboundMessageForUser(context.Background(), msg.ID, userID)
 	if got.Status != identity.MessageStatusSent {
 		t.Errorf("status = %q, want sent", got.Status)
+	}
+	if got.DeliveryStatus != "accepted" {
+		t.Errorf("delivery_status = %q, want accepted", got.DeliveryStatus)
 	}
 	if got.BodyText != "" {
 		t.Errorf("body_text should be scrubbed, got %q", got.BodyText)

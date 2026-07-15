@@ -50,7 +50,7 @@ import { writeReport, info } from "../harness/report.ts";
 //                     SNS on an unbounded timeline (and the simulator's feedback
 //                     is not deterministic within a test window).
 //   email.failed/deferred — terminal/transient async-send outcomes; only the
-//                     primary signal under E2A_OUTBOUND_MODE=async.
+//                     primary signal for queue-first outbound delivery.
 //   domain.sending_verified/failed, domain.suppression_added — need real
 //                     sending-identity provisioning against a custom domain.
 //

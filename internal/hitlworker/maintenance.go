@@ -15,12 +15,11 @@ import (
 // within a minute, long enough to avoid hot-looping the DB when there's nothing to do.
 const maintenanceInterval = 60 * time.Second
 
-// asyncSweepTimeout bounds a sweep when outbound sends are routed to QueueOutbound
-// (async mode): the sweep is then DB-only (self-sends are fast loopback DB writes;
+// sweepTimeout bounds the queue-first sweep. It is DB-only (self-sends are fast loopback DB writes;
 // auto-reject and the approve→accepted transition are single statements), so River's
 // per-job timeout can safely bound slot occupancy again. Generous enough for a
 // 100-row DB-only batch even under load.
-const asyncSweepTimeout = 5 * time.Minute
+const sweepTimeout = 5 * time.Minute
 
 // Sweeper runs one TTL-expiration sweep of both hold queues (outbound holds +
 // inbound review holds). Satisfied by *Worker — the River worker just drives its
@@ -42,36 +41,19 @@ func (HITLMaintenanceArgs) Kind() string { return "hitl_ttl_sweep" }
 type MaintenanceWorker struct {
 	river.WorkerDefaults[HITLMaintenanceArgs]
 	sweeper Sweeper
-	// asyncSends is true when auto-approve routes outbound sends onto QueueOutbound
-	// (E2A_OUTBOUND_MODE=async). It makes the sweep DB-only, which lets Timeout
-	// return a bounded value instead of disabling the cap.
-	asyncSends bool
 }
 
-// NewMaintenanceWorker builds the worker around a Sweeper. asyncSends reflects
-// whether outbound auto-approve sends are routed to QueueOutbound (async mode).
-// Exported so tests can drive Work directly (RegisterJobs builds an identical one).
-func NewMaintenanceWorker(sweeper Sweeper, asyncSends bool) *MaintenanceWorker {
-	return &MaintenanceWorker{sweeper: sweeper, asyncSends: asyncSends}
+// NewMaintenanceWorker builds the worker around a Sweeper. Exported so tests can
+// drive Work directly (RegisterJobs builds an identical one).
+func NewMaintenanceWorker(sweeper Sweeper) *MaintenanceWorker {
+	return &MaintenanceWorker{sweeper: sweeper}
 }
 
 // Timeout caps the sweep's runtime. River's client default is 1 minute.
-//
-//   - **Sync mode** (asyncSends=false): the sweep performs up to DefaultBatchSize
-//     (100) SYNCHRONOUS, retrying SMTP sends for expired auto-approve holds, each up
-//     to ~21s and not context-cancellable. Under the 60s default a backlogged sweep
-//     is cancelled mid-iteration, and the store's ctx-derived transitions then fail
-//     and surface as FALSE "[hitl-stuck] needs_manual_intervention" alarms every
-//     cycle. So we disable the timeout (River treats <0 as "no timeout"), matching
-//     the old hand-rolled ticker's unbounded context.
-//   - **Async mode** (asyncSends=true): auto-approve enqueues onto QueueOutbound
-//     instead of blocking, so the sweep is DB-only and a bounded timeout is safe —
-//     it restores River's slot-occupancy protection on the shared maintenance pool.
+// Auto-approve enqueues onto QueueOutbound instead of blocking, so a bounded
+// timeout safely protects slots in the shared maintenance pool.
 func (w *MaintenanceWorker) Timeout(*river.Job[HITLMaintenanceArgs]) time.Duration {
-	if w.asyncSends {
-		return asyncSweepTimeout
-	}
-	return -1
+	return sweepTimeout
 }
 
 func (w *MaintenanceWorker) Work(ctx context.Context, _ *river.Job[HITLMaintenanceArgs]) error {
@@ -85,15 +67,12 @@ func (w *MaintenanceWorker) Work(ctx context.Context, _ *river.Job[HITLMaintenan
 // MaintenanceWorker and a periodic that fires it on QueueMaintenance. No enqueuer
 // needed — the schedule is the only trigger.
 type MaintenanceJobs struct {
-	sweeper    Sweeper
-	asyncSends bool
+	sweeper Sweeper
 }
 
 // NewMaintenanceJobs builds the registrar around a Sweeper (the *Worker).
-// asyncSends is true when outbound auto-approve sends go to QueueOutbound (async
-// mode) — it makes the sweep DB-only and its Timeout bounded.
-func NewMaintenanceJobs(sweeper Sweeper, asyncSends bool) *MaintenanceJobs {
-	return &MaintenanceJobs{sweeper: sweeper, asyncSends: asyncSends}
+func NewMaintenanceJobs(sweeper Sweeper) *MaintenanceJobs {
+	return &MaintenanceJobs{sweeper: sweeper}
 }
 
 // RegisterJobs adds the maintenance worker + its periodic schedule. Mirrors the
@@ -105,7 +84,7 @@ func NewMaintenanceJobs(sweeper Sweeper, asyncSends bool) *MaintenanceJobs {
 // idempotent + cross-replica-safe so scheduling is the only concern). Implements
 // jobs.Registrar.
 func (m *MaintenanceJobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, NewMaintenanceWorker(m.sweeper, m.asyncSends))
+	river.AddWorker(w, NewMaintenanceWorker(m.sweeper))
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(maintenanceInterval),

@@ -62,17 +62,11 @@ outbound_smtp:
   password: ""
   from_domain: "relay.example.com"
 
-# Outbound send execution model (async-message-pipeline.md, slice C).
-#   sync  (default): the send API submits to the upstream relay inline and returns
-#          200 sent — the historical behavior.
-#   async: the send API durably persists the message + enqueues a River send job in
-#          one transaction and returns 200 accepted; a background worker submits to
-#          the relay and records the terminal outcome (email.sent / email.failed
-#          webhooks, GET /v1/messages/{id}). At-least-once delivery. Requires the
-#          shared River client (Postgres) — the same one webhook delivery / sender
-#          identity use. Override with E2A_OUTBOUND_MODE.
-outbound:
-  mode: "sync"
+# Outbound delivery is always asynchronous and at-least-once. The send API
+# durably persists the message and enqueues a River job in one transaction,
+# returning status=accepted. A background worker submits it to the relay and
+# records the terminal outcome (email.sent / email.failed webhooks and
+# GET /v1/messages/{id}). Postgres-backed River is therefore mandatory.
 
 # Custom-domain sender identity (decision 4 / Slice 4). When ses_region is set,
 # verifying a domain registers an AWS SES sending identity via BYODKIM (reusing

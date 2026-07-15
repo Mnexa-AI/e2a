@@ -3,6 +3,11 @@
 **Status:** Approved direction, contract must land before the /v1 GA freeze (~mid-July 2026).
 **Scope:** Contract/spec changes for the async send pipeline. **Decided 2026-07-03: the pipeline itself is a pre-GA blocker.** e2a's product contract is at-least-once outbound delivery, and the current send-then-persist path cannot honor it — there is no durable acceptance point before the network I/O, and the idempotency key only `Complete`s after the response (`internal/httpapi/idempotency.go:115`), so every timeout/5xx is ambiguous and unsafely retryable. GA ships on the target shape — API → durable persist+enqueue in one tx → 200 `accepted` → worker pool → SMTP (`async-message-pipeline.md` slices 1–3); slices 4–6 stay post-GA. A synchronous server still trivially satisfies this contract during the transition (it just never returns `accepted`), but the /v1 freeze happens only once the async path is the default, so callers GA onto the semantics they will actually live under.
 
+> **GA resolution (2026-07-15):** outbound delivery is now always queue-first
+> and at-least-once. `E2A_OUTBOUND_MODE` and the submit-inline fallback were
+> removed. Historical sync-transition notes below describe the migration, not a
+> supported deployment mode.
+
 **Background (one paragraph):** Today `POST /v1/agents/{email}/messages` submits to SES synchronously inside the request and returns 200 `sent` / 202 `pending_review`. Decision: move to durable acceptance — the API validates, renders, policy-checks, and persists in one transaction, then returns immediately with `status: accepted`; a worker pool later performs the content scan, ramp reservation, and SES submission. Every terminal outcome is observable via GET and pushed via webhook events. See the delivery-semantics audit for the crash-window motivation (send-then-persist loses/bills invisible messages).
 
 ## 1. Send response contract (`sendMessage`, `replyToMessage`, `forwardMessage`)

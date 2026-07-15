@@ -3,7 +3,7 @@
 // event/webhook contract audit).
 //
 // One struct per stable event, used by EVERY builder that emits that event —
-// the relay (email.received), the sync + async outbound paths (email.sent /
+// the relay (email.received), the queue-first outbound path (email.sent /
 // email.failed), the SES delivery-feedback consumer (email.delivered /
 // email.bounced / email.complained, domain.suppression_added), and the
 // sender-identity worker (domain.sending_verified / domain.sending_failed).

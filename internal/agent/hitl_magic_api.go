@@ -183,31 +183,32 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 		return
 	}
 
-	// Async mode: transition + enqueue onto QueueOutbound (the SendWorker submits).
-	// Self-sends fall through to the sync loopback path below. Mirrors the sync magic
-	// path's events (no review_approved) — only the send routing changes.
-	if a.outboundEnq != nil {
-		draft, derr := a.store.GetOutboundMessageForUser(r.Context(), messageID, userID)
-		if derr != nil {
-			writeMagicMessage(w, http.StatusNotFound, "Message not found", "This message no longer exists.")
-			return
-		}
-		sent, handled, aerr := a.approveOutboundAsync(r.Context(), agent, messageID, userID, draft, identity.PendingApprovalEdit{}, nil)
-		if aerr != nil {
-			writeMagicApproveError(w, messageID, aerr)
-			return
-		}
-		if handled {
-			log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s to=%v approved=magic-link:user:%s delivery=async",
-				sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, userID)
-			writeMagicMessage(w, http.StatusOK, "Approved",
-				fmt.Sprintf("Your message to %s has been queued for delivery.", html.EscapeString(firstRecipient(sent.ToRecipients))))
-			return
-		}
-		// self-send → fall through to the sync ApproveAndSend loopback path below
+	// Transition + enqueue onto QueueOutbound (the SendWorker submits). Self-sends
+	// fall through to the local loopback path below.
+	if a.outboundEnq == nil {
+		writeMagicMessage(w, http.StatusInternalServerError, "Send failed",
+			"The outbound delivery queue is unavailable. Try again from the dashboard.")
+		return
+	}
+	draft, derr := a.store.GetOutboundMessageForUser(r.Context(), messageID, userID)
+	if derr != nil {
+		writeMagicMessage(w, http.StatusNotFound, "Message not found", "This message no longer exists.")
+		return
+	}
+	sent, handled, aerr := a.approveOutboundAsync(r.Context(), agent, messageID, userID, draft, identity.PendingApprovalEdit{}, nil)
+	if aerr != nil {
+		writeMagicApproveError(w, messageID, aerr)
+		return
+	}
+	if handled {
+		log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s to=%v approved=magic-link:user:%s delivery=async",
+			sent.ID, sent.Type, sent.Status, agent.EmailAddress(), sent.ToRecipients, userID)
+		writeMagicMessage(w, http.StatusOK, "Approved",
+			fmt.Sprintf("Your message to %s has been queued for delivery.", html.EscapeString(firstRecipient(sent.ToRecipients))))
+		return
 	}
 
-	sent, err := a.store.ApproveAndSend(r.Context(), messageID, userID, identity.PendingApprovalEdit{},
+	sent, err = a.store.ApproveAndSend(r.Context(), messageID, userID, identity.PendingApprovalEdit{},
 		func(locked *identity.Message) (identity.SendResult, error) {
 			sendReq, err := buildSendRequestFromMessage(locked)
 			if err != nil {
@@ -217,21 +218,10 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 			// Self-sends (including the Test email button) deliver via
 			// loopback — see the dashboard-approve branch in hitl_api.go
 			// for the rationale; both paths must stay symmetric.
-			if isSelfSend(sendReq, agent.EmailAddress()) {
-				return a.selfSendApprovalDelivery(r.Context(), agent, sendReq)
+			if !isSelfSend(sendReq, agent.EmailAddress()) {
+				return identity.SendResult{}, errors.New("external outbound approval must be queued")
 			}
-			result, err := a.sender.Send(agent, sendReq)
-			if err != nil {
-				return identity.SendResult{}, err
-			}
-			return identity.SendResult{
-				ProviderMessageID: result.MessageID,
-				Method:            result.Method,
-				To:                result.To,
-				CC:                result.CC,
-				BCC:               result.BCC,
-				Raw:               result.Raw,
-			}, nil
+			return a.selfSendApprovalDelivery(r.Context(), agent, sendReq)
 		})
 	if err != nil {
 		switch {

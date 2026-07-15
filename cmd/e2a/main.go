@@ -246,19 +246,15 @@ func main() {
 		log.Printf("Usage tracking enabled (writing to usage_events + usage_summaries)")
 	}
 
-	// Async outbound send pipeline (async-message-pipeline.md, slice C), gated by
-	// E2A_OUTBOUND_MODE=async. The SendWorker registers on the shared River client;
-	// the accept-tx enqueues an outbound_send job in the same transaction as the
-	// message row. Left nil (⇒ synchronous submit-inline path unchanged) otherwise.
-	var outboundJobs *outboundsend.Jobs
-	if cfg.Outbound.Mode == "async" {
-		outboundJobs = outboundsend.NewJobs(
-			agent.NewOutboundSendStore(store, webhookOutbox, usageTracker),
-			agent.NewOutboundDeliverer(sender),
-			pool,
-		)
-		registrars = append(registrars, outboundJobs)
-	}
+	// Outbound delivery is queue-first and at-least-once for GA. The accept-tx
+	// enqueues an outbound_send job in the same transaction as the message row;
+	// there is no submit-inline fallback.
+	outboundJobs := outboundsend.NewJobs(
+		agent.NewOutboundSendStore(store, webhookOutbox, usageTracker),
+		agent.NewOutboundDeliverer(sender),
+		pool,
+	)
+	registrars = append(registrars, outboundJobs)
 
 	// Async inbound pipeline (inbound-message-pipeline-river.md), gated by
 	// E2A_INBOUND_MODE=async. The InboundProcessWorker registers on the shared River
@@ -343,16 +339,13 @@ func main() {
 	// publisher as the agent API). Load-bearing for inbound approve: a TTL-released
 	// inbound message has no other push signal.
 	hitlWorker.SetPublisher(outboxPublisher)
-	// Async mode: route the sweep's auto-approve send onto QueueOutbound (the
+	// Route the sweep's auto-approve send onto QueueOutbound (the
 	// SendWorker does the SMTP submit) instead of a blocking in-process send, so the
 	// sweep is DB-only. Two-phase like the API's SetOutboundEnqueuer: pass the
 	// *outboundsend.Jobs pointer now; its shared client is injected below via
-	// outboundJobs.SetEnqueuer, live well before the first +60s tick. nil ⇒ sync
-	// (blocking) auto-approve, unchanged. asyncSends also bounds the sweep's Timeout.
-	if outboundJobs != nil {
-		hitlWorker.SetOutboundEnqueuer(outboundJobs)
-	}
-	registrars = append(registrars, hitlworker.NewMaintenanceJobs(hitlWorker, outboundJobs != nil))
+	// outboundJobs.SetEnqueuer, live well before the first +60s tick.
+	hitlWorker.SetOutboundEnqueuer(outboundJobs)
+	registrars = append(registrars, hitlworker.NewMaintenanceJobs(hitlWorker))
 
 	// Hourly cleanup janitor (expired messages/sessions/webhook delivery
 	// records/webhook events/OAuth rows/idempotency keys) as a River periodic on
@@ -417,18 +410,16 @@ func main() {
 			}
 			log.Printf("[webhook-fanout] engine=river")
 		}
-		// Async outbound send cutover (slice C): wire the shared client into the
+		// Outbound send cutover: wire the shared client into the
 		// accept-tx enqueuer and re-drive any accepted-but-unenqueued rows (stranded
 		// by an accept-tx that crashed between message insert and job commit).
-		if outboundJobs != nil {
-			outboundJobs.SetEnqueuer(jobsClient)
-			if n, cerr := outboundJobs.ReconcilePending(ctx, pool); cerr != nil {
-				log.Printf("[outbound-send] cutover: %v", cerr)
-			} else if n > 0 {
-				log.Printf("[outbound-send] cutover enqueued %d stranded sends", n)
-			}
-			log.Printf("[outbound-send] engine=river (async accept, E2A_OUTBOUND_MODE=async)")
+		outboundJobs.SetEnqueuer(jobsClient)
+		if n, cerr := outboundJobs.ReconcilePending(ctx, pool); cerr != nil {
+			log.Printf("[outbound-send] cutover: %v", cerr)
+		} else if n > 0 {
+			log.Printf("[outbound-send] cutover enqueued %d stranded sends", n)
 		}
+		log.Printf("[outbound-send] engine=river (async accept, at-least-once)")
 		// HITL approval-notification cutover: wire the shared client into the hold
 		// accept-tx enqueuer and re-drive any pending_review rows without a
 		// notification job (rows held before this shipped, or stranded by a crash
@@ -571,13 +562,9 @@ func main() {
 		api.SetDomainTeardownHook(senderEnqueuer.EnqueueDeprovisionTx)
 	}
 	api.SetOutbox(webhookOutbox)
-	// Async outbound send (slice C): give the send path the accept-tx enqueuer so
-	// DeliverOutbound persists+enqueues+returns 200 accepted instead of submitting
-	// inline. Only wired when E2A_OUTBOUND_MODE=async (outboundJobs != nil); nil
-	// keeps the synchronous path byte-for-byte unchanged.
-	if outboundJobs != nil {
-		api.SetOutboundEnqueuer(outboundJobs)
-	}
+	// The outbound accept-tx enqueuer is mandatory: DeliverOutbound always
+	// persists+enqueues and returns accepted before provider submission.
+	api.SetOutboundEnqueuer(outboundJobs)
 	// Slices 6 + 7: customer-facing events API needs the raw pool to
 	// query webhook_events and write webhook_subscriber_deliveries on
 	// replay. Kept as a separate setter so a future refactor can route

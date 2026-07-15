@@ -219,17 +219,14 @@ type API struct {
 	// NoOp; production wires telemetry.Log or a real backend.
 	metrics telemetry.Metrics
 
-	// outboundEnq is the async-send accept-tx's handle on the shared River client
-	// (async-message-pipeline.md, slice C). Non-nil ONLY when E2A_OUTBOUND_MODE=async:
-	// DeliverOutbound then persists the message + enqueues the outbound_send job in
-	// one transaction and returns 200 accepted instead of submitting inline. nil
-	// (the default) leaves the synchronous SES path byte-for-byte unchanged.
+	// outboundEnq is the accept-tx's mandatory handle on the shared River client.
+	// DeliverOutbound persists the message + enqueues the outbound_send job in one
+	// transaction and returns accepted before provider submission.
 	outboundEnq OutboundEnqueuer
 }
 
-// SetOutboundEnqueuer opts the send path into the async pipeline (slice C). Wired
-// by main.go only when E2A_OUTBOUND_MODE=async; leaving it unset keeps
-// DeliverOutbound on the synchronous submit-inline path.
+// SetOutboundEnqueuer wires the mandatory queue-first outbound pipeline. Tests may
+// leave it unset to verify that a miswired process fails closed before provider I/O.
 func (a *API) SetOutboundEnqueuer(e OutboundEnqueuer) { a.outboundEnq = e }
 
 // SetSubscriberStore wires the subscriber-store dependency after
@@ -1173,105 +1170,57 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return &OutboundResult{MessageID: providerID, Method: "loopback"}, nil
 	}
 
-	// Async accept path (async-message-pipeline.md, slice C), gated by
-	// E2A_OUTBOUND_MODE=async (⇒ outboundEnq wired). We are past self-send / hold /
-	// block, so this is the real SES path. Instead of submitting inline, compose
+	// Queue-first accept path. We are past self-send / hold / block, so this is the
+	// real external-delivery path. Compose
 	// once and durably persist the message (delivery_status='accepted') + enqueue
 	// the outbound_send job + complete the idempotency key, all in ONE transaction:
 	// an accepted row can never exist without a send job, and a retry replays the
 	// cached 'accepted' response rather than re-persisting. The River worker
 	// (internal/outboundsend) then submits to SES and records the terminal outcome
-	// (email.sent / email.failed + metering). Sync mode (outboundEnq == nil) falls
-	// through to the unchanged submit-inline tail below.
-	if a.outboundEnq != nil {
-		comp, cerr := a.sender.ComposeForAccept(agent, req)
-		if cerr != nil {
-			if outbound.IsValidationError(cerr) {
-				return nil, &OutboundError{http.StatusBadRequest, "invalid_request", cerr.Error()}
-			}
-			log.Printf("[api] async compose failed: agent=%s to=%v error=%v", agent.Domain, req.To, cerr)
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("compose failed: %v", cerr)}
+	// (email.sent / email.failed + metering). Missing queue wiring is a startup bug;
+	// fail closed here as defense in depth and never submit inline.
+	if a.outboundEnq == nil {
+		log.Printf("[api] outbound queue unavailable: agent=%s to=%v", agent.Domain, req.To)
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "outbound delivery queue unavailable"}
+	}
+	comp, cerr := a.sender.ComposeForAccept(agent, req)
+	if cerr != nil {
+		if outbound.IsValidationError(cerr) {
+			return nil, &OutboundError{http.StatusBadRequest, "invalid_request", cerr.Error()}
 		}
-		var accepted *identity.Message
-		if txErr := a.store.WithTx(ctx, func(tx pgx.Tx) error {
-			msg, err := a.store.CreateOutboundMessageTx(ctx, tx, agent.ID, comp.To, comp.CC, comp.BCC, req.Subject, msgType, comp.Method, "", req.ConversationID, comp.Raw, "accepted", comp.EnvelopeFrom, comp.SentAs)
-			if err != nil {
+		log.Printf("[api] async compose failed: agent=%s to=%v error=%v", agent.Domain, req.To, cerr)
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("compose failed: %v", cerr)}
+	}
+	var accepted *identity.Message
+	if txErr := a.store.WithTx(ctx, func(tx pgx.Tx) error {
+		msg, err := a.store.CreateOutboundMessageTx(ctx, tx, agent.ID, comp.To, comp.CC, comp.BCC, req.Subject, msgType, comp.Method, "", req.ConversationID, comp.Raw, "accepted", comp.EnvelopeFrom, comp.SentAs)
+		if err != nil {
+			return err
+		}
+		jobID, err := a.outboundEnq.EnqueueSendTx(ctx, tx, msg.ID)
+		if err != nil {
+			return err
+		}
+		if err := a.store.StampSendJobIDTx(ctx, tx, msg.ID, jobID); err != nil {
+			return err
+		}
+		if idemCompleteTx != nil {
+			if err := idemCompleteTx(ctx, tx, msg.ID); err != nil {
 				return err
 			}
-			jobID, err := a.outboundEnq.EnqueueSendTx(ctx, tx, msg.ID)
-			if err != nil {
-				return err
-			}
-			if err := a.store.StampSendJobIDTx(ctx, tx, msg.ID, jobID); err != nil {
-				return err
-			}
-			// Commit the idempotency-key completion in the SAME tx so a crash after
-			// commit still replays 'accepted' (never re-persists / double-sends). nil
-			// when the request carried no Idempotency-Key.
-			if idemCompleteTx != nil {
-				if err := idemCompleteTx(ctx, tx, msg.ID); err != nil {
-					return err
-				}
-			}
-			accepted = msg
-			return nil
-		}); txErr != nil {
-			log.Printf("[api] async accept tx failed: agent=%s to=%v error=%v", agent.Domain, req.To, txErr)
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to accept message for send"}
 		}
-		// flag verdict: annotate + audit AFTER the row is durable (post-persist,
-		// mirrors the synchronous ordering). Metering + publishSent belong to the
-		// worker (the message is not "sent" yet), so they are intentionally absent here.
-		if verdict.Annotate() {
-			a.annotateAndAudit(ctx, agent, accepted.ID, req, verdict)
-		}
-		slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-		log.Printf("[mail:%s] dir=outbound type=%s status=accepted from=%s to=%v slug=%s conv_id=%s subject=%q", accepted.ID, msgType, agent.EmailAddress(), comp.To, slug, req.ConversationID, req.Subject)
-		return &OutboundResult{MessageID: accepted.ID, Status: "accepted", SentAs: comp.SentAs, Method: comp.Method}, nil
+		accepted = msg
+		return nil
+	}); txErr != nil {
+		log.Printf("[api] async accept tx failed: agent=%s to=%v error=%v", agent.Domain, req.To, txErr)
+		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to accept message for send"}
 	}
-
-	result, err := a.sender.Send(agent, req)
-	if err != nil {
-		if outbound.IsValidationError(err) {
-			return nil, &OutboundError{http.StatusBadRequest, "invalid_request", err.Error()}
-		}
-		log.Printf("[api] send failed: agent=%s to=%v error=%v", agent.Domain, req.To, err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("send failed: %v", err)}
-	}
-	outMsg, err := a.store.CreateOutboundMessage(ctx, agent.ID, result.To, result.CC, result.BCC, req.Subject, msgType, result.Method, result.MessageID, req.ConversationID, result.Raw)
-	if err != nil {
-		// Slice 1 §7.1 (async-send-contract.md): the SES send already happened but
-		// we could not record it. Do NOT return a clean 2xx — a send that isn't in
-		// the DB is invisible and unrecoverable, so surface a 500 rather than
-		// claiming success. (Persist-first, slice 2, removes this window entirely.)
-		log.Printf("[api] failed to record outbound message (send already submitted): %v", err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "message was sent but could not be recorded; do not retry blindly"}
-	}
-	// Slice 1 §7.2: meter only after the message row is durable, so a crash or a
-	// failed insert above can never bill a message that has no row.
-	if _, err := a.usage.RecordAndCheck(ctx, user.ID, agent.ID, agent.Domain, "outbound"); err != nil {
-		log.Printf("[api] usage recording error: %v", err)
+	if verdict.Annotate() {
+		a.annotateAndAudit(ctx, agent, accepted.ID, req, verdict)
 	}
 	slug, _, _ := strings.Cut(agent.EmailAddress(), "@")
-	// Record the delivery lifecycle (decision 9): delivery_status='sent', which
-	// From identity was used, and the per-recipient breakdown the SES
-	// notifications consumer transitions as feedback arrives.
-	if err := a.store.MarkMessageSent(ctx, outMsg.ID, result.SentAs, result.To, result.CC, result.BCC); err != nil {
-		log.Printf("[api] mark sent (delivery_status): %v", err)
-	}
-	// flag verdict: delivered + annotated (denorm + protection_events + event).
-	if verdict.Annotate() {
-		a.annotateAndAudit(ctx, agent, outMsg.ID, req, verdict)
-	}
-	log.Printf("[mail:%s] dir=outbound type=%s from=%s to=%v slug=%s conv_id=%s subject=%q", outMsg.ID, msgType, agent.EmailAddress(), result.To, slug, req.ConversationID, req.Subject)
-	a.publishSent(ctx, a.buildSentEvent(agent, outMsg, result, req, msgType), outMsg)
-	// message_id is the e2a msg_ id (GET-able); the SES id is provider_message_id (MSG-9).
-	return &OutboundResult{
-		MessageID:         outMsg.ID,
-		ProviderMessageID: result.MessageID,
-		SentAs:            result.SentAs,
-		Method:            result.Method,
-	}, nil
+	log.Printf("[mail:%s] dir=outbound type=%s status=accepted from=%s to=%v slug=%s conv_id=%s subject=%q", accepted.ID, msgType, agent.EmailAddress(), comp.To, slug, req.ConversationID, req.Subject)
+	return &OutboundResult{MessageID: accepted.ID, Status: "accepted", SentAs: comp.SentAs, Method: comp.Method}, nil
 }
 
 // SendTestCore composes and sends (or HITL-holds) a platform test email to

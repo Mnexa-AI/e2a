@@ -28,7 +28,7 @@ func (f *fakeSweeper) RunOnce(_ context.Context) error {
 // idempotent sweep; the next interval picks it up.
 func TestMaintenanceWorker_WorkSwallowsSweepError(t *testing.T) {
 	sw := &fakeSweeper{err: errors.New("boom")}
-	w := NewMaintenanceWorker(sw, false)
+	w := NewMaintenanceWorker(sw)
 	if err := w.Work(context.Background(), &river.Job[HITLMaintenanceArgs]{}); err != nil {
 		t.Fatalf("Work returned %v, want nil (error must be swallowed)", err)
 	}
@@ -41,7 +41,7 @@ func TestMaintenanceWorker_WorkSwallowsSweepError(t *testing.T) {
 // and returns nil.
 func TestMaintenanceWorker_WorkRunsSweep(t *testing.T) {
 	sw := &fakeSweeper{}
-	w := NewMaintenanceWorker(sw, false)
+	w := NewMaintenanceWorker(sw)
 	if err := w.Work(context.Background(), &river.Job[HITLMaintenanceArgs]{}); err != nil {
 		t.Fatalf("Work: %v", err)
 	}
@@ -50,23 +50,18 @@ func TestMaintenanceWorker_WorkRunsSweep(t *testing.T) {
 	}
 }
 
-// TestMaintenanceWorker_Timeout: in SYNC mode the sweep does up to 100 synchronous,
-// non-ctx-aware SMTP sends, so its Timeout is disabled (<0) to avoid a mid-drain cut
-// + false [hitl-stuck] alarms. In ASYNC mode auto-approve enqueues onto QueueOutbound
-// so the sweep is DB-only and Timeout is bounded (restores slot-occupancy protection).
+// TestMaintenanceWorker_Timeout: auto-approve is queue-first, so the sweep is
+// DB-only and its timeout can remain bounded.
 func TestMaintenanceWorker_Timeout(t *testing.T) {
-	if got := NewMaintenanceWorker(&fakeSweeper{}, false).Timeout(&river.Job[HITLMaintenanceArgs]{}); got >= 0 {
-		t.Errorf("sync Timeout() = %v, want a negative duration (cap disabled)", got)
-	}
-	if got := NewMaintenanceWorker(&fakeSweeper{}, true).Timeout(&river.Job[HITLMaintenanceArgs]{}); got != asyncSweepTimeout {
-		t.Errorf("async Timeout() = %v, want %v (bounded)", got, asyncSweepTimeout)
+	if got := NewMaintenanceWorker(&fakeSweeper{}).Timeout(&river.Job[HITLMaintenanceArgs]{}); got != sweepTimeout {
+		t.Errorf("Timeout() = %v, want %v (bounded)", got, sweepTimeout)
 	}
 }
 
 // TestMaintenanceJobs_RegistersOnePeriodic: RegisterJobs contributes exactly one
 // periodic (the TTL sweep schedule) and wires its worker.
 func TestMaintenanceJobs_RegistersOnePeriodic(t *testing.T) {
-	m := NewMaintenanceJobs(&fakeSweeper{}, false)
+	m := NewMaintenanceJobs(&fakeSweeper{})
 	periodics := m.RegisterJobs(river.NewWorkers())
 	if len(periodics) != 1 {
 		t.Fatalf("RegisterJobs returned %d periodic jobs, want 1", len(periodics))

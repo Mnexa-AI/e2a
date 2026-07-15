@@ -37,8 +37,8 @@ type ApproveIdemCompleter func(ctx context.Context, tx pgx.Tx, approved *identit
 
 // OutboundEnqueuer is the accept-tx's handle on the shared River client — it
 // inserts the outbound_send job in the same transaction as the message row.
-// *outboundsend.Jobs satisfies it. Injected via SetOutboundEnqueuer; nil keeps
-// DeliverOutbound on the synchronous path.
+// *outboundsend.Jobs satisfies it. Main always injects it; a nil value fails
+// closed before provider I/O.
 type OutboundEnqueuer interface {
 	EnqueueSendTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error)
 }

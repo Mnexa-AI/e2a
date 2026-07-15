@@ -220,7 +220,7 @@ type createMessageInput struct {
 	Address        string `path:"email"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
-	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
+	Wait           string `query:"wait" doc:"Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."`
 	Body           SendEmailRequest
 }
 
@@ -338,7 +338,7 @@ type replyInput struct {
 	ID             string `path:"id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
-	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
+	Wait           string `query:"wait" doc:"Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."`
 	Body           ReplyRequest
 }
 
@@ -474,7 +474,7 @@ type forwardInput struct {
 	ID             string `path:"id"`
 	RawBody        []byte
 	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort: under idempotency-store degradation or a mid-request crash the guarantee degrades to at-least-once — a keyed retry may re-execute rather than replay."`
-	Wait           string `query:"wait" doc:"Sync-compat valve. wait=sent holds the request until the message reaches a terminal-or-held state or a bounded timeout (≤20s), then returns that state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code. No-op until the async pipeline ships — a synchronous server already has the outcome."`
+	Wait           string `query:"wait" doc:"Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."`
 	Body           ForwardRequest
 }
 

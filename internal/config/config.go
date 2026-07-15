@@ -40,7 +40,6 @@ type Config struct {
 	OAuth            OAuthConfig            `yaml:"oauth"`
 	Signing          SigningConfig          `yaml:"signing"`
 	OutboundSMTP     OutboundSMTPConfig     `yaml:"outbound_smtp"`
-	Outbound         OutboundConfig         `yaml:"outbound"`
 	Inbound          InboundConfig          `yaml:"inbound"`
 	WebhookFanout    WebhookFanoutConfig    `yaml:"webhook_fanout"`
 	Webhook          WebhookConfig          `yaml:"webhook"`
@@ -124,18 +123,6 @@ type OutboundSMTPConfig struct {
 	// off for dev relays (e.g. Mailpit on :1025 with no TLS). Regardless
 	// of this flag, PLAIN auth is never sent over a cleartext connection.
 	RequireTLS *bool `yaml:"require_tls"`
-}
-
-// OutboundConfig selects the outbound send execution model (async-send
-// pipeline, slice C). Mode="sync" (the default) is the historical path:
-// DeliverOutbound submits to SES inline and returns 200 sent. Mode="async"
-// opts into the River pipeline: the accept-tx durably persists the message
-// (delivery_status='accepted') + enqueues a send job atomically and returns
-// 200 accepted; the internal/outboundsend worker submits to SES and records
-// the terminal outcome. Override with E2A_OUTBOUND_MODE. Any value other than
-// "async" is treated as "sync" (fail-safe to the unchanged path).
-type OutboundConfig struct {
-	Mode string `yaml:"mode"`
 }
 
 // InboundConfig selects the inbound processing model (inbound-message-pipeline-
@@ -260,7 +247,6 @@ func Load(path string) (*Config, error) {
 			MaxStorageBytes:  1 << 50, // 1 PiB
 			CacheTTLSeconds:  60,
 		},
-		Outbound:      OutboundConfig{Mode: "sync"},
 		Inbound:       InboundConfig{Mode: "sync"},
 		WebhookFanout: WebhookFanoutConfig{Mode: "legacy"},
 		Env:           "development",
@@ -311,9 +297,6 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_FROM_DOMAIN"); v != "" {
 		cfg.OutboundSMTP.FromDomain = v
-	}
-	if v := os.Getenv("E2A_OUTBOUND_MODE"); v != "" {
-		cfg.Outbound.Mode = v
 	}
 	if v := os.Getenv("E2A_INBOUND_MODE"); v != "" {
 		cfg.Inbound.Mode = v

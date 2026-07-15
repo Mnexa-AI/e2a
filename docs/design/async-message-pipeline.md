@@ -2,6 +2,10 @@
 
 **Status:** Approved, hardened after adversarial launch review (2026-07-04); **reconciled onto River (2026-07-06)** now that the webhook delivery migration (#387) shipped and River is the shared job substrate on main. Companion to `async-send-contract.md` (the outbound contract spec; the inbound changes have no API-contract surface). **Decided 2026-07-03: at-least-once is a pre-GA blocker in BOTH directions.** Outbound slices land before the /v1 GA freeze and GA ships with async as the default outbound path; the inbound minimal fix (slice I1) is pre-GA, the inbound queue (slice I2) post-GA.
 
+> **GA resolution (2026-07-15):** the outbound cutover is complete. River-backed,
+> persist-first delivery is unconditional; the outbound mode flag and synchronous
+> submit-inline path no longer exist.
+
 > **⟳ RECONCILED ONTO RIVER (2026-07-06) — authoritative where it conflicts with the pre-River draft below.**
 >
 > The pre-River draft hand-rolled an `outbound_message_queue` table with `FOR UPDATE SKIP LOCKED` claim, a `lease_token` fencing token, ~60s heartbeat lease extension, and a sweeper for crash takeover — and the 2026-07-04 launch-review hardening (§§4–8) was almost entirely lease/fence/heartbeat machinery. **River provides all of that natively** (the draft even cited River's `attempted_by` as the fencing pattern it imitated). The webhook→River migration (#387) proved out the exact pieces this needs: the shared `internal/jobs` client, `jobs.Registrar`/`Enqueuer`, named queues (`QueueOutbound` already exists), the transactional-outbox enqueue (`InsertTx` in the business tx), a custom `NextRetry` retry envelope, `JobSnooze` for defer-without-burning-an-attempt, and a periodic reconciler backstop.
