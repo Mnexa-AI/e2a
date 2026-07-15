@@ -141,13 +141,11 @@ const (
 )
 
 // Per-field GA contract limits on outbound request bodies. These are the named
-// source-of-truth for the maxLength / maxItems struct tags on SendEmailRequest,
-// ReplyRequest, ForwardRequest, and agent.ApproveOverrides — the tags use the
-// numeric literals (struct tags can't reference consts), so keep the literals in
-// sync with these values (TestOutboundFieldLimitTagsMatchConsts guards against
-// drift). Grounded in provider research: subject matches Resend/Postmark parity
-// (SES accepts it); the 1 MiB body field is a per-field backstop independent of
-// the composed-message ceiling; maxItems mirrors the runtime maxRecipients cap.
+// source of truth for maxLength struct tags on SendEmailRequest, ReplyRequest,
+// ForwardRequest, and agent.ApproveOverrides. Struct tags use numeric literals,
+// so TestOutboundFieldLimitTagsMatchConsts guards against drift. Recipient count
+// is handler-validated separately so every distribution across to/cc/bcc returns
+// the same structured too_many_recipients error.
 const (
 	// maxSubjectLen caps a single subject line. Enforced via maxLength struct tags.
 	maxSubjectLen = 2000
@@ -193,9 +191,9 @@ func recipientCountError(groups ...[]string) *ErrorEnvelope {
 // processing. subject/text moved from schema-required to handler-enforced so
 // the template shape can omit them.
 type SendEmailRequest struct {
-	To             []string              `json:"to" nullable:"false" maxItems:"50"`
-	CC             []string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
-	BCC            []string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
+	To             []string              `json:"to" nullable:"false" doc:"Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
+	CC             []string              `json:"cc,omitempty" nullable:"false" doc:"Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false" doc:"Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
 	Subject        string                `json:"subject,omitempty" maxLength:"2000" doc:"Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
 	Body           string                `json:"text,omitempty" maxLength:"1048576" doc:"Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias)."`
 	HTMLBody       string                `json:"html,omitempty" maxLength:"1048576" doc:"Literal HTML body. Mutually exclusive with template_id/template_alias."`
@@ -322,8 +320,8 @@ type ReplyRequest struct {
 	Body           string                `json:"text" maxLength:"1048576"` // required (MSG-3); to/subject derived from the original
 	HTMLBody       string                `json:"html,omitempty" maxLength:"1048576"`
 	ReplyAll       bool                  `json:"reply_all,omitempty"`
-	CC             []string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
-	BCC            []string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
+	CC             []string              `json:"cc,omitempty" nullable:"false" doc:"Additional Cc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined."`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false" doc:"Additional Bcc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined."`
 	ConversationID string                `json:"conversation_id,omitempty"`
 	ReplyTo        string                `json:"reply_to,omitempty" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
@@ -455,9 +453,9 @@ func (s *Server) replyRecipients(msg *identity.Message, replyAll bool, extraCC [
 
 // ForwardRequest mirrors the legacy forward body.
 type ForwardRequest struct {
-	To             []string              `json:"to" nullable:"false" maxItems:"50"` // required (MSG-3)
-	CC             []string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
-	BCC            []string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
+	To             []string              `json:"to" nullable:"false" doc:"Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined."` // required (MSG-3)
+	CC             []string              `json:"cc,omitempty" nullable:"false" doc:"Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
+	BCC            []string              `json:"bcc,omitempty" nullable:"false" doc:"Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
 	Body           string                `json:"text" maxLength:"1048576"` // required (MSG-3); subject derived as "Fwd:"
 	HTMLBody       string                `json:"html,omitempty" maxLength:"1048576"`
 	ConversationID string                `json:"conversation_id,omitempty"`

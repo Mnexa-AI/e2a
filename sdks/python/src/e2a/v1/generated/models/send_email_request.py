@@ -29,8 +29,8 @@ class SendEmailRequest(BaseModel):
     SendEmailRequest
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = Field(default=None, description="File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.")
-    bcc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
-    cc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    bcc: Optional[List[StrictStr]] = Field(default=None, description="Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
+    cc: Optional[List[StrictStr]] = Field(default=None, description="Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
     conversation_id: Optional[StrictStr] = None
     html: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = Field(default=None, description="Literal HTML body. Mutually exclusive with template_id/template_alias.")
     reply_to: Optional[StrictStr] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). Defaults to the sending agent's own address.")
@@ -39,7 +39,7 @@ class SendEmailRequest(BaseModel):
     template_data: Optional[Dict[str, Any]] = Field(default=None, description="Variables for the referenced template ({{name}}, dot paths into nested objects). Missing variables render as empty strings. Beta: templates are unstable — their shape may change before they are declared stable.")
     template_id: Optional[StrictStr] = Field(default=None, description="Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.")
     text: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = Field(default=None, description="Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).")
-    to: Annotated[List[StrictStr], Field(max_length=50)]
+    to: List[StrictStr] = Field(description="Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_to", "subject", "template_alias", "template_data", "template_id", "text", "to"]
 

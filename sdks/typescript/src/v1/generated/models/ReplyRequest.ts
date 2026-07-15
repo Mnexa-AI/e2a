@@ -18,7 +18,13 @@ export class ReplyRequest {
     * File attachments (base64 in each item\'s data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
     */
     'attachments'?: Array<Attachment>;
+    /**
+    * Additional Bcc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'bcc'?: Array<string>;
+    /**
+    * Additional Cc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'cc'?: Array<string>;
     'conversationId'?: string;
     'html'?: string;

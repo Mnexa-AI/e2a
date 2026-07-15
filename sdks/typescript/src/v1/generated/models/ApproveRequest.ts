@@ -15,11 +15,20 @@ import { HttpFile } from '../http/http.js';
 
 export class ApproveRequest {
     'attachments'?: Array<Attachment>;
+    /**
+    * Override Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'bcc'?: Array<string>;
+    /**
+    * Override Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'cc'?: Array<string>;
     'html'?: string;
     'subject'?: string;
     'text'?: string;
+    /**
+    * Override primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'to'?: Array<string>;
 
     static readonly discriminator: string | undefined = undefined;

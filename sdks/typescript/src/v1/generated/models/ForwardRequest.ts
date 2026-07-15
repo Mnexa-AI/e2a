@@ -18,7 +18,13 @@ export class ForwardRequest {
     * Additional attachments to include alongside the forwarded message\'s original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
     */
     'attachments'?: Array<Attachment>;
+    /**
+    * Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'bcc'?: Array<string>;
+    /**
+    * Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'cc'?: Array<string>;
     'conversationId'?: string;
     'html'?: string;
@@ -27,6 +33,9 @@ export class ForwardRequest {
     */
     'replyTo'?: string;
     'text': string;
+    /**
+    * Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'to': Array<string>;
 
     static readonly discriminator: string | undefined = undefined;

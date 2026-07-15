@@ -29,13 +29,13 @@ class ForwardRequest(BaseModel):
     ForwardRequest
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = Field(default=None, description="Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.")
-    bcc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
-    cc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    bcc: Optional[List[StrictStr]] = Field(default=None, description="Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
+    cc: Optional[List[StrictStr]] = Field(default=None, description="Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
     conversation_id: Optional[StrictStr] = None
     html: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = None
     reply_to: Optional[StrictStr] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.")
     text: Annotated[str, Field(strict=True, max_length=1048576)]
-    to: Annotated[List[StrictStr], Field(max_length=50)]
+    to: List[StrictStr] = Field(description="Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_to", "text", "to"]
 

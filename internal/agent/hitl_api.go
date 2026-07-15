@@ -23,9 +23,9 @@ type approveRequest struct {
 	Subject     *string                `json:"subject,omitempty" maxLength:"2000"`
 	BodyText    *string                `json:"text,omitempty" maxLength:"1048576"`
 	BodyHTML    *string                `json:"html,omitempty" maxLength:"1048576"`
-	To          *[]string              `json:"to,omitempty" nullable:"false" maxItems:"50"`
-	CC          *[]string              `json:"cc,omitempty" nullable:"false" maxItems:"50"`
-	BCC         *[]string              `json:"bcc,omitempty" nullable:"false" maxItems:"50"`
+	To          *[]string              `json:"to,omitempty" nullable:"false" doc:"Override primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
+	CC          *[]string              `json:"cc,omitempty" nullable:"false" doc:"Override Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
+	BCC         *[]string              `json:"bcc,omitempty" nullable:"false" doc:"Override Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined."`
 	Attachments *[]outbound.Attachment `json:"attachments,omitempty"`
 }
 

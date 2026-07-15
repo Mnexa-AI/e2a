@@ -134,9 +134,10 @@ func TestComposedMessageSizeCountsDecodedNotWire(t *testing.T) {
 
 // --- struct-tag / const drift guard ---
 
-// The maxLength / maxItems struct-tag literals can't reference Go consts, so
-// this test guards against drift: if someone bumps the const but forgets the
-// tag (or vice versa), this fails. Covers all four outbound request shapes.
+// The maxLength struct-tag literals can't reference Go consts, so this test
+// guards against drift: if someone bumps a const but forgets the tag (or vice
+// versa), this fails. Recipient totals are handler-validated because per-field
+// maxItems would preempt the documented too_many_recipients error contract.
 func TestOutboundFieldLimitTagsMatchConsts(t *testing.T) {
 	type want struct {
 		field    string
@@ -152,22 +153,14 @@ func TestOutboundFieldLimitTagsMatchConsts(t *testing.T) {
 			{"Subject", "maxLength", fmt.Sprintf("%d", maxSubjectLen)},
 			{"Body", "maxLength", fmt.Sprintf("%d", maxBodyFieldBytes)},
 			{"HTMLBody", "maxLength", fmt.Sprintf("%d", maxBodyFieldBytes)},
-			{"To", "maxItems", fmt.Sprintf("%d", maxRecipients)},
-			{"CC", "maxItems", fmt.Sprintf("%d", maxRecipients)},
-			{"BCC", "maxItems", fmt.Sprintf("%d", maxRecipients)},
 		}},
 		{"ReplyRequest", ReplyRequest{}, []want{
 			{"Body", "maxLength", fmt.Sprintf("%d", maxBodyFieldBytes)},
 			{"HTMLBody", "maxLength", fmt.Sprintf("%d", maxBodyFieldBytes)},
-			{"CC", "maxItems", fmt.Sprintf("%d", maxRecipients)},
-			{"BCC", "maxItems", fmt.Sprintf("%d", maxRecipients)},
 		}},
 		{"ForwardRequest", ForwardRequest{}, []want{
 			{"Body", "maxLength", fmt.Sprintf("%d", maxBodyFieldBytes)},
 			{"HTMLBody", "maxLength", fmt.Sprintf("%d", maxBodyFieldBytes)},
-			{"To", "maxItems", fmt.Sprintf("%d", maxRecipients)},
-			{"CC", "maxItems", fmt.Sprintf("%d", maxRecipients)},
-			{"BCC", "maxItems", fmt.Sprintf("%d", maxRecipients)},
 		}},
 	}
 	for _, c := range cases {

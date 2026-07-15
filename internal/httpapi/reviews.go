@@ -98,12 +98,14 @@ func (s *Server) registerReviews() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "approveReview", Method: http.MethodPost, Path: "/v1/reviews/{id}/approve",
 		Summary: "Approve a held message", Tags: []string{"reviews"},
-		Description: "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).",
+		Description:  "Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).",
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes, // matches send/reply/forward: a reviewer editing attachments needs the same 40 MB body budget as the original send path.
 		Responses: map[string]*huma.Response{
 			"202": s.jsonResponse(reflect.TypeOf(SendResultView{}), "SendResultView",
 				"Accepted — the approved outbound message was durably queued for async submission (status=accepted); terminal outcome via GET/webhook events."),
+			"400": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+				"Bad Request — invalid reviewer overrides. error.code includes too_many_recipients when to, cc, and bcc contain more than 50 recipients combined; error.details reports max_recipients and provided."),
 			// approve's 409 is shared by two codes, so it gets a merged description
 			// instead of the stock idempotencyInFlightResponse.
 			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
@@ -200,6 +202,21 @@ func (s *Server) handleApproveReview(ctx context.Context, in *approveReviewInput
 	msg, err := s.requireOwnedReview(ctx, p.User.ID, in.ID)
 	if err != nil {
 		return nil, err
+	}
+	if msg.Direction == "outbound" {
+		to, cc, bcc := msg.ToRecipients, msg.CC, msg.BCC
+		if in.Body.To != nil {
+			to = *in.Body.To
+		}
+		if in.Body.CC != nil {
+			cc = *in.Body.CC
+		}
+		if in.Body.BCC != nil {
+			bcc = *in.Body.BCC
+		}
+		if env := recipientCountError(to, cc, bcc); env != nil {
+			return nil, env
+		}
 	}
 	status, view, err := s.approveHeld(ctx, p.User.ID, in.ID, msg.AgentID, in.Body, in.IdempotencyKey, in.RawBody)
 	if err != nil {

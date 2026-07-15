@@ -18,7 +18,13 @@ export class SendEmailRequest {
     * File attachments (base64 in each item\'s data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
     */
     'attachments'?: Array<Attachment>;
+    /**
+    * Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'bcc'?: Array<string>;
+    /**
+    * Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'cc'?: Array<string>;
     'conversationId'?: string;
     /**
@@ -49,6 +55,9 @@ export class SendEmailRequest {
     * Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
     */
     'text'?: string;
+    /**
+    * Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+    */
     'to': Array<string>;
 
     static readonly discriminator: string | undefined = undefined;
