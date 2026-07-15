@@ -11,14 +11,18 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
       title: "List agents",
       annotations: { readOnlyHint: true },
       description:
-        "List the agent inboxes owned by the authenticated user, newest first. Useful for orientation — which inbox to send `from` or query messages against. **Cursor-paginated:** returns one page in `agents` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. Read-only.",
-      inputSchema: strictInputSchema({ ...paginationInput }),
+        "List the agent inboxes owned by the authenticated account, newest first. Set `deleted:true` to list the 30-day trash instead of live agents. Account scope only. **Cursor-paginated:** returns one page in `agents` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. Read-only.",
+      inputSchema: strictInputSchema({
+        ...paginationInput,
+        deleted: z.boolean().optional().describe("List trashed agents instead of live agents."),
+      }),
     },
     async (args) =>
       runTool(async () => {
         const page = await client.listAgents({
           ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
           ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          ...(args.deleted !== undefined ? { deleted: args.deleted } : {}),
         });
         return { agents: page.items, ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}) };
       }),
@@ -214,12 +218,26 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
   );
 
   server.registerTool(
+    "restore_agent",
+    {
+      title: "Restore an agent from trash",
+      annotations: { destructiveHint: false, idempotentHint: false },
+      description:
+        "Restore an agent that was soft-deleted within the 30-day trash window, including its messages and configuration. Account scope only. Returns the restored agent; a live agent returns `not_in_trash`.",
+      inputSchema: strictInputSchema({
+        email: z.string().email().describe("Full email address of the trashed agent to restore."),
+      }),
+    },
+    async (args) => runTool(() => client.restoreAgent(args.email)),
+  );
+
+  server.registerTool(
     "delete_agent",
     {
       title: "Delete an agent inbox (DESTRUCTIVE)",
       annotations: { destructiveHint: true, idempotentHint: true },
       description:
-        "Permanently delete the agent identity and CASCADE-remove every message, pending outbound, and webhook-delivery record bound to it. Irreversible. Existing OAuth tokens bound to this agent are revoked automatically. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
+        "Move the agent inbox to trash for about 30 days. The agent stops receiving mail and disappears from normal lists, but its messages and configuration are retained so it can be restored before automatic purge. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
       inputSchema: strictInputSchema({
         email: z
           .string()

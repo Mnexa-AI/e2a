@@ -232,12 +232,14 @@ describe("HTTP MCP server", () => {
         "list_messages",
         "get_message",
         "get_attachment",
+        "restore_message",
         "list_agents",
         "get_agent",
         "whoami",
         "create_agent",
         "update_agent",
         "delete_agent",
+        "restore_agent",
         "get_protection",
         "update_protection",
         "list_domains",
@@ -301,7 +303,10 @@ describe("HTTP MCP server", () => {
     const names = new Set((await client.listTools()).tools.map((t) => t.name));
     expect(names.size).toBe(14);
     expect(names.has("send_message")).toBe(true); // runtime present
+    expect(names.has("restore_message")).toBe(true); // per-agent trash lifecycle
     expect(names.has("create_agent")).toBe(false); // admin hidden
+    expect(names.has("list_agents")).toBe(false); // REST requires account scope
+    expect(names.has("restore_agent")).toBe(false); // account administration
     expect(names.has("delete_domain")).toBe(false);
     expect(names.has("list_webhooks")).toBe(false);
     // approve/reject are account-scope (self-approval would defeat HITL).

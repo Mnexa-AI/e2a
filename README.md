@@ -41,6 +41,7 @@ What you get on top of bare SMTP:
 - **No public URL required** — WebSocket, REST polling, and MCP all work from a laptop or behind a firewall
 - **Outbound API** — agents send to other agents (SMTP relay) or humans (upstream SMTP, e.g. SES, Resend)
 - **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, the MCP tools, or the API
+- **Inbound threat screening** — opt-in content scan flags **prompt-injection** payloads (hidden HTML, Unicode-tag smuggling, encoded text) — and, with the LLM detector, **phishing** — then routes each message to *allow · review · block*, feeding the same review queue as HITL → [Content screening](#content-screening)
 - **Conversation threading** — a stable `conversation_id` that survives the email ↔ structured-data boundary
 - **Email templates (beta)** — reusable `{{variable}}` templates rendered server-side at send time, plus a pre-built starter catalog → [docs/templates.md](docs/templates.md)
 
@@ -189,6 +190,14 @@ Both `send` and `reply` accept an optional opaque `conversation_id` (server-mint
 2. **`In-Reply-To` / `References` lookup** — standard RFC 5322 threading, scoped to the recipient agent's own messages. Covers humans replying from Gmail/Outlook.
 
 First contact from a human arrives with `conversation_id: null` — the inbound relay assigns no thread id by design. You don't have to mint one yourself: when the agent replies with `conversation_id` omitted, e2a auto-generates a stable `conv_…` anchor that later replies thread onto, and replies within an existing thread inherit the referenced message's id. An explicit `conversation_id` you pass always takes precedence; a `forward` starts a new thread.
+
+### Content screening
+
+Inbound email is a prime **indirect prompt-injection** vector — a message can smuggle instructions aimed at your agent's LLM (hidden HTML, zero-width / Unicode-tag text, encoded payloads) or phish the human behind it. Opt in per agent and e2a inspects message *content* — subject, plaintext, and both visible **and hidden** HTML — before your agent ever sees it.
+
+A built-in, dependency-free **heuristics** detector flags prompt-injection, jailbreak, obfuscation, and data-exfiltration patterns (mapped to OWASP LLM01 / MITRE ATLAS); an optional LLM detector adds semantic injection **and phishing** classification. Each message gets a verdict — **allow · review · block** — set by the agent's scan sensitivity (`off · low · medium · high`): `review` routes it into the shared [HITL](#human-in-the-loop-hitl) queue, `block` drops it before delivery. Screening is **fail-safe** — if a detector times out or degrades, the message fails *to review*, never to a silent allow — and every verdict is written to `protection_events` for audit and threshold tuning.
+
+Turn it on with `PUT /v1/agents/{email}/protection` (the same sub-resource as HITL holds), which carries the inbound/outbound × gate/scan posture.
 
 ### Human in the loop (HITL)
 

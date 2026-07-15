@@ -52,7 +52,7 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
       const subject = `ts-sdk-live ${Date.now()}`;
       const bodyText = "Hello from the TypeScript SDK live e2e";
 
-      const sent = await client.messages.send(bot, { to: [bot], subject, body: bodyText });
+      const sent = await client.messages.send(bot, { to: [bot], subject, text: bodyText });
       expect(sent.messageId).toBeTruthy();
       expect(["sent", "accepted"]).toContain(sent.status);
 
@@ -74,7 +74,7 @@ describe.skipIf(!live)("ts sdk live e2e", () => {
       expect(full.parsed?.text ?? "").toContain(bodyText);
 
       const reply = await client.messages.reply(bot, found!.id, {
-        body: "Reply from the TS SDK live e2e",
+        text: "Reply from the TS SDK live e2e",
       });
       expect(reply.messageId).toBeTruthy();
       // Fresh unprotected inbox → the reply sends immediately (same as the send).

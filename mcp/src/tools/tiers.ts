@@ -22,11 +22,11 @@
 /** Runtime/inbox tools — visible to BOTH agent- and account-scoped credentials. */
 export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "whoami",
-  "list_agents",
   "get_agent",
   "list_messages",
   "get_message",
   "get_attachment",
+  "restore_message",
   "update_message_labels",
   "list_conversations",
   "get_conversation",
@@ -45,6 +45,10 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
 
 /** Admin/setup tools — visible ONLY to account-scoped credentials. */
 export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
+  // Listing the account's agent inventory (including trash) requires
+  // requireAccountUser at the REST handler; an agent-scoped credential can
+  // address only its bound agent via get_agent.
+  "list_agents",
   "create_agent",
   "update_agent",
   // Protection config is account-only — an agent-scoped session must not read or
@@ -53,6 +57,7 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "get_protection",
   "update_protection",
   "delete_agent",
+  "restore_agent",
   // Review approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,
   // defeating the review gate). The backend enforces this too: the approve/reject

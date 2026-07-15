@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { E2AConnectionError, E2AError } from "@e2a/sdk/v1";
 import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
-import { assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
+import { ADMIN_TOOLS, assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
 import { registerMessageTools } from "../src/tools/messages.js";
 import { registerAgentTools } from "../src/tools/agents.js";
 import { registerDomainTools } from "../src/tools/domains.js";
@@ -67,6 +67,7 @@ function makeStubClient(
     getConversation: vi.fn(async () => ({ conversationId: "conv_1", messages: [] })),
     listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
     listAgents: vi.fn(async () => ({ items: [{ email: "bot@example.com" }], next_cursor: undefined })),
+    restoreAgent: vi.fn(async (addr?: string) => ({ email: addr ?? "bot@example.com" })),
     listAllAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
     // whoami → client.whoami() returns an AccountView (the authenticated
     // account identity), NOT an agent record. No default-agent resolution.
@@ -125,6 +126,7 @@ function makeStubClient(
       sendingStatus: "verified",
     })),
     deleteDomain: vi.fn(async (domain: string) => ({ deleted: true, domain })),
+    deleteWebhook: vi.fn(async (id: string) => ({ deleted: true, id })),
     listWebhookDeliveries: vi.fn(
       async (id: string, _params: { status?: string; cursor?: string; limit?: number }) => ({
         items: [{ id: "whd_1", webhookId: id, status: "delivered", attempts: 1 }],
@@ -155,6 +157,7 @@ function makeStubClient(
         { index: 0, filename: "report.pdf", contentType: "application/pdf", sizeBytes: 23 },
       ],
     })),
+    restoreMessage: vi.fn(async (id: string, _addr?: string) => ({ id })),
     getAttachment: vi.fn(async (id: string, index: number, opts?: { inline?: boolean }) => ({
       index,
       filename: "report.pdf",
@@ -259,7 +262,7 @@ function makeStubClient(
       ...(body.expiresAt ? { expiresAt: body.expiresAt.toISOString() } : {}),
       key: "e2a_agt_new1_PLAINTEXT_ONCE",
     })),
-    deleteApiKey: vi.fn(async () => undefined),
+    deleteApiKey: vi.fn(async (id: string) => ({ deleted: true, id })),
     getStarterTemplate: vi.fn(async (alias: string) => ({
       alias,
       name: "Approval request",
@@ -307,12 +310,14 @@ describe("e2a MCP server", () => {
         "list_messages",
         "get_message",
         "get_attachment",
+        "restore_message",
         "list_agents",
         "get_agent",
         "whoami",
         "create_agent",
         "update_agent",
         "delete_agent",
+        "restore_agent",
         "get_protection",
         "update_protection",
         "list_domains",
@@ -392,7 +397,7 @@ describe("e2a MCP server", () => {
     registerTemplateTools(recorder, stub);
     registerApiKeyTools(recorder, stub);
 
-    expect(names).toHaveLength(48);
+    expect(names).toHaveLength(50);
     // Throws if any registered tool is untiered / double-tiered / phantom.
     expect(() => assertToolTiersComplete(names)).not.toThrow();
   });
@@ -401,13 +406,15 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(toolNamesForScope("account").size).toBe(48);
+    expect(RUNTIME_TOOLS.size).toBe(14);
+    expect(ADMIN_TOOLS.size).toBe(36);
+    expect(toolNamesForScope("account").size).toBe(50);
   });
 
-  it("account scope exposes all 48 tools (runtime + admin)", async () => {
+  it("account scope exposes all 50 tools (runtime + admin)", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
-    expect(tools).toHaveLength(48);
+    expect(tools).toHaveLength(50);
   });
 
   it("agent scope exposes only the 14 runtime tools — admin tools hidden", async () => {
@@ -417,16 +424,16 @@ describe("e2a MCP server", () => {
     // Runtime tools present (an agent can send + read its own pending queue,
     // but NOT approve/reject — that's an account-owner action, see below):
     for (const n of [
-      "whoami", "list_agents", "get_agent", "list_messages", "get_message",
+      "whoami", "get_agent", "list_messages", "get_message",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
-      "list_reviews", "get_review",
+      "list_reviews", "get_review", "restore_message",
     ]) {
       expect(names.has(n), `runtime tool ${n} should be visible to agent scope`).toBe(true);
     }
     // Admin tools hidden — incl. approve/reject: self-approval would defeat HITL.
     for (const n of [
-      "create_agent", "update_agent", "delete_agent",
+      "list_agents", "create_agent", "update_agent", "delete_agent", "restore_agent",
       "get_protection", "update_protection",
       "approve_review", "reject_review",
       "list_domains", "get_domain", "register_domain", "verify_domain", "delete_domain",
@@ -463,7 +470,7 @@ describe("e2a MCP server", () => {
   // ── §6a tool annotations (#2) ───────────────────────────────────────
 
   it("every tool carries MCP annotations with the correct hints", async () => {
-    const { tools } = await client.listTools(); // account scope → all 48
+    const { tools } = await client.listTools(); // account scope → all 50
     const byName = new Map(tools.map((t) => [t.name, t.annotations ?? {}]));
 
     // Every tool has an annotations object.
@@ -594,13 +601,40 @@ describe("e2a MCP server", () => {
   it("list_messages forwards filters + cursor/limit", async () => {
     await client.callTool({
       name: "list_messages",
-      arguments: { read_status: "unread", limit: 10, cursor: "c_prev" },
+      arguments: {
+        read_status: "unread",
+        from_: "alice@example.com",
+        limit: 10,
+        cursor: "c_prev",
+      },
     });
     expect(stub.listMessages).toHaveBeenCalledWith({
       readStatus: "unread",
+      from_: "alice@example.com",
       limit: 10,
       cursor: "c_prev",
     });
+  });
+
+  it("list_messages rejects the removed from spelling", async () => {
+    const res = await client.callTool({
+      name: "list_messages",
+      arguments: { from: "alice@example.com" },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(stub.listMessages).not.toHaveBeenCalled();
+  });
+
+  it("list_messages forwards deleted:true for the trash", async () => {
+    await client.callTool({ name: "list_messages", arguments: { deleted: true } });
+    expect(stub.listMessages).toHaveBeenCalledWith({ deleted: true });
+  });
+
+  it("restore_message restores through the bound agent by default", async () => {
+    const res = await client.callTool({ name: "restore_message", arguments: { message_id: "msg_1" } });
+    expect(stub.restoreMessage).toHaveBeenCalledWith("msg_1", undefined);
+    expect(JSON.parse((res.content as Array<{ text: string }>)[0]!.text).id).toBe("msg_1");
   });
 
   it("list_messages surfaces next_cursor when more pages remain", async () => {
@@ -812,7 +846,11 @@ describe("e2a MCP server", () => {
     });
     expect(stub.deleteAgent).toHaveBeenCalledWith("bot@example.com");
     const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]?.text).toMatch(/bot@example\.com/);
+    expect(JSON.parse(content[0]!.text)).toEqual({
+      deleted: true,
+      email: "bot@example.com",
+      messagesDeleted: 0,
+    });
   });
 
   it("delete_agent passes undefined when email omitted (wrapper resolves bound agent)", async () => {
@@ -821,6 +859,20 @@ describe("e2a MCP server", () => {
       arguments: { confirm: true },
     });
     expect(stub.deleteAgent).toHaveBeenCalledWith(undefined);
+  });
+
+  it("list_agents forwards deleted:true for the trash", async () => {
+    await client.callTool({ name: "list_agents", arguments: { deleted: true } });
+    expect(stub.listAgents).toHaveBeenCalledWith({ deleted: true });
+  });
+
+  it("restore_agent restores the requested trashed agent", async () => {
+    const res = await client.callTool({
+      name: "restore_agent",
+      arguments: { email: "bot@example.com" },
+    });
+    expect(stub.restoreAgent).toHaveBeenCalledWith("bot@example.com");
+    expect(JSON.parse((res.content as Array<{ text: string }>)[0]!.text).email).toBe("bot@example.com");
   });
 
   // ── Domain tools ────────────────────────────────────────────────
@@ -885,7 +937,17 @@ describe("e2a MCP server", () => {
     });
     expect(stub.deleteDomain).toHaveBeenCalledWith("mail.acme.com");
     const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]?.text).toMatch(/mail\.acme\.com/);
+    expect(JSON.parse(content[0]!.text)).toEqual({ deleted: true, domain: "mail.acme.com" });
+  });
+
+  it("delete_webhook returns the REST deletion receipt unchanged", async () => {
+    const res = await client.callTool({
+      name: "delete_webhook",
+      arguments: { id: "wh_1", confirm: true },
+    });
+    expect(stub.deleteWebhook).toHaveBeenCalledWith("wh_1");
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(JSON.parse(content[0]!.text)).toEqual({ deleted: true, id: "wh_1" });
   });
 
   // ── API keys (admin tier; create is agent-scope-only by construction) ─────
@@ -957,7 +1019,7 @@ describe("e2a MCP server", () => {
     });
     expect(stub.deleteApiKey).toHaveBeenCalledWith("key_1");
     const content = res.content as Array<{ type: string; text: string }>;
-    expect(content[0]?.text).toMatch(/key_1/);
+    expect(JSON.parse(content[0]!.text)).toEqual({ deleted: true, id: "key_1" });
   });
 
   it("list_reviews calls the SDK", async () => {
@@ -1572,7 +1634,27 @@ describe("e2a MCP server", () => {
       arguments: { id: "tmpl_1", confirm: true },
     });
     expect(stub.deleteTemplate).toHaveBeenCalledWith("tmpl_1");
-    expect((res.content as Array<{ text: string }>)[0]?.text).toMatch(/tmpl_1/);
+    expect(JSON.parse((res.content as Array<{ text: string }>)[0]!.text)).toEqual({
+      deleted: true,
+      id: "tmpl_1",
+    });
+  });
+
+  it("delete tool descriptions match REST's reversible-agent and guarded-domain semantics", async () => {
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool.description ?? ""]));
+
+    expect(byName.get("delete_agent")).toContain("trash");
+    expect(byName.get("delete_agent")).not.toContain("Permanently delete");
+    expect(byName.get("delete_domain")).toContain(
+      "permanently delete every live or trashed agent",
+    );
+    expect(byName.get("delete_domain")).toContain(
+      "Moving an agent to trash is not sufficient",
+    );
+    expect(byName.get("delete_domain")).toContain("trashed agents still belong to the domain");
+    expect(byName.get("delete_domain")).not.toContain("move those inboxes");
+    expect(byName.get("delete_domain")).not.toContain("CASCADES to every agent");
   });
 
   it("validate_template forwards source parts + test_data", async () => {

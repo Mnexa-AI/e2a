@@ -283,10 +283,16 @@ class AgentsResource:
         self._api = api
         self._c = client
 
-    def list(self, *, limit: Optional[int] = None) -> AutoPager[AgentView]:
+    def list(
+        self, *, limit: Optional[int] = None, deleted: Optional[bool] = None
+    ) -> AutoPager[AgentView]:
         # Cursor-paginated: the AutoPager walks next_cursor to completion.
         async def fetch(cursor: Optional[str]) -> Page:
-            resp = await self._c._read(lambda h: self._api.list_agents(cursor=cursor, limit=limit, _headers=h))
+            resp = await self._c._read(
+                lambda h: self._api.list_agents(
+                    cursor=cursor, limit=limit, deleted=deleted, _headers=h
+                )
+            )
             return _page(resp.items, resp.next_cursor)
 
         return AutoPager(fetch)
@@ -325,6 +331,12 @@ class AgentsResource:
         # receipt ({deleted, email, messages_deleted}).
         return await self._c._write_idempotent(lambda h: self._api.delete_agent(email, confirm="DELETE", _headers=h))
 
+    async def restore(self, email: str) -> AgentView:
+        """Restore an agent from the 30-day trash. Account scope only."""
+        return await self._c._write_unsafe(
+            lambda h: self._api.restore_agent(email, _headers=h)
+        )
+
     async def test(self, email: str) -> SendResultView:
         return await self._c._write_unsafe(lambda h: self._api.test_agent(email, _headers=h))
 
@@ -348,6 +360,7 @@ class MessagesResource:
         since: Optional[str] = None,
         until: Optional[str] = None,
         limit: Optional[int] = None,
+        deleted: Optional[bool] = None,
     ) -> AutoPager[MessageSummaryView]:
         # `from` is a Python keyword; the generator is configured (via
         # --name-mappings/--parameter-name-mappings in generate-oag.sh) to expose
@@ -368,6 +381,7 @@ class MessagesResource:
                     until=until,
                     cursor=cursor,
                     limit=limit,
+                    deleted=deleted,
                     _headers=h,
                 )
             )
@@ -377,6 +391,12 @@ class MessagesResource:
 
     async def get(self, email: str, message_id: str) -> MessageView:
         return await self._c._read(lambda h: self._api.get_message(email, message_id, _headers=h))
+
+    async def restore(self, email: str, message_id: str) -> MessageView:
+        """Restore a soft-deleted message and resume its retention clock."""
+        return await self._c._write_unsafe(
+            lambda h: self._api.restore_message(email, message_id, _headers=h)
+        )
 
     async def get_attachment(
         self, email: str, message_id: str, index: int, *, inline: bool = False

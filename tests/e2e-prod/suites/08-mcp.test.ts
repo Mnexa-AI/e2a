@@ -2,25 +2,20 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup } from "../harness/cleanup.ts";
-import { StdioMcpClient, callTool } from "../harness/mcp.ts";
+import { HttpMcpClient, callTool } from "../harness/mcp.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const apiClient = new ApiClient();
 const SUITE = "08-mcp";
 
-const mcp = new StdioMcpClient();
+// Talk to the DEPLOYED streamable-HTTP /mcp server (the co-versioned
+// mcp-server image behind Caddy) — the same surface that ships to prod —
+// rather than spawning a locally-built stdio binary. Endpoint defaults to
+// `${E2A_URL}/mcp`; E2A_MCP_URL overrides.
+const mcp = new HttpMcpClient(apiClient.env.mcpUrl, apiClient.env.apiKey);
 
 before(async () => {
-  // Default to the repo-relative dist path so the suite works for any
-  // contributor / CI runner. Hardcoded absolute path was unportable.
-  // Override with E2A_MCP_DIST if the dist lives elsewhere.
-  const mcpDist =
-    process.env.E2A_MCP_DIST ?? new URL("../../../mcp/dist/index.js", import.meta.url).pathname;
-  await mcp.start("node", [mcpDist], {
-    E2A_API_KEY: apiClient.env.apiKey,
-    E2A_URL: apiClient.env.apiUrl,
-    E2A_AGENT_EMAIL: apiClient.env.primaryAgentEmail,
-  });
+  info(SUITE, "transport", `MCP over HTTP → ${apiClient.env.mcpUrl}`);
 });
 
 after(async () => {
@@ -54,13 +49,22 @@ test("mcp: list_agents returns user's agents", async () => {
   assert.ok(parsed.agents!.some((a) => a.email === apiClient.env.primaryAgentEmail), "primary agent listed");
 });
 
-test("mcp: whoami returns the env-pinned default agent", async () => {
+test("mcp: whoami returns the account identity (agent_email when agent-scoped)", async () => {
   const r = await callTool(mcp, "whoami");
   assert.equal(r.isError, undefined, `whoami isError: ${JSON.stringify(r)}`);
   const text = r.content?.find((c) => c.type === "text")?.text;
   assert.ok(text, "text content present");
-  const parsed = JSON.parse(text!) as { email?: string };
-  assert.equal(parsed.email, apiClient.env.primaryAgentEmail, "whoami returns the pinned agent");
+  // whoami → AccountView: { user, scope, plan_code, ... } and, ONLY for an
+  // agent-scoped credential, agent_email (the single agent that key IS). There
+  // is no top-level `email`, and the tool never guesses a 'default' agent.
+  const parsed = JSON.parse(text!) as { scope?: string; agent_email?: string; user?: unknown };
+  assert.ok(parsed.user, "whoami returns the authenticated user");
+  assert.ok(parsed.scope === "account" || parsed.scope === "agent", `valid scope, got ${parsed.scope}`);
+  if (parsed.scope === "agent") {
+    assert.equal(parsed.agent_email, apiClient.env.primaryAgentEmail, "agent-scoped whoami returns the pinned agent");
+  } else {
+    info(SUITE, "whoami-scope", "account-scoped credential — no agent_email to pin");
+  }
 });
 
 test("mcp: unknown tool name produces an error result (isError or JSON-RPC error)", async () => {
@@ -112,10 +116,11 @@ test("mcp: list_messages tool works against the inbox", async () => {
     info(SUITE, "list-messages-absent", "no list_messages tool — skipping");
     return;
   }
-  // page_size is the actual MCP tool param (not `limit`, which is the
-  // raw HTTP API name). Use page_size here; the strict-schema test
-  // below specifically verifies unknown keys like `limit` are rejected.
-  const r = await callTool(mcp, "list_messages", { page_size: 5 });
+  // list_messages is cursor-paginated with no page-size knob in its strict
+  // schema (direction / read_status / sort / cursor / search filters only).
+  // Call with a valid arg; the strict-schema test below verifies unknown
+  // keys are rejected.
+  const r = await callTool(mcp, "list_messages", { direction: "inbound" });
   assert.equal(r.isError, undefined, `list_messages isError: ${JSON.stringify(r)}`);
   const text = r.content?.find((c) => c.type === "text")?.text;
   assert.ok(text, "text content present");
@@ -130,12 +135,13 @@ test("mcp: tool arg validation — unknown keys are rejected (strict schemas)", 
     info(SUITE, "list-messages-absent", "skipping arg-type test");
     return;
   }
-  // `limit` is not a valid arg for list_messages (the MCP tool uses `page_size`).
+  // `limit` is the raw HTTP API name, NOT a valid MCP arg for list_messages
+  // (whose strict schema exposes direction/read_status/sort/cursor/filters).
   // With strict schemas, the unknown key should be rejected at the MCP layer.
   let errored = false;
   let detail = "";
   try {
-    const r = await callTool(mcp, "list_messages", { limit: "not-a-number" });
+    const r = await callTool(mcp, "list_messages", { limit: 5 });
     if (r.isError) {
       errored = true;
       detail = `isError: ${r.content?.find((c) => c.type === "text")?.text?.slice(0, 200)}`;
@@ -149,11 +155,13 @@ test("mcp: tool arg validation — unknown keys are rejected (strict schemas)", 
 });
 
 test("mcp: tool arg validation — wrong type for declared param is rejected", async () => {
-  // page_size is declared as z.number().int().positive(); a string must be rejected.
+  // `sort` is a declared param constrained to the enum "asc" | "desc". A value
+  // outside the enum must be rejected by the schema (a genuine type/enum error,
+  // distinct from the unknown-key rejection above).
   let errored = false;
   let detail = "";
   try {
-    const r = await callTool(mcp, "list_messages", { page_size: "not-a-number" });
+    const r = await callTool(mcp, "list_messages", { sort: "not-a-sort-order" });
     if (r.isError) {
       errored = true;
       detail = `isError: ${r.content?.find((c) => c.type === "text")?.text?.slice(0, 200)}`;
@@ -162,7 +170,7 @@ test("mcp: tool arg validation — wrong type for declared param is rejected", a
     errored = true;
     detail = `JSON-RPC error: ${(e as Error).message}`;
   }
-  assert.ok(errored, "string page_size should be rejected by zod number validator");
+  assert.ok(errored, "invalid `sort` enum value should be rejected by the schema");
   info(SUITE, "bad-type-rejected", detail);
 });
 
