@@ -74,7 +74,13 @@ The review-hold + screening events (`email.flagged`, `email.blocked`, `email.rev
 
 ## Envelope and typed payloads
 
-Every event — on the webhook channel, in this event log, and on the WebSocket — is the same versioned envelope.
+Webhook deliveries and WebSocket frames use the canonical OpenAPI
+`EventEnvelope` component. Its five core fields are required, while the
+envelope and `data` objects remain open for additive fields and future event
+types. The REST event log uses `EventJSON`: it contains the same five core
+fields and payload, plus REST-only processing/routing fields such as `status`,
+`agent_email`, and `delivery_status`. Consumers should not require those
+REST-only fields on push deliveries.
 (For the WebSocket channel's connection lifecycle — the one-connection-per-agent policy and the frozen close-code
 table, including `4000 replaced` — see [api.md → Connection lifecycle & close codes](api.md#connection-lifecycle--close-codes).)
 
@@ -88,7 +94,16 @@ table, including `4000 replaced` — see [api.md → Connection lifecycle & clos
 }
 ```
 
-`data` is deliberately **open at the envelope level** (no discriminator): unknown or beta event types must still parse, so always branch on `type` and tolerate values you don't recognize. The **stable** event types carry frozen `data` shapes, published as named component schemas in the OpenAPI document and mirrored 1:1 by the SDK payload types (`isEmailBounced(event)` in TypeScript, `is_email_bounced(event)` in Python narrow `event.data`):
+The server currently emits `schema_version: "1"`. Treat the version as an open
+string: a future version and an unknown `type` must still parse into the generic
+envelope. SDK stable-event guards narrow `data` only when both the type matches
+and `schema_version === "1"`.
+
+`data` is deliberately **open at the envelope level** (no discriminator,
+`oneOf`, or closed event enum). OpenAPI publishes the non-constraining
+`x-e2a-event-data-schemas` map on `EventEnvelope.data`; it maps each stable
+event type to the named schema to validate after inspecting `type`. Unknown or
+beta event types must still parse. The stable mapping is:
 
 | Event type | `data` schema | Required fields | Optional fields |
 |---|---|---|---|
@@ -107,6 +122,9 @@ Notes:
 - The delivery-outcome events (`email.delivered`/`bounced`/`complained`) carry **no `status` field** — the event type IS the outcome.
 - `delivered_to` is always a **scalar**: on `email.received` it's the one per-agent copy (the relay emits one event per delivery); on the delivery-outcome events it's the one recipient the outcome is about. The peer `to`/`cc` lists are the message's parsed headers.
 - These shapes are locked by committed golden fixtures (`internal/eventpayload/testdata/`) that the server builders AND both SDKs test against — a payload change is a conscious, reviewed fixture regeneration.
+- Every full and minimal stable-event fixture validates twice: once against the
+  generic `EventEnvelope`, then against the mapped typed `data` schema. A future
+  unknown event/version fixture validates against only the generic envelope.
 
 Every event payload is **metadata only** — it carries identifiers, routing fields, and verdicts, never message content. In particular `email.received` is a notification: it carries the fetch keys plus attachment *metadata* but **not** the body. Fetch the full message — body + attachment bytes — with `client.webhooks.fetch_message(event)` / `webhooks.fetchMessage(event)` (which resolves to `GET /v1/agents/{delivered_to}/messages/{message_id}`). This keeps the fan-out payload bounded and makes the REST resource the single source of truth for content.
 

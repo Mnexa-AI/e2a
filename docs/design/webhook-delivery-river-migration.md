@@ -13,6 +13,7 @@ The migration shipped over slices 1–3b. Three things diverged from the plan ab
 1. **No `delivery_engine=river` flag.** River is the **sole, unconditional** delivery engine. The flag existed only during slices 1–4 for the flag-gated cutover; slice 3b removed it and deleted the legacy `SubscriberRetryWorker`, `retry.go`, and the legacy in-process publisher. There is nothing to flip.
 2. **THREE enqueue sites, not two.** §4's "just two sites" (outbox drain + redelivery) missed a third: the **`/test` webhook endpoint** (`InsertPendingForTest`) also inserts a delivery row directly and must enqueue. All three now call River enqueue: the outbox drain (`EnqueueDeliveryTx`, in-tx with the row) and the `/test` + redelivery handlers (`EnqueueDelivery`, own tx after the committed insert).
 3. **The one-shot cutover became a live reconciler.** `ReconcilePending` (née `CutoverPending`) still runs once at startup, but it is ALSO driven by a **periodic `ReconcileWorker` every 1 min** (`QueueMaintenance`). This is the fix for the review finding that a startup-only backstop leaves the separate-tx `/test`/redelivery paths (and any outbox-drain crash window) stranded until the next restart. Now any `status='pending' AND job_id IS NULL` row is re-driven within a minute. Migration `052` adds a partial index backing that scan. Consequence: the `/test` + redelivery handlers no longer 500 / report `skipped` on an enqueue failure — the row is durable and reconciler-backed, so they log and report `pending` (a 500 would just spawn duplicate rows on retry).
+4. **The GA retry envelope is eight attempts spanning 29h21m.** Attempt 1 is immediate; failed attempts 1–7 wait `1m, 5m, 15m, 1h, 4h, 8h, 16h` before the next attempt. The earlier plan's extra `24h` delay was unreachable with `MaxAttempts=8`, and its “~72h” claim was inaccurate. `internal/webhookdelivery/worker.go`, the shared contract tests, and `docs/api.md` are authoritative.
 
 **Known residual (accepted, LOW):** a row whose `job_id` is stamped but whose River job died *without* writing a terminal status (e.g. manual `river_job` deletion, or a crash on the final attempt between River's attempt-bump and `MarkSubscriberFailed`) is not re-driven — the reconciler gates on `job_id IS NULL`. River persists jobs in Postgres and resumes them on restart, so this only bites on manual job deletion; not worth a stale-job sweep at current scale.
 
@@ -20,14 +21,14 @@ The migration shipped over slices 1–3b. Three things diverged from the plan ab
 
 ## 1. Problem statement
 
-Webhook delivery today conflates two responsibilities on one table. `webhook_subscriber_deliveries` is **both** the customer-visible delivery record (backs `GET /v1/webhooks/{id}/deliveries`) **and** the execution queue (the `SubscriberRetryWorker` does `SKIP LOCKED` leases, a hand-rolled 72h/8-attempt backoff, a per-webhook inflight cap, and disabled/deleted-webhook handling — all on the same rows). We want the queue mechanics on River (the consolidation goal), without changing the customer-facing delivery record, retry timing, or history API.
+Before this migration, webhook delivery conflated two responsibilities on one table. `webhook_subscriber_deliveries` was **both** the customer-visible delivery record (backs `GET /v1/webhooks/{id}/deliveries`) **and** the execution queue (`SubscriberRetryWorker` used `SKIP LOCKED` leases, a hand-rolled retry schedule, a per-webhook inflight cap, and disabled/deleted-webhook handling). River now owns queue execution while preserving the customer-facing delivery record and history API.
 
 ## 2. Goals and non-goals
 
 **Goals**
 - Move delivery **execution** (claim/lease/retry/backoff/concurrency) from the hand-rolled worker to River, on the shared `QueueWebhook` lane. ("webhook_delivery_queue" is the conceptual name for this Layer-3 execution stage; it is River's `river_job` on the `webhook` lane, NOT a new hand-rolled table.)
 - **Make the event outbox unconditional.** Remove `WEBHOOKS_OUTBOX_ENABLED` and delete the legacy fire-and-forget `publisher.Publish` path (`shouldFireLegacy`, the relay's `!outbox.Enabled()` branch). After this, `webhook_events` is the sole event path and the outbox drain is the sole enqueue path — so at-least-once is **unconditional** (no flag) and there is exactly ONE place to wire River enqueue instead of two.
-- Preserve exactly: the delivery-history API + its fields, the 72h/8-attempt retry envelope (customer-facing timing), the (event, webhook) dedup guarantee, disabled/deleted-webhook and secret-rotation semantics.
+- Preserve exactly: the delivery-history API + its fields, the eight-attempt custom retry policy (corrected by the authoritative note above), the (event, webhook) dedup guarantee, disabled/deleted-webhook and secret-rotation semantics.
 - Delete `internal/webhook/subscriber_retry.go`'s claim/retry machinery and `internal/webhook/retry.go`'s schedule (superseded by a River retry policy).
 - A **safe cutover** (one-shot, §8) — no lost or double-delivered events during deploy.
 - Document the consumer contract: **at-least-once + dedup on the event id** (the industry standard — Stripe/Svix/Postmark; e2a already emits deterministic event ids).
@@ -53,7 +54,7 @@ Layer 3 — EXECUTION       river_job (queue="webhook")     POST + retry + backo
 
 **Current mechanics (all to preserve behaviorally):**
 - **Layer 2 fields** (`SubscriberDelivery`): `id, webhook_id, event_type, event_payload (POSTed verbatim), message_id, status (pending|delivered|failed), attempts, max_attempts, last_error, last_status_code, last_attempt_at, next_retry_at, created_at, expires_at`. The history API returns these.
-- **Retry envelope** (`retry.go`): `retryBackoffs = 1m,5m,15m,1h,4h,8h,16h,24h` (8 attempts, ~72h); past the last, terminal `failed`.
+- **Retry envelope** (`webhookdelivery/worker.go`): attempt 1 is immediate; retry delays are `1m,5m,15m,1h,4h,8h,16h` for attempts 2–8 (eight attempts spanning `29h21m`); after attempt 8, terminal `failed`.
 - **Dedup** (`idx_wsd_event_webhook_uniq`, migration 028): one first-delivery row per `(event_id, webhook_id)` where `event_id IS NOT NULL AND replay_id IS NULL` — prevents double-delivery across replicas; **replays are exempt** (they carry `replay_id`).
 - **Per-attempt webhook re-fetch** (`processOne`): disabled → defer 1h (`disabledDeferral`, no attempt burned); deleted → mark failed.
 - **Signing-secret rotation:** honor `signing_secret_prev` only within its 24h grace window.
@@ -88,7 +89,7 @@ Layer 3 — EXECUTION       river_job (queue="webhook")     POST + retry + backo
    - **2xx** → `MarkDelivered` L2 + return `nil` (River completes the job).
    - **failure** → `RecordAttemptFailure` L2; if `job.Attempt >= job.MaxAttempts` also set L2 `status='failed'` (terminal); return the error so River retries per the retry policy.
 
-**Retry policy — exact envelope, not River's default exponential.** A custom `river.ClientRetryPolicy` (or per-kind override) whose `NextRetry(job)` returns `now + retryBackoffs[job.Attempt-1]`, with `MaxAttempts = 8` on the job. This reproduces `1m…24h / ~72h` so customer-facing retry timing is byte-for-byte unchanged. (River's built-in policy is a different curve — must override.)
+**Retry policy — exact envelope, not River's default exponential.** A custom per-kind policy returns `now + retryBackoffs[job.Attempt-1]` after failed attempts 1–7, with `MaxAttempts = 8`. This produces attempts at cumulative offsets `0, 1m, 6m, 21m, 1h21m, 5h21m, 13h21m, 29h21m`. River's built-in policy is a different curve and must not replace this contract.
 
 **Per-webhook inflight cap of 1.** River v0.39 has no native per-arg concurrency limit. Preserve the property with a **Postgres advisory xact lock keyed on `hashtext(webhook_id)`** taken at the top of `Work`: `pg_try_advisory_xact_lock` — if not acquired, `river.JobSnooze(short)` so a second concurrent job for the same webhook backs off instead of hammering the endpoint. (Alternatively accept `QueueWebhook` global concurrency and drop the per-webhook cap — **open question 2**; the advisory-lock approach preserves current behavior.)
 
@@ -127,7 +128,7 @@ The design is **unconditionally at-least-once, end to end** (no flag) — the in
 
 - **event → `webhook_events` (L1):** at-least-once — the event commits in the message transaction, always (the outbox is now unconditional; the flag and the fire-and-forget path are removed).
 - **`webhook_events` → L2 row + River job (fan-out drain):** the `OutboxWorker` inserts the L2 row(s) **and `InsertTx`s the job(s) in one transaction** — both commit or neither. Re-drain after a crash is idempotent: the L2 insert is `ON CONFLICT DO NOTHING` and the job is enqueued **only if a row was actually inserted**, so no duplicate row/job. No window where a record exists without a job or vice versa.
-- **job → delivered (River worker):** River is at-least-once — a crashed/timed-out worker's job is re-driven (River's rescuer), failures retry to `MaxAttempts` on the 72h schedule, terminal `failed` is recorded (queryable + redeliverable), never silently dropped.
+- **job → delivered (River worker):** River is at-least-once — a crashed/timed-out worker's job is re-driven (River's rescuer), failures retry to `MaxAttempts` on the frozen 29h21m schedule, terminal `failed` is recorded (queryable + redeliverable), never silently dropped.
 
 **Irreducible residual (⇒ at-least-once, not exactly-once — which is impossible over HTTP webhooks):** POST succeeds → worker crashes before writing L2 `delivered` → River re-drives → endpoint receives a duplicate. Same residual as today's lease re-drive.
 
@@ -154,7 +155,7 @@ The design is **unconditionally at-least-once, end to end** (no flag) — the in
 ## 7. Verification strategy
 
 - **Unit/DB tests (CI-run, non-tagged so `make cover` covers them):** DeliverWorker success → L2 delivered + job complete; failure → L2 attempt recorded + River retry scheduled at the exact backoff; last-attempt failure → L2 failed; disabled → snooze (no attempt burned); deleted → cancel + L2 failed; dedup → second enqueue for same (event, webhook) inserts no row and no job; replay (replay_id) → always enqueues.
-- **Retry-policy test:** assert `NextRetry` returns the exact `retryBackoffs` sequence for attempts 1–8 and discards at 9.
+- **Retry-policy test:** assert `NextRetry` returns the exact seven-delay sequence after attempts 1–7 and returns no further retry after attempt 8.
 - **Cutover test:** with pre-existing `pending` L2 rows (no `job_id`), the chosen cutover path drains them without double-delivery (see open questions).
 - **History-API regression:** `GET /v1/webhooks/{id}/deliveries` returns identical fields/shape before and after.
 - **Load/soak:** queue-depth + oldest-job age on `QueueWebhook`; confirm per-webhook serialization under a slow endpoint doesn't starve others.

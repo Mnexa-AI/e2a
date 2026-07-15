@@ -44,6 +44,7 @@ export * from '../models/EmailSentData.js';
 export * from '../models/ErrorBody.js';
 export * from '../models/ErrorBodyDetails.js';
 export * from '../models/ErrorEnvelope.js';
+export * from '../models/EventEnvelope.js';
 export * from '../models/EventJSON.js';
 export * from '../models/FieldError.js';
 export * from '../models/ForwardRequest.js';
@@ -170,6 +171,7 @@ import { EmailSentData } from '../models/EmailSentData.js';
 import { ErrorBody } from '../models/ErrorBody.js';
 import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
+import { EventEnvelope } from '../models/EventEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
 import { FieldError } from '../models/FieldError.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
@@ -335,6 +337,7 @@ let typeMap: {[index: string]: any} = {
     "ErrorBody": ErrorBody,
     "ErrorBodyDetails": ErrorBodyDetails,
     "ErrorEnvelope": ErrorEnvelope,
+    "EventEnvelope": EventEnvelope,
     "EventJSON": EventJSON,
     "FieldError": FieldError,
     "ForwardRequest": ForwardRequest,

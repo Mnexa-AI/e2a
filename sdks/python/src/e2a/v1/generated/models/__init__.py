@@ -59,6 +59,7 @@ from e2a.v1.generated.models.email_sent_data import EmailSentData
 from e2a.v1.generated.models.error_body import ErrorBody
 from e2a.v1.generated.models.error_body_details import ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope
+from e2a.v1.generated.models.event_envelope import EventEnvelope
 from e2a.v1.generated.models.event_json import EventJSON
 from e2a.v1.generated.models.field_error import FieldError
 from e2a.v1.generated.models.forward_request import ForwardRequest

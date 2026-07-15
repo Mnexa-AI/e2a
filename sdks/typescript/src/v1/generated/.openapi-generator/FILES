@@ -62,6 +62,7 @@ models/EmailSentData.ts
 models/ErrorBody.ts
 models/ErrorBodyDetails.ts
 models/ErrorEnvelope.ts
+models/EventEnvelope.ts
 models/EventJSON.ts
 models/FieldError.ts
 models/ForwardRequest.ts

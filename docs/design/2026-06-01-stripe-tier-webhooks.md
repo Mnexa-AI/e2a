@@ -12,6 +12,9 @@
 > `redeliver-since` endpoint (§4.6) was **dropped** (only per-event
 > `POST /v1/events/{id}/redeliver` ships); and `WEBHOOKS_OUTBOX_ENABLED` is now
 > permanently on. The `email.rejected` event name shipped as written.
+> The original ~72-hour retry proposal is also superseded: the GA contract is
+> eight attempts spanning 29h21m. See `docs/api.md` and
+> `docs/design/webhook-delivery-river-migration.md` for the frozen schedule.
 
 ---
 

@@ -435,6 +435,44 @@ helper — `construct_event(body, header, secret)` /
 [Python](../sdks/python/README.md#quick-start) and
 [TypeScript](../sdks/typescript/README.md#verify-a-webhook) SDK READMEs.
 
+Webhook delivery is **at least once**. Store and deduplicate on the envelope
+`id` before applying side effects. A delivery succeeds on any `2xx` response.
+Network failures and every non-`2xx` response (including redirects) are retried;
+redirects are not followed. The frozen eight-attempt schedule is:
+
+| Attempt | Time after the previous attempt | Cumulative time from attempt 1 |
+|---:|---:|---:|
+| 1 | immediate | `0` |
+| 2 | `1m` | `1m` |
+| 3 | `5m` | `6m` |
+| 4 | `15m` | `21m` |
+| 5 | `1h` | `1h21m` |
+| 6 | `4h` | `5h21m` |
+| 7 | `8h` | `13h21m` |
+| 8 | `16h` | `29h21m` |
+
+After attempt 8 fails, the delivery is terminally `failed` and remains visible
+in delivery history for manual redelivery. River persists and rescues jobs, and
+the pending-row reconciler re-enqueues a row whose initial job insertion was
+interrupted. This provides at-least-once execution, not exactly-once effects.
+
+Every delivery carries these frozen headers:
+
+| Header | Contract |
+|---|---|
+| `Content-Type` | `application/json` |
+| `X-E2A-Signature` | `t=<unix-seconds>,v1=<lowercase-hex-hmac>`; during rotation it contains one `v1` for each active secret |
+| `X-E2A-Event-Type` | Exact value of body `type` |
+| `X-E2A-Schema-Version` | Exact value of body `schema_version` |
+| `User-Agent` | `e2a-webhooks/1` |
+
+The HMAC input is the exact byte sequence
+`<decimal-unix-seconds>.<raw-request-body>` and the algorithm is HMAC-SHA256.
+Do not parse and reserialize the body before verification. SDK verifiers accept
+timestamps within 300 seconds by default and compare every `v1` signature in
+constant time. Secret rotation dual-signs with the current and previous secret
+for 24 hours; accept a request when either secret verifies during that window.
+
 <a id="webhook-signing-secrets"></a>
 > **Signing.** Webhook deliveries are signed per-webhook with the `whsec_`
 > secret (rotatable via the `rotate-secret` route above). The relay's
@@ -542,7 +580,7 @@ close code. The SDKs treat those as fatal too (typed error, no retry loop).
 
 SDK behavior (TS `WSListener`/`WSStream`, Python `WSStream`, and the CLI
 `listen` command, which inherits from the TS SDK): transient closes reconnect
-with exponential backoff; `4000 replaced`, `1008`, unknown 4xxx, and fatal
+with exponential backoff; `1000` stops cleanly; `4000 replaced`, `1008`, unknown 4xxx, and fatal
 handshake rejections stop the stream with a typed error. The CLI prints a
 `listener replaced` explanation and exits `5` (permanent — retry wrappers
 must not rerun it).

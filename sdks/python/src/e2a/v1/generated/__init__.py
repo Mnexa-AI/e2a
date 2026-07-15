@@ -83,6 +83,7 @@ __all__ = [
     "ErrorBody",
     "ErrorBodyDetails",
     "ErrorEnvelope",
+    "EventEnvelope",
     "EventJSON",
     "FieldError",
     "ForwardRequest",
@@ -234,6 +235,7 @@ from e2a.v1.generated.models.email_sent_data import EmailSentData as EmailSentDa
 from e2a.v1.generated.models.error_body import ErrorBody as ErrorBody
 from e2a.v1.generated.models.error_body_details import ErrorBodyDetails as ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope as ErrorEnvelope
+from e2a.v1.generated.models.event_envelope import EventEnvelope as EventEnvelope
 from e2a.v1.generated.models.event_json import EventJSON as EventJSON
 from e2a.v1.generated.models.field_error import FieldError as FieldError
 from e2a.v1.generated.models.forward_request import ForwardRequest as ForwardRequest
