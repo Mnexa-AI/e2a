@@ -22,7 +22,6 @@
 /** Runtime/inbox tools — visible to BOTH agent- and account-scoped credentials. */
 export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "whoami",
-  "list_agents",
   "get_agent",
   "list_messages",
   "get_message",
@@ -46,6 +45,10 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
 
 /** Admin/setup tools — visible ONLY to account-scoped credentials. */
 export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
+  // Listing the account's agent inventory (including trash) requires
+  // requireAccountUser at the REST handler; an agent-scoped credential can
+  // address only its bound agent via get_agent.
+  "list_agents",
   "create_agent",
   "update_agent",
   // Protection config is account-only — an agent-scoped session must not read or

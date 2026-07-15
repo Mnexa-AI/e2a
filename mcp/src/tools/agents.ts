@@ -11,7 +11,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
       title: "List agents",
       annotations: { readOnlyHint: true },
       description:
-        "List the agent inboxes owned by the authenticated user, newest first. Set `deleted:true` to list the 30-day trash instead of live agents. **Cursor-paginated:** returns one page in `agents` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. Read-only.",
+        "List the agent inboxes owned by the authenticated account, newest first. Set `deleted:true` to list the 30-day trash instead of live agents. Account scope only. **Cursor-paginated:** returns one page in `agents` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page. Read-only.",
       inputSchema: strictInputSchema({
         ...paginationInput,
         deleted: z.boolean().optional().describe("List trashed agents instead of live agents."),

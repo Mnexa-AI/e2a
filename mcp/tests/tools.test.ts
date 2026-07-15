@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { E2AConnectionError, E2AError } from "@e2a/sdk/v1";
 import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
-import { assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
+import { ADMIN_TOOLS, assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
 import { registerMessageTools } from "../src/tools/messages.js";
 import { registerAgentTools } from "../src/tools/agents.js";
 import { registerDomainTools } from "../src/tools/domains.js";
@@ -405,6 +405,8 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
+    expect(RUNTIME_TOOLS.size).toBe(14);
+    expect(ADMIN_TOOLS.size).toBe(36);
     expect(toolNamesForScope("account").size).toBe(50);
   });
 
@@ -414,14 +416,14 @@ describe("e2a MCP server", () => {
     expect(tools).toHaveLength(50);
   });
 
-  it("agent scope exposes only the 15 runtime tools — admin tools hidden", async () => {
+  it("agent scope exposes only the 14 runtime tools — admin tools hidden", async () => {
     const ag = await connect(makeStubClient({ scope: "agent" }));
     const names = new Set((await ag.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(15);
+    expect(names.size).toBe(14);
     // Runtime tools present (an agent can send + read its own pending queue,
     // but NOT approve/reject — that's an account-owner action, see below):
     for (const n of [
-      "whoami", "list_agents", "get_agent", "list_messages", "get_message",
+      "whoami", "get_agent", "list_messages", "get_message",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
       "list_reviews", "get_review", "restore_message",
@@ -430,7 +432,7 @@ describe("e2a MCP server", () => {
     }
     // Admin tools hidden — incl. approve/reject: self-approval would defeat HITL.
     for (const n of [
-      "create_agent", "update_agent", "delete_agent", "restore_agent",
+      "list_agents", "create_agent", "update_agent", "delete_agent", "restore_agent",
       "get_protection", "update_protection",
       "approve_review", "reject_review",
       "list_domains", "get_domain", "register_domain", "verify_domain", "delete_domain",
