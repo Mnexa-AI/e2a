@@ -104,6 +104,8 @@ func (s *Server) registerReviews() {
 		Responses: map[string]*huma.Response{
 			"202": s.jsonResponse(reflect.TypeOf(SendResultView{}), "SendResultView",
 				"Accepted — the approved outbound message was durably queued for async submission (status=accepted); terminal outcome via GET/webhook events."),
+			"400": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+				"Bad Request — invalid reviewer overrides. error.code includes too_many_recipients when to, cc, and bcc contain more than 50 recipients combined; error.details reports max_recipients and provided."),
 			// approve's 409 is shared by two codes, so it gets a merged description
 			// instead of the stock idempotencyInFlightResponse.
 			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
@@ -202,6 +204,21 @@ func (s *Server) handleApproveReview(ctx context.Context, in *approveReviewInput
 	msg, err := s.requireOwnedReview(ctx, p.User.ID, in.ID)
 	if err != nil {
 		return nil, err
+	}
+	if msg.Direction == "outbound" {
+		to, cc, bcc := msg.ToRecipients, msg.CC, msg.BCC
+		if in.Body.To != nil {
+			to = *in.Body.To
+		}
+		if in.Body.CC != nil {
+			cc = *in.Body.CC
+		}
+		if in.Body.BCC != nil {
+			bcc = *in.Body.BCC
+		}
+		if env := recipientCountError(to, cc, bcc); env != nil {
+			return nil, env
+		}
 	}
 	status, view, err := s.approveHeld(ctx, p.User.ID, in.ID, msg.AgentID, in.Body, in.IdempotencyKey, in.RawBody)
 	if err != nil {

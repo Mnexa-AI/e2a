@@ -107,7 +107,8 @@ def test_parity_every_async_method_reachable_sync():
         expected = {
             "agents", "messages", "conversations", "domains", "events",
             "webhooks", "account", "reviews", "templates", "info", "listen",
-            "agents.get", "agents.list", "agents.create", "agents.delete",
+            "agents.get", "agents.list", "agents.create", "agents.delete", "agents.restore",
+            "messages.restore",
             "messages.send", "messages.reply", "webhooks.fetch_message",
             "account.suppressions", "account.suppressions.list",
             "account.api_keys", "account.api_keys.create",

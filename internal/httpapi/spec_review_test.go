@@ -98,6 +98,35 @@ func typeIsNullable(props map[string]any, field string) bool {
 	return false
 }
 
+// Held outbound drafts have not been composed into MIME yet: reviewers read
+// their editable content from `body`, while `raw_message` is explicitly null.
+// Keep the field required so every detail response has a stable shape, but make
+// its value nullable until approval composes the canonical sent copy.
+func TestSpecMessageViewRawMessageRequiredNullable(t *testing.T) {
+	doc := renderSpec(t)
+	comps, _ := doc["components"].(map[string]any)
+	schemas, _ := comps["schemas"].(map[string]any)
+	messageView, ok := schemas["MessageView"].(map[string]any)
+	if !ok {
+		t.Fatal("MessageView schema not found")
+	}
+
+	required, _ := messageView["required"].([]any)
+	var rawRequired bool
+	for _, field := range required {
+		if field == "raw_message" {
+			rawRequired = true
+			break
+		}
+	}
+	if !rawRequired {
+		t.Fatal("MessageView.raw_message must remain required")
+	}
+	if !typeIsNullable(schemaProps(t, doc, "MessageView"), "raw_message") {
+		t.Fatal("MessageView.raw_message must allow null for uncomposed outbound review drafts")
+	}
+}
+
 func setEqual(a []string, b ...string) bool {
 	if len(a) != len(b) {
 		return false

@@ -238,14 +238,14 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
+          description: Override Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         cc:
+          description: Override Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         html:
           maxLength: 1048576
@@ -257,9 +257,9 @@ components:
           maxLength: 1048576
           type: string
         to:
+          description: Override primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
       type: object
     Attachment:
@@ -1305,14 +1305,14 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
+          description: Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         cc:
+          description: Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         conversation_id:
           type: string
@@ -1326,9 +1326,9 @@ components:
           maxLength: 1048576
           type: string
         to:
+          description: Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
       required:
         - to
@@ -1733,7 +1733,10 @@ components:
           $ref: "#/components/schemas/MessageParsedView"
         raw_message:
           contentEncoding: base64
-          type: string
+          description: Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.
+          type:
+            - string
+            - "null"
         read_status:
           type: string
         reply_to:
@@ -2324,14 +2327,14 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
+          description: Additional Bcc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         cc:
+          description: Additional Cc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         conversation_id:
           type: string
@@ -2428,14 +2431,14 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
+          description: Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         cc:
+          description: Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
         conversation_id:
           type: string
@@ -2468,9 +2471,9 @@ components:
           maxLength: 1048576
           type: string
         to:
+          description: Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
           items:
             type: string
-          maxItems: 50
           type: array
       required:
         - to
@@ -4855,6 +4858,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResultView"
           description: Accepted — the approved outbound message was durably queued for async submission (status=accepted); terminal outcome via GET/webhook events.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Bad Request — invalid reviewer overrides. error.code includes too_many_recipients when to, cc, and bcc contain more than 50 recipients combined; error.details reports max_recipients and provided.
         "409":
           content:
             application/json:

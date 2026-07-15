@@ -165,6 +165,21 @@ describe("E2AClient", () => {
     expect(items[0].email).toBe("bot@test.dev");
   });
 
+  it("agents.list({ deleted: true }) lists the trash", async () => {
+    globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
+    await client.agents.list({ deleted: true }).toArray({ limit: 10 });
+    expect(new URL(lastCall().url).searchParams.get("deleted")).toBe("true");
+  });
+
+  it("agents.restore POSTs to the restore endpoint", async () => {
+    globalThis.fetch = mockFetch(200, { email: "bot@test.dev", domain: "test.dev" });
+    const restored = await client.agents.restore("bot@test.dev");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/agents/bot%40test.dev/restore");
+    expect(restored.email).toBe("bot@test.dev");
+  });
+
   // ── Messages: idempotency + pagination ──────────────────────────
 
   it("messages.send mints an Idempotency-Key for the POST", async () => {
@@ -208,6 +223,35 @@ describe("E2AClient", () => {
     expect(calls[1]).toContain("cursor=cur_2");
   });
 
+  it("messages.list exposes from_ and serializes it as the wire from query", async () => {
+    globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
+
+    await client.messages.list("bot@test.dev", { from_: "alice@example.com" }).page();
+
+    const url = new URL(lastCall().url);
+    expect(url.searchParams.get("from")).toBe("alice@example.com");
+    expect(url.searchParams.has("from_")).toBe(false);
+  });
+
+  it("messages.list({ deleted: true }) lists the trash", async () => {
+    globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
+    await client.messages.list("bot@test.dev", { deleted: true }).toArray({ limit: 10 });
+    expect(new URL(lastCall().url).searchParams.get("deleted")).toBe("true");
+  });
+
+  it("messages.restore POSTs to the restore endpoint", async () => {
+    globalThis.fetch = mockFetch(200, {
+      id: "msg_1", conversation_id: "conv_1", created_at: "2026-01-01T00:00:00Z",
+      delivered_to: "bot@test.dev", direction: "inbound", from: "a@x.dev",
+      raw_message: "", read_status: "unread", review_status: "none", subject: "hi",
+    });
+    const restored = await client.messages.restore("bot@test.dev", "msg_1");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/agents/bot%40test.dev/messages/msg_1/restore");
+    expect(restored.id).toBe("msg_1");
+  });
+
   it("messages.getAttachment hits GET …/attachments/{index} and maps the view", async () => {
     globalThis.fetch = mockFetch(200, {
       index: 0,
@@ -228,7 +272,9 @@ describe("E2AClient", () => {
 
   // ── webhooks.fetchMessage: email.received is metadata-only ──────
   it("webhooks.fetchMessage resolves (delivered_to, message_id) → GET the full message", async () => {
-    globalThis.fetch = mockFetch(200, { id: "msg_9", subject: "Hi", raw_message: "..." });
+    // Held outbound drafts have no canonical MIME until approval. The field is
+    // required but explicitly null in that lifecycle state.
+    globalThis.fetch = mockFetch(200, { id: "msg_9", subject: "Hi", raw_message: null });
     const event = {
       id: "evt_1",
       type: "email.received",
@@ -241,6 +287,7 @@ describe("E2AClient", () => {
     expect(url).toContain("/messages/msg_9");
     expect(url).toContain("bot%40test.dev");
     expect(msg.id).toBe("msg_9");
+    expect(msg.rawMessage).toBeNull();
   });
 
   it("webhooks.fetchMessage rejects a non-received event or missing fetch keys", async () => {

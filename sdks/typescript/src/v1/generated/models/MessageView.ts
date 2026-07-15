@@ -44,7 +44,10 @@ export class MessageView {
     'id': string;
     'labels': Array<string>;
     'parsed'?: MessageParsedView;
-    'rawMessage': string;
+    /**
+    * Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.
+    */
+    'rawMessage': string | null;
     'readStatus': string;
     /**
     * The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).

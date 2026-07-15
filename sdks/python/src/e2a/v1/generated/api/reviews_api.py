@@ -108,6 +108,7 @@ class ReviewsApi:
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
             '202': "SendResultView",
+            '400': "ErrorEnvelope",
             '409': "ErrorEnvelope",
             '413': "ErrorEnvelope",
             '422': "ErrorEnvelope",
@@ -188,6 +189,7 @@ class ReviewsApi:
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
             '202': "SendResultView",
+            '400': "ErrorEnvelope",
             '409': "ErrorEnvelope",
             '413': "ErrorEnvelope",
             '422': "ErrorEnvelope",
@@ -268,6 +270,7 @@ class ReviewsApi:
         _response_types_map: Dict[str, Optional[str]] = {
             '200': "SendResultView",
             '202': "SendResultView",
+            '400': "ErrorEnvelope",
             '409': "ErrorEnvelope",
             '413': "ErrorEnvelope",
             '422': "ErrorEnvelope",

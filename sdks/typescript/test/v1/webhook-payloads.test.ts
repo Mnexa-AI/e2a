@@ -75,7 +75,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.reason).toBe("550 5.1.1 user unknown");
     expect(d.message_type).toBe("send");
     // provider_message_id is not part of email.failed (never accepted).
-    expect((d as Record<string, unknown>).provider_message_id).toBeUndefined();
+    expect((d as unknown as Record<string, unknown>).provider_message_id).toBeUndefined();
   });
 
   it("email.delivered", () => {
@@ -85,7 +85,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.delivered_to).toBe("alice@customer.example.com");
     expect(d.subject).toBe("Re: Order #1234 delayed");
     // The redundant `status` field was DROPPED — the event type is the outcome.
-    expect((d as Record<string, unknown>).status).toBeUndefined();
+    expect((d as unknown as Record<string, unknown>).status).toBeUndefined();
   });
 
   it("email.bounced", () => {
@@ -95,14 +95,14 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.bounce_type).toBe("permanent");
     expect(d.bounce_sub_type).toBe("General");
     expect(d.smtp_detail).toBe("550 5.1.1 no such user");
-    expect((d as Record<string, unknown>).status).toBeUndefined();
+    expect((d as unknown as Record<string, unknown>).status).toBeUndefined();
   });
 
   it("email.complained", () => {
     const e = construct("email.complained.json");
     if (!isEmailComplained(e)) throw new Error("guard failed");
     expect(e.data.delivered_to).toBe("carol@customer.example.com");
-    expect((e.data as Record<string, unknown>).status).toBeUndefined();
+    expect((e.data as unknown as Record<string, unknown>).status).toBeUndefined();
   });
 
   it("domain.sending_verified", () => {

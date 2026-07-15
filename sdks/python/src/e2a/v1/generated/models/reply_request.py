@@ -29,8 +29,8 @@ class ReplyRequest(BaseModel):
     ReplyRequest
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = Field(default=None, description="File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.")
-    bcc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
-    cc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    bcc: Optional[List[StrictStr]] = Field(default=None, description="Additional Bcc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.")
+    cc: Optional[List[StrictStr]] = Field(default=None, description="Additional Cc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.")
     conversation_id: Optional[StrictStr] = None
     html: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = None
     reply_all: Optional[StrictBool] = None

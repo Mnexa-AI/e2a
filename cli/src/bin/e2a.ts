@@ -96,10 +96,11 @@ Exit codes (stable scripting contract):
   0  success
   1  transient error (network / 5xx / rate limit) — retry may help
   2  usage error (bad flags or arguments)
-  3  send accepted but HELD for review (pending_review) — not delivered
+  3  send HELD for review (pending_review) — not delivered
   4  bad credentials or wrong key scope
   5  permanent request error (not found / invalid / conflict) — do NOT retry
   6  bounded wait (listen --once --until) expired with no matching message
+  7  failed or unrecognized persisted send outcome — do NOT retry; inspect its id
 `;
 
 function parseArgs(argv: string[]): { command: string; args: string[] } {

@@ -29,12 +29,12 @@ class ApproveRequest(BaseModel):
     ApproveRequest
     """ # noqa: E501
     attachments: Optional[List[Attachment]] = None
-    bcc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
-    cc: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    bcc: Optional[List[StrictStr]] = Field(default=None, description="Override Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
+    cc: Optional[List[StrictStr]] = Field(default=None, description="Override Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
     html: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = None
     subject: Optional[Annotated[str, Field(strict=True, max_length=2000)]] = None
     text: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = None
-    to: Optional[Annotated[List[StrictStr], Field(max_length=50)]] = None
+    to: Optional[List[StrictStr]] = Field(default=None, description="Override primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "html", "subject", "text", "to"]
 

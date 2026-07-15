@@ -233,8 +233,10 @@ async def test_get_attachment_hits_endpoint_and_maps_view(httpx_mock):
 @pytest.mark.anyio
 async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
     # email.received is metadata-only; fetch_message resolves (delivered_to,
-    # message_id) into the full-message GET.
-    httpx_mock.add_response(json=_valid(MessageView, id="msg_9", subject="Hi"))
+    # message_id) into the full-message GET. A held outbound draft has no
+    # canonical MIME until approval, so the generated model must accept the
+    # required raw_message field with a null value.
+    httpx_mock.add_response(json=_valid(MessageView, id="msg_9", subject="Hi", raw_message=None))
     event = WebhookEvent(
         type="email.received",
         data={"message_id": "msg_9", "delivered_to": "bot@test.dev"},
@@ -243,6 +245,7 @@ async def test_webhooks_fetch_message_resolves_keys(httpx_mock):
     async with _client() as c:
         msg = await c.webhooks.fetch_message(event)
     assert msg.id == "msg_9"
+    assert msg.raw_message is None
     req = httpx_mock.get_requests()[-1]
     assert req.method == "GET"
     assert "/messages/msg_9" in str(req.url)
@@ -317,6 +320,25 @@ async def test_agents_list_autopager(httpx_mock):
     assert [a.email for a in items] == ["bot@test.dev"]
 
 
+@pytest.mark.anyio
+async def test_agents_list_deleted_lists_trash(httpx_mock):
+    httpx_mock.add_response(json={"items": [], "next_cursor": None})
+    async with _client() as c:
+        await c.agents.list(deleted=True).to_list(limit=10)
+    assert httpx_mock.get_requests()[-1].url.params["deleted"] == "true"
+
+
+@pytest.mark.anyio
+async def test_agents_restore(httpx_mock):
+    httpx_mock.add_response(json=_valid(AgentView, email="bot@test.dev"))
+    async with _client() as c:
+        restored = await c.agents.restore("bot@test.dev")
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert "/v1/agents/bot%40test.dev/restore" in str(req.url)
+    assert restored.email == "bot@test.dev"
+
+
 # ── messages: idempotency + pagination ──────────────────────────────
 
 @pytest.mark.anyio
@@ -389,6 +411,25 @@ async def test_messages_list_threads_cursor(httpx_mock):
     reqs = httpx_mock.get_requests()
     assert len(reqs) == 2
     assert "cursor=cur_2" in str(reqs[1].url)
+
+
+@pytest.mark.anyio
+async def test_messages_list_deleted_lists_trash(httpx_mock):
+    httpx_mock.add_response(json={"items": [], "next_cursor": None})
+    async with _client() as c:
+        await c.messages.list("bot@test.dev", deleted=True).to_list(limit=10)
+    assert httpx_mock.get_requests()[-1].url.params["deleted"] == "true"
+
+
+@pytest.mark.anyio
+async def test_messages_restore(httpx_mock):
+    httpx_mock.add_response(json=_valid(MessageView, id="msg_1"))
+    async with _client() as c:
+        restored = await c.messages.restore("bot@test.dev", "msg_1")
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "POST"
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/restore" in str(req.url)
+    assert restored.id == "msg_1"
 
 
 # ── pagination: cursor-walking endpoints ────────────────────────────

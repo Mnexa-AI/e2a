@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:types",
+    "test:types": "tsc -p tsconfig.type-tests.json",
     "prepublishOnly": "npm run build"
   },
   "engines": {
