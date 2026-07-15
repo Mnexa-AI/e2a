@@ -164,6 +164,30 @@ server and is always retryable.
 The `/v1` surface is the **stable, generally-available contract** as of e2a 1.0.
 Our commitment, and what you can rely on:
 
+### Experimental operations
+
+This is the complete operation-level exception list. These operations carry
+`x-stability: experimental` and may change before they are promoted to stable;
+every `/v1` operation not listed here is covered by the GA freeze.
+
+| operationId | Method and path | Surface |
+| --- | --- | --- |
+| `createTemplate` | `POST /v1/templates` | Templates |
+| `deleteMessage` | `DELETE /v1/agents/{email}/messages/{id}` | Message trash |
+| `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
+| `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
+| `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
+| `getTemplate` | `GET /v1/templates/{id}` | Templates |
+| `listStarterTemplates` | `GET /v1/starter-templates` | Starter templates |
+| `listTemplates` | `GET /v1/templates` | Templates |
+| `putAgentProtection` | `PUT /v1/agents/{email}/protection` | Protection config |
+| `restoreAgent` | `POST /v1/agents/{email}/restore` | Agent trash |
+| `restoreMessage` | `POST /v1/agents/{email}/messages/{id}/restore` | Message trash |
+| `updateTemplate` | `PATCH /v1/templates/{id}` | Templates |
+| `validateTemplate` | `POST /v1/templates/validate` | Templates |
+
+### Compatibility rules
+
 - **No breaking changes within `/v1`.** We will not remove an endpoint, remove a
   response field, rename anything, tighten a type, or change documented semantics
   under `/v1`. A breaking change means a new major version path (`/v2`), and the
@@ -178,12 +202,12 @@ Our commitment, and what you can rely on:
   `body` vs `text`), not a stability concern.
 - **Experimental surfaces are marked `x-stability: experimental`** in the spec
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
-  send) and `(beta)` in prose — today: templates, starter templates, and the
-  agent protection config. They are **exempt from the
+  send) and `(beta)` in prose — today: templates, starter templates, the agent
+  protection config, and the agent/message trash operations listed above. They are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
-  `email.pending_review`, `email.review_approved`, `email.review_rejected`),
+  `email.review_requested`, `email.review_approved`, `email.review_rejected`),
   the field carries `x-experimental-values` listing exactly those values —
   their payloads may still change; all other event types are stable. Anything
   not marked experimental is stable surface.

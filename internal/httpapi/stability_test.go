@@ -1,11 +1,32 @@
 package httpapi
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/Mnexa-AI/e2a/internal/webhookpub"
 )
+
+var experimentalOperationIDs = []string{
+	"createTemplate",
+	"deleteMessage",
+	"deleteTemplate",
+	"getAgentProtection",
+	"getStarterTemplate",
+	"getTemplate",
+	"listStarterTemplates",
+	"listTemplates",
+	"putAgentProtection",
+	"restoreAgent",
+	"restoreMessage",
+	"updateTemplate",
+	"validateTemplate",
+}
 
 // These tests pin the forward-compatibility stance stamped by
 // applyEvolutionStance (GA review #22/#23) so it can't silently regress:
@@ -245,12 +266,7 @@ func TestSpecExperimentalMarkers(t *testing.T) {
 		return nil
 	}
 
-	experimentalOps := []string{
-		"listTemplates", "createTemplate", "getTemplate", "updateTemplate", "deleteTemplate", "validateTemplate",
-		"listStarterTemplates", "getStarterTemplate",
-		"getAgentProtection", "putAgentProtection",
-	}
-	for _, id := range experimentalOps {
+	for _, id := range experimentalOperationIDs {
 		if got := opExt(id); got != "experimental" {
 			t.Errorf("%s must carry x-stability: experimental (beta surface), got %v", id, got)
 		}
@@ -307,6 +323,62 @@ func TestSpecExperimentalMarkers(t *testing.T) {
 		if !setEqual(got, webhookpub.ExperimentalEventTypes...) {
 			t.Errorf("%s.events x-experimental-values = %v, want %v", name, got, webhookpub.ExperimentalEventTypes)
 		}
+	}
+}
+
+func TestDocumentedExperimentalOperationsMatchOpenAPI(t *testing.T) {
+	doc := renderSpec(t)
+	var marked []string
+	paths, _ := doc["paths"].(map[string]any)
+	for _, pathItem := range paths {
+		item, _ := pathItem.(map[string]any)
+		for _, operation := range item {
+			op, ok := operation.(map[string]any)
+			if !ok || op["x-stability"] != "experimental" {
+				continue
+			}
+			if id, ok := op["operationId"].(string); ok {
+				marked = append(marked, id)
+			}
+		}
+	}
+	sort.Strings(marked)
+	want := append([]string(nil), experimentalOperationIDs...)
+	sort.Strings(want)
+	if !reflect.DeepEqual(marked, want) {
+		t.Errorf("OpenAPI experimental operations = %v, want exact reviewed inventory %v", marked, want)
+	}
+
+	apiDoc, err := os.ReadFile(filepath.Join("..", "..", "docs", "api.md"))
+	if err != nil {
+		t.Fatalf("read docs/api.md: %v", err)
+	}
+	text := string(apiDoc)
+	start := strings.Index(text, "### Experimental operations")
+	if start < 0 {
+		t.Fatal("docs/api.md is missing the exact Experimental operations inventory")
+	}
+	section := text[start+len("### Experimental operations"):]
+	if end := strings.Index(section, "\n### "); end >= 0 {
+		section = section[:end]
+	}
+	re := regexp.MustCompile("`([A-Za-z][A-Za-z0-9]*)`")
+	var documented []string
+	for _, line := range strings.Split(section, "\n") {
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := strings.Split(line, "|")
+		if len(cells) < 3 {
+			continue
+		}
+		if match := re.FindStringSubmatch(cells[1]); len(match) == 2 && match[1] != "operationId" {
+			documented = append(documented, match[1])
+		}
+	}
+	sort.Strings(documented)
+	if !reflect.DeepEqual(documented, marked) {
+		t.Errorf("docs/api.md experimental operations = %v, OpenAPI marks %v", documented, marked)
 	}
 }
 
