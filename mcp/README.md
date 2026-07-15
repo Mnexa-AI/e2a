@@ -114,15 +114,15 @@ Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as
 
 ## Tools
 
-The server exposes up to **48** tools spanning agents, messages, human-in-the-loop
+The server exposes up to **50** tools spanning agents, messages, human-in-the-loop
 approval, attachments, domains, events, webhooks, API keys, and email templates
 (beta).
 **The visible set depends on your credential's scope:** an **agent**-scoped
-credential sees the 14 runtime/inbox tools (read, send, reply, and view its
-pending queue); an **account**-scoped credential also sees the 34 admin/setup
+credential sees the 14 runtime/inbox tools (read, send, reply, restore messages,
+and view its pending queue); an **account**-scoped credential also sees the 36 admin/setup
 tools (agent/domain/webhook/event/template/API-key management — **and HITL
 approve/reject, which is an account-owner action, never agent self-approval**)
-— all 48.
+— all 50.
 Every tool carries MCP annotations (`readOnlyHint`/`destructiveHint`/
 `idempotentHint`) so hosts can auto-approve reads and flag destructive actions.
 The tables below highlight the most commonly used ones — your MCP host's tool list
@@ -133,9 +133,10 @@ shows the set your scope allows, with per-tool descriptions.
 | Tool | Description |
 | --- | --- |
 | `whoami` | Get the authenticated account's identity — user, scope, plan/limits; for an agent-scoped credential, also the bound agent address. |
-| `list_agents` | List every agent inbox owned by the authenticated user. |
+| `list_agents` | List agent inboxes; pass `deleted:true` to list the 30-day trash. (Admin/account-scoped.) |
 | `get_agent` | Get one agent inbox by its full email address. |
 | `create_agent` | Register a new agent by its full email address — on a verified domain you own, or the deployment's shared domain. No delivery "mode": inbound is always available via `list_messages` (poll) or a `create_webhook` subscription. (Admin/account-scoped.) |
+| `restore_agent` | Restore a soft-deleted agent and its configuration. (Admin/account-scoped.) |
 
 > **Webhook deliveries are signed — verify them.** Push delivery is a top-level
 > resource (`create_webhook`), not a per-agent mode. e2a HMAC-signs every webhook
@@ -152,7 +153,8 @@ shows the set your scope allows, with per-tool descriptions.
 | --- | --- |
 | `send_message` | Send a new email. When the agent's outbound policy or content scan holds it for review, the message is held and returns `status: pending_review` instead of `sent`. |
 | `reply_to_message` | Reply to a message — one the agent received (replies to its sender) or one it sent (continues the thread to the original recipients). Preserves In-Reply-To / References for thread continuity. |
-| `list_messages` | List inbound mail. Filter by `read_status` (unread / read / all) and sender with reserved-word-safe `from_`; cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
+| `list_messages` | List mail; pass `deleted:true` to list trash. Filter by `read_status` (unread / read / all) and sender with reserved-word-safe `from_`; cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
+| `restore_message` | Restore a soft-deleted message and resume its retention clock. |
 | `get_message` | Fetch full body, headers, and attachment metadata for one message. |
 | `get_attachment` | Get one attachment's metadata + a short-lived `download_url` (fetch the bytes out of band); `inline: true` returns base64 `data` for small files (≤256 KB). |
 | `update_message_labels` | Add or remove labels on a message. |

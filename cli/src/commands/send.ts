@@ -104,20 +104,34 @@ function emitSendResult(result: SendResultView, json?: boolean): void {
   } else {
     process.stdout.write(result.messageId + "\n");
   }
-  // `status` is an OPEN SET per the spec ("tolerate unknown values") — so the
-  // delivered check is `=== "sent"`, inverted. A future held-variant status
-  // must fail loud (exit HELD), never slip through as exit 0: an unknown
-  // outcome is "not known to be delivered".
-  if (result.status !== "sent") {
+  if (result.status === "pending_review") {
     process.stderr.write(
-      `WARNING: send returned status "${result.status}" — the message did NOT go out now. ` +
-        "pending_review means it is held for approval: disable outbound protection on this " +
+      "WARNING: send returned status \"pending_review\" — the message did NOT go out now. " +
+        "It is held for approval: disable outbound protection on this " +
         "agent or approve it in the review queue.\n",
     );
     // exitCode + return, NOT process.exit(): a hard exit can truncate piped
     // stdout before the message id above flushes, and scripts need that id to
     // approve the held message.
     process.exitCode = EXIT.HELD;
+  } else if (result.status === "failed") {
+    process.stderr.write(
+      `WARNING: send reached terminal status "failed" for message "${result.messageId}". ` +
+        `The server persisted the failure outcome; do NOT retry automatically. ` +
+        `Inspect it with: e2a messages get ${result.messageId}\n`,
+    );
+    process.exitCode = EXIT.SEND_OUTCOME;
+  } else if (result.status !== "sent" && result.status !== "accepted") {
+    // Response status values are an open set. Do not silently report an
+    // unfamiliar outcome as success, but do not misclassify it as a known
+    // review hold or a retryable transport error either: this successful API
+    // response carries a message id and may already be durably persisted.
+    process.stderr.write(
+      `WARNING: send returned unrecognized status "${result.status}" for message "${result.messageId}". ` +
+        `The message may already be durably persisted; do NOT retry automatically. ` +
+        `Inspect it with: e2a messages get ${result.messageId}\n`,
+    );
+    process.exitCode = EXIT.SEND_OUTCOME;
   }
 }
 

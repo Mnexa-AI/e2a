@@ -90,13 +90,14 @@ type MessageView struct {
 	// each with status + detail) from migration 032. Inbound-only; omitted on
 	// outbound messages, which carry no verdict.
 	Auth       *AuthVerdict `json:"auth,omitempty"`
-	RawMessage []byte       `json:"raw_message"`
+	RawMessage []byte       `json:"raw_message" nullable:"true" doc:"Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages."`
 	// Parsed is the derived view (decision 9 / Slice 4b-3): the raw message
 	// rendered to text (`text`, quoted chains stripped + length-capped, for the
 	// agent to feed a model by default) plus the decoded HTML part (`html`, for
 	// display). Present on any message carrying raw MIME — inbound and sent
-	// outbound. A CONVENIENCE — `raw_message` is always present and the security
-	// decision is made on `auth` + provenance, never on this derived body.
+	// outbound. A CONVENIENCE — when raw_message is non-null, it is canonical;
+	// the security decision is made on `auth` + provenance, never on this derived
+	// body. Held outbound drafts have raw_message=null and use Body below.
 	Parsed *MessageParsedView `json:"parsed,omitempty"`
 	// Body is the mutable draft body for a held outbound message
 	// (status=pending_review), which has no raw_message yet. This is the

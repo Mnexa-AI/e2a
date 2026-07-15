@@ -63,13 +63,38 @@ describe("send/reply commands", () => {
     expect(mockSend.mock.calls[0][2]).toEqual({ idempotencyKey: "evt-42" });
   });
 
-  it("treats any non-'sent' status as HELD (open-set status contract)", async () => {
+  it("treats an unknown status as non-retryable without calling it a review hold", async () => {
     mockSend.mockResolvedValue({ messageId: "msg_u", status: "some_future_hold" });
     const { send } = await import("../commands/send.js");
     await send({ to: ["you@example.com"], subject: "s", body: "b" });
 
     expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("some_future_hold"));
-    expect(process.exitCode).toBe(3);
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("do NOT retry"));
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("msg_u"));
+    expect(process.exitCode).toBe(7);
+  });
+
+  it("reports a failed status as terminal and non-retryable", async () => {
+    mockSend.mockResolvedValue({ messageId: "msg_failed", status: "failed" });
+    const { send } = await import("../commands/send.js");
+    await send({ to: ["you@example.com"], subject: "s", body: "b" });
+
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("terminal status \"failed\""));
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("do NOT retry"));
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("msg_failed"));
+    expect(mockStderr).not.toHaveBeenCalledWith(expect.stringContaining("unrecognized"));
+    expect(process.exitCode).toBe(7);
+  });
+
+  it("exits OK when an async send is durably accepted", async () => {
+    mockSend.mockResolvedValue({ messageId: "msg_accepted", status: "accepted" });
+    const { send } = await import("../commands/send.js");
+
+    await send({ to: ["you@example.com"], subject: "hi", body: "hello" });
+
+    expect(mockStdout).toHaveBeenCalledWith("msg_accepted\n");
+    expect(mockStderr).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
   });
 
   it("sets exit code HELD (3) with a warning when the send is pending_review", async () => {
@@ -147,6 +172,17 @@ describe("send/reply commands", () => {
       undefined,
     );
     expect(process.exitCode).toBe(3);
+  });
+
+  it("exits OK when an async reply is durably accepted", async () => {
+    mockReply.mockResolvedValue({ messageId: "msg_reply_accepted", status: "accepted" });
+    const { reply } = await import("../commands/send.js");
+
+    await reply("msg_orig", { body: "answer" });
+
+    expect(mockStdout).toHaveBeenCalledWith("msg_reply_accepted\n");
+    expect(mockStderr).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
   });
 
   it("sends markup-only HTML whose derived text fallback is empty", async () => {

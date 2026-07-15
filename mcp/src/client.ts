@@ -118,9 +118,9 @@ export class McpClient {
 
   // Cursor-paginated (GET /v1/agents). One page in `agents` + a next_cursor
   // when more remain; pass it back as `cursor`.
-  listAgents(params: { cursor?: string; limit?: number } = {}): Promise<Page<AgentView>> {
-    const { cursor, limit } = params;
-    return this.sdk.agents.list(limit !== undefined ? { limit } : {}).page(cursor);
+  listAgents(params: { cursor?: string; limit?: number; deleted?: boolean } = {}): Promise<Page<AgentView>> {
+    const { cursor, ...rest } = params;
+    return this.sdk.agents.list(rest).page(cursor);
   }
 
   // listAllAgents collapses the pager to a flat array for internal aggregations
@@ -162,6 +162,10 @@ export class McpClient {
   async deleteAgent(explicitAddress?: string): Promise<DeleteAgentResult> {
     const address = this.resolveAddress(explicitAddress);
     return this.sdk.agents.delete(address);
+  }
+
+  restoreAgent(explicitAddress?: string): Promise<AgentView> {
+    return this.sdk.agents.restore(this.resolveAddress(explicitAddress));
   }
 
   // ── Messages ────────────────────────────────────────────────────
@@ -277,10 +281,15 @@ export class McpClient {
     labels?: Array<string>;
     cursor?: string;
     limit?: number;
+    deleted?: boolean;
     explicitAddress?: string;
   }): Promise<Page<MessageSummaryView>> {
     const { explicitAddress, cursor, ...rest } = params;
     return this.sdk.messages.list(this.resolveAddress(explicitAddress), rest).page(cursor);
+  }
+
+  restoreMessage(messageId: string, explicitAddress?: string): Promise<MessageView> {
+    return this.sdk.messages.restore(this.resolveAddress(explicitAddress), messageId);
   }
 
   // ── Conversations ───────────────────────────────────────────────
