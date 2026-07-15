@@ -9,6 +9,7 @@ import json
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from e2a.v1._retry import RetryConfig
 from e2a.v1.client import AsyncE2AClient
@@ -28,6 +29,7 @@ from e2a.v1.generated.models import (
     ConversationSummaryView,
     DomainView,
     EventJSON,
+    FieldError,
     MessageSummaryView,
     MessageView,
     ReviewView,
@@ -40,6 +42,14 @@ from e2a.v1.generated.models import (
 )
 
 BASE = "http://test.local"
+
+
+def test_validation_field_location_is_required():
+    with pytest.raises(ValidationError):
+        FieldError(message="invalid")
+
+    field = FieldError(location="", message="invalid")
+    assert field.location == ""
 
 
 from datetime import datetime, timezone  # noqa: E402

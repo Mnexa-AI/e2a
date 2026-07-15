@@ -50,7 +50,10 @@ func specReachability(t *testing.T, doc map[string]any) (request, response map[s
 		switch n := node.(type) {
 		case map[string]any:
 			if ref, ok := n["$ref"].(string); ok {
-				out[ref[strings.LastIndex(ref, "/")+1:]] = true
+				const schemaPrefix = "#/components/schemas/"
+				if strings.HasPrefix(ref, schemaPrefix) {
+					out[strings.TrimPrefix(ref, schemaPrefix)] = true
+				}
 			}
 			for _, v := range n {
 				refsIn(v, out)
