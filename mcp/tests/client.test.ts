@@ -26,6 +26,65 @@ function mockSdk() {
   };
 }
 
+describe("McpClient trash/restore delegation", () => {
+  function mockTrashSdk() {
+    const agentsPage = vi.fn(async () => ({ items: [{ email: "trashed@test.dev" }], next_cursor: "agents_next" }));
+    const messagesPage = vi.fn(async () => ({ items: [{ id: "msg_trashed" }], next_cursor: "messages_next" }));
+    return {
+      agentsPage,
+      messagesPage,
+      sdk: {
+        agents: {
+          list: vi.fn(() => ({ page: agentsPage })),
+          restore: vi.fn(async (email: string) => ({ email })),
+        },
+        messages: {
+          list: vi.fn(() => ({ page: messagesPage })),
+          restore: vi.fn(async (email: string, id: string) => ({ email, id })),
+        },
+      },
+    };
+  }
+
+  it("listAgents forwards deleted/limit and resumes from cursor", async () => {
+    const { sdk, agentsPage } = mockTrashSdk();
+    const c = new McpClient(sdk as never, "", "account");
+    await c.listAgents({ deleted: true, limit: 25, cursor: "agents_cursor" });
+    expect(sdk.agents.list).toHaveBeenCalledWith({ deleted: true, limit: 25 });
+    expect(agentsPage).toHaveBeenCalledWith("agents_cursor");
+  });
+
+  it("restoreAgent forwards the resolved explicit address", async () => {
+    const { sdk } = mockTrashSdk();
+    const c = new McpClient(sdk as never, "", "account");
+    await c.restoreAgent("trashed@test.dev");
+    expect(sdk.agents.restore).toHaveBeenCalledWith("trashed@test.dev");
+  });
+
+  it("listMessages forwards deleted and explicitAddress without leaking it to the SDK filter", async () => {
+    const { sdk, messagesPage } = mockTrashSdk();
+    const c = new McpClient(sdk as never, "bound@test.dev", "agent");
+    await c.listMessages({
+      deleted: true,
+      limit: 10,
+      cursor: "messages_cursor",
+      explicitAddress: "other@test.dev",
+    });
+    expect(sdk.messages.list).toHaveBeenCalledWith(
+      "other@test.dev",
+      { deleted: true, limit: 10 },
+    );
+    expect(messagesPage).toHaveBeenCalledWith("messages_cursor");
+  });
+
+  it("restoreMessage forwards message id and resolved explicit address", async () => {
+    const { sdk } = mockTrashSdk();
+    const c = new McpClient(sdk as never, "bound@test.dev", "agent");
+    await c.restoreMessage("msg_trashed", "other@test.dev");
+    expect(sdk.messages.restore).toHaveBeenCalledWith("other@test.dev", "msg_trashed");
+  });
+});
+
 describe("McpClient review routing (tier-correct endpoints)", () => {
   it("approveReview → account-only reviews.approve (not messages.approve)", async () => {
     const sdk = mockSdk();

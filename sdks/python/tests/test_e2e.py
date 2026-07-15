@@ -26,6 +26,7 @@ import time
 import pytest
 
 from e2a import AsyncE2AClient, E2ANotFoundError
+from e2a.v1 import ReplyRequest, SendEmailRequest
 
 BASE_URL = os.environ.get("E2A_TEST_BASE_URL", "")
 API_KEY = os.environ.get("E2A_TEST_API_KEY", "")
@@ -65,7 +66,11 @@ async def test_send_find_get_reply_self_loopback() -> None:
             subject = f"py-sdk-live {int(time.time() * 1000)}"
             sent = await client.messages.send(
                 bot,
-                {"to": [bot], "subject": subject, "body": "Hello from the Python SDK live e2e"},
+                SendEmailRequest(
+                    to=[bot],
+                    subject=subject,
+                    text="Hello from the Python SDK live e2e",
+                ),
             )
             assert sent.message_id
             assert sent.status in ("sent", "accepted")
@@ -89,7 +94,9 @@ async def test_send_find_get_reply_self_loopback() -> None:
             assert full.parsed is not None and "Hello from the Python SDK live e2e" in full.parsed.text
 
             reply = await client.messages.reply(
-                bot, found.id, {"body": "Reply from the Python SDK live e2e"}
+                bot,
+                found.id,
+                ReplyRequest(text="Reply from the Python SDK live e2e"),
             )
             assert reply.message_id
             # Fresh unprotected inbox → the reply sends immediately (same as send).

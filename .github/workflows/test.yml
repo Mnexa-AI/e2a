@@ -327,6 +327,7 @@ jobs:
           cache-dependency-path: |
             sdks/python/pyproject.toml
       - run: pip install -e ".[dev]"
+      - run: mypy
       - run: pytest tests/ -v
 
   python-contract:

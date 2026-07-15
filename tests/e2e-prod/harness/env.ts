@@ -7,6 +7,10 @@ export interface ProdEnv {
   apiKey: string;
   primaryAgentEmail: string;
   sharedDomain: string;
+  // Deployed streamable-HTTP MCP endpoint the MCP suites target. Defaults to
+  // `${apiUrl}/mcp` (Caddy routes /mcp to the co-versioned mcp-server image);
+  // override with E2A_MCP_URL for an out-of-band host (e.g. an in-cluster URL).
+  mcpUrl: string;
   // Optional separate STANDARD-class, low-cap account for enforcement tests
   // (limit + rate-limit). Absent → the enforcement suite skips, since the main
   // conformance account is internal-class and by construction exempt.
@@ -53,6 +57,7 @@ export function loadEnv(): ProdEnv {
   const local = readLocalConfig();
   const env: ProdEnv = {
     apiUrl: pickEnv("E2A_URL", "E2A_API_URL") ?? local.api_url ?? "https://e2a.dev",
+    mcpUrl: "", // filled below once apiUrl is known
     apiKey: process.env.E2A_API_KEY ?? local.api_key ?? "",
     primaryAgentEmail: pickEnv("E2A_AGENT_EMAIL", "E2A_PRIMARY_AGENT") ?? local.agent_email ?? "",
     sharedDomain: process.env.E2A_SHARED_DOMAIN ?? local.shared_domain ?? "agents.e2a.dev",
@@ -62,6 +67,8 @@ export function loadEnv(): ProdEnv {
     cleanupMode: (process.env.E2E_CLEANUP as ProdEnv["cleanupMode"]) ?? "always",
     rateLimitRps: Number(process.env.E2E_RPS ?? "1"),
   };
+  // Default the MCP endpoint to the API host's /mcp route; E2A_MCP_URL overrides.
+  env.mcpUrl = process.env.E2A_MCP_URL || new URL("/mcp", env.apiUrl).toString();
   if (!env.apiKey) {
     throw new Error("No API key found. Set E2A_API_KEY or run `e2a login` first.");
   }

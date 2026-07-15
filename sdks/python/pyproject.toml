@@ -46,5 +46,22 @@ Repository = "https://github.com/Mnexa-AI/e2a"
 Documentation = "https://e2a.dev"
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-httpx", "anyio[trio]", "pyyaml>=6", "build", "twine"]
+dev = ["pytest>=7", "pytest-httpx", "anyio[trio]", "pyyaml>=6", "build", "twine", "mypy>=1.10,<1.19"]
 ws = ["websockets>=14"]
+
+[tool.mypy]
+python_version = "3.9"
+files = ["tests/test_e2e.py"]
+follow_imports = "silent"
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = ["pytest", "pytest.*", "_pytest", "_pytest.*"]
+follow_imports = "skip"
+
+# CI installs dependencies under Python 3.12 while checking our public Python
+# 3.9 surface. Newer anyio releases legitimately use 3.10+ syntax, so keep
+# third-party implementation details out of this SDK request-shape gate.
+[[tool.mypy.overrides]]
+module = ["anyio", "anyio.*"]
+follow_imports = "skip"
