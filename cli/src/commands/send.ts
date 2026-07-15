@@ -104,20 +104,24 @@ function emitSendResult(result: SendResultView, json?: boolean): void {
   } else {
     process.stdout.write(result.messageId + "\n");
   }
-  // `status` is an OPEN SET per the spec ("tolerate unknown values") — so the
-  // delivered check is `=== "sent"`, inverted. A future held-variant status
-  // must fail loud (exit HELD), never slip through as exit 0: an unknown
-  // outcome is "not known to be delivered".
-  if (result.status !== "sent") {
+  if (result.status === "pending_review") {
     process.stderr.write(
-      `WARNING: send returned status "${result.status}" — the message did NOT go out now. ` +
-        "pending_review means it is held for approval: disable outbound protection on this " +
+      "WARNING: send returned status \"pending_review\" — the message did NOT go out now. " +
+        "It is held for approval: disable outbound protection on this " +
         "agent or approve it in the review queue.\n",
     );
     // exitCode + return, NOT process.exit(): a hard exit can truncate piped
     // stdout before the message id above flushes, and scripts need that id to
     // approve the held message.
     process.exitCode = EXIT.HELD;
+  } else if (result.status !== "sent" && result.status !== "accepted") {
+    // Response status values are an open set. Do not silently report an
+    // unfamiliar outcome as success, but do not misclassify it as a known
+    // review hold either. ERROR is retry-safe for existing shell wrappers.
+    process.stderr.write(
+      `WARNING: send returned status "${result.status}"; the CLI cannot confirm delivery.\n`,
+    );
+    process.exitCode = EXIT.ERROR;
   }
 }
 

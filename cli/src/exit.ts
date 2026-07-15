@@ -2,20 +2,19 @@
 // CI lanes) branch on these instead of parsing output, so the values are
 // frozen once published — add new codes, never renumber.
 //
-// HELD exists because a held send is an HTTP 2xx success (202 Accepted): the API
-// accepted the message but parked it in the review queue (`status:
-// "pending_review"`), so the recipient got nothing. Scripts that treat "exit 0"
-// as "delivered" would silently report into a queue nobody reads — the exact
-// failure mode that bit the tether harness twice. The CLI branches on the
-// response body's `status`, not the HTTP code, so this holds regardless of
-// whether the outcome came back 200 (sent) or 202 (accepted/pending_review).
+// HELD exists because a review-held send is an HTTP 2xx success with response
+// status `pending_review`, but the recipient got nothing. Scripts that treat
+// every 2xx as success would silently report into a queue nobody reads — the
+// exact failure mode that bit the tether harness twice. The distinct async
+// response status `accepted` means the message is durably queued for delivery
+// and exits OK. The CLI branches on the response body's status, not HTTP status.
 export const EXIT = {
   OK: 0,
   /** Network, server, or unexpected error. */
   ERROR: 1,
   /** Bad flags or arguments. */
   USAGE: 2,
-  /** Send accepted but held for review (pending_review) — NOT delivered. */
+  /** Send held for review (pending_review) — NOT delivered. */
   HELD: 3,
   /** Bad credentials or wrong key scope for the operation. */
   AUTH: 4,
