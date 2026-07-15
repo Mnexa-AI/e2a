@@ -219,7 +219,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
       title: "Delete an agent inbox (DESTRUCTIVE)",
       annotations: { destructiveHint: true, idempotentHint: true },
       description:
-        "Permanently delete the agent identity and CASCADE-remove every message, pending outbound, and webhook-delivery record bound to it. Irreversible. Existing OAuth tokens bound to this agent are revoked automatically. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
+        "Move the agent inbox to trash for about 30 days. The agent stops receiving mail and disappears from normal lists, but its messages and configuration are retained so it can be restored before automatic purge. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
       inputSchema: strictInputSchema({
         email: z
           .string()

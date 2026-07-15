@@ -85,8 +85,8 @@ export function registerApiKeyTools(server: McpServer, client: McpClient): void 
         if (args.confirm !== true) {
           throw new Error("delete_api_key requires confirm:true.");
         }
-        await client.deleteApiKey(args.id);
-        return { deleted: args.id };
+        // Return the server's deletion object verbatim: {deleted:true, id}.
+        return client.deleteApiKey(args.id);
       }),
   );
 }

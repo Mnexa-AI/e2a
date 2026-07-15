@@ -123,7 +123,7 @@ describe("McpClient API keys (agent-scope-only minting)", () => {
       apiKeys: {
         list: vi.fn(() => ({ page: async () => ({ items: [{ id: "key_1" }], next_cursor: undefined }) })),
         create: vi.fn(async (req: Record<string, unknown>) => ({ id: "key_new", key: "plaintext-once", ...req })),
-        delete: vi.fn(async () => undefined),
+        delete: vi.fn(async (id: string) => ({ deleted: true, id })),
       },
     },
   });
@@ -150,11 +150,11 @@ describe("McpClient API keys (agent-scope-only minting)", () => {
     expect(req.scope).toBe("agent");
   });
 
-  it("listApiKeys pages and deleteApiKey forwards the id", async () => {
+  it("listApiKeys pages and deleteApiKey returns the SDK's typed deletion receipt", async () => {
     const sdk = mockApiKeysSdk();
     const c = new McpClient(sdk as never, "", "account");
     expect(await c.listApiKeys()).toEqual({ items: [{ id: "key_1" }], next_cursor: undefined });
-    await c.deleteApiKey("key_1");
+    expect(await c.deleteApiKey("key_1")).toEqual({ deleted: true, id: "key_1" });
     expect(sdk.account.apiKeys.delete).toHaveBeenCalledWith("key_1");
   });
 });
