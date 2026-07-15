@@ -1,10 +1,28 @@
 package httpapi
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+// operationByID finds an operation anywhere in paths by operationId.
+func operationByID(t *testing.T, doc map[string]any, operationID string) map[string]any {
+	t.Helper()
+	paths, _ := doc["paths"].(map[string]any)
+	for _, pi := range paths {
+		item, _ := pi.(map[string]any)
+		for _, op := range item {
+			opm, ok := op.(map[string]any)
+			if ok && opm["operationId"] == operationID {
+				return opm
+			}
+		}
+	}
+	t.Fatalf("operation %q not found in spec", operationID)
+	return nil
+}
 
 // renderSpec renders the live OpenAPI document and unmarshals it into a generic
 // map so the review-hardening contract tests can assert on operations + schemas
@@ -26,22 +44,32 @@ func renderSpec(t *testing.T) map[string]any {
 // paths and returns its responses map.
 func operationResponses(t *testing.T, doc map[string]any, operationID string) map[string]any {
 	t.Helper()
-	paths, _ := doc["paths"].(map[string]any)
-	for _, pi := range paths {
-		item, _ := pi.(map[string]any)
-		for _, op := range item {
-			opm, ok := op.(map[string]any)
-			if !ok {
-				continue
-			}
-			if opm["operationId"] == operationID {
-				resp, _ := opm["responses"].(map[string]any)
-				return resp
+	resp, _ := operationByID(t, doc, operationID)["responses"].(map[string]any)
+	return resp
+}
+
+// Once an outbound request is durably accepted, the message row, River job,
+// and keyed response commit atomically. The public contract must tell callers
+// how to recover from the ambiguous boundary where that commit succeeds but
+// the HTTP response is lost: replay the same request with the same key.
+func TestSpecOutboundIdempotencyDocumentsResponseLoss(t *testing.T) {
+	doc := renderSpec(t)
+	const required = "If the response is lost after durable acceptance"
+	for _, operationID := range []string{"sendMessage", "replyToMessage", "forwardMessage"} {
+		op := operationByID(t, doc, operationID)
+		params, _ := op["parameters"].([]any)
+		var description string
+		for _, raw := range params {
+			param, _ := raw.(map[string]any)
+			if param["in"] == "header" && param["name"] == "Idempotency-Key" {
+				description, _ = param["description"].(string)
+				break
 			}
 		}
+		if !strings.Contains(description, required) {
+			t.Errorf("%s Idempotency-Key description must document the post-commit response-loss retry boundary; got %q", operationID, description)
+		}
 	}
-	t.Fatalf("operation %q not found in spec", operationID)
-	return nil
 }
 
 // schemaProps returns the properties map of a named component schema.

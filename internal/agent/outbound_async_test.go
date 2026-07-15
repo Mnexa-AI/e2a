@@ -101,6 +101,45 @@ func TestDeliverOutbound_MissingQueueFailsClosed(t *testing.T) {
 	}
 }
 
+// TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit pins the pre-commit
+// half of the response-loss boundary. If completing the idempotency record
+// fails, the accepted message and stamped job must roll back with it.
+func TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "acceptrollback")
+	callbackCalled := false
+
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"alice@external.test"}, Subject: "rollback boundary", Body: "never accepted",
+	}, "send", "", nil, func(_ context.Context, _ pgx.Tx, _ string) error {
+		callbackCalled = true
+		return errors.New("idempotency completion failed")
+	})
+	if !callbackCalled {
+		t.Fatal("idempotency completion callback was not called")
+	}
+	if res != nil {
+		t.Fatalf("result = %+v, want nil when accept transaction aborts", res)
+	}
+	if oerr == nil || oerr.Status != 500 || oerr.Code != "internal_error" {
+		t.Fatalf("error = %+v, want 500 internal_error", oerr)
+	}
+
+	var messages int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM messages WHERE agent_id=$1 AND subject=$2`,
+			ag.ID, "rollback boundary",
+		).Scan(&messages)
+	}); err != nil {
+		t.Fatalf("count rolled-back messages: %v", err)
+	}
+	if messages != 0 {
+		t.Fatalf("accepted messages after aborted transaction = %d, want 0", messages)
+	}
+}
+
 // TestDeliverOutbound_AsyncAccept is the end-to-end slice-C check: with the async
 // enqueuer wired, a real (non-self) send is durably accepted (not submitted
 // inline) — it returns status=accepted, persists a delivery_status='accepted' row

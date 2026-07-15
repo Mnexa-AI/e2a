@@ -1192,6 +1192,14 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("compose failed: %v", cerr)}
 	}
 	var accepted *identity.Message
+	// Crash boundary:
+	//   - Before Commit returns, WithTx rolls back the message, River job, and
+	//     idempotency completion together; no accepted delivery is left behind.
+	//   - After Commit returns, all three are durable. If the process dies before
+	//     the HTTP response is written, River still delivers the message and a
+	//     byte-identical retry with the same Idempotency-Key replays the original
+	//     202/message id. Without a key, that ambiguous retry is a new request and
+	//     may enqueue a duplicate (the public guarantee is at-least-once).
 	if txErr := a.store.WithTx(ctx, func(tx pgx.Tx) error {
 		msg, err := a.store.CreateOutboundMessageTx(ctx, tx, agent.ID, comp.To, comp.CC, comp.BCC, req.Subject, msgType, comp.Method, "", req.ConversationID, comp.Raw, "accepted", comp.EnvelopeFrom, comp.SentAs)
 		if err != nil {
