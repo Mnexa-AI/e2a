@@ -64,7 +64,7 @@ type ErrorBody struct {
 // It deliberately omits the raw offending value (Huma's ErrorDetail.Value) from
 // the public contract so the API never echoes bad input back to the client.
 type FieldError struct {
-	Location string `json:"location,omitempty" doc:"Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field."`
+	Location string `json:"location" doc:"Path-like pointer to the offending field, prefixed with the request part it came from, e.g. body.events, body.items[3].tags, query.limit, path.id. Empty when the failure is not tied to a single field."`
 	Message  string `json:"message" doc:"Human-readable reason this field is invalid."`
 }
 
