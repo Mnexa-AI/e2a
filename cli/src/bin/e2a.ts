@@ -100,6 +100,7 @@ Exit codes (stable scripting contract):
   4  bad credentials or wrong key scope
   5  permanent request error (not found / invalid / conflict) — do NOT retry
   6  bounded wait (listen --once --until) expired with no matching message
+  7  unrecognized persisted send outcome — do NOT retry; inspect the message id
 `;
 
 function parseArgs(argv: string[]): { command: string; args: string[] } {

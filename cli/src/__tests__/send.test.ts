@@ -63,14 +63,15 @@ describe("send/reply commands", () => {
     expect(mockSend.mock.calls[0][2]).toEqual({ idempotencyKey: "evt-42" });
   });
 
-  it("treats an unknown status as an unexpected outcome, not a review hold", async () => {
+  it("treats an unknown status as non-retryable without calling it a review hold", async () => {
     mockSend.mockResolvedValue({ messageId: "msg_u", status: "some_future_hold" });
     const { send } = await import("../commands/send.js");
     await send({ to: ["you@example.com"], subject: "s", body: "b" });
 
     expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("some_future_hold"));
-    expect(mockStderr).not.toHaveBeenCalledWith(expect.stringContaining("pending_review means"));
-    expect(process.exitCode).toBe(1);
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("do NOT retry"));
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("msg_u"));
+    expect(process.exitCode).toBe(7);
   });
 
   it("exits OK when an async send is durably accepted", async () => {

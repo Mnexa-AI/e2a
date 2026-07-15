@@ -117,11 +117,14 @@ function emitSendResult(result: SendResultView, json?: boolean): void {
   } else if (result.status !== "sent" && result.status !== "accepted") {
     // Response status values are an open set. Do not silently report an
     // unfamiliar outcome as success, but do not misclassify it as a known
-    // review hold either. ERROR is retry-safe for existing shell wrappers.
+    // review hold or a retryable transport error either: this successful API
+    // response carries a message id and may already be durably persisted.
     process.stderr.write(
-      `WARNING: send returned status "${result.status}"; the CLI cannot confirm delivery.\n`,
+      `WARNING: send returned unrecognized status "${result.status}" for message "${result.messageId}". ` +
+        `The message may already be durably persisted; do NOT retry automatically. ` +
+        `Inspect it with: e2a messages get ${result.messageId}\n`,
     );
-    process.exitCode = EXIT.ERROR;
+    process.exitCode = EXIT.UNKNOWN_OUTCOME;
   }
 }
 
