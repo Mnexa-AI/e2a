@@ -23,7 +23,7 @@ import { SendResultView } from '../models/SendResultView.js';
 export class ReviewsApiRequestFactory extends BaseAPIRequestFactory {
 
     /**
-     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry).
+     * Approve a hold. Branches on direction: an outbound draft is sent via SES (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted when outbound delivery is durably queued for async submission, and 200 for a synchronous terminal sent result or an inbound release. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large.
      * Approve a held message
      * @param id 
      * @param approveRequest 
@@ -254,6 +254,13 @@ export class ReviewsApiResponseProcessor {
                 "ErrorEnvelope", ""
             ) as ErrorEnvelope;
             throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Conflict — branch on error.code. message_not_pending: the hold was already resolved (approved/rejected/expired) and cannot be re-approved. idempotency_in_flight: a request with this Idempotency-Key is still executing — wait for it to finish, then retry with the SAME key and byte-identical body to replay its response.", body, response.headers);
+        }
+        if (isCodeInRange("413", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Payload Too Large — error.code &#x3D; payload_too_large: the merged outbound draft exceeds the 10 MiB (10485760 byte) composed-message ceiling after applying reviewer overrides. The measured total is subject + text + html + decoded attachment bytes.", body, response.headers);
         }
         if (isCodeInRange("422", response.httpStatusCode)) {
             const body: ErrorEnvelope = ObjectSerializer.deserialize(

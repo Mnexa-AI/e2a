@@ -113,6 +113,14 @@ func TestComposedMessageSizeOverCap(t *testing.T) {
 	if env.Code() != "payload_too_large" || env.GetStatus() != 413 {
 		t.Fatalf("want 413 payload_too_large, got status=%d code=%s", env.GetStatus(), env.Code())
 	}
+	details, ok := env.Err.Details.(map[string]any)
+	if !ok {
+		t.Fatalf("composed-size error details = %T, want map", env.Err.Details)
+	}
+	wantTotal := len("s") + len(text) + decodedSize
+	if details["composed_bytes"] != wantTotal || details["max_composed_bytes"] != maxComposedMessageBytes {
+		t.Fatalf("composed-size details = %#v, want composed_bytes=%d max_composed_bytes=%d", details, wantTotal, maxComposedMessageBytes)
+	}
 }
 
 // The composed cap counts DECODED attachment bytes, not the larger base64 wire

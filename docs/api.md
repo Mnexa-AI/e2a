@@ -340,6 +340,16 @@ different meanings:
   sent/inbound messages, storage usage is exactly the sum of their
   `size_bytes`.
 
+**Outbound composed-message ceiling** (send / reply / forward and an outbound
+HITL approval after merging reviewer overrides): **10 MiB (10,485,760 bytes)**,
+measured as the UTF-8 byte lengths of `subject + text + html` plus the **decoded**
+attachment bytes. This is independent of the larger 25 MB aggregate attachment
+allowance: a request can satisfy every attachment limit and still exceed the
+composed ceiling once its subject and bodies are included. A breach returns
+`413 payload_too_large`. Direct send/reply/forward errors include
+`error.details.composed_bytes` and `error.details.max_composed_bytes`
+(`10485760`); callers should treat `error.details` as optional on other paths.
+
 > **Note:** approve/reject a held message via the account-scoped **Reviews**
 > queue below (`POST /v1/reviews/{id}/approve|reject`), which addresses holds by
 > id with no inbox email needed. (The older per-message

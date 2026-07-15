@@ -28,7 +28,7 @@ ERRORBODYDETAILS_ANY_OF_SCHEMAS = ["ValidationErrorDetails", "object"]
 
 class ErrorBodyDetails(BaseModel):
     """
-    Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({\"fields\":[{\"location\",\"message\"}]}); rate_limited and limit_exceeded carry {\"retry_after_seconds\"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes.
+    Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({\"fields\":[{\"location\",\"message\"}]}); rate_limited and limit_exceeded carry {\"retry_after_seconds\"}; a direct-send payload_too_large caused by the 10 MiB composed-message ceiling carries {\"composed_bytes\",\"max_composed_bytes\"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes.
     """
 
     # data type: ValidationErrorDetails
