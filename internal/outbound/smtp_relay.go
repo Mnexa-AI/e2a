@@ -230,15 +230,58 @@ func (r *SMTPRelay) sendOnce(envelopeFrom string, recipients []string, message [
 	}
 
 	// Parse Message-ID from response like "Ok <xxx@us-east-2.amazonses.com>"
-	sesMessageID := parseMessageIDFromResponse(msg)
+	// and qualify it with the provider domain when the response carried the id
+	// bare — the captured value must equal the on-wire Message-ID verbatim.
+	sesMessageID := qualifyMessageIDDomain(parseMessageIDFromResponse(msg), r.cfg)
 
 	c.Quit()
 	return sesMessageID, nil
 }
 
+// qualifyMessageIDDomain appends the provider's Message-ID domain to an id
+// that lacks one. SES's SMTP 250 response returns the assigned id BARE
+// (010f...-000000, no domain), but the Message-ID it stamps on the message is
+// <010f...-000000@<region>.amazonses.com>. The stored provider_message_id is
+// what replies anchor In-Reply-To/References on, so it must equal the on-wire
+// header verbatim — the domainless form matches nothing and every RFC 5322
+// client forks the thread. Already-qualified ids pass through untouched; when
+// no domain can be determined the id is left as-is (never fabricate one).
+func qualifyMessageIDDomain(id string, cfg *config.OutboundSMTPConfig) string {
+	if id == "" || strings.Contains(id, "@") {
+		return id
+	}
+	domain := cfg.MessageIDDomain
+	if domain == "" {
+		if region := sesRegionFromHost(cfg.Host); region != "" {
+			domain = region + ".amazonses.com"
+		}
+	}
+	if domain == "" {
+		return id
+	}
+	inner := strings.TrimSuffix(strings.TrimPrefix(id, "<"), ">")
+	return "<" + inner + "@" + domain + ">"
+}
+
+// sesRegionFromHost extracts the region from a standard SES SMTP endpoint
+// (email-smtp.<region>.amazonaws.com). Returns "" for anything else — a
+// non-SES relay or non-standard endpoint needs message_id_domain set instead.
+func sesRegionFromHost(host string) string {
+	rest, ok := strings.CutPrefix(host, "email-smtp.")
+	if !ok {
+		return ""
+	}
+	region, ok := strings.CutSuffix(rest, ".amazonaws.com")
+	if !ok || region == "" || strings.Contains(region, ".") {
+		return ""
+	}
+	return region
+}
+
 // parseMessageIDFromResponse extracts a Message-ID from an SMTP response string.
 // SES format: "Ok <010f019d...@us-east-2.amazonses.com>"
-// Some SES endpoints return bare IDs without angle brackets: "Ok 010f019d..."
+// Production SES SMTP returns bare IDs without angle brackets or domain:
+// "Ok 010f019d...-000000" — qualifyMessageIDDomain adds the domain afterward.
 // Returns the full angle-bracket ID including <>, or the bare ID wrapped in <>.
 func parseMessageIDFromResponse(resp string) string {
 	if i := strings.Index(resp, "<"); i >= 0 {

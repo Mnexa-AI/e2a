@@ -123,6 +123,15 @@ type OutboundSMTPConfig struct {
 	// off for dev relays (e.g. Mailpit on :1025 with no TLS). Regardless
 	// of this flag, PLAIN auth is never sent over a cleartext connection.
 	RequireTLS *bool `yaml:"require_tls"`
+	// MessageIDDomain is the domain the upstream provider stamps on the
+	// Message-ID header of relayed mail (SES: "<region>.amazonses.com").
+	// SES's SMTP 250 response returns the assigned id BARE — without this
+	// domain — so the relay appends it to make the captured id match the
+	// on-wire Message-ID; a mismatch there breaks In-Reply-To/References
+	// threading on replies to the agent's own outbound. Empty (the default)
+	// derives it from a standard SES Host (email-smtp.<region>.amazonaws.com);
+	// set it explicitly for non-standard endpoints (e.g. VPC endpoints).
+	MessageIDDomain string `yaml:"message_id_domain"`
 }
 
 // InboundConfig selects the inbound processing model (inbound-message-pipeline-
@@ -297,6 +306,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_FROM_DOMAIN"); v != "" {
 		cfg.OutboundSMTP.FromDomain = v
+	}
+	if v := os.Getenv("E2A_OUTBOUND_SMTP_MESSAGE_ID_DOMAIN"); v != "" {
+		cfg.OutboundSMTP.MessageIDDomain = v
 	}
 	if v := os.Getenv("E2A_INBOUND_MODE"); v != "" {
 		cfg.Inbound.Mode = v

@@ -95,10 +95,14 @@ func handleSMTPConn(conn net.Conn, mu *sync.Mutex, messages *[]SMTPMessage) {
 					Data:       strings.Join(dataLines, "\n"),
 				})
 				mu.Unlock()
-				// Return a fake SES-style Message-ID in the 250 response
+				// Return the id the way production SES SMTP does: BARE in the
+				// 250 response — no angle brackets, no @domain (the real
+				// Message-ID SES stamps on the wire is <id@<region>.amazonses.com>).
+				// A bracketed/qualified fake here would mask the relay's
+				// capture path (parse + domain qualification) from every test.
 				b := make([]byte, 16)
 				rand.Read(b)
-				fmt.Fprintf(conn, "250 Ok <%x@us-east-2.amazonses.com>\r\n", b)
+				fmt.Fprintf(conn, "250 Ok %x-000000\r\n", b)
 				continue
 			}
 			dataLines = append(dataLines, line)
