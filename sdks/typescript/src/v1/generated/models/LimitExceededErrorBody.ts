@@ -20,7 +20,7 @@ export class LimitExceededErrorBody {
     'code': LimitExceededErrorBodyCodeEnum;
     'details': LimitExceededDetails;
     'message': string;
-    'requestId'?: string;
+    'requestId': string;
 
     static readonly discriminator: string | undefined = undefined;
 

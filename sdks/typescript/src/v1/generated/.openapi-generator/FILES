@@ -60,7 +60,6 @@ models/EmailFailedData.ts
 models/EmailReceivedData.ts
 models/EmailSentData.ts
 models/ErrorBody.ts
-models/ErrorBodyDetails.ts
 models/ErrorEnvelope.ts
 models/EventEnvelope.ts
 models/EventJSON.ts
@@ -90,6 +89,7 @@ models/PageSuppression.ts
 models/PageTemplateSummaryView.ts
 models/PageWebhookDeliveryView.ts
 models/PageWebhookView.ts
+models/PayloadTooLargeDetails.ts
 models/ProtectionConfigRequest.ts
 models/ProtectionConfigView.ts
 models/ProtectionDirectionRequest.ts
@@ -113,6 +113,7 @@ models/RejectResultView.ts
 models/RenderedTemplateView.ts
 models/ReplyRequest.ts
 models/Result.ts
+models/RetryAfterDetails.ts
 models/ReviewView.ts
 models/RotateSecretResponse.ts
 models/SendEmailRequest.ts
@@ -127,6 +128,7 @@ models/TemplateSummaryView.ts
 models/TemplateView.ts
 models/TestWebhookRequest.ts
 models/TestWebhookResponse.ts
+models/TooManyRecipientsDetails.ts
 models/UpdateAgentRequest.ts
 models/UpdateMessageRequest.ts
 models/UpdateMessageResultView.ts

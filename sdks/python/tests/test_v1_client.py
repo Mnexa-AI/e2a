@@ -29,6 +29,7 @@ from e2a.v1.generated.models import (
     ConversationSummaryView,
     DomainView,
     EventJSON,
+    ErrorBody,
     FieldError,
     MessageSummaryView,
     MessageView,
@@ -50,6 +51,19 @@ def test_validation_field_location_is_required():
 
     field = FieldError(location="", message="invalid")
     assert field.location == ""
+
+
+def test_error_body_requires_request_id_and_accepts_future_details():
+    with pytest.raises(ValidationError):
+        ErrorBody(code="invalid_request", message="invalid")
+
+    body = ErrorBody(
+        code="future_error_code",
+        message="future failure",
+        request_id="req_future",
+        details={"future_field": {"nested": True}},
+    )
+    assert body.details == {"future_field": {"nested": True}}
 
 
 from datetime import datetime, timezone  # noqa: E402

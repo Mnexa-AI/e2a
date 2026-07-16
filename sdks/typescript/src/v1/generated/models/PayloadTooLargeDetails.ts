@@ -10,17 +10,25 @@
  * Do not edit the class manually.
  */
 
-import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
 import { HttpFile } from '../http/http.js';
 
-export class RateLimitedErrorBody {
+export class PayloadTooLargeDetails {
     /**
-    * Always rate_limited for this response.
+    * Observed byte count. Exact when Content-Length or decoded content is available; for chunked request bodies this is the lower bound observed before rejection.
     */
-    'code': RateLimitedErrorBodyCodeEnum;
-    'details': RateLimitedDetails;
-    'message': string;
-    'requestId': string;
+    'actualBytes': number;
+    /**
+    * Attachment filename when scope is attachment.
+    */
+    'filename'?: string;
+    /**
+    * Maximum bytes accepted for this scope.
+    */
+    'maxBytes': number;
+    /**
+    * Which byte budget was exceeded.
+    */
+    'scope': PayloadTooLargeDetailsScopeEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -28,39 +36,42 @@ export class RateLimitedErrorBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "code",
-            "baseName": "code",
-            "type": "RateLimitedErrorBodyCodeEnum",
-            "format": ""
+            "name": "actualBytes",
+            "baseName": "actual_bytes",
+            "type": "number",
+            "format": "int64"
         },
         {
-            "name": "details",
-            "baseName": "details",
-            "type": "RateLimitedDetails",
-            "format": ""
-        },
-        {
-            "name": "message",
-            "baseName": "message",
+            "name": "filename",
+            "baseName": "filename",
             "type": "string",
             "format": ""
         },
         {
-            "name": "requestId",
-            "baseName": "request_id",
-            "type": "string",
+            "name": "maxBytes",
+            "baseName": "max_bytes",
+            "type": "number",
+            "format": "int64"
+        },
+        {
+            "name": "scope",
+            "baseName": "scope",
+            "type": "PayloadTooLargeDetailsScopeEnum",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return RateLimitedErrorBody.attributeTypeMap;
+        return PayloadTooLargeDetails.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
 
-export enum RateLimitedErrorBodyCodeEnum {
-    RateLimited = 'rate_limited'
+export enum PayloadTooLargeDetailsScopeEnum {
+    ComposedMessage = 'composed_message',
+    Attachment = 'attachment',
+    AttachmentsTotal = 'attachments_total',
+    RequestBody = 'request_body'
 }
 

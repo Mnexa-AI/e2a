@@ -10,17 +10,13 @@
  * Do not edit the class manually.
  */
 
-import { RateLimitedDetails } from '../models/RateLimitedDetails.js';
 import { HttpFile } from '../http/http.js';
 
-export class RateLimitedErrorBody {
+export class RetryAfterDetails {
     /**
-    * Always rate_limited for this response.
+    * Seconds to wait before retrying; mirrors the Retry-After response header.
     */
-    'code': RateLimitedErrorBodyCodeEnum;
-    'details': RateLimitedDetails;
-    'message': string;
-    'requestId': string;
+    'retryAfterSeconds': number;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -28,39 +24,16 @@ export class RateLimitedErrorBody {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "code",
-            "baseName": "code",
-            "type": "RateLimitedErrorBodyCodeEnum",
-            "format": ""
-        },
-        {
-            "name": "details",
-            "baseName": "details",
-            "type": "RateLimitedDetails",
-            "format": ""
-        },
-        {
-            "name": "message",
-            "baseName": "message",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "requestId",
-            "baseName": "request_id",
-            "type": "string",
-            "format": ""
+            "name": "retryAfterSeconds",
+            "baseName": "retry_after_seconds",
+            "type": "number",
+            "format": "int64"
         }    ];
 
     static getAttributeTypeMap() {
-        return RateLimitedErrorBody.attributeTypeMap;
+        return RetryAfterDetails.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
-
-export enum RateLimitedErrorBodyCodeEnum {
-    RateLimited = 'rate_limited'
-}
-

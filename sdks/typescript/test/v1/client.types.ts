@@ -1,4 +1,5 @@
 import type { FieldError } from "../../src/v1/generated/models/FieldError.js";
+import type { ErrorBody } from "../../src/v1/generated/models/ErrorBody.js";
 import type { ListMessagesParams } from "../../src/v1/index.js";
 import type { WebhookEvent } from "../../src/v1/webhook-signature.js";
 import type { WSEvent } from "../../src/v1/ws.js";
@@ -17,6 +18,18 @@ void validationField;
 // @ts-expect-error location is required by the GA validation contract.
 const missingValidationLocation: FieldError = { message: "invalid request" };
 void missingValidationLocation;
+
+const futureError: ErrorBody = {
+  code: "future_error_code",
+  message: "future failure",
+  requestId: "req_future",
+  details: { future_field: { nested: true } },
+};
+void futureError;
+
+// @ts-expect-error requestId is required on every /v1 error.
+const missingErrorRequestId: ErrorBody = { code: "invalid_request", message: "invalid" };
+void missingErrorRequestId;
 
 const eventEnvelope: WebhookEvent = {
   type: "email.received",

@@ -57,7 +57,6 @@ from e2a.v1.generated.models.email_failed_data import EmailFailedData
 from e2a.v1.generated.models.email_received_data import EmailReceivedData
 from e2a.v1.generated.models.email_sent_data import EmailSentData
 from e2a.v1.generated.models.error_body import ErrorBody
-from e2a.v1.generated.models.error_body_details import ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope
 from e2a.v1.generated.models.event_envelope import EventEnvelope
 from e2a.v1.generated.models.event_json import EventJSON
@@ -86,6 +85,7 @@ from e2a.v1.generated.models.page_suppression import PageSuppression
 from e2a.v1.generated.models.page_template_summary_view import PageTemplateSummaryView
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView
+from e2a.v1.generated.models.payload_too_large_details import PayloadTooLargeDetails
 from e2a.v1.generated.models.protection_config_request import ProtectionConfigRequest
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView
 from e2a.v1.generated.models.protection_direction_request import ProtectionDirectionRequest
@@ -109,6 +109,7 @@ from e2a.v1.generated.models.reject_result_view import RejectResultView
 from e2a.v1.generated.models.rendered_template_view import RenderedTemplateView
 from e2a.v1.generated.models.reply_request import ReplyRequest
 from e2a.v1.generated.models.result import Result
+from e2a.v1.generated.models.retry_after_details import RetryAfterDetails
 from e2a.v1.generated.models.review_view import ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
@@ -123,6 +124,7 @@ from e2a.v1.generated.models.template_summary_view import TemplateSummaryView
 from e2a.v1.generated.models.template_view import TemplateView
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse
+from e2a.v1.generated.models.too_many_recipients_details import TooManyRecipientsDetails
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest
 from e2a.v1.generated.models.update_message_result_view import UpdateMessageResultView

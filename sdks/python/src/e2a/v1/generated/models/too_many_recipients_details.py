@@ -17,22 +17,20 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Any, ClassVar, Dict, List
-from e2a.v1.generated.models.rate_limited_details import RateLimitedDetails
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
-class RateLimitedErrorBody(BaseModel):
+class TooManyRecipientsDetails(BaseModel):
     """
-    RateLimitedErrorBody
+    TooManyRecipientsDetails
     """ # noqa: E501
-    code: StrictStr = Field(description="Always rate_limited for this response.")
-    details: RateLimitedDetails
-    message: StrictStr
-    request_id: StrictStr
+    max_recipients: Annotated[int, Field(strict=True, ge=1)] = Field(description="Maximum recipients allowed across to, cc, and bcc.")
+    provided: Annotated[int, Field(strict=True, ge=1)] = Field(description="Combined recipient count supplied by the caller.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["code", "details", "message", "request_id"]
+    __properties: ClassVar[List[str]] = ["max_recipients", "provided"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -52,7 +50,7 @@ class RateLimitedErrorBody(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of RateLimitedErrorBody from a JSON string"""
+        """Create an instance of TooManyRecipientsDetails from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,9 +73,6 @@ class RateLimitedErrorBody(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of details
-        if self.details:
-            _dict['details'] = self.details.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -87,7 +82,7 @@ class RateLimitedErrorBody(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of RateLimitedErrorBody from a dict"""
+        """Create an instance of TooManyRecipientsDetails from a dict"""
         if obj is None:
             return None
 
@@ -95,10 +90,8 @@ class RateLimitedErrorBody(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "code": obj.get("code"),
-            "details": RateLimitedDetails.from_dict(obj["details"]) if obj.get("details") is not None else None,
-            "message": obj.get("message"),
-            "request_id": obj.get("request_id")
+            "max_recipients": obj.get("max_recipients"),
+            "provided": obj.get("provided")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

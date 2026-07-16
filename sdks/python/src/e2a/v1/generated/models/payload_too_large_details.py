@@ -18,21 +18,21 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List
-from e2a.v1.generated.models.rate_limited_details import RateLimitedDetails
+from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
-class RateLimitedErrorBody(BaseModel):
+class PayloadTooLargeDetails(BaseModel):
     """
-    RateLimitedErrorBody
+    PayloadTooLargeDetails
     """ # noqa: E501
-    code: StrictStr = Field(description="Always rate_limited for this response.")
-    details: RateLimitedDetails
-    message: StrictStr
-    request_id: StrictStr
+    actual_bytes: Annotated[int, Field(strict=True, ge=0)] = Field(description="Observed byte count. Exact when Content-Length or decoded content is available; for chunked request bodies this is the lower bound observed before rejection.")
+    filename: Optional[StrictStr] = Field(default=None, description="Attachment filename when scope is attachment.")
+    max_bytes: Annotated[int, Field(strict=True, ge=1)] = Field(description="Maximum bytes accepted for this scope.")
+    scope: StrictStr = Field(description="Which byte budget was exceeded.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["code", "details", "message", "request_id"]
+    __properties: ClassVar[List[str]] = ["actual_bytes", "filename", "max_bytes", "scope"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -52,7 +52,7 @@ class RateLimitedErrorBody(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of RateLimitedErrorBody from a JSON string"""
+        """Create an instance of PayloadTooLargeDetails from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,9 +75,6 @@ class RateLimitedErrorBody(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of details
-        if self.details:
-            _dict['details'] = self.details.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -87,7 +84,7 @@ class RateLimitedErrorBody(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of RateLimitedErrorBody from a dict"""
+        """Create an instance of PayloadTooLargeDetails from a dict"""
         if obj is None:
             return None
 
@@ -95,10 +92,10 @@ class RateLimitedErrorBody(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "code": obj.get("code"),
-            "details": RateLimitedDetails.from_dict(obj["details"]) if obj.get("details") is not None else None,
-            "message": obj.get("message"),
-            "request_id": obj.get("request_id")
+            "actual_bytes": obj.get("actual_bytes"),
+            "filename": obj.get("filename"),
+            "max_bytes": obj.get("max_bytes"),
+            "scope": obj.get("scope")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

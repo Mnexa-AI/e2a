@@ -42,7 +42,7 @@ def _api_exc(status, headers=None, body="{}"):
 def _conflict_exc(code, headers=None):
     """A 409 carrying `error.code` in its envelope body — the shape the retry
     layer must parse to tell idempotency_in_flight (retry-safe) apart from
-    idempotency_key_reuse / any other 409 code (never retry-safe)."""
+    any unrelated 409 code (never retry-safe)."""
     return _api_exc(409, headers=headers, body=json.dumps({"error": {"code": code, "message": "x"}}))
 
 
@@ -200,10 +200,8 @@ async def test_total_deadline_stops_before_retry():
 
 # 409 is NOT in is_retryable_status (a bare 409 is never retried), but the
 # server's idempotency_in_flight code on a server-deduped keyed write IS
-# retry-safe (same key, still committing) — while idempotency_key_reuse rides
-# the identical status and must never be retried (a caller body-mismatch bug).
-# The retry layer must tell them apart by parsing the envelope, not the status
-# alone, and only for requests that actually carry an Idempotency-Key.
+# retry-safe (same key, still committing). Other 409 codes are not retried;
+# idempotency_key_reuse is the separate frozen 422 caller-error contract.
 @pytest.mark.anyio
 async def test_retries_409_idempotency_in_flight_then_succeeds():
     s = Script([_conflict_exc("idempotency_in_flight"), "ok"])
@@ -213,8 +211,8 @@ async def test_retries_409_idempotency_in_flight_then_succeeds():
 
 
 @pytest.mark.anyio
-async def test_no_retry_on_409_idempotency_key_reuse():
-    s = Script([_conflict_exc("idempotency_key_reuse")])
+async def test_no_retry_on_422_idempotency_key_reuse():
+    s = Script([_api_exc(422, body='{"error":{"code":"idempotency_key_reuse","message":"x"}}')])
     with pytest.raises(E2AIdempotencyError):
         await request_with_retry(s.make, cfg=cfg(), retryable=True, idempotency=True)
     assert s.calls == 1  # caller bug, not transient — never retried

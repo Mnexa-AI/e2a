@@ -128,9 +128,9 @@ async def request_with_retry(
             exc = e
             status = int(getattr(e, "status", 0) or 0)
             can_retry = retryable and is_retryable_status(status)
-            # 409 isn't in is_retryable_status (idempotency_key_reuse — a caller
-            # body-mismatch bug — must never be retried), but
-            # idempotency_in_flight IS retry-safe. Only requests that already
+            # 409 isn't in is_retryable_status; idempotency_in_flight is the
+            # one retry-safe 409. idempotency_key_reuse is a non-retryable 422.
+            # Only requests that already
             # carry an Idempotency-Key (idempotency=True: send/reply/forward/
             # approve, PUT/PATCH/DELETE) can ever see this code, so gate the
             # (body-parsing) check on that population rather than every 409.

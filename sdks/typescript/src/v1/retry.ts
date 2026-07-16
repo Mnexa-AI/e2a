@@ -40,8 +40,8 @@ const IDEMPOTENCY_HEADER = "Idempotency-Key";
 
 // 409 code the server uses to signal "same Idempotency-Key already in flight
 // on another attempt" (internal/httpapi/idempotency.go) — safe to retry (the
-// server dedupes on the key). idempotency_key_reuse also rides a bare 409 but
-// means "same key, different body" — a caller bug — and must NEVER be
+// server dedupes on the key). idempotency_key_reuse is a 422 body-mismatch
+// caller bug and must NEVER be
 // retried, so the code string is matched exactly rather than the status alone.
 const IDEMPOTENCY_IN_FLIGHT_CODE = "idempotency_in_flight";
 
@@ -112,9 +112,9 @@ export class RetryHttpLibrary implements HttpLibrary {
 
       const isConn = resp === undefined;
       let retryable = retrySafe && (isConn || isRetryableStatus(resp!.httpStatusCode));
-      // A bare 409 is not in isRetryableStatus (idempotency_key_reuse — a
-      // caller body-mismatch bug — must never be retried), but
-      // idempotency_in_flight IS retry-safe. Only server-deduped keyed writes
+      // A bare 409 is not in isRetryableStatus, but idempotency_in_flight is
+      // retry-safe. idempotency_key_reuse is a non-retryable 422. Only
+      // server-deduped keyed writes
       // (the population that can ever see this code) pay the cost of parsing
       // the body to tell the two apart.
       if (!retryable && retrySafe && !isConn && resp!.httpStatusCode === 409 && this.hasIdempotencyHeader(request)) {

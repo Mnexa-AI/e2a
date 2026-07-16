@@ -350,7 +350,10 @@ def from_api_exception(exc: ApiException) -> E2AError:
     status = int(getattr(exc, "status", 0) or 0)
 
     code = ""
-    message = getattr(exc, "reason", None) or str(exc)
+    # Generated ApiException.__str__ includes raw headers and body. Do not leak
+    # an HTML proxy page or upstream response through the ergonomic public
+    # message when the canonical envelope is absent; retain exc as __cause__.
+    message = f"e2a API error ({status})"
     details: Any = None
     env = _parse_envelope(getattr(exc, "data", None), getattr(exc, "body", None))
     if isinstance(env, dict):
@@ -359,6 +362,10 @@ def from_api_exception(exc: ApiException) -> E2AError:
             code = error.get("code") or ""
             message = error.get("message") or message
             details = error.get("details")
+            if request_id is None:
+                body_request_id = error.get("request_id")
+                if isinstance(body_request_id, str) and body_request_id:
+                    request_id = body_request_id
 
     return to_e2a_error(
         status=status,
@@ -395,7 +402,7 @@ def _normalize_headers(headers: Any) -> Optional[Mapping[str, str]]:
         return headers
     # httpx.Headers / list of pairs both iterate as items().
     try:
-        return dict(headers.items())  # type: ignore[no-any-return]
+        return dict(headers.items())
     except AttributeError:
         try:
             return dict(headers)

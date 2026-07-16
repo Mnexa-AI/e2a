@@ -313,10 +313,8 @@ describe("RetryHttpLibrary per-operation gating", () => {
 
 // 409 is NOT in isRetryableStatus (a bare 409 is never retried), but the
 // server's idempotency_in_flight code on a server-deduped keyed write IS
-// retry-safe (same key, still committing) — while idempotency_key_reuse rides
-// the identical status and must never be retried (a caller body-mismatch
-// bug). The transport must tell them apart by parsing the envelope, not the
-// status alone.
+// retry-safe (same key, still committing). Other 409 codes are not retried;
+// idempotency_key_reuse is the separate frozen 422 caller-error contract.
 describe("RetryHttpLibrary 409 idempotency_in_flight", () => {
   const envelope = (code: string) => JSON.stringify({ error: { code, message: "x" } });
 
@@ -331,8 +329,8 @@ describe("RetryHttpLibrary 409 idempotency_in_flight", () => {
     expect(fake.methods.length).toBe(2);
   });
 
-  it("does NOT retry a 409 idempotency_key_reuse, and the body stays readable once returned", async () => {
-    const body = envelope("idempotency_key_reuse");
+  it("does NOT retry an unrelated 409, and the body stays readable once returned", async () => {
+    const body = envelope("conflict");
     const fake = new FakeHttp([{ status: 409, body }]);
     const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
     const resp = await retry.send(post()).toPromise();
@@ -342,6 +340,14 @@ describe("RetryHttpLibrary 409 idempotency_in_flight", () => {
     // consumer (the generated Api layer building the thrown ApiException)
     // must still be able to read it exactly once more via the memoized body.
     await expect(resp.body.text()).resolves.toBe(body);
+  });
+
+  it("does NOT retry a 422 idempotency_key_reuse", async () => {
+    const fake = new FakeHttp([{ status: 422, body: envelope("idempotency_key_reuse") }]);
+    const retry = new RetryHttpLibrary(fake, { sleep: noSleep });
+    const resp = await retry.send(post()).toPromise();
+    expect(resp.httpStatusCode).toBe(422);
+    expect(fake.methods.length).toBe(1);
   });
 
   it("does NOT retry a bare 409 carrying an unrelated code", async () => {

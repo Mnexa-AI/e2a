@@ -10,18 +10,17 @@
  * Do not edit the class manually.
  */
 
-import { FieldError } from '../models/FieldError.js';
-import { ValidationErrorDetails } from '../models/ValidationErrorDetails.js';
 import { HttpFile } from '../http/http.js';
 
-/**
-* Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({\"fields\":[{\"location\",\"message\"}]}); rate_limited and limits_unavailable carry {\"retry_after_seconds\"}; limit_exceeded carries LimitExceededDetails; a send/reply/forward payload_too_large caused by the 10 MiB composed-message ceiling carries {\"composed_bytes\",\"max_composed_bytes\"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes.
-*/
-export class ErrorBodyDetails {
+export class TooManyRecipientsDetails {
     /**
-    * The fields that failed validation. May be empty when the failure is request-wide rather than field-specific.
+    * Maximum recipients allowed across to, cc, and bcc.
     */
-    'fields': Array<FieldError>;
+    'maxRecipients': number;
+    /**
+    * Combined recipient count supplied by the caller.
+    */
+    'provided': number;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -29,14 +28,20 @@ export class ErrorBodyDetails {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "fields",
-            "baseName": "fields",
-            "type": "Array<FieldError>",
-            "format": ""
+            "name": "maxRecipients",
+            "baseName": "max_recipients",
+            "type": "number",
+            "format": "int64"
+        },
+        {
+            "name": "provided",
+            "baseName": "provided",
+            "type": "number",
+            "format": "int64"
         }    ];
 
     static getAttributeTypeMap() {
-        return ErrorBodyDetails.attributeTypeMap;
+        return TooManyRecipientsDetails.attributeTypeMap;
     }
 
     public constructor() {

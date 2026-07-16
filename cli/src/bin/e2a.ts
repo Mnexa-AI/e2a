@@ -21,8 +21,8 @@ import { messagesList, messagesGet } from "../commands/messages.js";
 import { agentsList, agentsCreate, agentsGet } from "../commands/agents.js";
 import { protectionGet, protectionSet } from "../commands/protection.js";
 import { keysCreate, keysList, keysDelete } from "../commands/keys.js";
-import { EXIT } from "../exit.js";
-import { E2AError, E2AAuthError, E2APermissionError } from "@e2a/sdk/v1";
+import { EXIT, exitCodeForAPIError } from "../exit.js";
+import { E2AError } from "@e2a/sdk/v1";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
@@ -430,9 +430,7 @@ if (!isTestImport) {
     // Contract mapping: AUTH (4) = fix your key; REQUEST (5) = permanent
     // request error (404/409/422 — the SDK marks these non-retryable), do NOT
     // retry the identical invocation; ERROR (1) = transient, retry may help.
-    const isAuth = err instanceof E2AAuthError || err instanceof E2APermissionError;
-    const isPermanent = !isAuth && err instanceof E2AError && !err.retryable;
-    process.exit(isAuth ? EXIT.AUTH : isPermanent ? EXIT.REQUEST : EXIT.ERROR);
+    process.exit(err instanceof E2AError ? exitCodeForAPIError(err) : EXIT.ERROR);
   });
 }
 

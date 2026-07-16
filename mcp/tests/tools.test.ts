@@ -1429,6 +1429,29 @@ describe("e2a MCP server", () => {
     expect(text).toBe("e2a error [domain_not_verified]: the sending domain is not verified");
   });
 
+  it("preserves an unknown future API code and detail fields", async () => {
+    const details = { future_field: { nested: true } };
+    (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new E2AError({
+        code: "future_error_code",
+        message: "future failure",
+        status: 418,
+        details,
+        retryable: false,
+      }),
+    );
+    const res = await client.callTool({
+      name: "send_message",
+      arguments: { to: ["x@example.com"], subject: "s", text: "b" },
+    });
+    expect(res.structuredContent).toEqual({
+      code: "future_error_code",
+      status: 418,
+      retryable: false,
+      details,
+    });
+  });
+
   it("a retryable API error carries retryable + retry_after_seconds in structuredContent", async () => {
     (stub.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new E2AError({

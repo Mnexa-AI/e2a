@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from e2a.v1.generated.models.limit_exceeded_details import LimitExceededDetails
 from typing import Optional, Set
 from typing_extensions import Self
@@ -30,7 +30,7 @@ class LimitExceededErrorBody(BaseModel):
     code: StrictStr = Field(description="Always limit_exceeded for this response.")
     details: LimitExceededDetails
     message: StrictStr
-    request_id: Optional[StrictStr] = None
+    request_id: StrictStr
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["code", "details", "message", "request_id"]
 

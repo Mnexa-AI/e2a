@@ -105,6 +105,24 @@ def test_envelope_fields_surfaced():
     assert err.request_id == "req_abc"
 
 
+def test_request_id_falls_back_to_envelope_body():
+    err = from_api_exception(
+        _exc(
+            404,
+            body='{"error":{"code":"not_found","message":"missing","request_id":"req_body"}}',
+        )
+    )
+    assert err.request_id == "req_body"
+
+
+def test_non_envelope_message_does_not_expose_raw_response():
+    secret = "private-upstream-body-" + ("x" * 1000)
+    err = from_api_exception(_exc(503, body=secret))
+    assert err.message == "e2a API error (503)"
+    assert secret not in str(err)
+    assert err.__cause__ is not None
+
+
 def test_non_json_body_falls_back_to_status_bucket():
     err = from_api_exception(_exc(503, body="<html>502 bad gateway</html>"))
     assert isinstance(err, E2AServerError)

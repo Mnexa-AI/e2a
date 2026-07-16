@@ -33,6 +33,11 @@ export const EXIT = {
   SEND_OUTCOME: 7,
 } as const;
 
+export function exitCodeForAPIError(error: { code: string; retryable: boolean }): number {
+  if (error.code === "unauthorized" || error.code === "forbidden") return EXIT.AUTH;
+  return error.retryable ? EXIT.ERROR : EXIT.REQUEST;
+}
+
 /** Write a message to stderr and exit with the given code. */
 export function fail(code: number, message: string): never {
   process.stderr.write(message.endsWith("\n") ? message : message + "\n");

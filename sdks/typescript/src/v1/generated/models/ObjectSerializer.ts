@@ -42,7 +42,6 @@ export * from '../models/EmailFailedData.js';
 export * from '../models/EmailReceivedData.js';
 export * from '../models/EmailSentData.js';
 export * from '../models/ErrorBody.js';
-export * from '../models/ErrorBodyDetails.js';
 export * from '../models/ErrorEnvelope.js';
 export * from '../models/EventEnvelope.js';
 export * from '../models/EventJSON.js';
@@ -71,6 +70,7 @@ export * from '../models/PageSuppression.js';
 export * from '../models/PageTemplateSummaryView.js';
 export * from '../models/PageWebhookDeliveryView.js';
 export * from '../models/PageWebhookView.js';
+export * from '../models/PayloadTooLargeDetails.js';
 export * from '../models/ProtectionConfigRequest.js';
 export * from '../models/ProtectionConfigView.js';
 export * from '../models/ProtectionDirectionRequest.js';
@@ -94,6 +94,7 @@ export * from '../models/RejectResultView.js';
 export * from '../models/RenderedTemplateView.js';
 export * from '../models/ReplyRequest.js';
 export * from '../models/Result.js';
+export * from '../models/RetryAfterDetails.js';
 export * from '../models/ReviewView.js';
 export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
@@ -108,6 +109,7 @@ export * from '../models/TemplateSummaryView.js';
 export * from '../models/TemplateView.js';
 export * from '../models/TestWebhookRequest.js';
 export * from '../models/TestWebhookResponse.js';
+export * from '../models/TooManyRecipientsDetails.js';
 export * from '../models/UpdateAgentRequest.js';
 export * from '../models/UpdateMessageRequest.js';
 export * from '../models/UpdateMessageResultView.js';
@@ -169,7 +171,6 @@ import { EmailFailedData } from '../models/EmailFailedData.js';
 import { EmailReceivedData } from '../models/EmailReceivedData.js';
 import { EmailSentData } from '../models/EmailSentData.js';
 import { ErrorBody } from '../models/ErrorBody.js';
-import { ErrorBodyDetails } from '../models/ErrorBodyDetails.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { EventEnvelope } from '../models/EventEnvelope.js';
 import { EventJSON } from '../models/EventJSON.js';
@@ -198,6 +199,7 @@ import { PageSuppression } from '../models/PageSuppression.js';
 import { PageTemplateSummaryView } from '../models/PageTemplateSummaryView.js';
 import { PageWebhookDeliveryView } from '../models/PageWebhookDeliveryView.js';
 import { PageWebhookView } from '../models/PageWebhookView.js';
+import { PayloadTooLargeDetails   , PayloadTooLargeDetailsScopeEnum   } from '../models/PayloadTooLargeDetails.js';
 import { ProtectionConfigRequest } from '../models/ProtectionConfigRequest.js';
 import { ProtectionConfigView } from '../models/ProtectionConfigView.js';
 import { ProtectionDirectionRequest } from '../models/ProtectionDirectionRequest.js';
@@ -221,6 +223,7 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { RenderedTemplateView } from '../models/RenderedTemplateView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { Result } from '../models/Result.js';
+import { RetryAfterDetails } from '../models/RetryAfterDetails.js';
 import { ReviewView   , ReviewViewDirectionEnum          } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
@@ -235,6 +238,7 @@ import { TemplateSummaryView } from '../models/TemplateSummaryView.js';
 import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest , TestWebhookRequestTypeEnum   } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
+import { TooManyRecipientsDetails } from '../models/TooManyRecipientsDetails.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
@@ -276,6 +280,7 @@ let enumsMap: Set<string> = new Set<string>([
     "LimitExceededErrorBodyCodeEnum",
     "MessageSummaryViewDirectionEnum",
     "MessageViewDirectionEnum",
+    "PayloadTooLargeDetailsScopeEnum",
     "ProtectionGateRequestActionEnum",
     "ProtectionGateRequestPolicyEnum",
     "ProtectionGateViewActionEnum",
@@ -335,7 +340,6 @@ let typeMap: {[index: string]: any} = {
     "EmailReceivedData": EmailReceivedData,
     "EmailSentData": EmailSentData,
     "ErrorBody": ErrorBody,
-    "ErrorBodyDetails": ErrorBodyDetails,
     "ErrorEnvelope": ErrorEnvelope,
     "EventEnvelope": EventEnvelope,
     "EventJSON": EventJSON,
@@ -364,6 +368,7 @@ let typeMap: {[index: string]: any} = {
     "PageTemplateSummaryView": PageTemplateSummaryView,
     "PageWebhookDeliveryView": PageWebhookDeliveryView,
     "PageWebhookView": PageWebhookView,
+    "PayloadTooLargeDetails": PayloadTooLargeDetails,
     "ProtectionConfigRequest": ProtectionConfigRequest,
     "ProtectionConfigView": ProtectionConfigView,
     "ProtectionDirectionRequest": ProtectionDirectionRequest,
@@ -387,6 +392,7 @@ let typeMap: {[index: string]: any} = {
     "RenderedTemplateView": RenderedTemplateView,
     "ReplyRequest": ReplyRequest,
     "Result": Result,
+    "RetryAfterDetails": RetryAfterDetails,
     "ReviewView": ReviewView,
     "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
@@ -401,6 +407,7 @@ let typeMap: {[index: string]: any} = {
     "TemplateView": TemplateView,
     "TestWebhookRequest": TestWebhookRequest,
     "TestWebhookResponse": TestWebhookResponse,
+    "TooManyRecipientsDetails": TooManyRecipientsDetails,
     "UpdateAgentRequest": UpdateAgentRequest,
     "UpdateMessageRequest": UpdateMessageRequest,
     "UpdateMessageResultView": UpdateMessageResultView,

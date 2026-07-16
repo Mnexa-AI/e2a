@@ -81,7 +81,6 @@ __all__ = [
     "EmailReceivedData",
     "EmailSentData",
     "ErrorBody",
-    "ErrorBodyDetails",
     "ErrorEnvelope",
     "EventEnvelope",
     "EventJSON",
@@ -110,6 +109,7 @@ __all__ = [
     "PageTemplateSummaryView",
     "PageWebhookDeliveryView",
     "PageWebhookView",
+    "PayloadTooLargeDetails",
     "ProtectionConfigRequest",
     "ProtectionConfigView",
     "ProtectionDirectionRequest",
@@ -133,6 +133,7 @@ __all__ = [
     "RenderedTemplateView",
     "ReplyRequest",
     "Result",
+    "RetryAfterDetails",
     "ReviewView",
     "RotateSecretResponse",
     "SendEmailRequest",
@@ -147,6 +148,7 @@ __all__ = [
     "TemplateView",
     "TestWebhookRequest",
     "TestWebhookResponse",
+    "TooManyRecipientsDetails",
     "UpdateAgentRequest",
     "UpdateMessageRequest",
     "UpdateMessageResultView",
@@ -233,7 +235,6 @@ from e2a.v1.generated.models.email_failed_data import EmailFailedData as EmailFa
 from e2a.v1.generated.models.email_received_data import EmailReceivedData as EmailReceivedData
 from e2a.v1.generated.models.email_sent_data import EmailSentData as EmailSentData
 from e2a.v1.generated.models.error_body import ErrorBody as ErrorBody
-from e2a.v1.generated.models.error_body_details import ErrorBodyDetails as ErrorBodyDetails
 from e2a.v1.generated.models.error_envelope import ErrorEnvelope as ErrorEnvelope
 from e2a.v1.generated.models.event_envelope import EventEnvelope as EventEnvelope
 from e2a.v1.generated.models.event_json import EventJSON as EventJSON
@@ -262,6 +263,7 @@ from e2a.v1.generated.models.page_suppression import PageSuppression as PageSupp
 from e2a.v1.generated.models.page_template_summary_view import PageTemplateSummaryView as PageTemplateSummaryView
 from e2a.v1.generated.models.page_webhook_delivery_view import PageWebhookDeliveryView as PageWebhookDeliveryView
 from e2a.v1.generated.models.page_webhook_view import PageWebhookView as PageWebhookView
+from e2a.v1.generated.models.payload_too_large_details import PayloadTooLargeDetails as PayloadTooLargeDetails
 from e2a.v1.generated.models.protection_config_request import ProtectionConfigRequest as ProtectionConfigRequest
 from e2a.v1.generated.models.protection_config_view import ProtectionConfigView as ProtectionConfigView
 from e2a.v1.generated.models.protection_direction_request import ProtectionDirectionRequest as ProtectionDirectionRequest
@@ -285,6 +287,7 @@ from e2a.v1.generated.models.reject_result_view import RejectResultView as Rejec
 from e2a.v1.generated.models.rendered_template_view import RenderedTemplateView as RenderedTemplateView
 from e2a.v1.generated.models.reply_request import ReplyRequest as ReplyRequest
 from e2a.v1.generated.models.result import Result as Result
+from e2a.v1.generated.models.retry_after_details import RetryAfterDetails as RetryAfterDetails
 from e2a.v1.generated.models.review_view import ReviewView as ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
@@ -299,6 +302,7 @@ from e2a.v1.generated.models.template_summary_view import TemplateSummaryView as
 from e2a.v1.generated.models.template_view import TemplateView as TemplateView
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse as TestWebhookResponse
+from e2a.v1.generated.models.too_many_recipients_details import TooManyRecipientsDetails as TooManyRecipientsDetails
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest as UpdateAgentRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest as UpdateMessageRequest
 from e2a.v1.generated.models.update_message_result_view import UpdateMessageResultView as UpdateMessageResultView

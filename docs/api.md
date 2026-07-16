@@ -131,7 +131,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | `not_in_trash` | 409 | Restore or permanent-delete was requested for a resource that is not currently in trash. |
 | `send_in_progress` | 409 | The message send is already executing; wait for its terminal outcome. |
 | `webhook_disabled` | 409 | Operation requires an enabled webhook. |
-| `webhook_cooldown` | 409 | The webhook was auto-disabled and cannot be re-enabled until the cooldown elapses — retryable after the cooldown. |
+| `webhook_cooldown` | 409 | The webhook was auto-disabled and cannot be re-enabled until the cooldown elapses. SDKs do not automatically retry it; retry manually only after the cooldown. |
 | `domain_not_registered` | 400 | Create-agent on a domain the account has not registered. |
 | `domain_has_agents` | 400 | Domain delete blocked while agents exist on it. |
 | `domain_not_verified` | 400 / 403 | Domain verification pending — 400 on create-agent, 403 on send paths. |
@@ -158,6 +158,26 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 The SDKs additionally synthesize the client-side code `connection_error`
 (status `0`) when no HTTP response was received at all; it never comes from the
 server and is always retryable.
+
+### Typed error details
+
+The envelope stays forward-compatible: `error.details` is an optional open
+object and unknown fields must be preserved. The following stable codes have a
+published typed schema, also exposed machine-readably by
+`ErrorBody.details.x-e2a-error-details-schemas` in OpenAPI:
+
+| Code | Schema |
+| --- | --- |
+| invalid_request | `ValidationErrorDetails` — `fields[]` with required, non-null `location` and `message`. |
+| too_many_recipients | `TooManyRecipientsDetails` — `max_recipients`, `provided`. |
+| payload_too_large | `PayloadTooLargeDetails` — `scope`, `actual_bytes`, `max_bytes`, optional `filename`. |
+| limit_exceeded | `LimitExceededDetails`. |
+| rate_limited | `RateLimitedDetails` — `retry_after_seconds`. |
+| limits_unavailable | `RetryAfterDetails` — `retry_after_seconds`. |
+
+`error.code`, `error.message`, and `error.request_id` are required on every
+`/v1` error, including router-level 404/405 responses. The body request ID
+equals the `X-Request-Id` response header.
 
 ## Versioning & stability
 
@@ -379,7 +399,8 @@ attachment bytes. This is independent of the larger 25 MB aggregate attachment
 allowance: a request can satisfy every attachment limit and still exceed the
 composed ceiling once its subject and bodies are included. A breach returns
 `413 payload_too_large`. Direct send/reply/forward errors include
-`error.details.composed_bytes` and `error.details.max_composed_bytes`
+`error.details.scope = "composed_message"`, `error.details.actual_bytes`, and
+`error.details.max_bytes`
 (`10485760`); callers should treat `error.details` as optional on other paths.
 
 > **Note:** approve/reject a held message via the account-scoped **Reviews**
