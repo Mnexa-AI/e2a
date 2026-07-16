@@ -55,7 +55,7 @@ func latestInbound(t *testing.T, ts *testutil.E2ATestServer, agentID string) ide
 }
 
 func subResource(base, agentEmail, msgID, action string) string {
-	return base + "/v1/agents/" + url.PathEscape(agentEmail) + "/messages/" + msgID + "/" + action
+	return base + "/v1/agents/" + url.PathEscape(agentEmail) + "/messages/" + msgID + "/" + action + "?wait=sent"
 }
 
 // TestConversationThreadingE2E_OutboundRooted is the #328 fix end to end,

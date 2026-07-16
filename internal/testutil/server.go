@@ -18,8 +18,10 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/headers"
 	"github.com/Mnexa-AI/e2a/internal/idempotency"
 	"github.com/Mnexa-AI/e2a/internal/identity"
+	"github.com/Mnexa-AI/e2a/internal/jobs"
 	"github.com/Mnexa-AI/e2a/internal/limits"
 	"github.com/Mnexa-AI/e2a/internal/outbound"
+	"github.com/Mnexa-AI/e2a/internal/outboundsend"
 	"github.com/Mnexa-AI/e2a/internal/relay"
 	"github.com/Mnexa-AI/e2a/internal/usage"
 	"github.com/Mnexa-AI/e2a/internal/webhook"
@@ -152,6 +154,25 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	// HTTP server
 	router := mux.NewRouter()
 	noopUsage := usage.NewNoopUsageTracker()
+	// Mirror production's canonical outbound composition root: every external
+	// send is persisted and enqueued transactionally, then submitted by River.
+	// Tests must never rely on the retired submit-inline fallback.
+	if err := jobs.Migrate(context.Background(), pool); err != nil {
+		t.Fatalf("migrate River schema: %v", err)
+	}
+	outboundJobs := outboundsend.NewJobs(
+		agent.NewOutboundSendStore(store, outbox, noopUsage),
+		agent.NewOutboundDeliverer(sender),
+		pool,
+	)
+	jobsClient, err := jobs.New(pool, jobs.Config{OutboundWorkers: 2}, outboundJobs)
+	if err != nil {
+		t.Fatalf("build River client: %v", err)
+	}
+	outboundJobs.SetEnqueuer(jobsClient)
+	if err := jobsClient.Start(context.Background()); err != nil {
+		t.Fatalf("start River client: %v", err)
+	}
 	usageStore := usage.NewStore(pool)
 	// Generous caps — e2e exercises behavior, not quota enforcement.
 	enforcer := limits.NewEnforcer(limits.NewStore(pool), usageStore, limits.Defaults{
@@ -166,6 +187,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	api.SetPoolForEvents(pool)
 	api.SetEnforcer(enforcer)
 	api.SetUsageStore(usageStore)
+	api.SetOutboundEnqueuer(outboundJobs)
 	api.RegisterRoutes(router)
 
 	// WebSocket live-tail transport — wired as a /v1 route via WSHandle below.
@@ -234,6 +256,11 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	}
 
 	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := jobsClient.Stop(ctx); err != nil {
+			t.Errorf("stop River client: %v", err)
+		}
 		httpServer.Close()
 		smtpServer.Close()
 		wsHub.Close()

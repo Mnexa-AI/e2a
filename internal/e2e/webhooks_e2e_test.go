@@ -23,11 +23,12 @@ import (
 	"github.com/Mnexa-AI/e2a/internal/testutil"
 )
 
-// sendURL builds the /v1 send endpoint for an agent. Send was relocated
-// (Slice 2): POST /v1/agents/{URL-encoded agent email}/messages, with the
-// sender taken from the path (the body no longer carries `from`).
+// sendURL builds the /v1 send endpoint for an agent and requests the bounded
+// terminal wait. The send still commits 202/accepted and runs through River;
+// wait=sent only keeps terminal-state e2e assertions deterministic. A held
+// message returns 202/pending_review immediately.
 func sendURL(base, agentEmail string) string {
-	return base + "/v1/agents/" + url.PathEscape(agentEmail) + "/messages"
+	return base + "/v1/agents/" + url.PathEscape(agentEmail) + "/messages?wait=sent"
 }
 
 // Tests in this file exercise the webhooks-as-a-resource path end-to-end.
@@ -278,7 +279,7 @@ func TestWebhooksE2E_HITL_PendingApproved(t *testing.T) {
 	approveStatus, approveResp := authedJSON(t, "POST",
 		ts.HTTPServer.URL+"/v1/reviews/"+msgID+"/approve",
 		key.PlaintextKey, approveBody)
-	if approveStatus != 200 {
+	if approveStatus != 202 {
 		t.Fatalf("approve status=%d body=%s", approveStatus, string(approveResp))
 	}
 

@@ -159,7 +159,7 @@ func scenarioOutboundSend(ctx context.Context, p *Probe) Result {
 	if err != nil {
 		return fail("send: %v", err)
 	}
-	if st != http.StatusOK {
+	if st != http.StatusAccepted {
 		return fail("send: HTTP %d", st)
 	}
 	var out struct {
@@ -168,6 +168,9 @@ func scenarioOutboundSend(ctx context.Context, p *Probe) Result {
 	}
 	if jerr := json.Unmarshal(respBody, &out); jerr != nil || out.MessageID == "" {
 		return fail("send: could not parse message_id from response (status=%q)", out.Status)
+	}
+	if out.Status != "accepted" {
+		return fail("send: status=%q, want accepted", out.Status)
 	}
 
 	d, err := p.Sink.Await(ctx, func(d Delivery) bool {
