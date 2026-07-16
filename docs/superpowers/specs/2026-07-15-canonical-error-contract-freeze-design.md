@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-15
 
-**Status:** Approved direction; implementation pending final written-spec review
+**Status:** Approved
 
 **Scope:** `/v1` REST errors and their TypeScript SDK, Python SDK, MCP, and CLI projections
 

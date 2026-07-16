@@ -67,14 +67,14 @@ func (s *Server) registerEventPayloadSchemas() {
 	// pass would.
 	seen := map[string]bool{}
 	for _, name := range names {
-		openEventPayloadComponent(registry, name, seen)
+		openResponseComponent(registry, name, seen)
 	}
 
 	envelope := registry.Schema(reflect.TypeOf(EventEnvelope{}), true, "EventEnvelope")
 	if envelope == nil || envelope.Ref != "#/components/schemas/EventEnvelope" {
 		panic(fmt.Sprintf("event envelope registered under an unexpected ref: %+v", envelope))
 	}
-	openEventPayloadComponent(registry, "EventEnvelope", seen)
+	openResponseComponent(registry, "EventEnvelope", seen)
 	envelopeSchema := registry.Map()["EventEnvelope"]
 	data := envelopeSchema.Properties["data"]
 	if data == nil {
@@ -94,31 +94,28 @@ func (s *Server) registerEventPayloadSchemas() {
 	data.Extensions["x-e2a-event-data-schemas"] = mapping
 }
 
-// openEventPayloadComponent flips additionalProperties from the strict
-// default (false) to true on the named component schema and every object node
-// reachable from it — nested inline objects, array items, and $ref'd
-// components (each opened once via seen). Map-typed nodes (whose
-// additionalProperties is itself a schema, e.g. auth_headers) keep their
-// value-schema and are recursed into.
-func openEventPayloadComponent(registry huma.Registry, name string, seen map[string]bool) {
+// openResponseComponent flips additionalProperties from the strict default to
+// true on a consumer-facing component and every object reachable from it.
+// Event envelopes and error-detail schemas share this additive response rule.
+func openResponseComponent(registry huma.Registry, name string, seen map[string]bool) {
 	if seen[name] {
 		return
 	}
 	seen[name] = true
 	sc := registry.Map()[name]
 	if sc == nil {
-		panic(fmt.Sprintf("event payload schema %s missing from the registry", name))
+		panic(fmt.Sprintf("response schema %s missing from the registry", name))
 	}
-	openEventPayloadNodes(sc, registry, seen)
+	openResponseNodes(sc, registry, seen)
 }
 
-func openEventPayloadNodes(sc *huma.Schema, registry huma.Registry, seen map[string]bool) {
+func openResponseNodes(sc *huma.Schema, registry huma.Registry, seen map[string]bool) {
 	if sc == nil {
 		return
 	}
 	if sc.Ref != "" {
 		if i := strings.LastIndex(sc.Ref, "/"); i >= 0 {
-			openEventPayloadComponent(registry, sc.Ref[i+1:], seen)
+			openResponseComponent(registry, sc.Ref[i+1:], seen)
 		}
 		return
 	}
@@ -126,20 +123,20 @@ func openEventPayloadNodes(sc *huma.Schema, registry huma.Registry, seen map[str
 		sc.AdditionalProperties = true
 	}
 	for _, p := range sc.Properties {
-		openEventPayloadNodes(p, registry, seen)
+		openResponseNodes(p, registry, seen)
 	}
-	openEventPayloadNodes(sc.Items, registry, seen)
+	openResponseNodes(sc.Items, registry, seen)
 	if ap, ok := sc.AdditionalProperties.(*huma.Schema); ok {
-		openEventPayloadNodes(ap, registry, seen)
+		openResponseNodes(ap, registry, seen)
 	}
 	for _, sub := range sc.OneOf {
-		openEventPayloadNodes(sub, registry, seen)
+		openResponseNodes(sub, registry, seen)
 	}
 	for _, sub := range sc.AnyOf {
-		openEventPayloadNodes(sub, registry, seen)
+		openResponseNodes(sub, registry, seen)
 	}
 	for _, sub := range sc.AllOf {
-		openEventPayloadNodes(sub, registry, seen)
+		openResponseNodes(sub, registry, seen)
 	}
-	openEventPayloadNodes(sc.Not, registry, seen)
+	openResponseNodes(sc.Not, registry, seen)
 }

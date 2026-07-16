@@ -56,8 +56,8 @@ type ErrorEnvelope struct {
 type ErrorBody struct {
 	Code      string `json:"code" doc:"Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Exact current vocabulary (machine-checked): unauthorized, forbidden, blocked_by_policy, invalid_request, invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope, confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty, recipient_suppressed, not_found, attachment_not_found, template_not_found, starter_template_not_found, gone, conflict, agent_taken, domain_taken, alias_taken, address_in_trash, message_held, message_not_pending, not_in_trash, send_in_progress, webhook_disabled, webhook_cooldown, domain_not_registered, domain_has_agents, domain_not_verified, limit_exceeded, rate_limited, template_limit_reached, webhook_limit_reached, idempotency_in_flight, idempotency_key_reuse, payload_too_large, attachment_too_large, not_implemented, events_log_disabled, limits_unavailable, internal_error, method_not_allowed, unsupported_media_type, error. Grouped semantics: auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."`
 	Message   string `json:"message" doc:"Human-readable explanation. Not for branching — use code."`
-	Details   any    `json:"details,omitempty" doc:"Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({\"fields\":[{\"location\",\"message\"}]}); rate_limited and limits_unavailable carry {\"retry_after_seconds\"}; limit_exceeded carries LimitExceededDetails; a send/reply/forward payload_too_large caused by the 10 MiB composed-message ceiling carries {\"composed_bytes\",\"max_composed_bytes\"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes."`
-	RequestID string `json:"request_id,omitempty" doc:"Echoes the X-Request-Id response header so a failing call is greppable in logs."`
+	Details   any    `json:"details,omitempty" doc:"Optional structured context, polymorphic by code. Treat it as an open object keyed off code; unknown codes and fields must be preserved."`
+	RequestID string `json:"request_id" doc:"Echoes the X-Request-Id response header so a failing call is greppable in logs."`
 }
 
 // FieldError is one per-field validation failure inside ValidationErrorDetails.
@@ -78,19 +78,72 @@ type ValidationErrorDetails struct {
 	Fields []FieldError `json:"fields" nullable:"false" doc:"The fields that failed validation. May be empty when the failure is request-wide rather than field-specific."`
 }
 
-// TransformSchema types the polymorphic error.details in the generated OpenAPI:
-// it registers ValidationErrorDetails (and its nested FieldError) as named
-// component schemas and references the validation shape from details via anyOf,
-// while keeping a permissive object branch so OTHER per-code detail shapes
-// (rate_limited/limit_exceeded, and future additions) stay valid. This is how
-// codegen produces a concrete ValidationErrorDetails model instead of an
-// untyped `{}` for details, without pinning details to a single shape.
+// TransformSchema publishes known-code metadata without closing either code or
+// details. A generic client sees a string and open object; tooling that
+// understands the extensions can offer stable typed views for known codes.
 func (ErrorBody) TransformSchema(r huma.Registry, s *huma.Schema) *huma.Schema {
-	valRef := r.Schema(reflect.TypeOf(ValidationErrorDetails{}), true, "ValidationErrorDetails")
-	if d := s.Properties["details"]; d != nil {
-		d.AnyOf = []*huma.Schema{valRef, {Type: huma.TypeObject}}
+	detailTypes := map[string]reflect.Type{
+		"ValidationErrorDetails":   reflect.TypeOf(ValidationErrorDetails{}),
+		"TooManyRecipientsDetails": reflect.TypeOf(TooManyRecipientsDetails{}),
+		"PayloadTooLargeDetails":   reflect.TypeOf(PayloadTooLargeDetails{}),
+		"LimitExceededDetails":     reflect.TypeOf(LimitExceededDetails{}),
+		"RateLimitedDetails":       reflect.TypeOf(RateLimitedDetails{}),
+		"RetryAfterDetails":        reflect.TypeOf(RetryAfterDetails{}),
+	}
+	for name, typ := range detailTypes {
+		r.Schema(typ, true, name)
+	}
+	seen := map[string]bool{}
+	for name := range detailTypes {
+		openResponseComponent(r, name, seen)
+	}
+	if code := s.Properties["code"]; code != nil {
+		if code.Extensions == nil {
+			code.Extensions = map[string]any{}
+		}
+		contracts := make(map[string]any, len(errorCodeCatalog))
+		for _, entry := range errorCodeCatalog {
+			metadata := map[string]any{
+				"statuses":  contractStatuses(entry.Status),
+				"family":    entry.Family,
+				"retryable": entry.Retryable,
+			}
+			if entry.DetailsSchema != "" {
+				metadata["details_schema"] = "#/components/schemas/" + entry.DetailsSchema
+			}
+			contracts[entry.Code] = metadata
+		}
+		code.Extensions["x-e2a-error-contracts"] = contracts
+	}
+	if details := s.Properties["details"]; details != nil {
+		details.Type = huma.TypeObject
+		details.AnyOf = nil
+		details.OneOf = nil
+		details.AdditionalProperties = true
+		if details.Extensions == nil {
+			details.Extensions = map[string]any{}
+		}
+		mapping := map[string]any{}
+		for _, entry := range errorCodeCatalog {
+			if entry.DetailsSchema != "" {
+				mapping[entry.Code] = "#/components/schemas/" + entry.DetailsSchema
+			}
+		}
+		details.Extensions["x-e2a-error-details-schemas"] = mapping
 	}
 	return s
+}
+
+type TooManyRecipientsDetails struct {
+	MaxRecipients int `json:"max_recipients" minimum:"1" doc:"Maximum recipients allowed across to, cc, and bcc."`
+	Provided      int `json:"provided" minimum:"1" doc:"Combined recipient count supplied by the caller."`
+}
+
+type PayloadTooLargeDetails struct {
+	Scope       string `json:"scope" enum:"composed_message,attachment,attachments_total,request_body" doc:"Which byte budget was exceeded."`
+	ActualBytes int64  `json:"actual_bytes" minimum:"0" doc:"Observed byte count. Exact when Content-Length or decoded content is available; for chunked request bodies this is the lower bound observed before rejection."`
+	MaxBytes    int64  `json:"max_bytes" minimum:"1" doc:"Maximum bytes accepted for this scope."`
+	Filename    string `json:"filename,omitempty" doc:"Attachment filename when scope is attachment."`
 }
 
 // LimitExceededDetails is the typed `error.details` payload carried by a 402
@@ -115,7 +168,7 @@ type LimitExceededErrorBody struct {
 	Code      string               `json:"code" enum:"limit_exceeded" doc:"Always limit_exceeded for this response."`
 	Message   string               `json:"message"`
 	Details   LimitExceededDetails `json:"details"`
-	RequestID string               `json:"request_id,omitempty"`
+	RequestID string               `json:"request_id"`
 }
 
 // LimitExceededEnvelope is the 402 error envelope with typed details. It is the
@@ -155,7 +208,7 @@ type RateLimitedErrorBody struct {
 	Code      string             `json:"code" enum:"rate_limited" doc:"Always rate_limited for this response."`
 	Message   string             `json:"message"`
 	Details   RateLimitedDetails `json:"details"`
-	RequestID string             `json:"request_id,omitempty"`
+	RequestID string             `json:"request_id"`
 }
 
 // RateLimitedEnvelope is the 429 error envelope with typed details. It is the
@@ -184,7 +237,11 @@ func (e *ErrorEnvelope) Code() string { return e.Err.Code }
 // to branch on something more specific than the HTTP status (e.g.
 // "domain_not_verified" vs a bare 400).
 func NewError(status int, code, message string) *ErrorEnvelope {
-	return &ErrorEnvelope{status: status, Err: ErrorBody{Code: code, Message: message}}
+	env := &ErrorEnvelope{status: status, Err: ErrorBody{Code: code, Message: message}}
+	if code == "invalid_request" {
+		env.Err.Details = ValidationErrorDetails{Fields: []FieldError{{Location: "", Message: message}}}
+	}
+	return env
 }
 
 // WithDetails attaches structured details and returns the envelope for
@@ -294,6 +351,27 @@ func stampRequestID(ctx huma.Context, status string, v any) (any, error) {
 	}
 	if env.Err.RequestID == "" {
 		env.Err.RequestID = RequestIDFromContext(ctx.Context())
+	}
+	if env.Err.Code == "payload_too_large" && env.Err.Details == nil {
+		var maxBytes int64
+		if operation := ctx.Operation(); operation != nil {
+			maxBytes = operation.MaxBodyBytes
+		}
+		var actualBytes int64
+		if request := RequestFromContext(ctx.Context()); request != nil {
+			actualBytes = request.ContentLength
+		}
+		if actualBytes <= 0 {
+			// Huma has already observed maxBytes bytes before returning 413. A
+			// chunked request has no exact Content-Length, so publish that lower
+			// bound rather than inventing an exact size.
+			actualBytes = maxBytes
+		}
+		env.Err.Details = PayloadTooLargeDetails{
+			Scope:       "request_body",
+			ActualBytes: actualBytes,
+			MaxBytes:    maxBytes,
+		}
 	}
 	// A StatusError returned from a handler renders status + body only, so stamp
 	// the Retry-After header here for rate-limit errors that carry a delay —

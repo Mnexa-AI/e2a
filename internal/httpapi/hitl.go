@@ -59,6 +59,14 @@ func (s *Server) resolveHeldDirection(ctx context.Context, messageID, agentID st
 	return meta, meta.Direction == "inbound", nil
 }
 
+func envelopeFromOutboundError(derr *agent.OutboundError) *ErrorEnvelope {
+	env := NewError(derr.Status, derr.Code, derr.Msg)
+	if derr.Details != nil {
+		env.WithDetails(derr.Details)
+	}
+	return env
+}
+
 // approveHeld is the shared approve dispatch behind /reviews/{id}/approve. The
 // caller MUST have proven account scope + ownership of agentEmail. Branches on
 // direction: inbound holds release to the inbox; outbound holds send via SES
@@ -73,7 +81,7 @@ func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail stri
 			return 0, SendResultView{}, NewError(http.StatusInternalServerError, "internal_error", "approve unavailable")
 		}
 		if derr := s.deps.ApproveInboundReview(ctx, userID, meta); derr != nil {
-			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return 0, SendResultView{}, envelopeFromOutboundError(derr)
 		}
 		return http.StatusOK, SendResultView{Status: identity.MessageStatusReviewApproved, MessageID: meta.ID}, nil
 	}
@@ -115,7 +123,7 @@ func (s *Server) approveHeld(ctx context.Context, userID, msgID, agentEmail stri
 		}
 		sent, derr := s.deps.ApprovePending(ctx, userID, msgID, agentEmail, body, idemCompleteTx)
 		if derr != nil {
-			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return 0, SendResultView{}, envelopeFromOutboundError(derr)
 		}
 		status, view := approveResult(sent)
 		return status, view, nil
@@ -155,7 +163,7 @@ func (s *Server) rejectHeld(ctx context.Context, userID, msgID, agentEmail, reas
 			return RejectResultView{}, NewError(http.StatusInternalServerError, "internal_error", "reject unavailable")
 		}
 		if derr := s.deps.RejectInboundReview(ctx, userID, reason, meta); derr != nil {
-			return RejectResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return RejectResultView{}, envelopeFromOutboundError(derr)
 		}
 		return RejectResultView{Status: identity.MessageStatusReviewRejected, MessageID: meta.ID, RejectionReason: reason}, nil
 	}
@@ -164,7 +172,7 @@ func (s *Server) rejectHeld(ctx context.Context, userID, msgID, agentEmail, reas
 	}
 	rejected, derr := s.deps.RejectPending(ctx, userID, msgID, agentEmail, reason)
 	if derr != nil {
-		return RejectResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+		return RejectResultView{}, envelopeFromOutboundError(derr)
 	}
 	return RejectResultView{Status: rejected.Status, MessageID: rejected.ID, RejectionReason: rejected.RejectionReason}, nil
 }

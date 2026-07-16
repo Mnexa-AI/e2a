@@ -93,7 +93,7 @@ const composedMessageCeilingDoc = "Composed-message ceiling: 10 MiB (10485760 by
 // total. Direct send/reply/forward return the named composed-size detail keys.
 func (s *Server) outboundPayloadTooLargeResponse() *huma.Response {
 	return s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
-		"Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. For a composed-message breach, error.details = {composed_bytes, max_composed_bytes}, where max_composed_bytes is 10485760. Attachment breaches use their attachment-specific decoded-size detail keys.")
+		"Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. error.details uses PayloadTooLargeDetails: {scope, actual_bytes, max_bytes, filename?}; scope identifies composed_message, attachment, attachments_total, or request_body.")
 }
 
 // SendResultView is the single outbound result for send/reply/forward/approve/
@@ -188,7 +188,7 @@ func recipientCountError(groups ...[]string) *ErrorEnvelope {
 	if total > maxRecipients {
 		return NewError(http.StatusBadRequest, "too_many_recipients",
 			"too many recipients — at most 50 across to, cc and bcc combined").
-			WithDetails(map[string]any{"max_recipients": maxRecipients, "provided": total})
+			WithDetails(TooManyRecipientsDetails{MaxRecipients: maxRecipients, Provided: total})
 	}
 	return nil
 }
@@ -313,7 +313,7 @@ func (s *Server) handleTestSend(ctx context.Context, in *AddressParam) (*sendOut
 	}
 	res, derr := s.deps.SendTest(ctx, ag)
 	if derr != nil {
-		return nil, NewError(derr.Status, derr.Code, derr.Msg)
+		return nil, envelopeFromOutboundError(derr)
 	}
 	if res.Held {
 		return &sendOutput{Status: http.StatusAccepted, Body: SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}}, nil
@@ -560,9 +560,10 @@ func composedMessageSizeError(subject, text, html string, atts []outbound.Attach
 		return NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
 			fmt.Sprintf("composed message too large — %d bytes (subject + text + html + decoded attachments), limit is %d (%d MB)",
 				total, maxComposedMessageBytes, maxComposedMessageBytes/(1024*1024))).
-			WithDetails(map[string]any{
-				"composed_bytes":     total,
-				"max_composed_bytes": maxComposedMessageBytes,
+			WithDetails(PayloadTooLargeDetails{
+				Scope:       "composed_message",
+				ActualBytes: int64(total),
+				MaxBytes:    int64(maxComposedMessageBytes),
 			})
 	}
 	return nil
@@ -610,7 +611,10 @@ func validateAttachments(atts []outbound.Attachment) *ErrorEnvelope {
 	if len(atts) > maxAttachmentCount {
 		return NewError(http.StatusBadRequest, "invalid_request",
 			fmt.Sprintf("too many attachments — at most %d per message (got %d)", maxAttachmentCount, len(atts))).
-			WithDetails(map[string]any{"max_attachments": maxAttachmentCount, "provided": len(atts)})
+			WithDetails(ValidationErrorDetails{Fields: []FieldError{{
+				Location: "body.attachments",
+				Message:  fmt.Sprintf("must contain at most %d items (got %d)", maxAttachmentCount, len(atts)),
+			}}})
 	}
 	var total int
 	for i, att := range atts {
@@ -633,10 +637,11 @@ func validateAttachments(atts []outbound.Attachment) *ErrorEnvelope {
 			return NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
 				fmt.Sprintf("attachment %q is too large — %d bytes decoded, limit is %d (%d MB)",
 					name, len(decoded), maxAttachmentBytes, maxAttachmentBytes/(1024*1024))).
-				WithDetails(map[string]any{
-					"filename":             att.Filename,
-					"decoded_bytes":        len(decoded),
-					"max_attachment_bytes": maxAttachmentBytes,
+				WithDetails(PayloadTooLargeDetails{
+					Scope:       "attachment",
+					ActualBytes: int64(len(decoded)),
+					MaxBytes:    int64(maxAttachmentBytes),
+					Filename:    att.Filename,
 				})
 		}
 		total += len(decoded)
@@ -645,9 +650,10 @@ func validateAttachments(atts []outbound.Attachment) *ErrorEnvelope {
 		return NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
 			fmt.Sprintf("attachments too large — %d bytes decoded in total, limit is %d (%d MB)",
 				total, maxAttachmentsTotalBytes, maxAttachmentsTotalBytes/(1024*1024))).
-			WithDetails(map[string]any{
-				"total_decoded_bytes":         total,
-				"max_attachments_total_bytes": maxAttachmentsTotalBytes,
+			WithDetails(PayloadTooLargeDetails{
+				Scope:       "attachments_total",
+				ActualBytes: int64(total),
+				MaxBytes:    int64(maxAttachmentsTotalBytes),
 			})
 	}
 	return nil
@@ -720,7 +726,7 @@ func (s *Server) deliver(ctx context.Context, user *identity.User, ag *identity.
 		}
 		res, derr := s.deps.DeliverOutbound(ctx, user, ag, req, msgType, replyTo, referenced, idemCompleteTx)
 		if derr != nil {
-			return 0, SendResultView{}, NewError(derr.Status, derr.Code, derr.Msg)
+			return 0, SendResultView{}, envelopeFromOutboundError(derr)
 		}
 		if res.Held {
 			return http.StatusAccepted, SendResultView{Status: "pending_review", MessageID: res.PendingMessageID, ApprovalExpiresAt: res.ApprovalExpiresAt}, nil

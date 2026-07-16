@@ -64,8 +64,9 @@ func TestSpecDocumentsComposedMessageCeiling(t *testing.T) {
 		responseDescription := specResponseDescription(t, operation, "413")
 		requireContractText(t, operationID+" 413", responseDescription,
 			"payload_too_large",
-			"composed_bytes",
-			"max_composed_bytes",
+			"actual_bytes",
+			"max_bytes",
+			"composed_message",
 			fmt.Sprint(outbound.MaxComposedMessageBytes),
 		)
 	}
@@ -74,10 +75,13 @@ func TestSpecDocumentsComposedMessageCeiling(t *testing.T) {
 	details, _ := errorProps["details"].(map[string]any)
 	detailsDescription, _ := details["description"].(string)
 	requireContractText(t, "ErrorBody.details", detailsDescription,
-		"send/reply/forward payload_too_large",
-		"composed_bytes",
-		"max_composed_bytes",
+		"open object",
+		"unknown codes and fields",
 	)
+	mapping, ok := details["x-e2a-error-details-schemas"].(map[string]any)
+	if !ok || mapping["payload_too_large"] != "#/components/schemas/PayloadTooLargeDetails" {
+		t.Fatalf("payload_too_large details mapping = %#v", mapping)
+	}
 	if strings.Contains(detailsDescription, "direct-send payload_too_large") {
 		t.Errorf("ErrorBody.details still narrows composed-size details to send only: %q", detailsDescription)
 	}

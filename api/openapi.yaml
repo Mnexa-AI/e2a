@@ -1246,11 +1246,301 @@ components:
         code:
           description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Exact current vocabulary (machine-checked): unauthorized, forbidden, blocked_by_policy, invalid_request, invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope, confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty, recipient_suppressed, not_found, attachment_not_found, template_not_found, starter_template_not_found, gone, conflict, agent_taken, domain_taken, alias_taken, address_in_trash, message_held, message_not_pending, not_in_trash, send_in_progress, webhook_disabled, webhook_cooldown, domain_not_registered, domain_has_agents, domain_not_verified, limit_exceeded, rate_limited, template_limit_reached, webhook_limit_reached, idempotency_in_flight, idempotency_key_reuse, payload_too_large, attachment_too_large, not_implemented, events_log_disabled, limits_unavailable, internal_error, method_not_allowed, unsupported_media_type, error. Grouped semantics: auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."
           type: string
+          x-e2a-error-contracts:
+            address_in_trash:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            agent_taken:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            alias_taken:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            attachment_not_found:
+              family: not_found
+              retryable: false
+              statuses:
+                - 404
+            attachment_too_large:
+              family: size
+              retryable: false
+              statuses:
+                - 413
+            blocked_by_policy:
+              family: auth
+              retryable: false
+              statuses:
+                - 403
+            confirmation_required:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            conflict:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            domain_has_agents:
+              family: state
+              retryable: false
+              statuses:
+                - 400
+            domain_not_registered:
+              family: state
+              retryable: false
+              statuses:
+                - 400
+            domain_not_verified:
+              family: state
+              retryable: false
+              statuses:
+                - 400
+                - 403
+            domain_taken:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            error:
+              family: server
+              retryable: false
+              statuses:
+                - other 4xx
+            events_log_disabled:
+              family: availability
+              retryable: false
+              statuses:
+                - 501
+            forbidden:
+              family: auth
+              retryable: false
+              statuses:
+                - 403
+            gone:
+              family: not_found
+              retryable: false
+              statuses:
+                - 410
+            idempotency_in_flight:
+              family: idempotency
+              retryable: true
+              statuses:
+                - 409
+            idempotency_key_reuse:
+              family: idempotency
+              retryable: false
+              statuses:
+                - 422
+            internal_error:
+              family: server
+              retryable: true
+              statuses:
+                - 5xx
+            invalid_attachment:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_cursor:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_domain:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_event_type:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_expires_at:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_filter:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_recipient:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_request:
+              details_schema: "#/components/schemas/ValidationErrorDetails"
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+                - 422
+            invalid_scope:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_slug:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_template:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            invalid_webhook_url:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            limit_exceeded:
+              details_schema: "#/components/schemas/LimitExceededDetails"
+              family: capacity
+              retryable: false
+              statuses:
+                - 402
+            limits_unavailable:
+              details_schema: "#/components/schemas/RetryAfterDetails"
+              family: availability
+              retryable: true
+              statuses:
+                - 503
+            message_held:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            message_not_pending:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            method_not_allowed:
+              family: server
+              retryable: false
+              statuses:
+                - 405
+            not_found:
+              family: not_found
+              retryable: false
+              statuses:
+                - 404
+            not_implemented:
+              family: availability
+              retryable: false
+              statuses:
+                - 501
+            not_in_trash:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            payload_too_large:
+              details_schema: "#/components/schemas/PayloadTooLargeDetails"
+              family: size
+              retryable: false
+              statuses:
+                - 413
+            rate_limited:
+              details_schema: "#/components/schemas/RateLimitedDetails"
+              family: capacity
+              retryable: true
+              statuses:
+                - 429
+            recipient_suppressed:
+              family: validation
+              retryable: false
+              statuses:
+                - 422
+            reserved_domain:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            send_in_progress:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            starter_template_not_found:
+              family: not_found
+              retryable: false
+              statuses:
+                - 404
+            template_limit_reached:
+              family: capacity
+              retryable: false
+              statuses:
+                - 400
+            template_not_found:
+              family: not_found
+              retryable: false
+              statuses:
+                - 404
+            template_render_failed:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            template_rendered_empty:
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            too_many_recipients:
+              details_schema: "#/components/schemas/TooManyRecipientsDetails"
+              family: validation
+              retryable: false
+              statuses:
+                - 400
+            unauthorized:
+              family: auth
+              retryable: false
+              statuses:
+                - 401
+            unsupported_media_type:
+              family: server
+              retryable: false
+              statuses:
+                - 415
+            webhook_cooldown:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            webhook_disabled:
+              family: state
+              retryable: false
+              statuses:
+                - 409
+            webhook_limit_reached:
+              family: capacity
+              retryable: false
+              statuses:
+                - 400
         details:
-          anyOf:
-            - $ref: "#/components/schemas/ValidationErrorDetails"
-            - type: object
-          description: Optional structured context, polymorphic by code. For invalid_request it is a ValidationErrorDetails ({"fields":[{"location","message"}]}); rate_limited and limits_unavailable carry {"retry_after_seconds"}; limit_exceeded carries LimitExceededDetails; a send/reply/forward payload_too_large caused by the 10 MiB composed-message ceiling carries {"composed_bytes","max_composed_bytes"}. Treat it as an open object keyed off code — new codes may introduce new detail shapes.
+          additionalProperties: true
+          description: Optional structured context, polymorphic by code. Treat it as an open object keyed off code; unknown codes and fields must be preserved.
+          type: object
+          x-e2a-error-details-schemas:
+            invalid_request: "#/components/schemas/ValidationErrorDetails"
+            limit_exceeded: "#/components/schemas/LimitExceededDetails"
+            limits_unavailable: "#/components/schemas/RetryAfterDetails"
+            payload_too_large: "#/components/schemas/PayloadTooLargeDetails"
+            rate_limited: "#/components/schemas/RateLimitedDetails"
+            too_many_recipients: "#/components/schemas/TooManyRecipientsDetails"
         message:
           description: Human-readable explanation. Not for branching — use code.
           type: string
@@ -1260,6 +1550,7 @@ components:
       required:
         - code
         - message
+        - request_id
       type: object
     ErrorEnvelope:
       additionalProperties: true
@@ -1449,6 +1740,7 @@ components:
         - code
         - message
         - details
+        - request_id
       type: object
     LimitsCapsView:
       additionalProperties: true
@@ -2048,6 +2340,35 @@ components:
         - items
         - next_cursor
       type: object
+    PayloadTooLargeDetails:
+      additionalProperties: true
+      properties:
+        actual_bytes:
+          description: Observed byte count. Exact when Content-Length or decoded content is available; for chunked request bodies this is the lower bound observed before rejection.
+          format: int64
+          minimum: 0
+          type: integer
+        filename:
+          description: Attachment filename when scope is attachment.
+          type: string
+        max_bytes:
+          description: Maximum bytes accepted for this scope.
+          format: int64
+          minimum: 1
+          type: integer
+        scope:
+          description: Which byte budget was exceeded.
+          enum:
+            - composed_message
+            - attachment
+            - attachments_total
+            - request_body
+          type: string
+      required:
+        - scope
+        - actual_bytes
+        - max_bytes
+      type: object
     ProtectionConfigRequest:
       additionalProperties: false
       properties:
@@ -2293,6 +2614,7 @@ components:
         - code
         - message
         - details
+        - request_id
       type: object
     RedeliverDelivery:
       additionalProperties: true
@@ -2424,6 +2746,17 @@ components:
         - spf
         - dkim
         - dmarc
+      type: object
+    RetryAfterDetails:
+      additionalProperties: true
+      properties:
+        retry_after_seconds:
+          description: Seconds to wait before retrying; mirrors the Retry-After response header.
+          format: int64
+          minimum: 1
+          type: integer
+      required:
+        - retry_after_seconds
       type: object
     ReviewView:
       additionalProperties: true
@@ -2794,6 +3127,23 @@ components:
           type: string
       required:
         - delivery_id
+      type: object
+    TooManyRecipientsDetails:
+      additionalProperties: true
+      properties:
+        max_recipients:
+          description: Maximum recipients allowed across to, cc, and bcc.
+          format: int64
+          minimum: 1
+          type: integer
+        provided:
+          description: Combined recipient count supplied by the caller.
+          format: int64
+          minimum: 1
+          type: integer
+      required:
+        - max_recipients
+        - provided
       type: object
     UpdateAgentRequest:
       additionalProperties: false
@@ -4104,7 +4454,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. For a composed-message breach, error.details = {composed_bytes, max_composed_bytes}, where max_composed_bytes is 10485760. Attachment breaches use their attachment-specific decoded-size detail keys.
+          description: "Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. error.details uses PayloadTooLargeDetails: {scope, actual_bytes, max_bytes, filename?}; scope identifies composed_message, attachment, attachments_total, or request_body."
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestID"
@@ -4445,7 +4795,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. For a composed-message breach, error.details = {composed_bytes, max_composed_bytes}, where max_composed_bytes is 10485760. Attachment breaches use their attachment-specific decoded-size detail keys.
+          description: "Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. error.details uses PayloadTooLargeDetails: {scope, actual_bytes, max_bytes, filename?}; scope identifies composed_message, attachment, attachments_total, or request_body."
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestID"
@@ -4568,7 +4918,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. For a composed-message breach, error.details = {composed_bytes, max_composed_bytes}, where max_composed_bytes is 10485760. Attachment breaches use their attachment-specific decoded-size detail keys.
+          description: "Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. error.details uses PayloadTooLargeDetails: {scope, actual_bytes, max_bytes, filename?}; scope identifies composed_message, attachment, attachments_total, or request_body."
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestID"
@@ -5967,7 +6317,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: "Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. Retry after the cooldown, or fix the endpoint first."
+          description: "Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. SDKs do not automatically retry this code; retry manually only after the cooldown, and fix the endpoint first."
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestID"

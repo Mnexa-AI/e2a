@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Mnexa-AI/e2a/internal/agent"
@@ -444,11 +445,37 @@ func New(deps Deps) *Server {
 		root.Get("/v1/agents/{email}/messages/{id}/attachments/{index}/download", s.handleAttachmentDownload)
 	}
 
-	if deps.Legacy != nil {
-		root.NotFound(deps.Legacy.ServeHTTP)
-		root.MethodNotAllowed(deps.Legacy.ServeHTTP)
-	}
+	root.NotFound(s.routeNotFound)
+	root.MethodNotAllowed(s.routeMethodNotAllowed)
 	return s
+}
+
+func isV1Path(path string) bool {
+	return path == "/v1" || strings.HasPrefix(path, "/v1/")
+}
+
+func (s *Server) routeNotFound(w http.ResponseWriter, r *http.Request) {
+	if isV1Path(r.URL.Path) {
+		WriteError(w, r, http.StatusNotFound, "not_found", "resource not found")
+		return
+	}
+	if s.deps.Legacy != nil {
+		s.deps.Legacy.ServeHTTP(w, r)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+func (s *Server) routeMethodNotAllowed(w http.ResponseWriter, r *http.Request) {
+	if isV1Path(r.URL.Path) {
+		WriteError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if s.deps.Legacy != nil {
+		s.deps.Legacy.ServeHTTP(w, r)
+		return
+	}
+	http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 }
 
 // ServeHTTP makes Server a drop-in http.Handler.

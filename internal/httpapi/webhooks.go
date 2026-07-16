@@ -249,7 +249,7 @@ func (s *Server) registerWebhooks() {
 		Security:    []map[string][]string{{"bearer": {}}},
 		Responses: map[string]*huma.Response{
 			"409": s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
-				"Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. Retry after the cooldown, or fix the endpoint first."),
+				"Conflict — code webhook_cooldown: the webhook was auto-disabled for persistent delivery failures and cannot be re-enabled until the cooldown elapses. SDKs do not automatically retry this code; retry manually only after the cooldown, and fix the endpoint first."),
 			"default": s.errorEnvelopeResponse(),
 		},
 	}, s.handleUpdateWebhook)

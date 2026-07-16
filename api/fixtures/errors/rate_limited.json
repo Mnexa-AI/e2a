@@ -1,0 +1,1 @@
+{"error":{"code":"rate_limited","message":"rate limit exceeded","request_id":"req_fixture","details":{"retry_after_seconds":2}}}

@@ -73,25 +73,25 @@ type ApproveOverrides = approveRequest
 func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expectedAgentEmail string, ovr ApproveOverrides, idemCompleteTx ApproveIdemCompleter) (*identity.Message, *OutboundError) {
 	edits, err := ovr.toEdit()
 	if err != nil {
-		return nil, &OutboundError{http.StatusBadRequest, "invalid_request", "invalid attachments"}
+		return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: "invalid attachments"}
 	}
 	preview, err := a.store.GetOutboundMessageForUser(ctx, messageID, userID)
 	if err != nil {
-		return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+		return nil, &OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 	}
 	if preview.Status != identity.MessageStatusPendingReview {
-		return nil, &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
+		return nil, &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
 	}
 	agent, err := a.store.GetAgentByID(ctx, preview.AgentID)
 	if err != nil {
 		log.Printf("[api] approve: get agent %s: %v", preview.AgentID, err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "agent lookup failed"}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "agent lookup failed"}
 	}
 	if expectedAgentEmail != "" && agent.Email != expectedAgentEmail {
-		return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+		return nil, &OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 	}
 	if !agent.DomainVerified {
-		return nil, &OutboundError{http.StatusForbidden, "domain_not_verified", "agent domain must be verified before sending"}
+		return nil, &OutboundError{Status: http.StatusForbidden, Code: "domain_not_verified", Msg: "agent domain must be verified before sending"}
 	}
 
 	// Composed-message hard cap. A reviewer's edits (new subject/body/attachments)
@@ -108,12 +108,15 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	edits.Apply(&merged)
 	mergedReq, err := buildSendRequestFromMessage(&merged)
 	if err != nil {
-		return nil, &OutboundError{http.StatusBadRequest, "invalid_request", "invalid attachments"}
+		return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: "invalid attachments"}
 	}
 	if total := outbound.ComposedSize(mergedReq.Subject, mergedReq.Body, mergedReq.HTMLBody, mergedReq.Attachments); total > outbound.MaxComposedMessageBytes {
-		return nil, &OutboundError{http.StatusRequestEntityTooLarge, "payload_too_large",
-			fmt.Sprintf("composed message too large — %d bytes (subject + text + html + decoded attachments), limit is %d (%d MB)",
-				total, outbound.MaxComposedMessageBytes, outbound.MaxComposedMessageBytes/(1024*1024))}
+		return nil, &OutboundError{Status: http.StatusRequestEntityTooLarge, Code: "payload_too_large", Msg: fmt.Sprintf("composed message too large — %d bytes (subject + text + html + decoded attachments), limit is %d (%d MB)",
+			total, outbound.MaxComposedMessageBytes, outbound.MaxComposedMessageBytes/(1024*1024)), Details: map[string]any{
+			"scope":        "composed_message",
+			"actual_bytes": total,
+			"max_bytes":    outbound.MaxComposedMessageBytes,
+		}}
 	}
 
 	// Transition the hold to review_approved + delivery_status='accepted'
@@ -121,7 +124,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	// email.sent/failed + metering. The reviewer gets "accepted" back (the send is
 	// durably queued). Self-sends fall through to the local loopback path below.
 	if a.outboundEnq == nil {
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "outbound delivery queue unavailable"}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "outbound delivery queue unavailable"}
 	}
 	sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits, idemCompleteTx)
 	if aerr != nil {
@@ -151,16 +154,16 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	if err != nil {
 		switch {
 		case errors.Is(err, identity.ErrMessageNotFound):
-			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+			return nil, &OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 		case errors.Is(err, identity.ErrNotPendingApproval):
-			return nil, &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
+			return nil, &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
 		default:
 			var ve *outbound.ValidationError
 			if errors.As(err, &ve) {
-				return nil, &OutboundError{http.StatusBadRequest, "invalid_request", ve.Error()}
+				return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: ve.Error()}
 			}
 			log.Printf("[api] approve-send failed: agent=%s msg=%s err=%v", agent.ID, messageID, err)
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "send failed"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "send failed"}
 		}
 	}
 
@@ -217,16 +220,16 @@ func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIde
 func approveAsyncError(agentID, messageID string, err error) *OutboundError {
 	switch {
 	case errors.Is(err, identity.ErrNotPendingApproval):
-		return &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
+		return &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
 	case errors.Is(err, identity.ErrMessageNotFound):
-		return &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+		return &OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 	default:
 		var ve *outbound.ValidationError
 		if errors.As(err, &ve) {
-			return &OutboundError{http.StatusBadRequest, "invalid_request", ve.Error()}
+			return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: ve.Error()}
 		}
 		log.Printf("[api] approve-accept failed: agent=%s msg=%s err=%v", agentID, messageID, err)
-		return &OutboundError{http.StatusInternalServerError, "internal_error", "send failed"}
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "send failed"}
 	}
 }
 
@@ -310,23 +313,23 @@ func (a *API) RejectPendingCore(ctx context.Context, userID, messageID, expected
 	if expectedAgentEmail != "" {
 		preview, err := a.store.GetOutboundMessageForUser(ctx, messageID, userID)
 		if err != nil {
-			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+			return nil, &OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 		}
 		agent, err := a.store.GetAgentByID(ctx, preview.AgentID)
 		if err != nil || agent.Email != expectedAgentEmail {
-			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+			return nil, &OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 		}
 	}
 	rejected, err := a.store.RejectPending(ctx, messageID, userID, reason)
 	if err != nil {
 		switch {
 		case errors.Is(err, identity.ErrMessageNotFound):
-			return nil, &OutboundError{http.StatusNotFound, "not_found", "message not found"}
+			return nil, &OutboundError{Status: http.StatusNotFound, Code: "not_found", Msg: "message not found"}
 		case errors.Is(err, identity.ErrNotPendingApproval):
-			return nil, &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending approval"}
+			return nil, &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
 		default:
 			log.Printf("[api] reject: %v", err)
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to reject message"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to reject message"}
 		}
 	}
 	log.Printf("[mail:%s] dir=outbound type=%s status=%s agent=%s rejected_by=user:%s reason=%q",
@@ -348,10 +351,10 @@ func (a *API) RejectPendingCore(ctx context.Context, userID, messageID, expected
 func (a *API) ApproveInboundReviewCore(ctx context.Context, userID string, msg *identity.ReviewMessageMeta) *OutboundError {
 	if err := a.store.ApproveInboundReview(ctx, msg.ID, msg.AgentID, userID); err != nil {
 		if errors.Is(err, identity.ErrNotPendingReview) {
-			return &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending review"}
+			return &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending review"}
 		}
 		log.Printf("[api] approve inbound review %s: %v", msg.ID, err)
-		return &OutboundError{http.StatusInternalServerError, "internal_error", "failed to approve message"}
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to approve message"}
 	}
 	log.Printf("[mail:%s] dir=inbound type=%s status=%s agent=%s approved_by=user:%s",
 		msg.ID, msg.Type, identity.MessageStatusReviewApproved, msg.AgentID, userID)
@@ -382,10 +385,10 @@ func (a *API) reviewOwnerID(ctx context.Context, agentID, fallbackUserID string)
 func (a *API) RejectInboundReviewCore(ctx context.Context, userID, reason string, msg *identity.ReviewMessageMeta) *OutboundError {
 	if err := a.store.RejectInboundReview(ctx, msg.ID, msg.AgentID, userID, reason); err != nil {
 		if errors.Is(err, identity.ErrNotPendingReview) {
-			return &OutboundError{http.StatusConflict, "message_not_pending", "message is not pending review"}
+			return &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending review"}
 		}
 		log.Printf("[api] reject inbound review %s: %v", msg.ID, err)
-		return &OutboundError{http.StatusInternalServerError, "internal_error", "failed to reject message"}
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to reject message"}
 	}
 	log.Printf("[mail:%s] dir=inbound type=%s status=%s agent=%s rejected_by=user:%s reason=%q",
 		msg.ID, msg.Type, identity.MessageStatusReviewRejected, msg.AgentID, userID, reason)

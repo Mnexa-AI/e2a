@@ -1045,6 +1045,9 @@ type OutboundError struct {
 	Status int
 	Code   string
 	Msg    string
+	// Details carries optional code-specific structured context across the
+	// agent/httpapi boundary. It stays transport-neutral to avoid a package cycle.
+	Details map[string]any
 }
 
 func (e *OutboundError) Error() string { return e.Msg }
@@ -1068,9 +1071,8 @@ func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.
 		return nil
 	}
 	if len(suppressed) > 0 {
-		return &OutboundError{http.StatusUnprocessableEntity, "recipient_suppressed",
-			"recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") +
-				" — remove via DELETE /v1/account/suppressions/{address}"}
+		return &OutboundError{Status: http.StatusUnprocessableEntity, Code: "recipient_suppressed", Msg: "recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") +
+			" — remove via DELETE /v1/account/suppressions/{address}"}
 	}
 	return nil
 }
@@ -1128,7 +1130,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		// retried block doesn't write duplicate audit rows / events.
 		a.auditRowless(ctx, agent, blockAuditID(agent.ID, req), req, verdict)
 		a.emitBlockedOutbound(agent, blockAuditID(agent.ID, req), req, verdict)
-		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "message blocked by outbound policy"}
+		return nil, &OutboundError{Status: http.StatusForbidden, Code: "blocked_by_policy", Msg: "message blocked by outbound policy"}
 	}
 
 	// Hold when outbound screening says review. The outbound recipient gate
@@ -1139,9 +1141,9 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		msg, err := a.HoldForApprovalCore(ctx, agent, req, msgType, replyToEmailMessageID)
 		if err != nil {
 			if errors.Is(err, errHoldAttachments) {
-				return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to serialize attachments"}
+				return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to serialize attachments"}
 			}
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to hold message for approval"}
 		}
 		// Tag the held row + audit only when screening drove the hold (a pure
 		// legacy-HITL hold carries no screening verdict).
@@ -1158,7 +1160,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		providerID, err := a.performSelfSend(ctx, agent, req, msgType)
 		if err != nil {
 			log.Printf("[api] self-send failed: agent=%s error=%v", agent.EmailAddress(), err)
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "self-send failed"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "self-send failed"}
 		}
 		// Meter after the loopback delivery succeeds (side-effect only — never
 		// block on quota; the cap pre-check is the gate).
@@ -1181,15 +1183,15 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	// fail closed here as defense in depth and never submit inline.
 	if a.outboundEnq == nil {
 		log.Printf("[api] outbound queue unavailable: agent=%s to=%v", agent.Domain, req.To)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "outbound delivery queue unavailable"}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "outbound delivery queue unavailable"}
 	}
 	comp, cerr := a.sender.ComposeForAccept(agent, req)
 	if cerr != nil {
 		if outbound.IsValidationError(cerr) {
-			return nil, &OutboundError{http.StatusBadRequest, "invalid_request", cerr.Error()}
+			return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: cerr.Error()}
 		}
 		log.Printf("[api] async compose failed: agent=%s to=%v error=%v", agent.Domain, req.To, cerr)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("compose failed: %v", cerr)}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: fmt.Sprintf("compose failed: %v", cerr)}
 	}
 	var accepted *identity.Message
 	// Crash boundary:
@@ -1221,7 +1223,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		return nil
 	}); txErr != nil {
 		log.Printf("[api] async accept tx failed: agent=%s to=%v error=%v", agent.Domain, req.To, txErr)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to accept message for send"}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to accept message for send"}
 	}
 	if verdict.Annotate() {
 		a.annotateAndAudit(ctx, agent, accepted.ID, req, verdict)
@@ -1249,12 +1251,12 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 	if verdict.Block() {
 		a.auditRowless(ctx, agent, blockAuditID(agent.ID, testReq), testReq, verdict)
 		a.emitBlockedOutbound(agent, blockAuditID(agent.ID, testReq), testReq, verdict)
-		return nil, &OutboundError{http.StatusForbidden, "blocked_by_policy", "test message blocked by outbound policy"}
+		return nil, &OutboundError{Status: http.StatusForbidden, Code: "blocked_by_policy", Msg: "test message blocked by outbound policy"}
 	}
 	if verdict.Review() {
 		msg, err := a.HoldForApprovalCore(ctx, agent, testReq, "test", "")
 		if err != nil {
-			return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to hold message for approval"}
+			return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to hold message for approval"}
 		}
 		if verdict.Annotate() {
 			a.annotateAndAudit(ctx, agent, msg.ID, testReq, verdict)
@@ -1265,12 +1267,12 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 	message, err := outbound.ComposeMessage(headerFrom, to, nil, subject, body, "text/plain", "", nil, a.fromDomain, "", "")
 	if err != nil {
 		log.Printf("[api] compose test email failed: %v", err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", "failed to compose test email"}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "failed to compose test email"}
 	}
 	messageID, err := a.smtpRelay.Send(envelopeFrom, to, message)
 	if err != nil {
 		log.Printf("[api] send test email failed: %v", err)
-		return nil, &OutboundError{http.StatusInternalServerError, "internal_error", fmt.Sprintf("failed to send test email: %v", err)}
+		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: fmt.Sprintf("failed to send test email: %v", err)}
 	}
 	log.Printf("[api] test email sent to %s (message_id=%s)", agent.EmailAddress(), messageID)
 	// flag verdict: the test send persists no message row, so audit row-less.

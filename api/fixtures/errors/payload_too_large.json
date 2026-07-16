@@ -1,0 +1,1 @@
+{"error":{"code":"payload_too_large","message":"composed message too large","request_id":"req_fixture","details":{"scope":"composed_message","actual_bytes":10485761,"max_bytes":10485760}}}
