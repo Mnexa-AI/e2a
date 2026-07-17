@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm test --workspace @e2a/sdk
 
@@ -52,7 +52,7 @@ jobs:
       # `npm publish` run from the package dir, but npm install + build
       # use --workspace flags from repo root, so we override per-step.
 
-      - run: npm install --package-lock=false
+      - run: npm ci
         working-directory: .
       - run: npm run build --workspace @e2a/sdk
         working-directory: .

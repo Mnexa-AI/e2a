@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm test --workspace @e2a/sdk
       - run: npm run build --workspace @e2a/cli
@@ -46,7 +46,7 @@ jobs:
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm run build --workspace @e2a/cli
 

@@ -34,6 +34,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  repository-integrity:
+    name: Repository text integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: scripts/check-repository-text-integrity.sh
+
   go:
     name: Go tests
     runs-on: ubuntu-latest
@@ -138,7 +149,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-      - run: npm install
+      - run: npm ci
       - run: npm run lint
       - run: npm test
       - run: npm run build
@@ -153,7 +164,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm test --workspace @e2a/sdk
 
@@ -185,7 +196,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-      - run: npm install --package-lock=false
+      - run: npm ci
       - name: Build contract server helper
         run: |
           cd "$GITHUB_WORKSPACE"
@@ -243,7 +254,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm test --workspace @e2a/cli
       - run: npm run build --workspace @e2a/cli
@@ -289,7 +300,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm test --workspace @e2a/mcp-server
       - run: npm run build --workspace @e2a/mcp-server
@@ -452,7 +463,7 @@ jobs:
           cache-dependency-path: |
             sdks/python/pyproject.toml
       - name: Install TS SDK dependencies
-        run: npm install --package-lock=false
+        run: npm ci
       - name: Check generated code is up to date
         run: make generate-sdk-check
 
@@ -470,7 +481,7 @@ jobs:
       # Docker image copies it). Rebuild and fail on drift, same idiom as the
       # OpenAPI/SDK freshness gates above.
       - name: Install workspace deps
-        run: npm install --package-lock=false
+        run: npm ci
       - name: Rebuild @e2a/ui
         run: npm run build --workspace @e2a/ui
       - name: Check dist/ is up to date
