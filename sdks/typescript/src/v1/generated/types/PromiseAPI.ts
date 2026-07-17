@@ -881,7 +881,7 @@ export class PromiseMessagesApi {
      * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
      * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
-     * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
+     * @param [confirm] Must be the literal string DELETE when permanent&#x3D;true; ignored otherwise.
      */
     public deleteMessageWithHttpInfo(email: string, id: string, permanent?: boolean, confirm?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteMessageResult>> {
         const observableOptions = wrapOptions(_options);
@@ -895,7 +895,7 @@ export class PromiseMessagesApi {
      * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
      * @param [permanent] Permanently delete a message that is already in the trash (irreversible). Requires confirm&#x3D;DELETE and an account-scoped credential.
-     * @param [confirm] Must be the literal DELETE when permanent&#x3D;true.
+     * @param [confirm] Must be the literal string DELETE when permanent&#x3D;true; ignored otherwise.
      */
     public deleteMessage(email: string, id: string, permanent?: boolean, confirm?: string, _options?: PromiseConfigurationOptions): Promise<DeleteMessageResult> {
         const observableOptions = wrapOptions(_options);

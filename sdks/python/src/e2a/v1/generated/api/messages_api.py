@@ -54,7 +54,7 @@ class MessagesApi:
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.")] = None,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal string DELETE when permanent=true; ignored otherwise.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -78,7 +78,7 @@ class MessagesApi:
         :type id: str
         :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
         :type permanent: bool
-        :param confirm: Must be the literal DELETE when permanent=true.
+        :param confirm: Must be the literal string DELETE when permanent=true; ignored otherwise.
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -133,7 +133,7 @@ class MessagesApi:
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.")] = None,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal string DELETE when permanent=true; ignored otherwise.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -157,7 +157,7 @@ class MessagesApi:
         :type id: str
         :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
         :type permanent: bool
-        :param confirm: Must be the literal DELETE when permanent=true.
+        :param confirm: Must be the literal string DELETE when permanent=true; ignored otherwise.
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -212,7 +212,7 @@ class MessagesApi:
         email: Annotated[StrictStr, Field(description="The agent's full email address.")],
         id: Annotated[StrictStr, Field(description="The message id, e.g. msg_abc123.")],
         permanent: Annotated[Optional[StrictBool], Field(description="Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.")] = None,
-        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal DELETE when permanent=true.")] = None,
+        confirm: Annotated[Optional[StrictStr], Field(description="Must be the literal string DELETE when permanent=true; ignored otherwise.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -236,7 +236,7 @@ class MessagesApi:
         :type id: str
         :param permanent: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
         :type permanent: bool
-        :param confirm: Must be the literal DELETE when permanent=true.
+        :param confirm: Must be the literal string DELETE when permanent=true; ignored otherwise.
         :type confirm: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request

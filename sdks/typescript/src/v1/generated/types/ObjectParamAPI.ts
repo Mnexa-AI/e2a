@@ -1141,7 +1141,7 @@ export interface MessagesApiDeleteMessageRequest {
      */
     permanent?: boolean
     /**
-     * Must be the literal DELETE when permanent&#x3D;true.
+     * Must be the literal string DELETE when permanent&#x3D;true; ignored otherwise.
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApideleteMessage

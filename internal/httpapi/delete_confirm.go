@@ -14,9 +14,12 @@ package httpapi
 // explicit `.delete()` calls are never burdened with it.
 //
 // This replaces the previous per-endpoint optional-string `confirm` that was
-// checked in the handler and returned 400 confirmation_required — that
-// enforcement is now owned by Huma (422) so the gate is declared once and is
-// identical on every delete op.
+// checked in the handler with a bespoke error — that enforcement is now owned
+// by Huma (422 invalid_request) so the gate is declared once and is identical
+// on every delete op. The one op where confirm is only conditionally required
+// (permanent message deletion — the default trash delete takes no confirm, so
+// the param can't be schema-required) enforces the same contract in its
+// handler and emits the identical 422 invalid_request.
 type DeleteConfirm struct {
 	Confirm string `query:"confirm" enum:"DELETE" required:"true" doc:"Must be the literal DELETE — this action is irreversible."`
 }

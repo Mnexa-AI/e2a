@@ -518,12 +518,14 @@ func (s *Server) handleUpdateMessage(ctx context.Context, in *updateMessageInput
 // deleteMessageInput is the DELETE …/messages/{id} input. The default delete
 // is SOFT (trash, reversible) so it needs no confirmation; the trash-only
 // permanent purge requires both permanent=true and the uniform confirm=DELETE
-// literal (validated in the handler — confirm can't be schema-required here
-// because the default path doesn't take it).
+// literal. Confirm is conditionally required — the default path doesn't take
+// it, so it can't be schema-required like DeleteConfirm — but the handler
+// enforces the identical contract: a missing/wrong confirm when
+// permanent=true is a 422 invalid_request, same as the declarative guard.
 type deleteMessageInput struct {
 	MessageIDParam
 	Permanent bool   `query:"permanent" doc:"Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential."`
-	Confirm   string `query:"confirm" doc:"Must be the literal DELETE when permanent=true."`
+	Confirm   string `query:"confirm" doc:"Must be the literal string DELETE when permanent=true; ignored otherwise."`
 }
 
 type deleteMessageOutput struct {
@@ -556,6 +558,22 @@ func mapTrashErr(err error, resource string) error {
 // irreversible delete on the surface — a leaked/injected agent credential
 // must not be able to destroy inbox evidence beyond recovery.
 func (s *Server) handleDeleteMessage(ctx context.Context, in *deleteMessageInput) (*deleteMessageOutput, error) {
+	if in.Permanent && in.Confirm != "DELETE" {
+		// Same error contract AND precedence as the declarative DeleteConfirm
+		// guard: Huma validates the schema-required confirm before the handler
+		// runs (so ahead of any scope check or resource resolution), and the
+		// identical caller mistake gets the identical 422 invalid_request
+		// envelope here — before the account-scope check and agent/message
+		// lookup. Safe to answer first: auth middleware 401s still precede the
+		// handler, and the 422 discloses only public spec knowledge, never
+		// resource existence.
+		return nil, NewError(http.StatusUnprocessableEntity, "invalid_request",
+			"permanent deletion is irreversible — query parameter confirm must be the literal string DELETE when permanent=true").
+			WithDetails(ValidationErrorDetails{Fields: []FieldError{{
+				Location: "query.confirm",
+				Message:  "must be the literal string DELETE when permanent=true",
+			}}})
+	}
 	if in.Permanent {
 		if _, err := s.requireAccountScope(ctx); err != nil {
 			return nil, err
@@ -566,10 +584,6 @@ func (s *Server) handleDeleteMessage(ctx context.Context, in *deleteMessageInput
 		return nil, err
 	}
 	if in.Permanent {
-		if in.Confirm != "DELETE" {
-			return nil, NewError(http.StatusBadRequest, "confirmation_required",
-				"permanent deletion is irreversible — pass confirm=DELETE")
-		}
 		if s.deps.PurgeMessage == nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "delete unavailable")
 		}

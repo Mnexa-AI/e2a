@@ -33,7 +33,6 @@ var errorCodeCatalog = []errorCodeContract{
 	{Code: "invalid_webhook_url", Status: "400", Family: "validation"},
 	{Code: "invalid_expires_at", Status: "400", Family: "validation"},
 	{Code: "invalid_scope", Status: "400", Family: "validation"},
-	{Code: "confirmation_required", Status: "400", Family: "validation"},
 	{Code: "reserved_domain", Status: "400", Family: "validation"},
 	{Code: "too_many_recipients", Status: "400", Family: "validation", DetailsSchema: "TooManyRecipientsDetails"},
 	{Code: "template_render_failed", Status: "400", Family: "validation"},
