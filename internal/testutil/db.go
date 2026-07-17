@@ -102,8 +102,24 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// truncateAll resets the DB between tests. Most tables are reached implicitly by
+// TRUNCATE ... CASCADE via their FK path to users/messages/webhooks, so they need
+// no explicit mention. Tables with NO foreign key at all cannot be reached by
+// CASCADE, so they need explicit cleanup. Currently that is:
+//
+//   - inbound_intake: written at the SMTP edge BEFORE the agent lookup, so it
+//     deliberately has no FK. Omitting it left stale dedup rows behind and made
+//     TestInboundIntake_InsertLoadDedup / _StampProcessAndFail fail on a re-run
+//     (the "insert must be new" assertions saw the previous run's rows).
+//
+// Use DELETE for FK-less tables instead of adding them to TRUNCATE. The test suite
+// calls this helper hundreds of times; repeatedly truncating inbound_intake also
+// recreates and fsyncs its three indexes and requires an ACCESS EXCLUSIVE lock.
+// Any future FK-less table MUST be added to the DELETE section here.
 func truncateAll(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
+		DELETE FROM inbound_intake;
+
 		TRUNCATE oauth_pkce_requests, oauth_refresh_tokens, oauth_access_tokens,
 		         oauth_auth_codes, oauth_clients,
 		         usage_summaries, usage_events, webhook_deliveries,
