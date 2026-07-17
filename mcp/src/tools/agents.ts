@@ -182,6 +182,10 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
           .enum(["approve", "reject"])
           .optional()
           .describe("What happens to a held item at TTL expiry."),
+        holds_suppress_notifications: z
+          .boolean()
+          .optional()
+          .describe("When true, keep creating holds but do not email approval notifications."),
       }),
     },
     async (args) =>
@@ -209,6 +213,8 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
         if (args.holds_ttl_seconds !== undefined) cfg.holds.ttlSeconds = args.holds_ttl_seconds;
         if (args.holds_on_expiry !== undefined)
           cfg.holds.onExpiry = args.holds_on_expiry as typeof cfg.holds.onExpiry;
+        if (args.holds_suppress_notifications !== undefined)
+          cfg.holds.suppressNotifications = args.holds_suppress_notifications;
         // ProtectionConfigRequest is the View's field-for-field request twin
         // (the spec splits them only so responses can be additive-open while
         // requests stay strict), but the generated enum types are nominal, so

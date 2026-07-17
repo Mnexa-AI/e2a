@@ -46,6 +46,7 @@ func protectionServer(t *testing.T) (*httptest.Server, *identity.AgentIdentity) 
 			ag.OutboundScanSensitivity = cfg.OutboundScanSensitivity
 			ag.HITLTTLSeconds = cfg.HITLTTLSeconds
 			ag.HITLExpirationAction = cfg.HITLExpirationAction
+			ag.SuppressNotifications = cfg.SuppressNotifications
 			return nil
 		},
 		Legacy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }),
@@ -69,7 +70,7 @@ func TestProtectionPutGetRoundTrip(t *testing.T) {
 			"gate": map[string]any{"policy": "domain", "allowlist": []string{"acme.com"}, "action": "block"},
 			"scan": map[string]any{"sensitivity": "off"},
 		},
-		"holds": map[string]any{"ttl_seconds": 3600, "on_expiry": "approve"},
+		"holds": map[string]any{"ttl_seconds": 3600, "on_expiry": "approve", "suppress_notifications": true},
 	}
 	code, body := sendJSON(t, "PUT", srv.URL+"/v1/agents/support%40acme.com/protection", "good", put)
 	if code != 200 {
@@ -92,6 +93,9 @@ func TestProtectionPutGetRoundTrip(t *testing.T) {
 	holds, _ := got["holds"].(map[string]any)
 	if holds["on_expiry"] != "approve" {
 		t.Errorf("holds.on_expiry = %v, want approve", holds["on_expiry"])
+	}
+	if holds["suppress_notifications"] != true {
+		t.Errorf("holds.suppress_notifications = %v, want true", holds["suppress_notifications"])
 	}
 }
 

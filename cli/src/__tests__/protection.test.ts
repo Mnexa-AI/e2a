@@ -22,7 +22,7 @@ function makeDoc() {
       gate: { policy: "allowlist", allowlist: ["trusted@x.com"], action: "review" },
       scan: { sensitivity: "medium" },
     },
-    holds: { ttlSeconds: 3600, onExpiry: "approve" },
+    holds: { ttlSeconds: 3600, onExpiry: "approve", suppressNotifications: false },
   };
 }
 
@@ -72,6 +72,20 @@ describe("protection commands", () => {
     expect(put.inbound.scan.sensitivity).toBe("high"); // untouched
   });
 
+  it("set --suppress-notifications on changes only notification delivery", async () => {
+    mockGetProtection.mockResolvedValue(makeDoc());
+    mockReplaceProtection.mockImplementation(async (_email: string, doc: unknown) => doc);
+    const { protectionSet } = await import("../commands/protection.js");
+    await protectionSet("bot@agents.e2a.dev", { suppressNotifications: "on" });
+
+    const put = mockReplaceProtection.mock.calls[0][1];
+    expect(put.holds.suppressNotifications).toBe(true);
+    expect(put.inbound).toEqual(makeDoc().inbound);
+    expect(put.outbound).toEqual(makeDoc().outbound);
+    expect(put.holds.ttlSeconds).toBe(3600);
+    expect(put.holds.onExpiry).toBe("approve");
+  });
+
   it("set --outbound-review on re-enables a disabled scan (off→on round-trip restores holding)", async () => {
     // Under gate policy "open" every sender matches, so the gate action never
     // fires — HITL "on" without a scan would look on while holding nothing.
@@ -104,6 +118,7 @@ describe("protection commands", () => {
     await expect(protectionSet(undefined, { outboundReview: "off" })).rejects.toThrow("process.exit");
     await expect(protectionSet("a@b.c", {})).rejects.toThrow("process.exit");
     await expect(protectionSet("a@b.c", { outboundReview: "sideways" })).rejects.toThrow("process.exit");
+    await expect(protectionSet("a@b.c", { suppressNotifications: "sideways" })).rejects.toThrow("process.exit");
     expect(mockExit).toHaveBeenCalledWith(2);
     expect(mockGetProtection).not.toHaveBeenCalled();
   });
@@ -117,6 +132,7 @@ describe("protection commands", () => {
     expect(output).toContain("outbound: gate=allowlist/review scan=medium");
     expect(output).toContain("inbound:  gate=open/review scan=high");
     expect(output).toContain("holds:    ttl=3600s on_expiry=approve");
+    expect(output).toContain("notifications=enabled");
 
     mockStdout.mockClear();
     await protectionGet("bot@agents.e2a.dev", { json: true });

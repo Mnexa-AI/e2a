@@ -129,6 +129,10 @@ func TestExportUserData(t *testing.T) {
 	ctx := context.Background()
 
 	user := seedUserData(t, store, ctx, "exporter")
+	if _, err := pool.Exec(ctx,
+		`UPDATE agent_identities SET suppress_notifications = true WHERE user_id = $1`, user.ID); err != nil {
+		t.Fatalf("enable notification suppression: %v", err)
+	}
 
 	dump, err := store.ExportUserData(ctx, user.ID)
 	if err != nil {
@@ -144,6 +148,9 @@ func TestExportUserData(t *testing.T) {
 	}
 	if len(dump.Agents) != 1 {
 		t.Errorf("agents: got %d, want 1", len(dump.Agents))
+	}
+	if len(dump.Agents) == 1 && !dump.Agents[0].SuppressNotifications {
+		t.Error("exported agent lost suppress_notifications=true")
 	}
 	// The export keys an agent on `email` only. The #436 rename dropped the
 	// redundant `id` (id == email) from every other surface; guard that the
