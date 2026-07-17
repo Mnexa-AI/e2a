@@ -46,6 +46,7 @@ components:
         - key_prefix
         - created_at
       type: object
+      x-stability-level: beta
     APIKeyView:
       additionalProperties: true
       properties:
@@ -69,10 +70,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
-          enum:
-            - account
-            - agent
+          description: "account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."
           type: string
       required:
         - id
@@ -102,9 +100,7 @@ components:
         plan_code:
           type: string
         scope:
-          enum:
-            - account
-            - agent
+          description: "Credential scope. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."
           type: string
         upgrade_url:
           type: string
@@ -230,6 +226,7 @@ components:
         - inbound_scan_sensitivity
         - outbound_scan_sensitivity
       type: object
+      x-stability-level: beta
     AgentView:
       additionalProperties: true
       properties:
@@ -237,7 +234,7 @@ components:
           format: date-time
           type: string
         deleted_at:
-          description: When the agent was moved to the trash. Omitted for live agents.
+          description: When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages' expiry clocks are paused; restore resumes them where they stopped.
           format: date-time
           type: string
         domain:
@@ -263,13 +260,15 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
-          description: Override Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Override Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         cc:
-          description: Override Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Override Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         html:
@@ -282,8 +281,9 @@ components:
           maxLength: 1048576
           type: string
         to:
-          description: Override primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Override primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
       type: object
@@ -478,7 +478,8 @@ components:
           format: date-time
           type: string
         name:
-          description: Human label for the key.
+          description: Human label for the key. At most 200 characters (Unicode code points).
+          maxLength: 200
           type: string
         scope:
           description: account = workspace admin (default); agent = bound to a single inbox.
@@ -513,10 +514,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
-          enum:
-            - account
-            - agent
+          description: "account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."
           type: string
       required:
         - key
@@ -530,8 +528,12 @@ components:
       additionalProperties: false
       properties:
         email:
+          description: The agent's full email address — its identity. At most 320 characters (Unicode code points).
+          maxLength: 320
           type: string
         name:
+          description: Display name for the agent (a UI label; the agent's identity is its email). At most 200 characters (Unicode code points) — the same cap as updateAgent.
+          maxLength: 200
           type: string
       required:
         - email
@@ -660,7 +662,7 @@ components:
           description: "What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf."
           type: string
         status:
-          description: "Per-record verification state. Open set; tolerate unknown values. Known values: verified, pending, missing, failed. Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records reflect their own SES axis: the dkim record follows the DKIM axis, while mail_from_mx and mail_from_spf follow the custom MAIL FROM axis, so a domain with working DKIM but a broken MAIL FROM (or the reverse) shows exactly which record to fix rather than failing all three. Before SES has reported a per-axis result (pre-provision rows) the sending records fall back to the all-or-nothing sending_status rollup; consult sending_error for the failure reason. The domain-level sending_status field remains the all-or-nothing rollup summary."
+          description: "Persisted verification state of this DNS record — the stored domain state, updated when verification checks and the SES reconciler run, NOT a live DNS probe result. Open set; tolerate unknown values. Known values: verified (record confirmed), pending (not yet confirmed — awaiting publish/propagation or an SES result), missing (documented for forward compatibility; not currently emitted), failed (verification failed, or pending exceeded its TTL). Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records reflect their own SES axis: the dkim record follows the DKIM axis, while mail_from_mx and mail_from_spf follow the custom MAIL FROM axis, so a domain with working DKIM but a broken MAIL FROM (or the reverse) shows exactly which record to fix rather than failing all three. Before SES has reported a per-axis result (pre-provision rows) the sending records fall back to the all-or-nothing sending_status rollup; consult sending_error for the failure reason. The domain-level sending_status field remains the all-or-nothing rollup summary. POST /v1/domains/{domain}/verify reports the LIVE probe outcome for the same records in probe vocabulary (found/missing/deferred/mismatch) — persisted state and live probe outcome are deliberately distinct axes; do not map one vocabulary onto the other."
           type: string
         type:
           description: DNS record type. MX or TXT.
@@ -733,7 +735,6 @@ components:
         - deleted
         - id
       type: object
-      x-stability-level: beta
     DeleteSuppressionResult:
       additionalProperties: true
       properties:
@@ -905,6 +906,7 @@ components:
         - agent_count
         - sending_status
       type: object
+      x-stability-level: beta
     DomainSendingFailedData:
       additionalProperties: true
       properties:
@@ -941,9 +943,7 @@ components:
         reason:
           type: string
         source:
-          enum:
-            - bounce
-            - complaint
+          description: "How the suppression was created. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: bounce, complaint."
           type: string
       required:
         - address
@@ -1229,7 +1229,7 @@ components:
       additionalProperties: true
       properties:
         code:
-          description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Exact current vocabulary (machine-checked): unauthorized, forbidden, blocked_by_policy, invalid_request, invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope, confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty, recipient_suppressed, not_found, attachment_not_found, template_not_found, starter_template_not_found, gone, conflict, agent_taken, domain_taken, alias_taken, address_in_trash, message_held, message_not_pending, not_in_trash, send_in_progress, webhook_disabled, webhook_cooldown, domain_not_registered, domain_has_agents, domain_not_verified, limit_exceeded, rate_limited, template_limit_reached, webhook_limit_reached, idempotency_in_flight, idempotency_key_reuse, payload_too_large, attachment_too_large, not_implemented, events_log_disabled, limits_unavailable, internal_error, method_not_allowed, unsupported_media_type, error. Grouped semantics: auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), confirmation_required, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."
+          description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Exact current vocabulary (machine-checked): unauthorized, forbidden, blocked_by_policy, invalid_request, invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty, recipient_suppressed, not_found, attachment_not_found, template_not_found, starter_template_not_found, gone, conflict, agent_taken, domain_taken, alias_taken, address_in_trash, message_held, message_not_pending, not_in_trash, send_in_progress, webhook_disabled, webhook_cooldown, domain_not_registered, domain_has_agents, domain_not_verified, limit_exceeded, rate_limited, template_limit_reached, webhook_limit_reached, idempotency_in_flight, idempotency_key_reuse, payload_too_large, attachment_too_large, not_implemented, events_log_disabled, limits_unavailable, internal_error, method_not_allowed, unsupported_media_type, error. Grouped semantics: auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."
           type: string
           x-e2a-error-contracts:
             address_in_trash:
@@ -1262,11 +1262,6 @@ components:
               retryable: false
               statuses:
                 - 403
-            confirmation_required:
-              family: validation
-              retryable: false
-              statuses:
-                - 400
             conflict:
               family: state
               retryable: false
@@ -1640,29 +1635,35 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
-          description: Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         cc:
-          description: Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         conversation_id:
+          description: Caller-assigned conversation (thread) id override. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF.
+          maxLength: 200
           type: string
         html:
           maxLength: 1048576
           type: string
         reply_to:
-          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. At most 320 characters (display name + address combined). Defaults to the sending agent's own address.
+          maxLength: 320
           type: string
         text:
           maxLength: 1048576
           type: string
         to:
-          description: Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
       required:
@@ -1684,12 +1685,7 @@ components:
           description: The account's plan label.
           type: string
         resource:
-          description: The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>.
-          enum:
-            - agents
-            - domains
-            - messages_month
-            - storage_bytes
+          description: "The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: agents, domains, messages_month, storage_bytes."
           type: string
         upgrade_url:
           description: An upgrade affordance URL, when the operator has configured one.
@@ -1910,6 +1906,7 @@ components:
         - created_at
         - expires_at
       type: object
+      x-stability-level: beta
     MessageBodyView:
       additionalProperties: true
       properties:
@@ -1946,7 +1943,7 @@ components:
           format: date-time
           type: string
         deleted_at:
-          description: When the message was moved to the trash. Omitted for live messages.
+          description: When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash.
           format: date-time
           type: string
         delivered_to:
@@ -2037,7 +2034,7 @@ components:
           format: date-time
           type: string
         deleted_at:
-          description: When the message was moved to the trash. Omitted for live messages.
+          description: When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash.
           format: date-time
           type: string
         delivered_to:
@@ -2143,6 +2140,7 @@ components:
         - scope
         - issued_at
       type: object
+      x-stability-level: beta
     PageAPIKeyView:
       additionalProperties: true
       properties:
@@ -2342,12 +2340,7 @@ components:
           minimum: 1
           type: integer
         scope:
-          description: Which byte budget was exceeded.
-          enum:
-            - composed_message
-            - attachment
-            - attachments_total
-            - request_body
+          description: "Which byte budget was exceeded. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: composed_message, attachment, attachments_total, request_body."
           type: string
       required:
         - scope
@@ -2445,6 +2438,7 @@ components:
         - action
         - created_at
       type: object
+      x-stability-level: beta
     ProtectionGateRequest:
       additionalProperties: false
       properties:
@@ -2477,11 +2471,7 @@ components:
       properties:
         action:
           default: flag
-          description: "What a gate non-match does: flag (deliver + annotate), review (hold), block."
-          enum:
-            - flag
-            - review
-            - block
+          description: "What a gate non-match does: flag (deliver + annotate), review (hold), block. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: flag, review, block."
           type: string
         allowlist:
           description: "Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."
@@ -2491,11 +2481,7 @@ components:
           type: array
         policy:
           default: open
-          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."
-          enum:
-            - open
-            - allowlist
-            - domain
+          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain."
           type: string
       type: object
       x-stability-level: beta
@@ -2526,10 +2512,7 @@ components:
       properties:
         on_expiry:
           default: reject
-          description: What happens to a held item when its TTL expires.
-          enum:
-            - approve
-            - reject
+          description: "What happens to a held item when its TTL expires. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: approve, reject."
           type: string
         suppress_notifications:
           default: false
@@ -2562,12 +2545,7 @@ components:
       properties:
         sensitivity:
           default: "off"
-          description: "Content-scan sensitivity: off disables; low|medium|high increase aggressiveness."
-          enum:
-            - "off"
-            - low
-            - medium
-            - high
+          description: "Content-scan sensitivity: off disables; low|medium|high increase aggressiveness. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: off, low, medium, high."
           type: string
       type: object
       x-stability-level: beta
@@ -2663,6 +2641,8 @@ components:
       additionalProperties: false
       properties:
         reason:
+          description: Optional reviewer note explaining the rejection — echoed back as the held message's rejection_reason. At most 2000 characters (Unicode code points).
+          maxLength: 2000
           type: string
       type: object
     RejectResultView:
@@ -2701,16 +2681,20 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
-          description: Additional Bcc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Additional Bcc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         cc:
-          description: Additional Cc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Additional Cc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         conversation_id:
+          description: Caller-assigned conversation (thread) id override. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF.
+          maxLength: 200
           type: string
         html:
           maxLength: 1048576
@@ -2718,7 +2702,8 @@ components:
         reply_all:
           type: boolean
         reply_to:
-          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. Defaults to the sending agent's own address.
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. At most 320 characters (display name + address combined). Defaults to the sending agent's own address.
+          maxLength: 320
           type: string
         text:
           maxLength: 1048576
@@ -2802,23 +2787,28 @@ components:
             $ref: "#/components/schemas/Attachment"
           type: array
         bcc:
-          description: Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Bcc recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         cc:
-          description: Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Cc recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
         conversation_id:
+          description: Caller-assigned conversation (thread) id. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF.
+          maxLength: 200
           type: string
         html:
           description: Literal HTML body. Mutually exclusive with template_id/template_alias.
           maxLength: 1048576
           type: string
         reply_to:
-          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. "Support <support@acme.com>"). Defaults to the sending agent's own address.
+          description: Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. "Support <support@acme.com>"). At most 320 characters (display name + address combined). Defaults to the sending agent's own address.
+          maxLength: 320
           type: string
         subject:
           description: Literal subject. Required unless a template reference is used (mutually exclusive with template_id/template_alias).
@@ -2842,8 +2832,9 @@ components:
           maxLength: 1048576
           type: string
         to:
-          description: Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined.
+          description: Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
           items:
+            maxLength: 320
             type: string
           type: array
       required:
@@ -2978,6 +2969,7 @@ components:
         - source
         - created_at
       type: object
+      x-stability-level: beta
     SuppressionView:
       additionalProperties: true
       properties:
@@ -3128,7 +3120,7 @@ components:
       additionalProperties: false
       properties:
         name:
-          description: New display name for the agent (a UI label; the agent's identity is its email).
+          description: New display name for the agent (a UI label; the agent's identity is its email). At most 200 characters (Unicode code points) — the same cap as createAgent.
           maxLength: 200
           type: string
       type: object
@@ -3237,6 +3229,7 @@ components:
         - type
         - created_at
       type: object
+      x-stability-level: beta
     UserExport:
       additionalProperties: true
       properties:
@@ -3268,6 +3261,7 @@ components:
             $ref: "#/components/schemas/ProtectionEventExportEntry"
           type: array
         schema_version:
+          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "2".
           type: string
         suppressions:
           items:
@@ -3308,6 +3302,7 @@ components:
         - name
         - created_at
       type: object
+      x-stability-level: beta
     ValidateTemplateRequest:
       additionalProperties: false
       properties:
@@ -3359,13 +3354,15 @@ components:
       additionalProperties: true
       properties:
         dkim:
-          description: "Live DKIM probe state. Known values: found, missing, deferred, mismatch. 'mismatch' means a DKIM record IS published at the selector but its key doesn't match the issued one — almost always a truncated/clipped TXT (the value is ~400 chars and must be published in full, ending in 'AQAB'). On 'mismatch', re-publish the complete DKIM record; do not just wait."
+          description: "Live DNS probe outcome for the domain's DKIM record ({selector}._domainkey.{domain}) from THIS verification attempt — not the persisted domain state (that is dns_records[].status on GET /v1/domains/{domain}, which uses the deliberately distinct persisted vocabulary verified/pending/missing/failed). Advisory diagnostic: DKIM does not gate verified. Open set; tolerate unknown values. Known values: found (a TXT at the selector carries a p= key equal to the issued one; a match wins over a stale key during rotation), missing (a keypair is issued but no p= payload is published at the selector, or the DNS lookup failed), deferred (the probe was skipped because no per-domain DKIM keypair is stored for this domain yet — legacy pre-keying rows; NOT a DNS-propagation wait), mismatch (a DKIM record IS published at the selector but its key doesn't match the issued one — almost always a truncated/clipped TXT: the value is ~400 chars and must be published in full, ending in 'AQAB'; re-publish the complete DKIM record, do not just wait)."
           type: string
         domain:
           type: string
         mx:
+          description: "Live DNS probe outcome for the inbound MX record from THIS verification attempt — not the persisted domain state (that is dns_records[].status on GET /v1/domains/{domain}, which uses the deliberately distinct persisted vocabulary verified/pending/missing/failed). Open set; tolerate unknown values. Known values: found (an MX record on the apex domain points at the e2a relay host), missing (no apex MX points at the relay, or the DNS lookup failed). The MX probe gates verification together with the ownership TXT: verified flips true only when both are present."
           type: string
         spf:
+          description: "Live DNS probe outcome for the apex SPF record from THIS verification attempt — not the persisted domain state (that is dns_records[].status on GET /v1/domains/{domain}, which uses the deliberately distinct persisted vocabulary verified/pending/missing/failed). Advisory diagnostic only: SPF does not gate verified. Open set; tolerate unknown values. Known values: found (an apex TXT record starts with v=spf1 and includes the e2a relay's send domain), missing (no such TXT record, or the DNS lookup failed). This probes the APEX SPF authorizing the relay; it is not the mail_from_spf record (the custom MAIL FROM subdomain's SPF), whose persisted state is reported in dns_records[].status."
           type: string
         verified:
           type: boolean
@@ -3734,7 +3731,7 @@ paths:
         - account
   /v1/account/export:
     get:
-      description: A JSON dump of every record the authenticated account owns.
+      description: "A JSON dump of every record the authenticated account owns. Contract: the export envelope (the top-level keys and schema_version) is stable; the interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. Interior schemas carry `x-stability-level: beta` in this document to mark that exemption machine-readably; the operation itself is stable GA surface."
       operationId: exportAccount
       responses:
         "200":
@@ -3877,12 +3874,12 @@ paths:
             maximum: 100
             minimum: 1
             type: integer
-        - description: "List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only)."
+        - description: "List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only)."
           explode: false
           in: query
           name: deleted
           schema:
-            description: "List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only)."
+            description: "List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only)."
             type: boolean
       responses:
         "200":
@@ -3987,7 +3984,7 @@ paths:
         - agents
   /v1/agents/{email}:
     delete:
-      description: Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
+      description: Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
       operationId: deleteAgent
       parameters:
         - in: path
@@ -4239,7 +4236,7 @@ paths:
         - conversations
   /v1/agents/{email}/messages:
     get:
-      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
+      description: List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged — 30 days after deletion by default, deployment-configurable); the trash view defaults to direction=all and read_status=all.
       operationId: listMessages
       parameters:
         - in: path
@@ -4337,12 +4334,12 @@ paths:
             maximum: 100
             minimum: 1
             type: integer
-        - description: "List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only)."
+        - description: "List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only)."
           explode: false
           in: query
           name: deleted
           schema:
-            description: "List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only)."
+            description: "List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only)."
             type: boolean
       responses:
         "200":
@@ -4499,7 +4496,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}:
     delete:
-      description: Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash ("delete forever"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+      description: Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash ("delete forever"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
       operationId: deleteMessage
       parameters:
         - description: The agent's full email address.
@@ -4523,12 +4520,12 @@ paths:
           schema:
             description: Permanently delete a message that is already in the trash (irreversible). Requires confirm=DELETE and an account-scoped credential.
             type: boolean
-        - description: Must be the literal DELETE when permanent=true.
+        - description: Must be the literal string DELETE when permanent=true; ignored otherwise.
           explode: false
           in: query
           name: confirm
           schema:
-            description: Must be the literal DELETE when permanent=true.
+            description: Must be the literal string DELETE when permanent=true; ignored otherwise.
             type: string
       responses:
         "200":
@@ -4554,9 +4551,8 @@ paths:
       summary: Delete a message (move to trash)
       tags:
         - messages
-      x-stability-level: beta
     get:
-      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (~30 days after deletion); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
+      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
       operationId: getMessage
       parameters:
         - description: The agent's full email address.
@@ -4963,7 +4959,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/restore:
     post:
-      description: Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+      description: Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
       operationId: restoreMessage
       parameters:
         - description: The agent's full email address.
@@ -5004,7 +5000,6 @@ paths:
       summary: Restore a message from the trash
       tags:
         - messages
-      x-stability-level: beta
   /v1/agents/{email}/protection:
     get:
       description: "Read the agent's protection posture — inbound/outbound trust gate, content-scan sensitivity, and hold-queue mechanism. Account scope only: an agent-scoped credential cannot read its own protection config. Beta: the agent protection config is unstable — its shape may change before it is declared stable."
@@ -5086,7 +5081,7 @@ paths:
       x-stability-level: beta
   /v1/agents/{email}/restore:
     post:
-      description: Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+      description: "Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent's live messages resume their clocks exactly where they stopped: each message's expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash."
       operationId: restoreAgent
       parameters:
         - description: The agent's full email address, e.g. support@acme.com.
@@ -5120,10 +5115,9 @@ paths:
       summary: Restore an agent from the trash
       tags:
         - agents
-      x-stability-level: beta
   /v1/agents/{email}/test:
     post:
-      description: Send a platform test email to the agent's own address to confirm inbound delivery. 202 when held for HITL.
+      description: "Send a platform-originated test email (From: the platform noreply identity) to the agent's own address over the real external SMTP route, to confirm inbound delivery end to end. Returns 202: status=accepted (the message is durably persisted and queued; message_id is the GET-able e2a message id, and the terminal outcome arrives via GET /v1/messages/{id} or the email.sent / email.failed webhook events — provider_message_id appears only after provider submission) or status=pending_review when held for review. Always branch on body.status."
       operationId: testAgent
       parameters:
         - description: The agent's full email address, e.g. support@acme.com.
@@ -5652,7 +5646,7 @@ paths:
         - reviews
   /v1/reviews/{id}/approve:
     post:
-      description: "Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large."
+      description: "Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. The final merged recipient set (to, cc, and bcc, including reviewer overrides) is also re-checked against the account suppression list: any suppressed recipient returns 422 recipient_suppressed and the hold stays pending_review — remove the suppression (DELETE /v1/account/suppressions/{address}) and approve again."
       operationId: approveReview
       parameters:
         - in: path
@@ -5723,7 +5717,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          description: "Unprocessable — branch on error.code. recipient_suppressed: a recipient of the final merged outbound draft (to/cc/bcc after reviewer overrides) is on the account suppression list; the hold stays pending_review — remove the suppression via DELETE /v1/account/suppressions/{address}, then approve again (a keyed retry re-executes; the refusal is never cached under the Idempotency-Key). idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestID"
@@ -6173,7 +6167,15 @@ paths:
       tags:
         - webhooks
     post:
+      description: Register a webhook subscriber; the one-time signing secret is returned only on this response. Honors Idempotency-Key so a retried create replays the same webhook (same id + secret) instead of registering a second subscription; omit the key to intentionally create distinct subscriptions, including several to the same URL.
       operationId: createWebhook
+      parameters:
+        - description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit."
+          in: header
+          name: Idempotency-Key
+          schema:
+            description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit."
+            type: string
       requestBody:
         content:
           application/json:
@@ -6190,12 +6192,30 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestID"
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
         default:
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-          description: Error
+          description: Error — the standard envelope; branch on error.code.
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestID"
