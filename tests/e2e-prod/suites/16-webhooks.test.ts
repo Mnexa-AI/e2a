@@ -164,8 +164,10 @@ test("webhooks: full CRUD round-trip (create/list/get/patch/rotate/deliveries/de
 test("webhooks: testWebhook on enabled hook returns 200 with delivery_id (async, no 5xx)", async () => {
   const hook = await createHook();
   try {
+    // TestWebhookRequest schema: { type?: <event enum>, data?: object },
+    // additionalProperties:false — the field is `type`, not `event`.
     const r = await client.post<{ delivery_id: string }>(`/v1/webhooks/${hook.id}/test`, {
-      body: { event: "email.received" },
+      body: { type: "email.received" },
     });
     assert.ok(
       r.status < 500,
@@ -198,7 +200,7 @@ test("webhooks: testWebhook on disabled hook returns 409 webhook_disabled", asyn
     assert.equal(patch.body?.enabled, false);
 
     const r = await client.post<ErrEnvelope>(`/v1/webhooks/${hook.id}/test`, {
-      body: { event: "email.received" },
+      body: { type: "email.received" },
     });
     assert.ok(r.status >= 400 && r.status < 500, `disabled-hook test should be 4xx, got ${r.status}`);
     if (r.status !== 409) {

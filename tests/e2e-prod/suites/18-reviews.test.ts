@@ -25,7 +25,7 @@ const SINK = "blackhole+e2e@e2a.dev";
 
 interface Review {
   id: string;
-  agent: string;
+  agent_email: string;
   direction: string;
   from: string;
   to: string[];
@@ -84,8 +84,8 @@ test("reviews: listReviews returns PageReviewView envelope with the new held rev
     );
     const mine = r.body!.items.find((v) => v.id === id);
     assert.ok(mine, `the just-created held review ${id} should appear in the account queue`);
-    // ReviewView required fields: id, agent, direction, from, to, subject, review_status, created_at.
-    assert.equal(mine!.agent, email, "review.agent is the sending inbox");
+    // ReviewView fields: id, agent_email, direction, from, to, subject, review_status, created_at.
+    assert.equal(mine!.agent_email, email, "review.agent_email is the sending inbox");
     assert.equal(mine!.direction, "outbound", "held outbound draft");
     assert.equal(mine!.from, email, "review.from is the sending agent");
     assert.ok(Array.isArray(mine!.to) && mine!.to.includes(SINK), "review.to carries the recipient");

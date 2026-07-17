@@ -139,11 +139,12 @@ test("concurrency: parallel DELETE of the same agent is idempotent under content
   const fivexx = results.filter((r) => r.status >= 500);
   assert.equal(fivexx.length, 0, `no 5xx under parallel delete, got: ${results.map((r) => r.status).join(",")}`);
   assert.ok(ok.length >= 1, `at least one delete should succeed, got ${ok.length}: ${results.map((r) => r.status).join(",")}`);
-  // Final state check: a GET after all the parallel deletes must say 403
-  // (anti-enumeration on deleted) — confirms the agent is actually gone
-  // regardless of which delete "won."
+  // Final state check: a GET after all the parallel deletes must say 404
+  // — a deleted agent is indistinguishable from one that never existed
+  // (anti-enumeration; matches the "get nonexistent agent → 404 not_found"
+  // convention), confirming the agent is gone regardless of which delete "won."
   const after = await client.get(`/v1/agents/${encodeURIComponent(email)}`);
-  assert.equal(after.status, 403, `after parallel delete, GET expected 403, got ${after.status}`);
+  assert.equal(after.status, 404, `after parallel delete, GET expected 404, got ${after.status}`);
   if (ok.length > 1) {
     info(SUITE, "delete-idempotent", `${ok.length} parallel deletes returned 2xx — server treats DELETE as idempotent`);
   } else {

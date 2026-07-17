@@ -281,8 +281,11 @@ test("emit: email.sent — real send emits the event and attempts a delivery", {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit sent"), text: "real send to SES simulator" },
     });
-    assert.equal(send.status, 200, `real send expected 200 sent, got ${send.status}: ${send.raw.slice(0, 200)}`);
-    assert.equal(send.body?.status, "sent", "no-hold agent sends immediately");
+    // A no-hold send is durably accepted and delivered asynchronously → 202
+    // accepted; the terminal "sent" arrives via the email.sent event polled
+    // for below (or via wait=sent). Branch on body.status, not the HTTP code.
+    assert.equal(send.status, 202, `real send expected 202 accepted, got ${send.status}: ${send.raw.slice(0, 200)}`);
+    assert.equal(send.body?.status, "accepted", "no-hold agent send is accepted for async delivery");
     const messageId = send.body!.message_id!;
     assert.ok(messageId?.startsWith("msg_"), "send returns a msg_ id");
 
@@ -436,7 +439,7 @@ test("events: listEvents returns PageEventView envelope and honors type/agent_em
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit list"), text: "for listEvents" },
     });
-    assert.equal(send.status, 200, `real send expected 200, got ${send.status}: ${send.raw.slice(0, 200)}`);
+    assert.equal(send.status, 202, `real send expected 202 accepted, got ${send.status}: ${send.raw.slice(0, 200)}`);
     const messageId = send.body!.message_id!;
     // Ensure the event exists before asserting on the filtered list.
     const seed = await pollEvent({ type: "email.sent", agentId: email, since }, (e) =>
@@ -492,7 +495,7 @@ test("events: getEvent returns the EventView by evt_ id; nonexistent → 404", {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit get"), text: "for getEvent" },
     });
-    assert.equal(send.status, 200);
+    assert.equal(send.status, 202);
     const messageId = send.body!.message_id!;
     const ev = await pollEvent({ type: "email.sent", agentId: email, since }, (e) =>
       e.message_id === messageId || e.data.message_id === messageId,
@@ -521,7 +524,7 @@ test("events: redeliverEvent re-queues a delivery for the event; a new attempt a
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
       body: { to: [SIMULATOR], subject: uniqueSubject("emit redeliver"), text: "for redeliver" },
     });
-    assert.equal(send.status, 200);
+    assert.equal(send.status, 202);
     const messageId = send.body!.message_id!;
     const ev = await pollEvent({ type: "email.sent", agentId: email, since }, (e) =>
       e.message_id === messageId || e.data.message_id === messageId,

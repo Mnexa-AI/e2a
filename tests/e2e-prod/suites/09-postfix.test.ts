@@ -14,38 +14,39 @@ after(async () => {
   writeReport(`./reports/09-postfix.json`);
 });
 
-test("postfix #4: GET nonexistent path returns 404 with text/plain body", async () => {
+test("postfix #4: GET nonexistent path returns 404 JSON error envelope", async () => {
   const r = await client.get("/v1/this/does/not/exist");
   assert.equal(r.status, 404, `expected 404, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
-  assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
+  // Unknown paths resolve to the standard structured error envelope
+  // (application/json {error:{code}}), same as every other 4xx — not a bare
+  // text/plain 404. The point — a bounded, non-empty error, never empty/500 — holds.
+  assert.ok(ct.startsWith("application/json"), `expected application/json, got "${ct}"`);
   assert.ok(r.raw.trim().length > 0, "body should be non-empty");
   info(SUITE, "404-shape", `Content-Type: "${ct}", text: "${r.raw.trim()}"`);
 });
 
-test("postfix #4: wrong-method on /info returns 404 with text/plain body (was empty)", async () => {
-  // Drift-corrected: the current server routes an unknown method on a known
-  // path to its NotFound handler (404 "not found", text/plain), not 405 with
-  // an Allow header. openapi.yaml specifies neither 405 nor an Allow header,
-  // so 404 is the SSOT-consistent behavior. The point of this test — a
-  // bounded, non-empty text/plain error rather than an empty/500 response —
-  // still holds.
+test("postfix #4: wrong-method on /info returns 405 JSON error", async () => {
+  // A known path with an unsupported method resolves to 405 method-not-allowed
+  // with the standard application/json error envelope (consistent with the
+  // error-contract suite: post-info=405, put-messages=405, delete-messages=405).
+  // The point of this test — a bounded, non-empty error, never empty/500 — holds.
   const r = await client.post("/v1/info", { body: {} });
-  assert.equal(r.status, 404, `expected 404, got ${r.status}`);
+  assert.equal(r.status, 405, `expected 405, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
-  assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
+  assert.ok(ct.startsWith("application/json"), `expected application/json, got "${ct}"`);
   assert.ok(r.raw.trim().length > 0, "body should be non-empty");
   info(SUITE, "wrong-method-shape", `Content-Type: "${ct}", text: "${r.raw.trim()}"`);
 });
 
-test("postfix #4: wrong-method on /messages returns 404 with body", async () => {
-  // Drift-corrected: see the /info case above — wrong method resolves to 404
-  // text/plain "not found", not 405.
+test("postfix #4: wrong-method on /messages returns 405 JSON error", async () => {
+  // See the /info case above — wrong method on a known path resolves to 405
+  // method-not-allowed with an application/json error envelope.
   const email = client.env.primaryAgentEmail;
   const r = await client.put(`/v1/agents/${encodeURIComponent(email)}/messages`, { body: {} });
-  assert.equal(r.status, 404, `expected 404, got ${r.status}`);
+  assert.equal(r.status, 405, `expected 405, got ${r.status}`);
   const ct = r.headers["content-type"] ?? "";
-  assert.ok(ct.startsWith("text/plain"), `expected text/plain, got "${ct}"`);
+  assert.ok(ct.startsWith("application/json"), `expected application/json, got "${ct}"`);
 });
 
 test("postfix #6: GET /agents/{email} is case-insensitive (lowercase + uppercase match)", async () => {

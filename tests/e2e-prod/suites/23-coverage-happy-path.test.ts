@@ -36,9 +36,12 @@ async function freshAgent(label: string, hold = false): Promise<string> {
 
 // Self-send loopback → poll the inbox for the inbound copy (with its conversation id).
 async function loopbackMessage(email: string, subject: string): Promise<{ id: string; conversationId: string }> {
+  // A no-hold send is durably accepted and delivered asynchronously → 202
+  // accepted (200 sent only via wait=sent). Tolerate both; the loopback is
+  // observed below by polling for the inbound copy, not by the send's status.
   await client.post(`/v1/agents/${encodeURIComponent(email)}/messages`, {
     body: { to: [email], subject, text: "coverage happy-path body" },
-    expect: 200,
+    expect: [200, 202],
   });
   for (let i = 0; i < 12; i++) {
     const list = await client.get<{
