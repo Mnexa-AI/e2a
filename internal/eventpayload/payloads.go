@@ -169,6 +169,13 @@ type EmailBouncedData struct {
 	SMTPDetail  string `json:"smtp_detail,omitempty"`
 	// BounceType is the normalized SES bounce classification. Only a
 	// permanent (hard) bounce auto-suppresses the address.
+	//
+	// Deliberately a CLOSED enum, unlike the evolving response vocabularies
+	// (which are open sets): this is a normalized, exhaustive classification —
+	// normalizeBounceType in internal/delivery/ses.go maps every provider
+	// value into exactly these three, with `undetermined` as the guaranteed
+	// catch-all — so the vocabulary cannot grow without a deliberate contract
+	// change.
 	BounceType string `json:"bounce_type" enum:"permanent,transient,undetermined"`
 	// BounceSubType is the raw SES bounceSubType (e.g. General, NoEmail,
 	// MailboxFull), when present.
@@ -210,8 +217,11 @@ type DomainSendingFailedData struct {
 // hard bounce or complaint. Account-scoped despite the `domain.` prefix.
 type DomainSuppressionAddedData struct {
 	Address string `json:"address"`
-	Source  string `json:"source" enum:"bounce,complaint"`
-	Reason  string `json:"reason,omitempty"`
+	// Source is an OPEN set (evolving response-side vocabulary, like the REST
+	// Suppression.source it mirrors — and the DB CHECK in
+	// migrations/031_delivery_feedback.sql already admits source='manual').
+	Source string `json:"source" doc:"How the suppression was created. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: bounce, complaint."`
+	Reason string `json:"reason,omitempty"`
 	// MessageID is the outbound message whose feedback triggered the
 	// suppression, when still known.
 	MessageID string `json:"message_id,omitempty"`

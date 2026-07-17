@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -26,7 +26,7 @@ class ProtectionScanView(BaseModel):
     """
     ProtectionScanView
     """ # noqa: E501
-    sensitivity: Optional[StrictStr] = Field(default='off', description="Content-scan sensitivity: off disables; low|medium|high increase aggressiveness.")
+    sensitivity: Optional[StrictStr] = Field(default='off', description="Content-scan sensitivity: off disables; low|medium|high increase aggressiveness. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: off, low, medium, high.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["sensitivity"]
 

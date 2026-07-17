@@ -14,10 +14,13 @@ import (
 // plaintext secret is never in this shape — it appears once, in
 // CreateAPIKeyResponse.Key.
 type APIKeyView struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	KeyPrefix  string     `json:"key_prefix" doc:"Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…)."`
-	Scope      string     `json:"scope" enum:"account,agent" doc:"account = workspace admin; agent = bound to one inbox."`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	KeyPrefix string `json:"key_prefix" doc:"Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…)."`
+	// Scope is an OPEN set on this response view (evolving vocabulary); the
+	// REQUEST-side CreateAPIKeyRequest.scope keeps its closed enum, which is
+	// where validation belongs.
+	Scope      string     `json:"scope" doc:"account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."`
 	Agent      string     `json:"agent_email,omitempty" doc:"Bound inbox email for agent-scoped keys; omitted for account scope."`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`

@@ -19,7 +19,10 @@ export class AccountView {
     'agentEmail'?: string;
     'limits': LimitsCapsView;
     'planCode': string;
-    'scope': AccountViewScopeEnum;
+    /**
+    * Credential scope. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent.
+    */
+    'scope': string;
     'upgradeUrl': string;
     'usage': LimitsUsageView;
     'user': AccountUserView;
@@ -50,7 +53,7 @@ export class AccountView {
         {
             "name": "scope",
             "baseName": "scope",
-            "type": "AccountViewScopeEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -79,9 +82,3 @@ export class AccountView {
     public constructor() {
     }
 }
-
-export enum AccountViewScopeEnum {
-    Account = 'account',
-    Agent = 'agent'
-}
-

@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.account_user_view import AccountUserView
 from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
@@ -32,7 +32,7 @@ class AccountView(BaseModel):
     agent_email: Optional[StrictStr] = None
     limits: LimitsCapsView
     plan_code: StrictStr
-    scope: StrictStr
+    scope: StrictStr = Field(description="Credential scope. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent.")
     upgrade_url: StrictStr
     usage: LimitsUsageView
     user: AccountUserView

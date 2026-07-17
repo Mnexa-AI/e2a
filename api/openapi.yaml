@@ -69,10 +69,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
-          enum:
-            - account
-            - agent
+          description: "account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."
           type: string
       required:
         - id
@@ -102,9 +99,7 @@ components:
         plan_code:
           type: string
         scope:
-          enum:
-            - account
-            - agent
+          description: "Credential scope. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."
           type: string
         upgrade_url:
           type: string
@@ -531,10 +526,7 @@ components:
         name:
           type: string
         scope:
-          description: account = workspace admin; agent = bound to one inbox.
-          enum:
-            - account
-            - agent
+          description: "account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."
           type: string
       required:
         - key
@@ -959,9 +951,7 @@ components:
         reason:
           type: string
         source:
-          enum:
-            - bounce
-            - complaint
+          description: "How the suppression was created. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: bounce, complaint."
           type: string
       required:
         - address
@@ -1702,12 +1692,7 @@ components:
           description: The account's plan label.
           type: string
         resource:
-          description: The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>.
-          enum:
-            - agents
-            - domains
-            - messages_month
-            - storage_bytes
+          description: "The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: agents, domains, messages_month, storage_bytes."
           type: string
         upgrade_url:
           description: An upgrade affordance URL, when the operator has configured one.
@@ -2360,12 +2345,7 @@ components:
           minimum: 1
           type: integer
         scope:
-          description: Which byte budget was exceeded.
-          enum:
-            - composed_message
-            - attachment
-            - attachments_total
-            - request_body
+          description: "Which byte budget was exceeded. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: composed_message, attachment, attachments_total, request_body."
           type: string
       required:
         - scope
@@ -2495,11 +2475,7 @@ components:
       properties:
         action:
           default: flag
-          description: "What a gate non-match does: flag (deliver + annotate), review (hold), block."
-          enum:
-            - flag
-            - review
-            - block
+          description: "What a gate non-match does: flag (deliver + annotate), review (hold), block. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: flag, review, block."
           type: string
         allowlist:
           description: "Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."
@@ -2509,11 +2485,7 @@ components:
           type: array
         policy:
           default: open
-          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."
-          enum:
-            - open
-            - allowlist
-            - domain
+          description: "Trust gate: open (all), domain (listed domains), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain."
           type: string
       type: object
       x-stability-level: beta
@@ -2544,10 +2516,7 @@ components:
       properties:
         on_expiry:
           default: reject
-          description: What happens to a held item when its TTL expires.
-          enum:
-            - approve
-            - reject
+          description: "What happens to a held item when its TTL expires. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: approve, reject."
           type: string
         suppress_notifications:
           default: false
@@ -2580,12 +2549,7 @@ components:
       properties:
         sensitivity:
           default: "off"
-          description: "Content-scan sensitivity: off disables; low|medium|high increase aggressiveness."
-          enum:
-            - "off"
-            - low
-            - medium
-            - high
+          description: "Content-scan sensitivity: off disables; low|medium|high increase aggressiveness. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: off, low, medium, high."
           type: string
       type: object
       x-stability-level: beta

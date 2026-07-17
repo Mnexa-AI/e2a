@@ -26,9 +26,9 @@ export class PayloadTooLargeDetails {
     */
     'maxBytes': number;
     /**
-    * Which byte budget was exceeded.
+    * Which byte budget was exceeded. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: composed_message, attachment, attachments_total, request_body.
     */
-    'scope': PayloadTooLargeDetailsScopeEnum;
+    'scope': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -56,7 +56,7 @@ export class PayloadTooLargeDetails {
         {
             "name": "scope",
             "baseName": "scope",
-            "type": "PayloadTooLargeDetailsScopeEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -67,11 +67,3 @@ export class PayloadTooLargeDetails {
     public constructor() {
     }
 }
-
-export enum PayloadTooLargeDetailsScopeEnum {
-    ComposedMessage = 'composed_message',
-    Attachment = 'attachment',
-    AttachmentsTotal = 'attachments_total',
-    RequestBody = 'request_body'
-}
-

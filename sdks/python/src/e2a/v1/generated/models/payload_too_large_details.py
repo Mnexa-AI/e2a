@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from typing import Optional, Set
@@ -30,7 +30,7 @@ class PayloadTooLargeDetails(BaseModel):
     actual_bytes: Annotated[int, Field(strict=True, ge=0)] = Field(description="Observed byte count. Exact when Content-Length or decoded content is available; for chunked request bodies this is the lower bound observed before rejection.")
     filename: Optional[StrictStr] = Field(default=None, description="Attachment filename when scope is attachment.")
     max_bytes: Annotated[int, Field(strict=True, ge=1)] = Field(description="Maximum bytes accepted for this scope.")
-    scope: StrictStr = Field(description="Which byte budget was exceeded.")
+    scope: StrictStr = Field(description="Which byte budget was exceeded. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: composed_message, attachment, attachments_total, request_body.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["actual_bytes", "filename", "max_bytes", "scope"]
 

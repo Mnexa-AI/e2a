@@ -14,9 +14,9 @@ import { HttpFile } from '../http/http.js';
 
 export class ProtectionScanView {
     /**
-    * Content-scan sensitivity: off disables; low|medium|high increase aggressiveness.
+    * Content-scan sensitivity: off disables; low|medium|high increase aggressiveness. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: off, low, medium, high.
     */
-    'sensitivity'?: ProtectionScanViewSensitivityEnum;
+    'sensitivity'?: string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -26,7 +26,7 @@ export class ProtectionScanView {
         {
             "name": "sensitivity",
             "baseName": "sensitivity",
-            "type": "ProtectionScanViewSensitivityEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -37,11 +37,3 @@ export class ProtectionScanView {
     public constructor() {
     }
 }
-
-export enum ProtectionScanViewSensitivityEnum {
-    Off = 'off',
-    Low = 'low',
-    Medium = 'medium',
-    High = 'high'
-}
-

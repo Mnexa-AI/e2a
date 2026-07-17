@@ -215,7 +215,8 @@ export interface EmailBouncedData {
   subject?: string;
   smtp_detail?: string;
   /** Normalized SES bounce classification. Only a permanent (hard) bounce
-   *  auto-suppresses the address. */
+   *  auto-suppresses the address. Deliberately a closed set: exhaustive after
+   *  server-side normalization ("undetermined" is the guaranteed catch-all). */
   bounce_type: "permanent" | "transient" | "undetermined";
   /** Raw SES bounceSubType (e.g. General, NoEmail, MailboxFull). */
   bounce_sub_type?: string;
@@ -255,7 +256,8 @@ export interface DomainSendingFailedData {
  *  the `domain.` prefix. */
 export interface DomainSuppressionAddedData {
   address: string;
-  source: "bounce" | "complaint";
+  /** Open set; tolerate unknown values. Known values: bounce, complaint. */
+  source: string;
   reason?: string;
   /** The outbound message whose feedback triggered the suppression, when known. */
   message_id?: string;

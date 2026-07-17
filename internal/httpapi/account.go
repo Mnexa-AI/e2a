@@ -24,8 +24,10 @@ type AccountUserView struct {
 // credentials (where the credential *is* a single agent) — omitted for
 // account scope, which spans many agents.
 type AccountView struct {
-	User         AccountUserView `json:"user"`
-	Scope        string          `json:"scope" enum:"account,agent"`
+	User AccountUserView `json:"user"`
+	// Scope is an OPEN set on this response view (evolving vocabulary), not a
+	// closed enum — see docs/api.md "Versioning & stability".
+	Scope        string          `json:"scope" doc:"Credential scope. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent."`
 	AgentAddress string          `json:"agent_email,omitempty"`
 	PlanCode     string          `json:"plan_code"`
 	Limits       LimitsCapsView  `json:"limits"`

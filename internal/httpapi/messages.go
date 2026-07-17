@@ -30,6 +30,8 @@ type MessageView struct {
 	ConversationID string   `json:"conversation_id"`
 	// Direction (inbound|outbound) — mirrors MessageSummaryView so a client
 	// fetching a single message keeps the full trust-axis context (review F1).
+	// Deliberately a CLOSED enum despite being response-side: direction is a
+	// binary invariant of the model, not an evolving vocabulary.
 	Direction string `json:"direction" enum:"inbound,outbound"`
 	// Status is the inbox read-state (unread|read; "" for outbound). Exposed as
 	// `read_status` (MSG-1) to disambiguate from hitl_status/delivery_status/
@@ -238,7 +240,9 @@ type messageOutput struct {
 // dependency on the surface it replaces; it moves home when legacy is
 // deleted at the 1Z cutover.
 type MessageSummaryView struct {
-	ID             string   `json:"id"`
+	ID string `json:"id"`
+	// Deliberately a CLOSED enum despite being response-side: direction is a
+	// binary invariant of the model, not an evolving vocabulary.
 	Direction      string   `json:"direction" enum:"inbound,outbound"`
 	From           string   `json:"from"`
 	To             []string `json:"to" nullable:"false"`

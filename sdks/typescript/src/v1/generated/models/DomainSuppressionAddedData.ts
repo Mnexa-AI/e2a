@@ -16,7 +16,10 @@ export class DomainSuppressionAddedData {
     'address': string;
     'messageId'?: string;
     'reason'?: string;
-    'source': DomainSuppressionAddedDataSourceEnum;
+    /**
+    * How the suppression was created. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: bounce, complaint.
+    */
+    'source': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -44,7 +47,7 @@ export class DomainSuppressionAddedData {
         {
             "name": "source",
             "baseName": "source",
-            "type": "DomainSuppressionAddedDataSourceEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -55,9 +58,3 @@ export class DomainSuppressionAddedData {
     public constructor() {
     }
 }
-
-export enum DomainSuppressionAddedDataSourceEnum {
-    Bounce = 'bounce',
-    Complaint = 'complaint'
-}
-

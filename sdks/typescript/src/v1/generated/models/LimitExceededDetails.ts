@@ -26,9 +26,9 @@ export class LimitExceededDetails {
     */
     'planCode'?: string;
     /**
-    * The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>.
+    * The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: agents, domains, messages_month, storage_bytes.
     */
-    'resource': LimitExceededDetailsResourceEnum;
+    'resource': string;
     /**
     * An upgrade affordance URL, when the operator has configured one.
     */
@@ -60,7 +60,7 @@ export class LimitExceededDetails {
         {
             "name": "resource",
             "baseName": "resource",
-            "type": "LimitExceededDetailsResourceEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -77,11 +77,3 @@ export class LimitExceededDetails {
     public constructor() {
     }
 }
-
-export enum LimitExceededDetailsResourceEnum {
-    Agents = 'agents',
-    Domains = 'domains',
-    MessagesMonth = 'messages_month',
-    StorageBytes = 'storage_bytes'
-}
-

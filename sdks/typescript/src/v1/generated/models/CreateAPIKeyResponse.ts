@@ -31,9 +31,9 @@ export class CreateAPIKeyResponse {
     'lastUsedAt'?: Date;
     'name': string;
     /**
-    * account = workspace admin; agent = bound to one inbox.
+    * account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent.
     */
-    'scope': CreateAPIKeyResponseScopeEnum;
+    'scope': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -91,7 +91,7 @@ export class CreateAPIKeyResponse {
         {
             "name": "scope",
             "baseName": "scope",
-            "type": "CreateAPIKeyResponseScopeEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -102,9 +102,3 @@ export class CreateAPIKeyResponse {
     public constructor() {
     }
 }
-
-export enum CreateAPIKeyResponseScopeEnum {
-    Account = 'account',
-    Agent = 'agent'
-}
-

@@ -24,7 +24,9 @@ type ReviewView struct {
 	ID    string `json:"id" doc:"The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable."`
 	Agent string `json:"agent_email" doc:"The inbox (agent address) the held message belongs to."`
 	// Direction: outbound = a draft awaiting send approval; inbound = a screened
-	// incoming message awaiting release.
+	// incoming message awaiting release. Deliberately a CLOSED enum despite
+	// being response-side: direction is a binary invariant of the model, not
+	// an evolving vocabulary.
 	Direction string `json:"direction" enum:"inbound,outbound"`
 	// From/To: for outbound, From is the inbox and To the recipients; for inbound,
 	// From is the external sender and To the inbox.

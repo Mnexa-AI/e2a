@@ -288,7 +288,7 @@ class DomainSuppressionAddedData(TypedDict):
     ``domain.`` prefix."""
 
     address: str
-    source: str  # "bounce" | "complaint"
+    source: str  # open set; known values: bounce, complaint
     reason: NotRequired[str]
     message_id: NotRequired[str]
 

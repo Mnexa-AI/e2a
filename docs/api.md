@@ -238,6 +238,15 @@ every `/v1` operation not listed here is covered by the GA freeze.
   an unknown value** — handle it as a default/passthrough case. (The official
   SDKs already do this.) Enum values you *send* in requests are validated and
   rejected if unknown — that's intentional and not a stability concern.
+  The governing rule is two-sided: **response-side vocabularies that can
+  evolve are open sets** (plain strings whose known values are documented in
+  the field description), while **normalized exhaustive classifications and
+  binary invariants remain closed enums** — e.g. `bounce_type`
+  (`permanent | transient | undetermined`, exhaustive after server-side
+  normalization with `undetermined` as the catch-all) and `direction`
+  (`inbound | outbound`, a binary invariant of the model). A closed response
+  enum is a promise the vocabulary can never grow; we make that promise only
+  where the server actively guarantees it.
 - **Version discovery.** `GET /v1/info` reports the running API version (and
   deployment flags such as whether shared-domain slug registration is enabled),
   so clients can adapt instead of hard-coding assumptions.

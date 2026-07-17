@@ -45,16 +45,23 @@ const protectionBetaDoc = "Beta: the agent protection config is unstable — its
 // addition to the gate. A DMARC-gated posture may return later as a composable,
 // additive flag (the protection config is beta — its shape may still change).
 type ProtectionGateView struct {
-	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
+	// Policy and Action are OPEN sets on this response view (evolving config
+	// vocabularies — a new gate posture or disposition must not break
+	// spec-generated clients); the mirroring ProtectionGateRequest keeps the
+	// closed enums, which is where validation belongs.
+	Policy    string   `json:"policy,omitempty" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain."`
 	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."`
-	Action    string   `json:"action,omitempty" enum:"flag,review,block" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block."`
+	Action    string   `json:"action,omitempty" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: flag, review, block."`
 }
 
 // ProtectionScanView is one direction's content scan, as a semantic sensitivity
 // level. off disables it; low|medium|high tune how aggressively flagged content
 // is held/blocked.
 type ProtectionScanView struct {
-	Sensitivity string `json:"sensitivity,omitempty" enum:"off,low,medium,high" default:"off" doc:"Content-scan sensitivity: off disables; low|medium|high increase aggressiveness."`
+	// Sensitivity is an OPEN set on this response view (evolving vocabulary —
+	// a new level must not break clients); ProtectionScanRequest keeps the
+	// closed enum for validation.
+	Sensitivity string `json:"sensitivity,omitempty" default:"off" doc:"Content-scan sensitivity: off disables; low|medium|high increase aggressiveness. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: off, low, medium, high."`
 }
 
 // ProtectionDirectionView pairs the gate and scan for one direction.
@@ -65,8 +72,12 @@ type ProtectionDirectionView struct {
 
 // ProtectionHoldsView is the shared review-queue mechanism for held items.
 type ProtectionHoldsView struct {
-	TTLSeconds            int    `json:"ttl_seconds,omitempty" minimum:"0" default:"604800" doc:"How long a held item waits before its on_expiry action fires."`
-	OnExpiry              string `json:"on_expiry,omitempty" enum:"approve,reject" default:"reject" doc:"What happens to a held item when its TTL expires."`
+	TTLSeconds int `json:"ttl_seconds,omitempty" minimum:"0" default:"604800" doc:"How long a held item waits before its on_expiry action fires."`
+	// OnExpiry is an OPEN set on this response view: today's values happen to
+	// be two, but expiry disposition is an evolving config vocabulary (e.g. a
+	// future extend/escalate), not a binary invariant of the model like
+	// message direction. ProtectionHoldsRequest keeps the closed enum.
+	OnExpiry              string `json:"on_expiry,omitempty" default:"reject" doc:"What happens to a held item when its TTL expires. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: approve, reject."`
 	SuppressNotifications bool   `json:"suppress_notifications,omitempty" default:"false" doc:"Suppress the approval-notification email for held messages on this agent."`
 }
 
@@ -102,7 +113,11 @@ func protectionViewFromIdentity(ag *identity.AgentIdentity) ProtectionConfigView
 // schemas are open (`additionalProperties: true`) so clients tolerate additive
 // fields. One shared schema cannot carry both; the stability pass in
 // stability.go panics if a schema is reachable from both sides. Keep the
-// validation tags here in lockstep with the View tags above.
+// validation tags here in lockstep with the View tags above — except the
+// enum tags, which live ONLY on these request types: the Views document the
+// same vocabularies as open sets (response-side vocabularies that can evolve
+// are open; see docs/api.md "Versioning & stability"), while an unknown value
+// a client SENDS is still validated and rejected here.
 type ProtectionGateRequest struct {
 	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (listed domains), allowlist (listed addresses)."`
 	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."`

@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -34,7 +34,7 @@ class APIKeyView(BaseModel):
     key_prefix: StrictStr = Field(description="Non-secret visible prefix (e.g. e2a_acct_… / e2a_agt_…).")
     last_used_at: Optional[datetime] = None
     name: StrictStr
-    scope: StrictStr = Field(description="account = workspace admin; agent = bound to one inbox.")
+    scope: StrictStr = Field(description="account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["agent_email", "created_at", "expires_at", "id", "key_prefix", "last_used_at", "name", "scope"]
 

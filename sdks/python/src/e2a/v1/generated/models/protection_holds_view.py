@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from typing import Optional, Set
@@ -27,7 +27,7 @@ class ProtectionHoldsView(BaseModel):
     """
     ProtectionHoldsView
     """ # noqa: E501
-    on_expiry: Optional[StrictStr] = Field(default='reject', description="What happens to a held item when its TTL expires.")
+    on_expiry: Optional[StrictStr] = Field(default='reject', description="What happens to a held item when its TTL expires. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: approve, reject.")
     suppress_notifications: Optional[StrictBool] = Field(default=False, description="Suppress the approval-notification email for held messages on this agent.")
     ttl_seconds: Optional[Annotated[int, Field(strict=True, ge=0)]] = Field(default=604800, description="How long a held item waits before its on_expiry action fires.")
     additional_properties: Dict[str, Any] = {}

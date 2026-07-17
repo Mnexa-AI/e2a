@@ -14,9 +14,9 @@ import { HttpFile } from '../http/http.js';
 
 export class ProtectionHoldsView {
     /**
-    * What happens to a held item when its TTL expires.
+    * What happens to a held item when its TTL expires. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: approve, reject.
     */
-    'onExpiry'?: ProtectionHoldsViewOnExpiryEnum;
+    'onExpiry'?: string;
     /**
     * Suppress the approval-notification email for held messages on this agent.
     */
@@ -34,7 +34,7 @@ export class ProtectionHoldsView {
         {
             "name": "onExpiry",
             "baseName": "on_expiry",
-            "type": "ProtectionHoldsViewOnExpiryEnum",
+            "type": "string",
             "format": ""
         },
         {
@@ -57,9 +57,3 @@ export class ProtectionHoldsView {
     public constructor() {
     }
 }
-
-export enum ProtectionHoldsViewOnExpiryEnum {
-    Approve = 'approve',
-    Reject = 'reject'
-}
-

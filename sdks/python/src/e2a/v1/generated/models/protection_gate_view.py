@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from typing import Optional, Set
@@ -27,9 +27,9 @@ class ProtectionGateView(BaseModel):
     """
     ProtectionGateView
     """ # noqa: E501
-    action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
+    action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: flag, review, block.")
     allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result.")
-    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses).")
+    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
 

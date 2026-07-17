@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -29,7 +29,7 @@ class LimitExceededDetails(BaseModel):
     current: StrictInt = Field(description="The account's usage at the time the cap was hit (matches usage.<resource>).")
     limit: StrictInt = Field(description="The cap that was hit (matches limits.max_<resource>).")
     plan_code: Optional[StrictStr] = Field(default=None, description="The account's plan label.")
-    resource: StrictStr = Field(description="The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>.")
+    resource: StrictStr = Field(description="The AccountView usage/limits field stem the cap applies to. Key it to usage.<resource> and limits.max_<resource>. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: agents, domains, messages_month, storage_bytes.")
     upgrade_url: Optional[StrictStr] = Field(default=None, description="An upgrade affordance URL, when the operator has configured one.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["current", "limit", "plan_code", "resource", "upgrade_url"]

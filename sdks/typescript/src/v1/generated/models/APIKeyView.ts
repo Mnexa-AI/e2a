@@ -27,9 +27,9 @@ export class APIKeyView {
     'lastUsedAt'?: Date;
     'name': string;
     /**
-    * account = workspace admin; agent = bound to one inbox.
+    * account = workspace admin; agent = bound to one inbox. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: account, agent.
     */
-    'scope': APIKeyViewScopeEnum;
+    'scope': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -81,7 +81,7 @@ export class APIKeyView {
         {
             "name": "scope",
             "baseName": "scope",
-            "type": "APIKeyViewScopeEnum",
+            "type": "string",
             "format": ""
         }    ];
 
@@ -92,9 +92,3 @@ export class APIKeyView {
     public constructor() {
     }
 }
-
-export enum APIKeyViewScopeEnum {
-    Account = 'account',
-    Agent = 'agent'
-}
-
