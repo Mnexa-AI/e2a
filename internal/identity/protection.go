@@ -72,6 +72,7 @@ type ProtectionConfig struct {
 	OutboundScanSensitivity string
 	HITLTTLSeconds          int
 	HITLExpirationAction    string
+	SuppressNotifications   bool
 }
 
 // inboundGatePolicyValid restricts the inbound trust gate to the supported
@@ -149,7 +150,8 @@ func (s *Store) UpdateAgentProtection(ctx context.Context, agentID, userID strin
 		    outbound_policy = $10, outbound_allowlist = $11, outbound_policy_action = $12,
 		    outbound_scan = $13, outbound_scan_review_threshold = $14, outbound_scan_block_threshold = $15,
 		    outbound_scan_sensitivity = $16,
-		    hitl_ttl_seconds = $17, hitl_expiration_action = $18
+		    hitl_ttl_seconds = $17, hitl_expiration_action = $18,
+		    suppress_notifications = $19
 		  WHERE id = $1 AND user_id = $2`,
 		agentID, userID,
 		c.InboundGatePolicy, inAllow, c.InboundGateAction,
@@ -159,6 +161,7 @@ func (s *Store) UpdateAgentProtection(ctx context.Context, agentID, userID strin
 		outB.scan, outB.review, outB.block,
 		c.OutboundScanSensitivity,
 		c.HITLTTLSeconds, c.HITLExpirationAction,
+		c.SuppressNotifications,
 	)
 	if err != nil {
 		return err

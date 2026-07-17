@@ -107,8 +107,9 @@ type AgentIdentity struct {
 	// were retired (Slice 5b/5c, columns dropped in migration 043) — outbound_policy
 	// + outbound_scan own holds now. These two knobs govern how the review queue
 	// behaves (TTL + expiry action) for both directions.
-	HITLTTLSeconds       int    `json:"ttl_seconds"`
-	HITLExpirationAction string `json:"on_expiry"`
+	HITLTTLSeconds        int    `json:"ttl_seconds"`
+	HITLExpirationAction  string `json:"on_expiry"`
+	SuppressNotifications bool   `json:"suppress_notifications"`
 	// Dashboard enrichment fields. Computed at read
 	// time by ListAgentsByUser via correlated subqueries — other load
 	// paths (GetAgentByID / GetAgentByEmail) leave them at zero values,
@@ -1045,7 +1046,7 @@ func (s *Store) GetAgentByIDAnyState(ctx context.Context, id string) (*AgentIden
 
 func (s *Store) getAgentByID(ctx context.Context, id string, includeDeleted bool) (*AgentIdentity, error) {
 	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
-		        a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        a.hitl_ttl_seconds, a.hitl_expiration_action, a.suppress_notifications,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
@@ -1063,7 +1064,7 @@ func (s *Store) getAgentByID(ctx context.Context, id string, includeDeleted bool
 	}
 	a := &AgentIdentity{}
 	err := s.pool.QueryRow(ctx, q, id).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
-		&a.HITLTTLSeconds, &a.HITLExpirationAction,
+		&a.HITLTTLSeconds, &a.HITLExpirationAction, &a.SuppressNotifications,
 		&a.InboundPolicy, &a.InboundAllowlist,
 		&a.InboundPolicyAction,
 		&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,
@@ -1264,7 +1265,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 	// identity fields only, and five correlated probes per trashed agent
 	// against the prod-sized messages table would be pure waste.
 	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at, a.deleted_at,
-		        a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        a.hitl_ttl_seconds, a.hitl_expiration_action, a.suppress_notifications,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
 		        a.outbound_policy, a.outbound_allowlist, a.outbound_policy_action,
@@ -1331,7 +1332,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 		var a AgentIdentity
 		var lastDeliveryAt *time.Time
 		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt, &a.DeletedAt,
-			&a.HITLTTLSeconds, &a.HITLExpirationAction,
+			&a.HITLTTLSeconds, &a.HITLExpirationAction, &a.SuppressNotifications,
 			&a.InboundPolicy, &a.InboundAllowlist,
 			&a.InboundPolicyAction,
 			&a.OutboundPolicy, &a.OutboundAllowlist, &a.OutboundPolicyAction,

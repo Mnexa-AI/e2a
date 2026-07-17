@@ -18,6 +18,10 @@ export class ProtectionHoldsRequest {
     */
     'onExpiry'?: ProtectionHoldsRequestOnExpiryEnum;
     /**
+    * Suppress the approval-notification email for held messages on this agent.
+    */
+    'suppressNotifications'?: boolean;
+    /**
     * How long a held item waits before its on_expiry action fires.
     */
     'ttlSeconds'?: number;
@@ -31,6 +35,12 @@ export class ProtectionHoldsRequest {
             "name": "onExpiry",
             "baseName": "on_expiry",
             "type": "ProtectionHoldsRequestOnExpiryEnum",
+            "format": ""
+        },
+        {
+            "name": "suppressNotifications",
+            "baseName": "suppress_notifications",
+            "type": "boolean",
             "format": ""
         },
         {

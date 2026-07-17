@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from typing import Optional, Set
@@ -28,9 +28,10 @@ class ProtectionHoldsRequest(BaseModel):
     ProtectionHoldsRequest
     """ # noqa: E501
     on_expiry: Optional[StrictStr] = Field(default='reject', description="What happens to a held item when its TTL expires.")
+    suppress_notifications: Optional[StrictBool] = Field(default=False, description="Suppress the approval-notification email for held messages on this agent.")
     ttl_seconds: Optional[Annotated[int, Field(strict=True, ge=0)]] = Field(default=604800, description="How long a held item waits before its on_expiry action fires.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["on_expiry", "ttl_seconds"]
+    __properties: ClassVar[List[str]] = ["on_expiry", "suppress_notifications", "ttl_seconds"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -91,6 +92,7 @@ class ProtectionHoldsRequest(BaseModel):
 
         _obj = cls.model_validate({
             "on_expiry": obj.get("on_expiry") if obj.get("on_expiry") is not None else 'reject',
+            "suppress_notifications": obj.get("suppress_notifications") if obj.get("suppress_notifications") is not None else False,
             "ttl_seconds": obj.get("ttl_seconds") if obj.get("ttl_seconds") is not None else 604800
         })
         # store additional fields in additional_properties

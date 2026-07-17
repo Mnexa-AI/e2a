@@ -121,6 +121,9 @@ func (w *NotifyWorker) Work(ctx context.Context, job *river.Job[HITLNotifyArgs])
 	if pn.Notified {
 		return nil // a prior attempt already sent it (crash-after-send re-drive)
 	}
+	if pn.Agent != nil && pn.Agent.SuppressNotifications {
+		return nil // agent opted out of approval notifications
+	}
 
 	out := w.deliverer.Deliver(ctx, pn)
 	if out.Err == nil {

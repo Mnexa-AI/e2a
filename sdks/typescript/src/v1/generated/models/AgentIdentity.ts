@@ -39,6 +39,7 @@ export class AgentIdentity {
     'outboundScanSensitivity': string;
     'pendingCount': number;
     '_public': boolean;
+    'suppressNotifications': boolean;
     'ttlSeconds': number;
     'userId': string;
     /**
@@ -204,6 +205,12 @@ export class AgentIdentity {
         {
             "name": "_public",
             "baseName": "public",
+            "type": "boolean",
+            "format": ""
+        },
+        {
+            "name": "suppressNotifications",
+            "baseName": "suppress_notifications",
             "type": "boolean",
             "format": ""
         },

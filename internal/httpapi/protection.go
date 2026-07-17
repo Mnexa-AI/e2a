@@ -65,8 +65,9 @@ type ProtectionDirectionView struct {
 
 // ProtectionHoldsView is the shared review-queue mechanism for held items.
 type ProtectionHoldsView struct {
-	TTLSeconds int    `json:"ttl_seconds,omitempty" minimum:"0" default:"604800" doc:"How long a held item waits before its on_expiry action fires."`
-	OnExpiry   string `json:"on_expiry,omitempty" enum:"approve,reject" default:"reject" doc:"What happens to a held item when its TTL expires."`
+	TTLSeconds            int    `json:"ttl_seconds,omitempty" minimum:"0" default:"604800" doc:"How long a held item waits before its on_expiry action fires."`
+	OnExpiry              string `json:"on_expiry,omitempty" enum:"approve,reject" default:"reject" doc:"What happens to a held item when its TTL expires."`
+	SuppressNotifications bool   `json:"suppress_notifications,omitempty" default:"false" doc:"Suppress the approval-notification email for held messages on this agent."`
 }
 
 // ProtectionConfigView is the GET (and PUT echo) RESPONSE. The PUT body is the
@@ -88,7 +89,7 @@ func protectionViewFromIdentity(ag *identity.AgentIdentity) ProtectionConfigView
 			Gate: ProtectionGateView{Policy: ag.OutboundPolicy, Allowlist: orEmpty(ag.OutboundAllowlist), Action: ag.OutboundPolicyAction},
 			Scan: ProtectionScanView{Sensitivity: ag.OutboundScanSensitivity},
 		},
-		Holds: ProtectionHoldsView{TTLSeconds: ag.HITLTTLSeconds, OnExpiry: ag.HITLExpirationAction},
+		Holds: ProtectionHoldsView{TTLSeconds: ag.HITLTTLSeconds, OnExpiry: ag.HITLExpirationAction, SuppressNotifications: ag.SuppressNotifications},
 	}
 }
 
@@ -121,8 +122,9 @@ type ProtectionDirectionRequest struct {
 
 // ProtectionHoldsRequest mirrors ProtectionHoldsView for the PUT body.
 type ProtectionHoldsRequest struct {
-	TTLSeconds int    `json:"ttl_seconds,omitempty" minimum:"0" default:"604800" doc:"How long a held item waits before its on_expiry action fires."`
-	OnExpiry   string `json:"on_expiry,omitempty" enum:"approve,reject" default:"reject" doc:"What happens to a held item when its TTL expires."`
+	TTLSeconds            int    `json:"ttl_seconds,omitempty" minimum:"0" default:"604800" doc:"How long a held item waits before its on_expiry action fires."`
+	OnExpiry              string `json:"on_expiry,omitempty" enum:"approve,reject" default:"reject" doc:"What happens to a held item when its TTL expires."`
+	SuppressNotifications bool   `json:"suppress_notifications,omitempty" default:"false" doc:"Suppress the approval-notification email for held messages on this agent."`
 }
 
 // ProtectionConfigRequest is the PUT body (full replace). The three top-level
@@ -146,6 +148,7 @@ func protectionConfigFromRequest(v ProtectionConfigRequest) identity.ProtectionC
 		OutboundScanSensitivity: v.Outbound.Scan.Sensitivity,
 		HITLTTLSeconds:          v.Holds.TTLSeconds,
 		HITLExpirationAction:    v.Holds.OnExpiry,
+		SuppressNotifications:   v.Holds.SuppressNotifications,
 	}
 }
 

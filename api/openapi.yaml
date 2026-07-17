@@ -193,6 +193,8 @@ components:
           type: integer
         public:
           type: boolean
+        suppress_notifications:
+          type: boolean
         ttl_seconds:
           format: int64
           type: integer
@@ -211,6 +213,7 @@ components:
         - user_id
         - ttl_seconds
         - on_expiry
+        - suppress_notifications
         - inbound_7d
         - outbound_7d
         - pending_count
@@ -2524,6 +2527,10 @@ components:
             - approve
             - reject
           type: string
+        suppress_notifications:
+          default: false
+          description: Suppress the approval-notification email for held messages on this agent.
+          type: boolean
         ttl_seconds:
           default: 604800
           description: How long a held item waits before its on_expiry action fires.
@@ -2542,6 +2549,10 @@ components:
             - approve
             - reject
           type: string
+        suppress_notifications:
+          default: false
+          description: Suppress the approval-notification email for held messages on this agent.
+          type: boolean
         ttl_seconds:
           default: 604800
           description: How long a held item waits before its on_expiry action fires.

@@ -974,7 +974,7 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 	}
 
 	var msg *identity.Message
-	if a.notifyEnq != nil {
+	if a.notifyEnq != nil && !agent.SuppressNotifications {
 		// Durable notification path: persist the pending_review row AND enqueue its
 		// approval-notification job (QueueNotify) in ONE transaction, then stamp the
 		// job id, so the reviewer's email is never lost on a crash between the 202
