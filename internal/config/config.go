@@ -46,6 +46,7 @@ type Config struct {
 	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
 	Limits           LimitsConfig           `yaml:"limits"`
+	Trash            TrashConfig            `yaml:"trash"`
 	Env              string                 `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
 	// (e.g. "agents.example.com"), users can register agents with just a
@@ -231,6 +232,18 @@ type LimitsConfig struct {
 	BillingHookURL string `yaml:"billing_hook_url"`
 }
 
+// TrashConfig tunes the soft-delete (trash) subsystem.
+type TrashConfig struct {
+	// RetentionDays is how many days a soft-deleted resource (agent inbox
+	// or message) stays restorable in the trash before the janitor purges
+	// it permanently. This is the knob behind the API contract's "30 days
+	// by default (deployment-configurable)" wording — the default is 30.
+	// Minimum 1 (a sub-day trash would break the restore promise the
+	// stable API documents); the server refuses to start on a lower value.
+	// Override with E2A_TRASH_RETENTION_DAYS.
+	RetentionDays int `yaml:"retention_days"`
+}
+
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -258,6 +271,7 @@ func Load(path string) (*Config, error) {
 		},
 		Inbound:       InboundConfig{Mode: "sync"},
 		WebhookFanout: WebhookFanoutConfig{Mode: "legacy"},
+		Trash:         TrashConfig{RetentionDays: 30},
 		Env:           "development",
 	}
 
@@ -336,6 +350,11 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_SENDER_IDENTITY_SES_REGION"); v != "" {
 		cfg.SenderIdentity.SESRegion = v
 	}
+	if v := os.Getenv("E2A_TRASH_RETENTION_DAYS"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil {
+			cfg.Trash.RetentionDays = d
+		}
+	}
 	if v := os.Getenv("E2A_DELIVERY_SES_CONFIGURATION_SET"); v != "" {
 		cfg.DeliveryFeedback.SESConfigurationSet = v
 	}
@@ -382,6 +401,9 @@ func (c *Config) Validate() error {
 		if len(c.Signing.HMACSecret) < minHMACSecretBytes {
 			return fmt.Errorf("config: signing.hmac_secret is %d bytes; production requires at least %d (run `openssl rand -hex 32` to generate)", len(c.Signing.HMACSecret), minHMACSecretBytes)
 		}
+	}
+	if c.Trash.RetentionDays < 1 {
+		return fmt.Errorf("config: trash.retention_days must be at least 1 (got %d) — the stable API promises soft-deleted resources stay restorable", c.Trash.RetentionDays)
 	}
 	return nil
 }

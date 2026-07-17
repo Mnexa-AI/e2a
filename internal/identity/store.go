@@ -1526,7 +1526,12 @@ const MessageTTL = 10 * 24 * time.Hour // 10 days
 // the Gmail-style 30-day window (docs/design/trash-soft-delete.md). While a
 // message sits in the trash its natural expiry clock (MessageTTL /
 // expires_at) is suspended; the trash clock alone governs. A var (not a
-// const) so a deployment or test can tune it; default 30 days.
+// const): cmd/e2a/main.go assigns it at startup from the deployment config
+// (trash.retention_days / E2A_TRASH_RETENTION_DAYS, validated ≥1 day), and
+// tests may tune it directly. Default 30 days — the number the stable API
+// contract documents ("30 days by default, deployment-configurable").
+// Every consumer reads it at query time, so the startup assignment (before
+// any janitor/worker starts) governs the whole process.
 var TrashRetention = 30 * 24 * time.Hour
 
 // ErrNotInTrash is returned by restore/purge operations that target a
@@ -2734,6 +2739,8 @@ func (s *Store) ExpireApproveAndSend(
 		   AND direction = 'outbound'
 		   AND status = 'pending_review'
 		   AND approval_expires_at < now()
+		   AND NOT EXISTS (SELECT 1 FROM agent_identities ai
+		                    WHERE ai.id = messages.agent_id AND ai.deleted_at IS NOT NULL)
 		 FOR NO KEY UPDATE SKIP LOCKED`,
 		messageID,
 	).Scan(
@@ -2877,7 +2884,12 @@ type AcceptedSend struct {
 //
 // The WHERE status='pending_review' is the compare-and-set guard: RETURNING no row
 // means a human/other worker already resolved the hold → ErrNotPendingApproval (a
-// no-op for the caller). Body columns are scrubbed exactly like ApproveAndSend.
+// no-op for the caller). The agent-not-trashed guard sits in the same WHERE so it
+// is atomic with the CAS: a hold whose agent was trashed after the caller's
+// pre-checks (the TTL sweep's candidate SELECT, or a human path's ownership load)
+// must NOT resolve — trashed holds stay pending_review with their clock paused
+// until RestoreAgent shifts approval_expires_at (or the trash purge drops them).
+// Body columns are scrubbed exactly like ApproveAndSend.
 func (s *Store) ApproveAndAccept(
 	ctx context.Context,
 	messageID, reviewedByUserID, targetStatus string,
@@ -2909,6 +2921,8 @@ func (s *Store) ApproveAndAccept(
 			        edited              = $13,
 			        body_text = NULL, body_html = NULL, attachments_json = NULL
 			  WHERE id = $1 AND direction = 'outbound' AND status = 'pending_review'
+			    AND NOT EXISTS (SELECT 1 FROM agent_identities ai
+			                     WHERE ai.id = messages.agent_id AND ai.deleted_at IS NOT NULL)
 			  RETURNING id, agent_id, message_type, subject, to_recipients, cc, bcc, status, edited`,
 			messageID,
 			targetStatus,
@@ -3000,8 +3014,13 @@ func (s *Store) LoadOutboundDraft(ctx context.Context, messageID string) (*Messa
 
 // ExpireReject transitions a pending_review message to review_expired_rejected
 // and scrubs body columns. No user ownership check — this is the worker
-// path. If the row is no longer pending (racing worker, already handled)
-// returns ErrNotPendingApproval; caller can treat as a no-op.
+// path. If the row is no longer pending (racing worker, already handled),
+// or the agent was moved to the trash after the sweep listed the row (the
+// hold must survive intact — its scrubbed body would be unrecoverable, and
+// RestoreAgent shifts approval_expires_at so the clock resumes on restore),
+// returns ErrNotPendingApproval; caller can treat as a no-op. The trash
+// guard lives INSIDE the CAS so it is atomic with the transition — a
+// separate read would reopen the sweep's TOCTOU window.
 func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Message, error) {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE messages
@@ -3011,7 +3030,9 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 		        body_text = NULL,
 		        body_html = NULL,
 		        attachments_json = NULL
-		  WHERE id = $1 AND status = 'pending_review' AND direction = 'outbound'`,
+		  WHERE id = $1 AND status = 'pending_review' AND direction = 'outbound'
+		    AND NOT EXISTS (SELECT 1 FROM agent_identities ai
+		                     WHERE ai.id = messages.agent_id AND ai.deleted_at IS NOT NULL)`,
 		messageID, MessageStatusReviewExpiredRejected, reason,
 	)
 	if err != nil {

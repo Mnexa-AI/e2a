@@ -641,7 +641,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent\'s live messages resume their clocks exactly where they stopped: each message\'s expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse (auto-resolve) the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent\'s live messages resume their clocks exactly where they stopped: each message\'s expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
      * Restore an agent from the trash
      * @param param the request object
      */
@@ -650,7 +650,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent\'s live messages resume their clocks exactly where they stopped: each message\'s expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse (auto-resolve) the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent\'s live messages resume their clocks exactly where they stopped: each message\'s expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
      * Restore an agent from the trash
      * @param param the request object
      */
