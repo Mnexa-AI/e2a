@@ -90,7 +90,10 @@ export interface E2AClientOptions {
   /** Account (`e2a_acct_`) or agent (`e2a_agt_`) key, or an OAuth access token.
    *  Falls back to `E2A_API_KEY`. */
   apiKey?: string;
-  /** API base URL. Default `https://api.e2a.dev`; override for self-host. */
+  /** API base URL. Falls back to `E2A_API_URL`, then the deprecated
+   *  `E2A_BASE_URL`. Default `https://api.e2a.dev`; override for self-host.
+   *  This is the API host — not the deployment root the CLI's `E2A_URL`
+   *  points at (that one also serves the dashboard). */
   baseUrl?: string;
   /** Max retry attempts on 429/5xx/connection (default 2). */
   maxRetries?: RetryOptions["maxRetries"];
@@ -113,6 +116,26 @@ export interface RequestOptions {
 function envVar(name: string): string | undefined {
   if (typeof process !== "undefined" && process.env && process.env[name]) return process.env[name];
   return undefined;
+}
+
+let warnedBaseUrlDeprecated = false;
+
+// resolveBaseUrl reads the API host. Canonical is E2A_API_URL — the same
+// concept the server names with E2A_API_URL (its externally visible API base).
+// E2A_BASE_URL is the name the SDKs shipped with; still honoured so published
+// integrations keep working, with a one-shot deprecation note.
+function resolveBaseUrl(): string | undefined {
+  const canonical = envVar("E2A_API_URL");
+  if (canonical) return canonical;
+  const legacy = envVar("E2A_BASE_URL");
+  if (legacy && !warnedBaseUrlDeprecated) {
+    warnedBaseUrlDeprecated = true;
+    console.warn(
+      "[e2a] E2A_BASE_URL is deprecated — rename it to E2A_API_URL. " +
+        "The old name still works for now but will be dropped.",
+    );
+  }
+  return legacy;
 }
 
 // Map generated/transport failures to the typed hierarchy: ApiException →
@@ -152,7 +175,7 @@ export class E2AClient {
         retryable: false,
       });
     }
-    const baseUrl = opts.baseUrl ?? envVar("E2A_BASE_URL") ?? "https://api.e2a.dev";
+    const baseUrl = opts.baseUrl ?? resolveBaseUrl() ?? "https://api.e2a.dev";
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
     const httpApi = new RetryHttpLibrary(new IsomorphicFetchHttpLibrary(), {

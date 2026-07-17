@@ -61,29 +61,31 @@ function parseHostList(raw: string, def: string): string[] {
   return list;
 }
 
-// resolveBaseUrl picks the deployment URL the HTTP MCP server talks
-// to. Canonical is E2A_URL (matches the CLI + SDK docs); E2A_BASE_URL
-// is the legacy name this binary shipped with — still accepted so
-// existing deployment manifests keep working, with a one-shot stderr
-// deprecation note.
+// resolveBaseUrl picks the API host this server talks to. Canonical is
+// E2A_API_URL — the same concept the backend names with E2A_API_URL (its
+// externally visible API base) and the SDKs read. This server is a pure API
+// client, so it wants the API host, NOT the deployment root that the CLI's
+// E2A_URL points at (that one also serves the dashboard).
+//
+// E2A_URL and E2A_BASE_URL are both legacy names this binary has shipped with;
+// still accepted so existing deployment manifests keep working, with a stderr
+// deprecation note. main() calls loadConfig exactly once, so the note is emitted
+// once per process without needing a module-level guard to dedupe it.
 function resolveBaseUrl(env: NodeJS.ProcessEnv): string {
-  const canonical = env.E2A_URL;
-  const legacy = env.E2A_BASE_URL;
+  const canonical = env.E2A_API_URL;
   if (canonical) return canonical;
-  if (legacy) {
-    if (!resolveBaseUrl.warned) {
-      logJson(
-        "WARNING",
-        "e2a_base_url_deprecated",
-        "E2A_BASE_URL is deprecated; rename it to E2A_URL (both names work today).",
-      );
-      resolveBaseUrl.warned = true;
-    }
-    return legacy;
+  for (const legacy of ["E2A_URL", "E2A_BASE_URL"] as const) {
+    const v = env[legacy];
+    if (!v) continue;
+    logJson(
+      "WARNING",
+      "e2a_api_url_legacy_name",
+      `${legacy} is deprecated; rename it to E2A_API_URL (the old names still work today).`,
+    );
+    return v;
   }
-  return "https://e2a.dev";
+  return "https://api.e2a.dev";
 }
-resolveBaseUrl.warned = false;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
   return {

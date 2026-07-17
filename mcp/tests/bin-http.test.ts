@@ -6,49 +6,55 @@ describe("bin/http loadConfig", () => {
     const cfg = loadConfig({});
     expect(cfg).toEqual({
       port: 3000,
-      baseUrl: "https://e2a.dev",
+      // This server is a pure API client, so it defaults to the API host —
+      // not the deployment root the CLI's E2A_URL points at.
+      baseUrl: "https://api.e2a.dev",
       allowedHosts: ["api.e2a.dev"],
       sessionIdleMs: 5 * 60_000,
       maxSessions: 500,
     });
   });
 
-  it("parses valid values (canonical E2A_URL)", () => {
+  it("parses valid values (canonical E2A_API_URL)", () => {
     const cfg = loadConfig({
       PORT: "8080",
-      E2A_URL: "https://staging.e2a.dev",
+      E2A_API_URL: "https://api.staging.e2a.dev",
       MCP_ALLOWED_HOSTS: "api.e2a.dev,mcp-staging.e2a.dev",
       MCP_SESSION_IDLE_MS: "60000",
       MCP_MAX_SESSIONS: "100",
     });
     expect(cfg).toEqual({
       port: 8080,
-      baseUrl: "https://staging.e2a.dev",
+      baseUrl: "https://api.staging.e2a.dev",
       allowedHosts: ["api.e2a.dev", "mcp-staging.e2a.dev"],
       sessionIdleMs: 60_000,
       maxSessions: 100,
     });
   });
 
-  it("falls back to E2A_BASE_URL when E2A_URL is unset (structured deprecation log)", () => {
-    const lines: string[] = [];
-    const warn = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
-      lines.push(String(chunk));
-      return true;
-    });
-    const cfg = loadConfig({ E2A_BASE_URL: "https://legacy.example.com" });
-    expect(cfg.baseUrl).toBe("https://legacy.example.com");
-    // The deprecation notice is emitted as one structured JSON line that
-    // Cloud Logging can parse — severity + event + a human-readable message.
-    const entry = JSON.parse(lines.at(-1)!);
-    expect(entry).toMatchObject({ severity: "WARNING", event: "e2a_base_url_deprecated" });
-    expect(typeof entry.message).toBe("string");
-    warn.mockRestore();
-  });
+  it.each([["E2A_URL"], ["E2A_BASE_URL"]])(
+    "falls back to %s when E2A_API_URL is unset (structured deprecation log)",
+    (legacy) => {
+      const lines: string[] = [];
+      const warn = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+        lines.push(String(chunk));
+        return true;
+      });
+      const cfg = loadConfig({ [legacy]: "https://legacy.example.com" });
+      expect(cfg.baseUrl).toBe("https://legacy.example.com");
+      // The deprecation notice is emitted as one structured JSON line that
+      // Cloud Logging can parse — severity + event + a human-readable message.
+      const entry = JSON.parse(lines.at(-1)!);
+      expect(entry).toMatchObject({ severity: "WARNING", event: "e2a_api_url_legacy_name" });
+      expect(entry.message).toContain(legacy);
+      warn.mockRestore();
+    },
+  );
 
-  it("prefers canonical E2A_URL when both are set", () => {
+  it("prefers canonical E2A_API_URL over both legacy names", () => {
     const cfg = loadConfig({
-      E2A_URL: "https://canonical.example.com",
+      E2A_API_URL: "https://canonical.example.com",
+      E2A_URL: "https://deployment-root.example.com",
       E2A_BASE_URL: "https://legacy.example.com",
     });
     expect(cfg.baseUrl).toBe("https://canonical.example.com");

@@ -36,7 +36,7 @@ BASE = "http://test.local"
 
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
-    for v in ("E2A_API_KEY", "E2A_BASE_URL", "E2A_AGENT_EMAIL"):
+    for v in ("E2A_API_KEY", "E2A_API_URL", "E2A_BASE_URL", "E2A_AGENT_EMAIL"):
         monkeypatch.delenv(v, raising=False)
 
 

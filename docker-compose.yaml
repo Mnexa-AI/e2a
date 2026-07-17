@@ -145,8 +145,8 @@ services:
     ports:
       - "8765:3000"
     environment:
-      # e2a backend reachable from inside the compose network.
-      E2A_URL: "http://e2a:8080"
+      # e2a API reachable from inside the compose network.
+      E2A_API_URL: "http://e2a:8080"
       # Allow loopback Host headers so Claude Code (which calls via
       # http://localhost:8765) doesn't trip the DNS-rebinding guard.
       MCP_ALLOWED_HOSTS: "localhost,127.0.0.1"
@@ -156,7 +156,7 @@ services:
       MCP_PUBLIC_URL: "http://localhost:8765"
       # Container-internal baseUrl ≠ host-reachable AS URL. The MCP
       # server forwards bearers via the compose-network hostname
-      # (E2A_URL above) but Claude Code runs on the host and
+      # (E2A_API_URL above) but Claude Code runs on the host and
       # must reach the AS through the same web frontend that serves
       # the consent UI. :3000 is the host-mapped web container, which
       # proxies /api/oauth/* back to the e2a backend via Caddy. This

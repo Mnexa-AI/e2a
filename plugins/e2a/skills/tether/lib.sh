@@ -15,7 +15,7 @@
 t_load_config() {
   # Explicit env vars win; each fallback source fills only the vars still missing
   # (so exporting just E2A_API_KEY in the env doesn't skip an email set in the file).
-  local envk="${E2A_API_KEY:-}" enve="${E2A_AGENT_EMAIL:-}" envu="${E2A_BASE_URL:-}"
+  local envk="${E2A_API_KEY:-}" enve="${E2A_AGENT_EMAIL:-}" envu="${E2A_URL:-${E2A_BASE_URL:-}}"
 
   # 1) explicit tether config
   if { [ -z "${E2A_API_KEY:-}" ] || [ -z "${E2A_AGENT_EMAIL:-}" ]; } && [ -f "${HOME}/.e2a-tether.env" ]; then
@@ -29,13 +29,23 @@ try:
   d=json.load(open(os.path.expanduser("~/.e2a/config.json")))
   if d.get("api_key"):     print("export E2A_API_KEY="+shlex.quote(d["api_key"]))
   if d.get("agent_email"): print("export E2A_AGENT_EMAIL="+shlex.quote(d["agent_email"]))
-  if d.get("api_url"):     print("export E2A_BASE_URL="+shlex.quote(d["api_url"].rstrip("/")))
+  if d.get("api_url"):     print("export E2A_URL="+shlex.quote(d["api_url"].rstrip("/")))
 except Exception:pass')"
   fi
+  # A ~/.e2a-tether.env written before the rename still says E2A_BASE_URL. Carry
+  # it over rather than silently falling back to the default host (which would
+  # point a self-hoster at production), then drop the stale name so the CLI —
+  # which no longer reads it — doesn't warn about a var tether already handled.
+  if [ -z "${E2A_URL:-}" ] && [ -n "${E2A_BASE_URL:-}" ]; then
+    E2A_URL="$E2A_BASE_URL"
+    echo "tether: E2A_BASE_URL is deprecated — rename it to E2A_URL in ~/.e2a-tether.env" >&2
+  fi
+  unset E2A_BASE_URL
+
   # explicit env always wins over whatever a fallback source supplied
   [ -n "$envk" ] && E2A_API_KEY="$envk"
   [ -n "$enve" ] && E2A_AGENT_EMAIL="$enve"
-  [ -n "$envu" ] && E2A_BASE_URL="$envu"
+  [ -n "$envu" ] && E2A_URL="$envu"
 
   # Treat the copied-but-unfilled tether.env.example placeholders as unset, so a
   # user who ran `cp … tether.env.example` without editing gets `config: MISSING`
@@ -48,7 +58,11 @@ except Exception:pass')"
   # EXPORTED: the transport is a child process (the e2a CLI). An unexported
   # default here would leave the CLI on its own default host while status
   # reports this one — a silent split-brain once the hosts diverge.
-  export E2A_BASE_URL="${E2A_BASE_URL:-https://api.e2a.dev}"
+  #
+  # E2A_URL is the CLI's deployment root (it serves the dashboard and proxies
+  # /v1), NOT the API host — so this default tracks the CLI's own default
+  # rather than forcing api.e2a.dev on it as the old E2A_BASE_URL name did.
+  export E2A_URL="${E2A_URL:-https://e2a.dev}"
   [ -n "${E2A_API_KEY:-}" ] && [ -n "${E2A_AGENT_EMAIL:-}" ]
 }
 
@@ -254,7 +268,7 @@ except Exception:print(2147483647)' "$exp"
 # non-"sent" status — accepted but NOT delivered) / 5 permanent request error /
 # 4 auth / 1 transient. These wrappers map it onto tether's internal codes
 # (0 ok, 2 held, 3 anchor-not-repliable) so tether.sh stays unchanged above.
-# The CLI reads E2A_API_KEY / E2A_AGENT_EMAIL / E2A_BASE_URL straight from the
+# The CLI reads E2A_API_KEY / E2A_AGENT_EMAIL / E2A_URL straight from the
 # environment t_load_config resolves — no flag plumbing needed.
 
 # t_api_send <to> <subject> <body> <conversation_id> → prints message_id;

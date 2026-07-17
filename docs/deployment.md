@@ -64,9 +64,19 @@ The CLI hits `GET /v1/info` on login and caches `shared_domain` to `~/.e2a/confi
 
 | Variable | Description |
 |---|---|
-| `E2A_URL` | CLI base URL (default `https://e2a.dev`) — the unified host that serves the `e2a login` browser flow and proxies the `/v1` API |
+| `E2A_URL` | **CLI** base URL (default `https://e2a.dev`) — the unified host that serves the `e2a login` browser flow and proxies the `/v1` API |
+| `E2A_API_URL` | **SDK/MCP** base URL (default `https://api.e2a.dev`) — the `/v1` API host alone |
 | `E2A_API_KEY` | Bypass `e2a login` — useful in CI |
 | `E2A_SHARED_DOMAIN` | Force the shared domain instead of auto-discovering it |
+
+`E2A_URL` and `E2A_API_URL` are deliberately separate: the CLI opens browser
+pages (the login flow, `/get-started`) that only the web front serves, so it
+needs the deployment root, while the SDKs and the MCP server only ever call
+`/v1` and want the API host. Pointing the CLI at an API host breaks `e2a login`.
+On a single-host deployment both can be the same URL. Setting `E2A_API_URL` for
+an SDK also tells a **server** running on that host what its own externally
+visible API base is (it is the OAuth issuer) — keep that in mind if you run a
+server and point an SDK at a *different* deployment from the same environment.
 
 The TypeScript and Python SDKs follow the same pattern: pass `baseUrl` (or `base_url`) once and call `E2AApi.fetchInfo()` if you need the deployment's shared domain in your own code.
 

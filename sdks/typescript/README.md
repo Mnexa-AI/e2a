@@ -133,10 +133,14 @@ argument.
 | Option         | Type     | Default                 | Description                              |
 |----------------|----------|-------------------------|------------------------------------------|
 | `apiKey`       | `string` | `E2A_API_KEY` env       | Account (`e2a_acct_`) or agent key/token |
-| `baseUrl`      | `string` | `https://api.e2a.dev`   | API base URL (override for self-host)    |
+| `baseUrl`      | `string` | `E2A_API_URL` env, else `https://api.e2a.dev` | API base URL (override for self-host)    |
 | `maxRetries`   | `number` | `2`                     | Retries on 429/5xx/connection            |
 | `maxElapsedMs` | `number` | —                       | Optional total deadline across attempts  |
 | `timeoutMs`    | `number` | `30000`                 | Per-attempt request timeout (see below)  |
+
+`baseUrl` names the **API host**, not the deployment root the CLI's `E2A_URL`
+points at (that one also serves the dashboard). `E2A_BASE_URL` is this SDK's
+former name for `E2A_API_URL` — still read, with a deprecation warning.
 
 `timeoutMs` bounds each individual attempt; a timed-out attempt is treated as a
 retryable connection failure, so it composes with `maxRetries`/`maxElapsedMs`.
@@ -187,7 +191,7 @@ for await (const event of client.listen("bot@agents.e2a.dev")) {
 }
 ```
 
-`client.listen(address)` (address falls back to `E2A_AGENT_EMAIL`) returns a
+`client.listen(address)` returns a
 `WSStream` that is **both** an `AsyncIterable<WSEvent>` and an
 `EventEmitter` — each item is the same versioned `{type, id, schema_version,
 created_at, data}` envelope a webhook delivery carries, so

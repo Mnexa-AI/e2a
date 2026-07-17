@@ -135,7 +135,7 @@ def _valid(model_cls, **overrides):
 
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
-    for v in ("E2A_API_KEY", "E2A_BASE_URL", "E2A_AGENT_EMAIL"):
+    for v in ("E2A_API_KEY", "E2A_API_URL", "E2A_BASE_URL", "E2A_AGENT_EMAIL"):
         monkeypatch.delenv(v, raising=False)
 
 
@@ -154,6 +154,36 @@ def _client():
 def test_requires_api_key():
     with pytest.raises(E2AError, match="api_key is required"):
         AsyncE2AClient(base_url=BASE)
+
+
+# Base-URL resolution: base_url= > E2A_API_URL > E2A_BASE_URL (deprecated) >
+# the api.e2a.dev default. Mirrors the TypeScript SDK's suite.
+
+def test_base_url_defaults_to_api_host():
+    assert AsyncE2AClient(api_key="e2a_test")._base_url == "https://api.e2a.dev"
+
+
+def test_base_url_reads_e2a_api_url(monkeypatch):
+    monkeypatch.setenv("E2A_API_URL", "https://api.self-host.example")
+    assert AsyncE2AClient(api_key="e2a_test")._base_url == "https://api.self-host.example"
+
+
+def test_base_url_honours_deprecated_e2a_base_url(monkeypatch):
+    monkeypatch.setenv("E2A_BASE_URL", "https://legacy.example")
+    with pytest.warns(DeprecationWarning, match="E2A_BASE_URL is deprecated"):
+        client = AsyncE2AClient(api_key="e2a_test")
+    assert client._base_url == "https://legacy.example"
+
+
+def test_base_url_prefers_canonical_over_deprecated(monkeypatch):
+    monkeypatch.setenv("E2A_API_URL", "https://canonical.example")
+    monkeypatch.setenv("E2A_BASE_URL", "https://legacy.example")
+    assert AsyncE2AClient(api_key="e2a_test")._base_url == "https://canonical.example"
+
+
+def test_explicit_base_url_beats_env(monkeypatch):
+    monkeypatch.setenv("E2A_API_URL", "https://api.self-host.example")
+    assert AsyncE2AClient(api_key="e2a_test", base_url=BASE)._base_url == BASE
 
 
 def test_resources_exposed():

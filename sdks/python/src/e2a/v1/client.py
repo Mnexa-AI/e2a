@@ -10,6 +10,7 @@ lists as an :class:`~e2a.v1.pagination.AutoPager`. Async-only.
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Any, Awaitable, Callable, List, Optional, Protocol, Sequence, Type, TypeVar, Union
 
 from pydantic import ValidationError
@@ -119,6 +120,28 @@ def _env(name: str) -> Optional[str]:
     return v or None
 
 
+def _resolve_base_url() -> Optional[str]:
+    """Read the API host from the environment.
+
+    Canonical is ``E2A_API_URL`` — the same concept the server names with
+    ``E2A_API_URL`` (its externally visible API base). ``E2A_BASE_URL`` is the
+    name the SDKs shipped with; still honoured so published integrations keep
+    working, with a deprecation warning.
+    """
+    canonical = _env("E2A_API_URL")
+    if canonical:
+        return canonical
+    legacy = _env("E2A_BASE_URL")
+    if legacy:
+        warnings.warn(
+            "E2A_BASE_URL is deprecated — rename it to E2A_API_URL. "
+            "The old name still works for now but will be dropped.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    return legacy
+
+
 def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
     if body is None:
         return model_cls()  # type: ignore[call-arg]
@@ -173,7 +196,7 @@ class AsyncE2AClient:
                 retryable=False,
             )
         self._api_key = key
-        self._base_url = base_url or _env("E2A_BASE_URL") or DEFAULT_BASE_URL
+        self._base_url = base_url or _resolve_base_url() or DEFAULT_BASE_URL
         self._cfg = _retry_config or RetryConfig(
             max_retries=max_retries, max_elapsed_ms=max_elapsed_ms
         )

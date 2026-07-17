@@ -87,6 +87,28 @@ e2a config get agent_email
 e2a config set agent_email bot@acme.com
 ```
 
+## Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `E2A_API_KEY` | — | API key. Skips `e2a login` — useful in CI and scripts |
+| `E2A_URL` | `https://e2a.dev` | The e2a deployment root. Set for self-host |
+| `E2A_AGENT_EMAIL` | — | Default sending/listening inbox (what `--agent` overrides) |
+| `E2A_SHARED_DOMAIN` | auto-discovered | Force the shared domain instead of discovering it via `GET /v1/info` |
+
+**Precedence:** command-line flags beat environment variables, which beat
+`~/.e2a/config.json`, which beats the defaults above.
+
+`E2A_URL` is the deployment root — the host that serves the `e2a login` browser
+flow and `/get-started`, and proxies the `/v1` API. It is *not* the SDKs'
+`E2A_API_URL`, which names the API host alone; pointing the CLI at an API host
+breaks `e2a login`. The CLI does not read `E2A_API_URL` or the SDKs' older
+`E2A_BASE_URL`.
+
+Values that come from the environment are **not** written back to
+`~/.e2a/config.json` — so with `E2A_URL` exported, `e2a config set api_url …`
+has no effect until you unset it.
+
 ## Options
 
 - `--help`, `-h` — show help

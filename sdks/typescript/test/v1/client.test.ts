@@ -60,10 +60,12 @@ describe("E2AClient", () => {
   beforeEach(() => {
     savedEnv = {
       E2A_API_KEY: process.env.E2A_API_KEY,
+      E2A_API_URL: process.env.E2A_API_URL,
       E2A_BASE_URL: process.env.E2A_BASE_URL,
       E2A_AGENT_EMAIL: process.env.E2A_AGENT_EMAIL,
     };
     delete process.env.E2A_API_KEY;
+    delete process.env.E2A_API_URL;
     delete process.env.E2A_BASE_URL;
     delete process.env.E2A_AGENT_EMAIL;
     client = new E2AClient({ apiKey: "e2a_test", baseUrl: BASE });
@@ -86,6 +88,45 @@ describe("E2AClient", () => {
   it("falls back to E2A_API_KEY from the environment", () => {
     process.env.E2A_API_KEY = "e2a_env";
     expect(() => new E2AClient({ baseUrl: BASE })).not.toThrow();
+  });
+
+  // Base-URL resolution: opts.baseUrl > E2A_API_URL > E2A_BASE_URL (deprecated)
+  // > the api.e2a.dev default. Asserted through the wire because baseUrl is
+  // private — the URL fetch is called with is the observable contract.
+  describe("base URL resolution", () => {
+    async function baseUrlOf(opts: { baseUrl?: string } = {}) {
+      globalThis.fetch = mockFetch(200, {});
+      await new E2AClient({ apiKey: "e2a_test", ...opts }).info();
+      return new URL(lastCall().url).origin;
+    }
+
+    it("defaults to the API host", async () => {
+      expect(await baseUrlOf()).toBe("https://api.e2a.dev");
+    });
+
+    it("reads E2A_API_URL", async () => {
+      process.env.E2A_API_URL = "https://api.self-host.example";
+      expect(await baseUrlOf()).toBe("https://api.self-host.example");
+    });
+
+    it("still honours the deprecated E2A_BASE_URL, with a warning", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      process.env.E2A_BASE_URL = "https://legacy.example";
+      expect(await baseUrlOf()).toBe("https://legacy.example");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("E2A_BASE_URL is deprecated"));
+      warn.mockRestore();
+    });
+
+    it("prefers E2A_API_URL over the deprecated name", async () => {
+      process.env.E2A_API_URL = "https://canonical.example";
+      process.env.E2A_BASE_URL = "https://legacy.example";
+      expect(await baseUrlOf()).toBe("https://canonical.example");
+    });
+
+    it("lets an explicit baseUrl beat the environment", async () => {
+      process.env.E2A_API_URL = "https://api.self-host.example";
+      expect(await baseUrlOf({ baseUrl: BASE })).toBe(BASE);
+    });
   });
 
   it("maps a per-request timeout to E2AConnectionError", async () => {

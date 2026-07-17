@@ -287,7 +287,7 @@ WebSocket (no public URL needed):
 from e2a.v1 import AsyncE2AClient
 
 async with AsyncE2AClient(api_key="e2a_…") as client:
-    async for notif in client.listen("bot@your-domain.com"):  # falls back to E2A_AGENT_EMAIL
+    async for notif in client.listen("bot@your-domain.com"):
         # notif is lightweight metadata — fetch the body when you want it
         email = await client.messages.get(notif.recipient, notif.message_id)
         await client.messages.reply(notif.recipient, notif.message_id, {"body": "Got it!"})

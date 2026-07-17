@@ -240,7 +240,7 @@ lands.
 |---|---|---|
 | `E2A_TETHER_POLL_INTERVAL` | `20` (s) | fallback poll cadence when the WS wait is unavailable |
 | `E2A_TETHER_ASK_TIMEOUT` | `1800` (s) | how long `ask` blocks for an answer before giving up |
-| `E2A_BASE_URL` | `https://api.e2a.dev` | API base (set for self-host) |
+| `E2A_URL` | `https://e2a.dev` | e2a deployment root (set for self-host) |
 | `E2A_CLI` | (auto) | override the e2a CLI invocation (e.g. `node /repo/cli/dist/bin/e2a.js`) |
 
 The only thing that costs a turn per tick is a `/loop` **heartbeat** (tier 2

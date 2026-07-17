@@ -172,8 +172,9 @@ re-implemented), so the two surfaces are identical by construction.
 
 `E2AClient` (sync) takes exactly the same arguments.
 
-`api_key` falls back to `E2A_API_KEY`; `base_url` to `E2A_BASE_URL` then
-`https://api.e2a.dev`. `timeout_ms` is the per-request timeout (default 30s); a
+`api_key` falls back to `E2A_API_KEY`; `base_url` to `E2A_API_URL` then
+`https://api.e2a.dev`. (`E2A_BASE_URL` is the SDK's former name for
+`E2A_API_URL` — still read, with a `DeprecationWarning`.) `timeout_ms` is the per-request timeout (default 30s); a
 timed-out request retries like any other connection failure. Passing
 `timeout_ms=0` or `None` removes the SDK's override and falls back to the HTTP
 transport's built-in **300s** ceiling — it does **not** make requests unbounded
@@ -244,7 +245,7 @@ await client.messages.restore("bot@agents.e2a.dev", "msg_abc123")
 ## WebSocket (real-time delivery for local agents)
 
 ```python
-async for event in client.listen("bot@agents.e2a.dev"):  # falls back to E2A_AGENT_EMAIL
+async for event in client.listen("bot@agents.e2a.dev"):
     if event.type != "email.received":
         continue  # tolerate future event kinds
     data = event.data

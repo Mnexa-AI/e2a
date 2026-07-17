@@ -376,7 +376,7 @@ except Exception:print("")')"
       { echo "# written by tether.sh setup — $(t_now_iso)"
         echo "export E2A_API_KEY=\"${agtkey}\""
         echo "export E2A_AGENT_EMAIL=\"${inbox}\""
-        [ -n "${E2A_BASE_URL:-}" ] && echo "export E2A_BASE_URL=\"${E2A_BASE_URL}\""
+        [ -n "${E2A_URL:-}" ] && echo "export E2A_URL=\"${E2A_URL}\""
       } > "$envf"
     )
     chmod 600 "$envf" 2>/dev/null || true
@@ -387,7 +387,7 @@ except Exception:print("")')"
     ;;
 
   status)
-    if t_load_config; then echo "config: OK (agent ${E2A_AGENT_EMAIL}, base ${E2A_BASE_URL})"; else echo "config: MISSING"; fi
+    if t_load_config; then echo "config: OK (agent ${E2A_AGENT_EMAIL}, base ${E2A_URL})"; else echo "config: MISSING"; fi
     echo "cli:    $(t_cli_desc)"
     if [ "$(t_state_get armed)" = "1" ]; then
       echo "armed:  yes"
