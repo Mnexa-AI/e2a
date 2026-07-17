@@ -192,7 +192,6 @@ every `/v1` operation not listed here is covered by the GA freeze.
 | operationId | Method and path | Surface |
 | --- | --- | --- |
 | `createTemplate` | `POST /v1/templates` | Templates |
-| `deleteMessage` | `DELETE /v1/agents/{email}/messages/{id}` | Message trash |
 | `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
 | `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
 | `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
@@ -200,8 +199,6 @@ every `/v1` operation not listed here is covered by the GA freeze.
 | `listStarterTemplates` | `GET /v1/starter-templates` | Starter templates |
 | `listTemplates` | `GET /v1/templates` | Templates |
 | `putAgentProtection` | `PUT /v1/agents/{email}/protection` | Protection config |
-| `restoreAgent` | `POST /v1/agents/{email}/restore` | Agent trash |
-| `restoreMessage` | `POST /v1/agents/{email}/messages/{id}/restore` | Message trash |
 | `updateTemplate` | `PATCH /v1/templates/{id}` | Templates |
 | `validateTemplate` | `POST /v1/templates/validate` | Templates |
 
@@ -222,8 +219,8 @@ every `/v1` operation not listed here is covered by the GA freeze.
 - **Beta surfaces are marked `x-stability-level: beta`** in the spec
   for automated compatibility tools
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
-  send) and `(beta)` in prose — today: templates, starter templates, the agent
-  protection config, and the agent/message trash operations listed above. They are **exempt from the
+  send) and `(beta)` in prose — today: templates, starter templates, and the agent
+  protection config. They are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
@@ -372,7 +369,8 @@ single message.
 - `GET …/messages/{id}` — fetch one message (inbound or outbound), including the
   raw message and inbound auth headers. Reading an unread inbound message flips it
   to `read`. A soft-deleted message remains readable by this direct GET and carries
-  `deleted_at` until it is permanently purged (normally ~30 days after deletion).
+  `deleted_at` until it is permanently purged (30 days after deletion by default;
+  the trash retention window is deployment-configurable).
   Ordinary message lists, conversations, reply targets, and forward targets hide
   trashed messages; use `GET …/messages?deleted=true` to enumerate the trash.
 - `PATCH …/messages/{id}` — apply a labels delta (`add_labels` / `remove_labels`).

@@ -208,9 +208,17 @@ func (s *Store) ListExpiredReviews(ctx context.Context, limit int) ([]Expiration
 // guard for human-driven transitions (a reviewer may only release a message
 // belonging to an agent they own; the handler resolves the owned agent first).
 // Worker-driven (TTL) transitions pass "" (system-scoped) and a nil reviewerID.
+//
+// The agent-not-trashed guard is part of the CAS: a hold whose agent was moved
+// to the trash after ListExpiredReviews selected it must not auto-resolve —
+// trashed holds stay pending_review with their clock paused until RestoreAgent
+// shifts approval_expires_at (or the trash purge drops them). Same TOCTOU
+// closure as the outbound arms (ExpireReject / ApproveAndAccept).
 func (s *Store) transitionReview(ctx context.Context, messageID, agentID, newStatus string, reviewerID *string, rejectionReason string) error {
 	args := []any{messageID, newStatus, reviewerID, rejectionReason}
-	where := `id = $1 AND direction = 'inbound' AND status = 'pending_review'`
+	where := `id = $1 AND direction = 'inbound' AND status = 'pending_review'
+	    AND NOT EXISTS (SELECT 1 FROM agent_identities ai
+	                     WHERE ai.id = messages.agent_id AND ai.deleted_at IS NOT NULL)`
 	if agentID != "" {
 		args = append(args, agentID)
 		where += ` AND agent_id = $5`

@@ -70,7 +70,7 @@ class MessagesApi:
     ) -> DeleteMessageResult:
         """Delete a message (move to trash)
 
-        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -149,7 +149,7 @@ class MessagesApi:
     ) -> ApiResponse[DeleteMessageResult]:
         """Delete a message (move to trash)
 
-        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -228,7 +228,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Delete a message (move to trash)
 
-        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -1046,7 +1046,7 @@ class MessagesApi:
     ) -> MessageView:
         """Get a message
 
-        Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (~30 days after deletion); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
+        Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -1117,7 +1117,7 @@ class MessagesApi:
     ) -> ApiResponse[MessageView]:
         """Get a message
 
-        Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (~30 days after deletion); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
+        Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -1188,7 +1188,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Get a message
 
-        Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (~30 days after deletion); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
+        Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -1317,7 +1317,7 @@ class MessagesApi:
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
-        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1333,7 +1333,7 @@ class MessagesApi:
     ) -> PageMessageSummaryView:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged — 30 days after deletion by default, deployment-configurable); the trash view defaults to direction=all and read_status=all.
 
         :param email: (required)
         :type email: str
@@ -1359,7 +1359,7 @@ class MessagesApi:
         :type cursor: str
         :param limit:
         :type limit: int
-        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
+        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only).
         :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1432,7 +1432,7 @@ class MessagesApi:
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
-        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1448,7 +1448,7 @@ class MessagesApi:
     ) -> ApiResponse[PageMessageSummaryView]:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged — 30 days after deletion by default, deployment-configurable); the trash view defaults to direction=all and read_status=all.
 
         :param email: (required)
         :type email: str
@@ -1474,7 +1474,7 @@ class MessagesApi:
         :type cursor: str
         :param limit:
         :type limit: int
-        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
+        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only).
         :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1547,7 +1547,7 @@ class MessagesApi:
         until: Annotated[Optional[StrictStr], Field(description="RFC3339; created_at < until.")] = None,
         cursor: Optional[StrictStr] = None,
         limit: Optional[Annotated[int, Field(le=100, strict=True, ge=1)]] = None,
-        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1563,7 +1563,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """List messages
 
-        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.
+        List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged — 30 days after deletion by default, deployment-configurable); the trash view defaults to direction=all and read_status=all.
 
         :param email: (required)
         :type email: str
@@ -1589,7 +1589,7 @@ class MessagesApi:
         :type cursor: str
         :param limit:
         :type limit: int
-        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only).
+        :param deleted: List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only).
         :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -2145,7 +2145,7 @@ class MessagesApi:
     ) -> MessageView:
         """Restore a message from the trash
 
-        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -2216,7 +2216,7 @@ class MessagesApi:
     ) -> ApiResponse[MessageView]:
         """Restore a message from the trash
 
-        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -2287,7 +2287,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Restore a message from the trash
 
-        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
 
         :param email: The agent's full email address. (required)
         :type email: str

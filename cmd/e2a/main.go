@@ -101,6 +101,13 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Trash retention (trash.retention_days / E2A_TRASH_RETENTION_DAYS,
+	// default 30, validated ≥1 by config.Load). Applied before any store,
+	// janitor, or worker is constructed — every consumer (the janitor's
+	// purge SQL, PurgeDeletedAgents/PruneExpired) reads the package var at
+	// query time, so a single startup assignment governs the deployment.
+	identity.TrashRetention = time.Duration(cfg.Trash.RetentionDays) * 24 * time.Hour
+
 	// Database
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, cfg.Database.URL)

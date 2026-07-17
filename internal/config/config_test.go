@@ -218,3 +218,55 @@ func TestIsProduction(t *testing.T) {
 		t.Error("expected IsProduction() to return false for development")
 	}
 }
+
+// Trash retention: defaults to 30 days, yaml + env override, and a value
+// below 1 day is refused at startup (the stable API promises soft-deleted
+// resources stay restorable — see internal/identity.TrashRetention).
+func TestTrashRetentionDefaultOverrideAndValidation(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// Absent → default 30.
+	cfg, err := Load(write("default.yaml", "env: \"development\"\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Trash.RetentionDays != 30 {
+		t.Errorf("default Trash.RetentionDays = %d, want 30", cfg.Trash.RetentionDays)
+	}
+
+	// YAML override.
+	cfg, err = Load(write("yaml.yaml", "env: \"development\"\ntrash:\n  retention_days: 7\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Trash.RetentionDays != 7 {
+		t.Errorf("yaml Trash.RetentionDays = %d, want 7", cfg.Trash.RetentionDays)
+	}
+
+	// Env override wins over yaml.
+	t.Setenv("E2A_TRASH_RETENTION_DAYS", "90")
+	cfg, err = Load(write("env.yaml", "env: \"development\"\ntrash:\n  retention_days: 7\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Trash.RetentionDays != 90 {
+		t.Errorf("env Trash.RetentionDays = %d, want 90", cfg.Trash.RetentionDays)
+	}
+	t.Setenv("E2A_TRASH_RETENTION_DAYS", "")
+
+	// Below 1 day → refused.
+	if _, err := Load(write("zero.yaml", "env: \"development\"\ntrash:\n  retention_days: 0\n")); err == nil {
+		t.Error("Load should reject trash.retention_days: 0")
+	}
+	if _, err := Load(write("neg.yaml", "env: \"development\"\ntrash:\n  retention_days: -3\n")); err == nil {
+		t.Error("Load should reject a negative trash.retention_days")
+	}
+}

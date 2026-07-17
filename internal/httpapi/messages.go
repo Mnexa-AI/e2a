@@ -83,7 +83,7 @@ type MessageView struct {
 	// moved there, omitted on live messages. Trashed messages appear only in
 	// the deleted=true list view and this single-message get; they are purged
 	// ~30 days after deletion (docs/design/trash-soft-delete.md).
-	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages."`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash."`
 	// AuthHeaders is the raw X-E2A-Auth-* blob — a convenience copy, optional
 	// (MSG-12): omitted on outbound, where there is no inbound verdict. `auth`
 	// (AuthVerdict) is the primary, structured verdict.
@@ -276,7 +276,7 @@ type MessageSummaryView struct {
 	CreatedAt time.Time `json:"created_at" format:"date-time"`
 	// DeletedAt marks a message in the trash — set on rows of the deleted=true
 	// list view, omitted on live messages. See MessageView.DeletedAt.
-	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages."`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash."`
 	// Auth is the structured inbound authentication verdict (migration 032).
 	// Inbound-only; omitted on outbound rows.
 	Auth *AuthVerdict `json:"auth,omitempty"`
@@ -359,7 +359,7 @@ type ListMessagesInput struct {
 	Until           string   `query:"until" doc:"RFC3339; created_at < until."`
 	Cursor          string   `query:"cursor"`
 	Limit           int      `query:"limit" minimum:"1" maximum:"100" default:"100"`
-	Deleted         bool     `query:"deleted" doc:"List the trash instead: messages that were soft-deleted and are restorable until purged (~30 days after deletion). Defaults to false (live messages only)."`
+	Deleted         bool     `query:"deleted" doc:"List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only)."`
 }
 
 type listMessagesOutput struct {
@@ -391,7 +391,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages",
 		Summary:     "List messages",
-		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged ~30 days after deletion); the trash view defaults to direction=all and read_status=all.",
+		Description: "List an agent's messages (inbound + outbound) with filters and cursor pagination. Held outbound drafts appear as status=pending_review. Pass deleted=true for the trash (soft-deleted messages, restorable until purged — 30 days after deletion by default, deployment-configurable); the trash view defaults to direction=all and read_status=all.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleListMessages)
@@ -401,10 +401,9 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodDelete,
 		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Delete a message (move to trash)",
-		Description: "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged ~30 days after deletion. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
+		Description: "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
-		Extensions:  beta(),
 	}, s.handleDeleteMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -412,10 +411,9 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodPost,
 		Path:        "/v1/agents/{email}/messages/{id}/restore",
 		Summary:     "Restore a message from the trash",
-		Description: "Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — time spent in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.",
+		Description: "Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
-		Extensions:  beta(),
 	}, s.handleRestoreMessage)
 
 	huma.Register(s.API, huma.Operation{
@@ -423,7 +421,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Get a message",
-		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (~30 days after deletion); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.",
+		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, func(ctx context.Context, in *MessageIDParam) (*messageOutput, error) {
