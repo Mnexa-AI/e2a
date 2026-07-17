@@ -454,6 +454,14 @@ func main() {
 
 	// User auth (Google OAuth for agent developers)
 	userAuth := auth.NewUserAuth(&cfg.OAuth, store, cfg.IsProduction())
+	// Generic external-auth (federated JWT) login. Off by default
+	// (config.ExternalAuthConfig.Enabled / E2A_EXTERNAL_AUTH_ENABLED); nil
+	// when disabled, so api.SetExternalAuth(nil) below leaves the callback
+	// route unregistered.
+	externalAuth := auth.NewExternalAuth(cfg.ExternalAuth, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
+	if externalAuth != nil {
+		log.Printf("[auth] external auth enabled (issuer=%s)", cfg.ExternalAuth.Issuer)
+	}
 
 	// HTTP API
 	router := mux.NewRouter()
@@ -480,6 +488,7 @@ func main() {
 		log.Printf("[agentauth] JWT signing disabled (E2A_OAUTH_SIGNING_KEY not set); /.well-known/jwks.json serves an empty set")
 	}
 	api.SetSigner(jwtSigner)
+	api.SetExternalAuth(externalAuth)
 	// HITL reviewer-notification emails. Requires both a configured
 	// outbound SMTP relay (to actually send) and a public base URL (so
 	// the magic links in the email are absolute and clickable from any

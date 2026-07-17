@@ -158,12 +158,17 @@ type API struct {
 	sender *outbound.Sender
 	// screen runs outbound content screening (Slice 5). Stateless heuristics
 	// engine; mirrors the relay's inbound piguard engine.
-	screen     *piguard.Engine
-	smtpRelay  *outbound.SMTPRelay
-	userAuth   *auth.UserAuth
-	usage      usage.UsageTracker
-	smtpDomain string
-	fromDomain string
+	screen    *piguard.Engine
+	smtpRelay *outbound.SMTPRelay
+	userAuth  *auth.UserAuth
+	// externalAuth wires the generic, config-gated external-auth (federated
+	// JWT) login callback (auth.ExternalAuth). Optional — nil (the default:
+	// config.ExternalAuthConfig.Enabled is false) means the route below is
+	// not registered at all, not merely disabled.
+	externalAuth *auth.ExternalAuth
+	usage        usage.UsageTracker
+	smtpDomain   string
+	fromDomain   string
 	// sharedDomain enables slug-based agent registration when non-empty.
 	// See config.Config.SharedDomain for the rationale.
 	sharedDomain string
@@ -363,6 +368,12 @@ func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
 // agent-identity token paths (later sub-slices) report "not enabled".
 func (a *API) SetSigner(s *agentauth.Signer) { a.signer = s }
 
+// SetExternalAuth wires the optional external-auth (federated JWT) login
+// callback. auth.NewExternalAuth already returns nil when the feature is
+// disabled, so this is safe to call unconditionally with its result — when
+// nil, registerRoutes below does not register the callback route at all.
+func (a *API) SetExternalAuth(ea *auth.ExternalAuth) { a.externalAuth = ea }
+
 // SetOAuthStorage wires in the OAuth storage handle separately from
 // the provider. The consent handler needs Pool() to begin a pgx tx
 // that spans the agent-create (identity pkg) and the auth-code insert
@@ -552,6 +563,15 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 		r.HandleFunc("/api/auth/logout", a.userAuth.HandleLogout).Methods("POST")
 		r.HandleFunc("/api/auth/me", a.userAuth.HandleMe).Methods("GET")
 		r.HandleFunc("/api/auth/me", a.userAuth.HandleUpdateMe).Methods("PATCH")
+
+		// Generic external-auth (federated JWT) login callback. Off by
+		// default: config.ExternalAuthConfig.Enabled gates whether
+		// a.externalAuth is non-nil (see SetExternalAuth), and only then is
+		// this route registered — a deployment that never enables it has no
+		// route to probe (404, not "disabled and rejects").
+		if a.externalAuth != nil {
+			r.HandleFunc("/api/auth/external/callback", a.externalAuth.HandleCallback).Methods("GET")
+		}
 
 		// Dashboard
 		r.HandleFunc("/api/dashboard/stats", a.userAuth.HandleDashboardStats).Methods("GET")

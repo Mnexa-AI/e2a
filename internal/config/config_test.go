@@ -207,6 +207,108 @@ signing:
 	}
 }
 
+func TestLoadConfigExternalAuthDefaultsDisabled(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`env: "development"`), 0644)
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.ExternalAuth.Enabled {
+		t.Error("ExternalAuth.Enabled should default to false")
+	}
+}
+
+func TestLoadConfigExternalAuthEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`env: "development"`), 0644)
+
+	t.Setenv("E2A_EXTERNAL_AUTH_ENABLED", "true")
+	t.Setenv("E2A_EXTERNAL_AUTH_ISSUER", "https://issuer.example.com")
+	t.Setenv("E2A_EXTERNAL_AUTH_JWKS_URL", "https://issuer.example.com/.well-known/jwks.json")
+	t.Setenv("E2A_EXTERNAL_AUTH_AUDIENCE", "e2a")
+	t.Setenv("E2A_EXTERNAL_AUTH_USER_ID_CLAIM", "e2a_user_id")
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !cfg.ExternalAuth.Enabled {
+		t.Error("expected ExternalAuth.Enabled = true from env override")
+	}
+	if cfg.ExternalAuth.Issuer != "https://issuer.example.com" {
+		t.Errorf("ExternalAuth.Issuer = %q", cfg.ExternalAuth.Issuer)
+	}
+	if cfg.ExternalAuth.JWKSURL != "https://issuer.example.com/.well-known/jwks.json" {
+		t.Errorf("ExternalAuth.JWKSURL = %q", cfg.ExternalAuth.JWKSURL)
+	}
+	if cfg.ExternalAuth.Audience != "e2a" {
+		t.Errorf("ExternalAuth.Audience = %q", cfg.ExternalAuth.Audience)
+	}
+	if cfg.ExternalAuth.UserIDClaim != "e2a_user_id" {
+		t.Errorf("ExternalAuth.UserIDClaim = %q", cfg.ExternalAuth.UserIDClaim)
+	}
+}
+
+func TestValidateExternalAuthEnabledRequiresAllFields(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`
+env: "development"
+external_auth:
+  enabled: true
+`), 0644)
+
+	_, err := Load(cfgPath)
+	if err == nil {
+		t.Fatal("Load should refuse external_auth.enabled with no issuer/jwks_url/audience/user_id_claim")
+	}
+	for _, want := range []string{"issuer", "jwks_url", "audience", "user_id_claim"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected error to mention %q, got: %v", want, err)
+		}
+	}
+}
+
+func TestValidateExternalAuthEnabledAcceptsFullyConfigured(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`
+env: "development"
+external_auth:
+  enabled: true
+  issuer: "https://issuer.example.com"
+  jwks_url: "https://issuer.example.com/.well-known/jwks.json"
+  audience: "e2a"
+  user_id_claim: "e2a_user_id"
+`), 0644)
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load should accept a fully configured external_auth block, got: %v", err)
+	}
+	if !cfg.ExternalAuth.Enabled {
+		t.Error("expected ExternalAuth.Enabled = true")
+	}
+}
+
+func TestValidateExternalAuthDisabledIgnoresEmptyFields(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`
+env: "development"
+external_auth:
+  enabled: false
+`), 0644)
+
+	if _, err := Load(cfgPath); err != nil {
+		t.Fatalf("Load should accept external_auth.enabled=false with empty fields, got: %v", err)
+	}
+}
+
 func TestIsProduction(t *testing.T) {
 	prod := &Config{Env: "production"}
 	dev := &Config{Env: "development"}

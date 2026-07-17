@@ -38,6 +38,22 @@ oauth:
   # TTL. Override via E2A_OAUTH_SIGNING_KID.
   signing_kid: "v1"
 
+# — External auth (generic federated JWT login) —————————————————————————————
+# Optional, off by default. Lets any OIDC/JWT issuer (an identity provider,
+# an internal SSO gateway, etc. — this is not tied to any particular vendor)
+# sign users into e2a: GET /api/auth/external/callback?assertion=<jwt> is
+# verified against the issuer's JWKS, and on success establishes a session
+# for the EXISTING e2a user named by the configured claim. It never creates a
+# user — the claimed identity must already have a `users` row.
+# All four fields below are required when enabled=true (checked at startup).
+external_auth:
+  enabled: false
+  issuer: ""              # expected `iss` claim, e.g. "https://issuer.example.com". Override: E2A_EXTERNAL_AUTH_ISSUER
+  jwks_url: ""             # e.g. "https://issuer.example.com/.well-known/jwks.json". Override: E2A_EXTERNAL_AUTH_JWKS_URL
+  audience: ""             # expected `aud` claim. Override: E2A_EXTERNAL_AUTH_AUDIENCE
+  user_id_claim: ""        # claim naming the e2a users.id to sign into, e.g. "e2a_user_id". Override: E2A_EXTERNAL_AUTH_USER_ID_CLAIM
+  # Enable with: E2A_EXTERNAL_AUTH_ENABLED=true
+
 signing:
   # Generate with: openssl rand -hex 32
   # Production refuses to start with this placeholder or with anything < 32 bytes.
