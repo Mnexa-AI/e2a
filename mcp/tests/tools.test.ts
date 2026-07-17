@@ -366,7 +366,14 @@ describe("e2a MCP server", () => {
     expect(description).toContain("outbound_gate_policy=allowlist");
     expect(description).toContain("outbound_gate_allowlist=[]");
     expect(description).toContain("outbound_gate_action=review");
-    expect(description).toMatch(/open.*review.*hold nothing/i);
+    // The hold-nothing claim is scoped to the recipient GATE — the content scan
+    // (when enabled) can still independently hold or block (screenOutbound runs
+    // both and applies the more severe action).
+    expect(description).toMatch(/open.*review.*gate will hold nothing/i);
+    expect(description).toMatch(/content scanning.*hold or block/i);
+    // Fail-closed recipe: the gate guarantees review; the scan's block threshold
+    // refuses outright (blocked, not held).
+    expect(description).toMatch(/blocked, not held/i);
     expect(properties.outbound_gate_policy?.description).toMatch(/open.*every recipient/i);
     expect(properties.holds_on_expiry?.description).toMatch(/reject.*explicit human approval/i);
   });

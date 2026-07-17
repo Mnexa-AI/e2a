@@ -18,11 +18,11 @@ export class ProtectionGateRequest {
     */
     'action'?: ProtectionGateRequestActionEnum;
     /**
-    * Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result.
+    * Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent\'s own domain, not this list). Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result.
     */
     'allowlist'?: Array<string>;
     /**
-    * Trust gate: open (all), domain (listed domains), allowlist (listed addresses).
+    * Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent\'s own domain), allowlist (listed addresses).
     */
     'policy'?: ProtectionGateRequestPolicyEnum;
 

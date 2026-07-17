@@ -28,8 +28,8 @@ class ProtectionGateRequest(BaseModel):
     ProtectionGateRequest
     """ # noqa: E501
     action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
-    allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or domains (domain) the gate trusts; ignored for open. Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result.")
-    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (listed domains), allowlist (listed addresses).")
+    allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result.")
+    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain), allowlist (listed addresses).")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
 
