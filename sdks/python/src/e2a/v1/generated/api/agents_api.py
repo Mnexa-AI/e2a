@@ -347,7 +347,7 @@ class AgentsApi:
     ) -> DeleteAgentResult:
         """Delete an agent
 
-        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
+        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
 
         :param email: (required)
         :type email: str
@@ -422,7 +422,7 @@ class AgentsApi:
     ) -> ApiResponse[DeleteAgentResult]:
         """Delete an agent
 
-        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
+        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
 
         :param email: (required)
         :type email: str
@@ -497,7 +497,7 @@ class AgentsApi:
     ) -> RESTResponseType:
         """Delete an agent
 
-        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
+        Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
 
         :param email: (required)
         :type email: str
@@ -1148,7 +1148,7 @@ class AgentsApi:
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
         limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
-        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1170,7 +1170,7 @@ class AgentsApi:
         :type cursor: str
         :param limit: Maximum number of items to return (1-100).
         :type limit: int
-        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
+        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only).
         :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1223,7 +1223,7 @@ class AgentsApi:
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
         limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
-        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1245,7 +1245,7 @@ class AgentsApi:
         :type cursor: str
         :param limit: Maximum number of items to return (1-100).
         :type limit: int
-        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
+        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only).
         :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1298,7 +1298,7 @@ class AgentsApi:
         self,
         cursor: Annotated[Optional[StrictStr], Field(description="Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.")] = None,
         limit: Annotated[Optional[Annotated[int, Field(le=100, strict=True, ge=1)]], Field(description="Maximum number of items to return (1-100).")] = None,
-        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).")] = None,
+        deleted: Annotated[Optional[StrictBool], Field(description="List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only).")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -1320,7 +1320,7 @@ class AgentsApi:
         :type cursor: str
         :param limit: Maximum number of items to return (1-100).
         :type limit: int
-        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (~30 days). Defaults to false (live agents only).
+        :param deleted: List the trash instead: agents that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live agents only).
         :type deleted: bool
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
@@ -1748,7 +1748,7 @@ class AgentsApi:
     ) -> AgentView:
         """Restore an agent from the trash
 
-        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent's live messages resume their clocks exactly where they stopped: each message's expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse (auto-resolve) the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
 
         :param email: The agent's full email address, e.g. support@acme.com. (required)
         :type email: str
@@ -1815,7 +1815,7 @@ class AgentsApi:
     ) -> ApiResponse[AgentView]:
         """Restore an agent from the trash
 
-        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent's live messages resume their clocks exactly where they stopped: each message's expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse (auto-resolve) the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
 
         :param email: The agent's full email address, e.g. support@acme.com. (required)
         :type email: str
@@ -1882,7 +1882,7 @@ class AgentsApi:
     ) -> RESTResponseType:
         """Restore an agent from the trash
 
-        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+        Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent's live messages resume their clocks exactly where they stopped: each message's expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse (auto-resolve) the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
 
         :param email: The agent's full email address, e.g. support@acme.com. (required)
         :type email: str

@@ -28,7 +28,7 @@ class AgentView(BaseModel):
     AgentView
     """ # noqa: E501
     created_at: datetime
-    deleted_at: Optional[datetime] = Field(default=None, description="When the agent was moved to the trash. Omitted for live agents.")
+    deleted_at: Optional[datetime] = Field(default=None, description="When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages' expiry clocks are paused; restore resumes them where they stopped.")
     domain: StrictStr
     domain_verified: StrictBool
     email: StrictStr

@@ -15,7 +15,7 @@ import { HttpFile } from '../http/http.js';
 export class AgentView {
     'createdAt': Date;
     /**
-    * When the agent was moved to the trash. Omitted for live agents.
+    * When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages\' expiry clocks are paused; restore resumes them where they stopped.
     */
     'deletedAt'?: Date;
     'domain': string;

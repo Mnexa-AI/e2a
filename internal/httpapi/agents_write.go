@@ -113,7 +113,7 @@ func (s *Server) registerAgentWrites() {
 		Method:      http.MethodDelete,
 		Path:        "/v1/agents/{email}",
 		Summary:     "Delete an agent",
-		Description: "Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within 30 days, after which it is purged permanently (messages included). Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.",
+		Description: "Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.",
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteAgent)
@@ -123,10 +123,9 @@ func (s *Server) registerAgentWrites() {
 		Method:      http.MethodPost,
 		Path:        "/v1/agents/{email}/restore",
 		Summary:     "Restore an agent from the trash",
-		Description: "Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.",
+		Description: "Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent's live messages resume their clocks exactly where they stopped: each message's expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse (auto-resolve) the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.",
 		Tags:        []string{"agents"},
 		Security:    []map[string][]string{{"bearer": {}}},
-		Extensions:  beta(),
 	}, s.handleRestoreAgent)
 }
 

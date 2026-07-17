@@ -14,7 +14,6 @@ import (
 
 var betaOperationIDs = []string{
 	"createTemplate",
-	"deleteMessage",
 	"deleteTemplate",
 	"getAgentProtection",
 	"getStarterTemplate",
@@ -22,8 +21,6 @@ var betaOperationIDs = []string{
 	"listStarterTemplates",
 	"listTemplates",
 	"putAgentProtection",
-	"restoreAgent",
-	"restoreMessage",
 	"updateTemplate",
 	"validateTemplate",
 }
@@ -277,7 +274,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 			t.Errorf("%s must carry canonical x-stability-level: beta, got %v", id, got)
 		}
 	}
-	for _, id := range []string{"sendMessage", "createAgent", "listMessages", "createWebhook", "listEvents"} {
+	for _, id := range []string{"sendMessage", "createAgent", "listMessages", "createWebhook", "listEvents", "deleteMessage", "restoreMessage", "restoreAgent", "deleteAgent"} {
 		if got := opExt(id, "x-stability"); got != nil {
 			t.Errorf("%s is stable GA surface and must NOT carry x-stability, got %v", id, got)
 		}
@@ -303,7 +300,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 			t.Errorf("schema %s must carry canonical x-stability-level: beta, got %v", name, got)
 		}
 	}
-	for _, name := range []string{"MessageView", "AgentView", "WebhookView", "SendEmailRequest", "ErrorEnvelope"} {
+	for _, name := range []string{"MessageView", "AgentView", "WebhookView", "SendEmailRequest", "ErrorEnvelope", "DeleteMessageResult"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s is stable and must NOT carry x-stability, got %v", name, got)
 		}
