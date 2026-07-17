@@ -61,6 +61,12 @@ outbound_smtp:
   username: ""
   password: ""
   from_domain: "relay.example.com"
+  # Domain the provider stamps on outgoing Message-ID headers (SES:
+  # "<region>.amazonses.com"). Used to qualify the bare id SES returns in the
+  # SMTP 250 response so replies thread correctly. Leave empty to derive it
+  # from a standard SES host (email-smtp.<region>.amazonaws.com); set it
+  # explicitly only for non-standard endpoints.
+  # message_id_domain: "us-east-2.amazonses.com"
 
 # Custom-domain sender identity (decision 4 / Slice 4). When ses_region is set,
 # verifying a domain registers an AWS SES sending identity via BYODKIM (reusing

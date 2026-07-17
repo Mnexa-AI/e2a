@@ -34,9 +34,10 @@ const TestHMACSecret = "test-hmac-secret-for-testing"
 // growing the TestServer call site. Add fields here rather than new
 // constructor parameters — every existing caller stays untouched.
 type testServerOpts struct {
-	outboundSMTPHost       string
-	outboundSMTPPort       int
-	outboundSMTPFromDomain string
+	outboundSMTPHost            string
+	outboundSMTPPort            int
+	outboundSMTPFromDomain      string
+	outboundSMTPMessageIDDomain string
 }
 
 type TestServerOption func(*testServerOpts)
@@ -50,6 +51,17 @@ func WithOutboundSMTP(host string, port int, fromDomain string) TestServerOption
 		o.outboundSMTPHost = host
 		o.outboundSMTPPort = port
 		o.outboundSMTPFromDomain = fromDomain
+	}
+}
+
+// WithOutboundSMTPMessageIDDomain sets the provider Message-ID domain the
+// relay appends to bare ids from the 250 response (config message_id_domain).
+// Tests dial the relay at 127.0.0.1, so the SES-host derivation can never
+// fire — this override is how a test exercises the qualification path the
+// way production does against a real email-smtp.<region>.amazonaws.com host.
+func WithOutboundSMTPMessageIDDomain(domain string) TestServerOption {
+	return func(o *testServerOpts) {
+		o.outboundSMTPMessageIDDomain = domain
 	}
 }
 
@@ -83,8 +95,9 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	store := identity.NewStore(pool)
 	signer := headers.NewSigner(TestHMACSecret)
 	outboundCfg := &config.OutboundSMTPConfig{
-		Host: o.outboundSMTPHost,
-		Port: o.outboundSMTPPort,
+		Host:            o.outboundSMTPHost,
+		Port:            o.outboundSMTPPort,
+		MessageIDDomain: o.outboundSMTPMessageIDDomain,
 	}
 	fromDomain := "test.e2a.dev"
 	if o.outboundSMTPFromDomain != "" {
