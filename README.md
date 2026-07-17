@@ -401,6 +401,7 @@ make test                # all Go tests (needs Postgres on :5433)
 make test-unit           # Go unit tests only (no DB)
 make test-integration    # integration tests (needs Postgres)
 make test-e2e            # e2e tests (needs Postgres)
+make cover-check         # tests + per-package coverage floors (needs Postgres)
 make docker-up           # start local Postgres + Mailpit via docker compose
 make migrate             # apply SQL migrations to local DB
 ```

@@ -16,9 +16,12 @@ make test               # all Go tests (needs Postgres on :5433)
 make test-unit          # Go unit tests only (no DB needed)
 make test-integration   # Go integration tests (needs Postgres on :5433)
 make test-e2e           # Go e2e tests (needs Postgres on :5433)
+make cover-check        # run tests with coverage + enforce per-package floors (.testcoverage.yml; needs Postgres)
 make docker-up          # start local Postgres + Mailpit via docker compose
 make migrate            # apply SQL migrations to local DB
 ```
+
+`make cover` writes `cover.out` across `internal/...`; `make cover-check` enforces the per-package floors in `.testcoverage.yml` (same gate CI runs via the `vladopajic/go-test-coverage` action). `make openapi-compat-check` (backward-compat gate) diffs the freshly verified Huma contract against `origin/main:api/openapi.yaml`; `make openapi-compat-test` runs its test harness.
 
 Go tests that need the database use `E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable"`.
 
@@ -79,16 +82,35 @@ The main server (`cmd/e2a/main.go`) runs an SMTP relay and HTTP API. Key interna
 - **relay** — SMTP server, receives inbound email
 - **emailauth** — SPF/DKIM verification on inbound messages
 - **agent** — Agent CRUD, API endpoints, routes
-- **identity** — Domain ownership verification and storage
+- **identity** / **senderidentity** — domain ownership verification/storage and sender-identity resolution
 - **headers** — HMAC-SHA256 signing of `X-E2A-Auth-*` headers
-- **webhook** — HTTP POST delivery to agent endpoints with retry
 - **ws** — WebSocket hub for real-time message push
-- **outbound** — Compose and send emails via upstream SMTP (SES)
-- **billing** — Stripe integration, usage metering
+- **outbound** / **outboundsend** — compose and send emails via upstream SMTP (SES); queue-first send worker
+- **inboundprocess** / **inboundpolicy** — async inbound processing worker and screening/policy decisions
+- **piguard** — prompt-injection / content screening (paid-tier PI scan)
+- **hitlworker** / **hitlnotify** — human-in-the-loop review holds (`pending_review`) and approval notifications
+- **webhook** / **webhookdelivery** / **webhookpub** — webhook subscriptions plus durable fan-out + HTTP POST delivery with retry
+- **jobs** — River-backed durable job runtime (queue registry, reconciler)
+- **janitor** — periodic TTL sweeps / cleanup (trash expiry, expired holds)
+- **idempotency** — `Idempotency-Key` storage + replay for sends and mutations
+- **usage** / **limits** — usage metering and plan/account entitlement limits
 - **auth** — API key authentication
 - **config** — YAML config + env var overrides
 
 Inbound flow: SMTP → emailauth (SPF/DKIM) → agent lookup → headers signing → webhook or WebSocket delivery.
+
+### Delivery is durable (River jobs)
+
+The outbound send, inbound processing, webhook fan-out/delivery, and HITL-notify
+paths run on a River-backed durable job system (`internal/jobs` + per-domain
+worker packages) for at-least-once semantics. **Outbound send is always
+queue-first for GA** — the accept transaction atomically persists the message and
+enqueues the send job before returning; the legacy `E2A_OUTBOUND_MODE` switch and
+its config model were removed (guarded by `TestOutboundModeConfigurationRemoved`).
+Inbound and webhook fan-out still ship behind fail-safe opt-in flags:
+`E2A_INBOUND_MODE=async` (default `sync`) and `E2A_WEBHOOK_FANOUT_MODE=river`
+(default `legacy`); any other value falls back to the historical in-process path.
+Design docs live under `docs/design/`.
 
 ### OpenAPI spec source of truth
 
@@ -174,7 +196,7 @@ the built-in `GITHUB_TOKEN` (no trusted publisher involved).
 
 - **npm workspaces**: root `package.json` declares `cli`, `sdks/typescript`, `mcp`, and `design-system` as workspaces. Always use `--workspace` flag for workspace commands. Use `--package-lock=false` for install.
 - **Go module**: `github.com/tokencanopy/e2a`, Go 1.25
-- **Go test tiers**: `test-unit` needs no DB. `test-integration` needs Postgres (runs identity/agent packages). `test-e2e` uses build tag `integration` and runs `internal/e2e/`. `make test` runs everything (including e2e) with `-tags integration -p 1`.
+- **Go test tiers**: `test-unit` needs no DB (headers, outbound, relay, config, webhook, approvaltoken, limits, httpapi, ratelimit). `test-integration` needs Postgres (identity, agent, hitlworker, hitlnotify, limits, relay). `test-e2e` uses build tag `integration` and runs `internal/e2e/` + `internal/senderidentity/`. `make test` runs everything (including e2e) with `-tags integration -p 1`. `make cover-check` enforces per-package coverage floors from `.testcoverage.yml`.
 - **Schema changes**: when changing a table shape, add or update DB-backed tests for every package that writes direct SQL against that table. Higher-level e2e tests are not enough. Our migration helper is idempotent and will not automatically catch old query assumptions if runtime SQL drifts from the redesigned schema.
 - **Migrations**: every `migrations/00N_*.sql` must be **idempotent** (use `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, etc.) and **non-destructive on prod-sized tables** (`ALTER TABLE ... ADD COLUMN` is safe; `ALTER COLUMN TYPE` can rewrite the whole table — avoid on `messages` and `usage_events`). The e2a binary embeds `migrations/*.sql` via `migrations/embed.go` and auto-applies pending ones at startup against a `schema_migrations` tracker table; `E2A_MIGRATION_MODE` controls the behavior (`auto` default, `verify` to refuse and report pending, `skip` for emergency surgery). New migrations land in prod on the next binary deploy with zero manual ceremony.
 - **Postgres**: local dev DB runs on port 5433 (not 5432) via docker compose.

@@ -168,11 +168,14 @@ For API-only contributions you can skip the dashboard.
 | `internal/agent/` | Agent CRUD, HITL, REST API |
 | `internal/identity/` | Domain ownership, message store |
 | `internal/headers/` | HMAC-signed `X-E2A-Auth-*` headers |
-| `internal/webhook/` | Outbound webhook delivery + retry |
-| `internal/webhookpub/` | Stripe-tier durable outbox |
+| `internal/webhook/`, `internal/webhookdelivery/`, `internal/webhookpub/` | Webhook subscriptions, durable fan-out + delivery outbox |
 | `internal/ws/` | WebSocket hub for real-time push |
-| `internal/outbound/` | Compose + send via upstream SMTP |
-| `internal/billing/` | Stripe + usage metering |
+| `internal/outbound/`, `internal/outboundsend/` | Compose + send via upstream SMTP; queue-first send worker |
+| `internal/inboundprocess/`, `internal/inboundpolicy/` | Async inbound processing worker + screening/policy |
+| `internal/hitlworker/`, `internal/hitlnotify/` | HITL review holds + approval notifications |
+| `internal/jobs/`, `internal/janitor/` | River durable-job runtime; periodic TTL sweeps |
+| `internal/idempotency/` | `Idempotency-Key` storage + replay |
+| `internal/usage/`, `internal/limits/` | Usage metering + plan/account entitlement limits |
 | `internal/auth/` | API key + user auth |
 | `internal/config/` | YAML config + env var overrides |
 | `cli/` | `e2a` CLI (TypeScript) |
@@ -196,8 +199,9 @@ slow and need a database.
 ```bash
 make test-unit          # no DB needed — fast
 make test-integration   # needs Postgres on :5433 (make docker-up)
-make test-e2e           # build tag 'integration', runs internal/e2e/*
+make test-e2e           # build tag 'integration', runs internal/e2e/* + senderidentity
 make test               # all three, with -p 1 to avoid DB-state races
+make cover-check        # tests + per-package coverage floors (.testcoverage.yml)
 ```
 
 Run a single Go test against the local DB:
