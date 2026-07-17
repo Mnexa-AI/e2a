@@ -202,12 +202,8 @@ test("webhooks: testWebhook on disabled hook returns 409 webhook_disabled", asyn
     const r = await client.post<ErrEnvelope>(`/v1/webhooks/${hook.id}/test`, {
       body: { type: "email.received" },
     });
-    assert.ok(r.status >= 400 && r.status < 500, `disabled-hook test should be 4xx, got ${r.status}`);
-    if (r.status !== 409) {
-      info(SUITE, "test-disabled-code", `probed 409 webhook_disabled; server now returns ${r.status}: ${r.raw.slice(0, 160)}`);
-    } else {
-      assert.equal(r.body?.error?.code, "webhook_disabled", "409 carries webhook_disabled code");
-    }
+    assert.equal(r.status, 409, `disabled-hook test expected 409, got ${r.status}: ${r.raw.slice(0, 160)}`);
+    assert.equal(r.body?.error?.code, "webhook_disabled", "409 carries webhook_disabled code");
   } finally {
     await deleteHook(hook.id);
   }
