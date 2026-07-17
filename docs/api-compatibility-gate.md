@@ -16,14 +16,16 @@ changing incompatibly together.
 ## Freeze baseline
 
 The cumulative pre-release `/v1` freeze anchor is commit
-`5f58956b9b9030ca726e5c60c74b32fb16998c3e`, which introduced this compatibility
-gate. Until the first explicitly announced API GA release tag exists, release
-audits compare the candidate against that commit as well as the normal pull
-request base:
+`af5d3c7486db76cf7e62ba18763b47e4a5b95b35`, the mainline contract immediately
+before the strict GA policy was enabled. This intentionally comes after the
+pre-GA bounds program; an earlier gate-introduction commit would make those
+approved pre-freeze request bounds look retroactively breaking. Until the first
+explicitly announced API GA release tag exists, release audits compare the
+candidate against this anchor as well as the normal pull-request base:
 
 ```sh
 make openapi-compat-check \
-  OPENAPI_BASE=5f58956b9b9030ca726e5c60c74b32fb16998c3e:api/openapi.yaml
+  OPENAPI_BASE=af5d3c7486db76cf7e62ba18763b47e4a5b95b35:api/openapi.yaml
 ```
 
 Existing `v1.0.x` tags are application/cherry-pick releases that predate the
