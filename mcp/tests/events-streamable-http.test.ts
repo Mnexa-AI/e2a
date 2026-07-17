@@ -112,7 +112,7 @@ describe("MCP events tools over streamable-http", () => {
       arguments: { event_id: "evt_x", webhook_id: "wh_y" },
     });
     const parsed = parseToolResult(result);
-    expect(parsed.deliveryId).toBe("whd_replay_http");
+    expect(parsed.delivery_id).toBe("whd_replay_http");
     expect(stub.redeliverEvent).toHaveBeenCalledWith("evt_x", "wh_y");
     await client.close();
   });

@@ -7,6 +7,59 @@ export type ToolResult = {
   isError?: boolean;
 };
 
+type SnakeCase<S extends string> =
+  S extends `${infer Head}${infer Tail}`
+    ? Head extends Lowercase<Head>
+      ? `${Head}${SnakeCase<Tail>}`
+      : `_${Lowercase<Head>}${SnakeCase<Tail>}`
+    : S;
+
+type TrimLeadingUnderscore<S extends string> = S extends `_${infer Rest}` ? Rest : S;
+
+/** The public MCP success shape corresponding to an ergonomic SDK value. */
+export type McpOutput<T> =
+  T extends Date ? T
+    : T extends readonly (infer Item)[] ? McpOutput<Item>[]
+      : T extends object ? {
+          [Key in keyof T as Key extends string
+            ? TrimLeadingUnderscore<SnakeCase<Key>>
+            : Key]: McpOutput<T[Key]>
+        }
+        : T;
+
+function snakeCaseKey(key: string): string {
+  return key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase();
+}
+
+/**
+ * Convert SDK response models back to the REST-style names used by MCP.
+ *
+ * SDK models are plain objects whose generated property names are ergonomic
+ * camelCase. MCP is a separate public boundary and deliberately follows the
+ * REST contract's snake_case vocabulary. Recurse through arrays/nested view
+ * objects without touching Dates or other class instances. Already-snake_case
+ * keys (including reserved-word-safe `from_`) are preserved verbatim.
+ */
+export function toMcpOutput<T>(value: T): McpOutput<T> {
+  if (Array.isArray(value)) {
+    return value.map((item) => toMcpOutput(item)) as McpOutput<T>;
+  }
+  if (value !== null && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype === Object.prototype || prototype === null) {
+      const out: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value)) {
+        out[snakeCaseKey(key)] = toMcpOutput(item);
+      }
+      return out as McpOutput<T>;
+    }
+  }
+  return value as McpOutput<T>;
+}
+
 // strictInputSchema wraps a zod raw shape in a strict ZodObject so the
 // MCP SDK rejects unknown argument keys instead of silently stripping
 // them. Without this, a typo like `limit` against a tool that takes
@@ -73,12 +126,13 @@ export class CodedError extends Error {
 export async function runTool<T>(fn: () => Promise<T>): Promise<ToolResult> {
   try {
     const result = await fn();
+    const output = toMcpOutput(result);
     const text =
-      result === undefined
+      output === undefined
         ? "OK"
-        : typeof result === "string"
-          ? result
-          : JSON.stringify(result, null, 2);
+        : typeof output === "string"
+          ? output
+          : JSON.stringify(output, null, 2);
     return { content: [{ type: "text", text }] };
   } catch (err) {
     // Every tool error carries BOTH representations (GA review Tier-2 #12/#31):

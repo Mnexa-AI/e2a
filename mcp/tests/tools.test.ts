@@ -575,7 +575,7 @@ describe("e2a MCP server", () => {
     });
     const res = await client.callTool({ name: "list_conversations", arguments: {} });
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
-    expect(payload.conversations).toEqual([{ conversationId: "conv_1" }]);
+    expect(payload.conversations).toEqual([{ conversation_id: "conv_1" }]);
     expect(payload.next_cursor).toBe("c_next");
   });
 
@@ -644,7 +644,7 @@ describe("e2a MCP server", () => {
     });
     const res = await client.callTool({ name: "list_messages", arguments: {} });
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
-    expect(payload.messages).toEqual([{ messageId: "m1" }]);
+    expect(payload.messages).toEqual([{ message_id: "m1" }]);
     expect(payload.next_cursor).toBe("c_next");
   });
 
@@ -671,7 +671,8 @@ describe("e2a MCP server", () => {
     const content = res.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
     expect(parsed.id).toBe("msg_abc");
-    expect(parsed.from).toBe("alice@example.com");
+    expect(parsed.from_).toBe("alice@example.com");
+    expect(parsed).not.toHaveProperty("from");
     expect(parsed.text).toBe("hello world");
     // Critical: attachments surfaced as metadata-only (no `data`)
     // — bytes blow the LLM's context if returned here. Same reason
@@ -786,7 +787,7 @@ describe("e2a MCP server", () => {
       limit: 10,
     });
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
-    expect(payload.deliveries[0].webhookId).toBe("wh_abc");
+    expect(payload.deliveries[0].webhook_id).toBe("wh_abc");
   });
 
   it("update_agent sends the name and uses bound agent by default", async () => {
@@ -849,7 +850,7 @@ describe("e2a MCP server", () => {
     expect(JSON.parse(content[0]!.text)).toEqual({
       deleted: true,
       email: "bot@example.com",
-      messagesDeleted: 0,
+      messages_deleted: 0,
     });
   });
 
@@ -894,7 +895,7 @@ describe("e2a MCP server", () => {
     // The returned shape must surface the DNS records so the LLM can
     // hand them to a DNS-provider MCP. If a future SDK change drops
     // them from the response, this test trips immediately.
-    expect(content[0]?.text).toContain("dnsRecords");
+    expect(content[0]?.text).toContain("dns_records");
     expect(content[0]?.text).toContain("mx.e2a.dev");
     expect(content[0]?.text).toContain("tok_new");
   });
@@ -918,7 +919,7 @@ describe("e2a MCP server", () => {
     const content = res.content as Array<{ type: string; text: string }>;
     // get_domain is the sending_status poll target after verify_domain.
     expect(content[0]?.text).toContain("mail.acme.com");
-    expect(content[0]?.text).toContain("sendingStatus");
+    expect(content[0]?.text).toContain("sending_status");
   });
 
   it("delete_domain requires confirm:true — schema validator catches the omission", async () => {
@@ -959,8 +960,8 @@ describe("e2a MCP server", () => {
     });
     expect(stub.listApiKeys).toHaveBeenCalledWith({ cursor: "c1", limit: 10 });
     const content = res.content as Array<{ type: string; text: string }>;
-    const body = JSON.parse(content[0]!.text) as { api_keys: Array<{ keyPrefix: string }>; next_cursor?: string };
-    expect(body.api_keys[0]?.keyPrefix).toBe("e2a_agt_abc1");
+    const body = JSON.parse(content[0]!.text) as { api_keys: Array<{ key_prefix: string }>; next_cursor?: string };
+    expect(body.api_keys[0]?.key_prefix).toBe("e2a_agt_abc1");
     expect(body.next_cursor).toBeUndefined();
   });
 
@@ -1564,7 +1565,7 @@ describe("e2a MCP server", () => {
     });
   });
 
-  it("success results are unchanged: no structuredContent", async () => {
+  it("success results use REST-style snake_case without structuredContent", async () => {
     const res = await client.callTool({
       name: "send_message",
       arguments: { to: ["x@example.com"], subject: "s", text: "b" },
@@ -1572,23 +1573,41 @@ describe("e2a MCP server", () => {
     expect(res.isError).toBeFalsy();
     expect(res.structuredContent).toBeUndefined();
     const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
-    expect(JSON.parse(text)).toMatchObject({ messageId: "msg_sent" });
+    expect(JSON.parse(text)).toEqual({ message_id: "msg_sent", status: "sent" });
+  });
+
+  it("normalizes stable success payload keys recursively while preserving from_", async () => {
+    const res = await runTool(async () => ({
+      messageId: "msg_1",
+      messagesDeleted: 2,
+      from_: "alice@example.com",
+      deliveryMeta: { createdAt: "2026-07-16T00:00:00Z" },
+      attachments: [{ contentType: "text/plain", sizeBytes: 4 }],
+    }));
+
+    expect(JSON.parse(res.content[0]!.text)).toEqual({
+      message_id: "msg_1",
+      messages_deleted: 2,
+      from_: "alice@example.com",
+      delivery_meta: { created_at: "2026-07-16T00:00:00Z" },
+      attachments: [{ content_type: "text/plain", size_bytes: 4 }],
+    });
   });
 
   // ── Templates (beta) ────────────────────────────────────────────
   //
   // The eight template tools are thin pass-throughs over the McpClient's
   // SDK-backed template methods: snake_case tool args (house arg style) map
-  // to camelCase SDK request fields, and results are camelCase SDK views;
-  // the server enforces the create-mode and send-reference exclusivity
-  // rules. These tests pin the arg plumbing and the confirm guard.
+  // to camelCase SDK request fields, then success results return through the
+  // common MCP snake_case boundary. Templates remain explicitly beta; the
+  // server enforces the create-mode and send-reference exclusivity rules.
 
   it("list_templates returns the summary rows", async () => {
     const res = await client.callTool({ name: "list_templates", arguments: {} });
     expect(stub.listTemplates).toHaveBeenCalledOnce();
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(payload.templates[0].id).toBe("tmpl_1");
-    expect(payload.templates[0].createdAt).toBe("2026-06-01T00:00:00Z");
+    expect(payload.templates[0].created_at).toBe("2026-06-01T00:00:00Z");
     expect(payload).not.toHaveProperty("next_cursor");
   });
 
@@ -1697,7 +1716,7 @@ describe("e2a MCP server", () => {
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(payload.valid).toBe(true);
     expect(payload.rendered.subject).toBe("Welcome, Ada!");
-    expect(payload.suggestedData).toEqual({ name: "Ada" });
+    expect(payload.suggested_data).toEqual({ name: "Ada" });
   });
 
   it("list_starter_templates surfaces the catalog", async () => {

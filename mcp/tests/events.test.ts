@@ -150,7 +150,7 @@ describe("MCP events tools", () => {
         arguments: { event_id: "evt_xyz" },
       });
       const parsed = parseToolResult(result);
-      const ds = parsed.deliveryStatus as Record<string, number>;
+      const ds = parsed.delivery_status as Record<string, number>;
       expect(ds.delivered).toBe(1);
     });
   });
@@ -187,7 +187,7 @@ describe("MCP events tools", () => {
         arguments: { event_id: "evt_abc", webhook_id: "wh_x" },
       });
       const parsed = parseToolResult(result);
-      expect(parsed.deliveryId).toBe("whd_replay_xyz");
+      expect(parsed.delivery_id).toBe("whd_replay_xyz");
     });
   });
 

@@ -349,7 +349,7 @@ describe("HTTP MCP server", () => {
       ((await client.callTool({ name: "list_messages", arguments: { cursor: page1.next_cursor } }))
         .content as Array<{ text: string }>)[0].text,
     );
-    expect(page2.messages).toEqual([{ messageId: "m3" }]);
+    expect(page2.messages).toEqual([{ message_id: "m3" }]);
     expect(page2).not.toHaveProperty("next_cursor"); // last page
     await transport.close();
   });
