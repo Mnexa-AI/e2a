@@ -263,6 +263,32 @@ describe("listen notification handling", () => {
     expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(full)}\n`);
   });
 
+  it("prints JSON when the independent forward side channel rejects", async () => {
+    const full = {
+      id: "msg_123",
+      subject: "Hello",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("connection refused")),
+    );
+    const client = {
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
+    } as any;
+
+    await expect(
+      handleNotification(client, "bot@agents.e2a.dev", makeNotification(), {
+        json: true,
+        forward: "http://127.0.0.1:1/webhook",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(full)}\n`);
+    expect(mockStderr).toHaveBeenCalledWith(
+      "Forward failed: connection refused\n",
+    );
+  });
+
   it("forwards to OpenClaw and auto-replies when text is returned", async () => {
     // No parsed/body text — exercise the rawMessage decode fallback.
     const raw = "Subject: Hello\r\n\r\nHi there!";
@@ -331,6 +357,74 @@ describe("listen notification handling", () => {
     expect(mockStderr).toHaveBeenCalledWith(
       "Replied to alice@example.com (msg_123)\n",
     );
+  });
+});
+
+describe("listen --once forwarding failures", () => {
+  afterEach(() => {
+    vi.doUnmock("../sdk.js");
+    vi.resetModules();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the matching message and exits after a forward transport error", async () => {
+    vi.resetModules();
+
+    const full = { id: "msg_123", subject: "Hello" };
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "email.received",
+          id: "evt_123",
+          schema_version: "1",
+          created_at: "2025-01-15T10:30:00Z",
+          data: makeNotification(),
+        };
+      },
+    };
+    const client = {
+      listen: vi.fn(() => fakeStream),
+      messages: {
+        get: vi.fn().mockResolvedValue(full),
+        reply: vi.fn(),
+      },
+    };
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => client,
+      requireAgentEmail: (agent?: string) =>
+        agent ?? "bot@agents.e2a.dev",
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("connection refused")),
+    );
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const { listen } = await import("../commands/listen.js");
+    await listen({
+      agent: "bot@agents.e2a.dev",
+      once: true,
+      json: true,
+      forward: "http://127.0.0.1:1/webhook",
+    });
+
+    expect(stdoutSpy).toHaveBeenCalledTimes(1);
+    expect(stdoutSpy).toHaveBeenCalledWith(`${JSON.stringify(full)}\n`);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      "Forward failed: connection refused\n",
+    );
+    expect(stderrSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("Error handling message"),
+    );
+    expect(fakeStream.close).toHaveBeenCalled();
   });
 });
 

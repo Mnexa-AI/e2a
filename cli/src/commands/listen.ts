@@ -305,11 +305,18 @@ export async function forwardMessage(
     }
   }
 
-  const res = await fetch(forwardUrl, {
-    method: "POST",
-    headers,
-    body: fetchBody,
-  });
+  let res: Response;
+  try {
+    res = await fetch(forwardUrl, {
+      method: "POST",
+      headers,
+      body: fetchBody,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`Forward failed: ${message}\n`);
+    return;
+  }
 
   if (!res.ok) {
     process.stderr.write(
