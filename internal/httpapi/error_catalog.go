@@ -50,6 +50,10 @@ var errorCodeCatalog = []errorCodeContract{
 	{Code: "address_in_trash", Status: "409", Family: "state"},
 	{Code: "message_held", Status: "409", Family: "state"},
 	{Code: "message_not_pending", Status: "409", Family: "state"},
+	// Retryable: the referenced outbound parent is queued for provider submission
+	// but not yet submitted, so it has no Message-ID to thread onto yet. Once the
+	// send worker submits, the identical reply/forward succeeds.
+	{Code: "message_not_yet_delivered", Status: "409", Family: "state", Retryable: true},
 	{Code: "not_in_trash", Status: "409", Family: "state"},
 	{Code: "send_in_progress", Status: "409", Family: "state"},
 	{Code: "webhook_disabled", Status: "409", Family: "state"},

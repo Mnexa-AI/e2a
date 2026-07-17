@@ -1774,15 +1774,24 @@ func (m *Message) ThreadMessageID() string {
 // not a legitimate reply/forward anchor. `expires_at > now()` keeps expired
 // rows out the same way GetInboundMessage does. Callers still scope the result
 // to the owning agent (id-only lookup here does not).
+//
+// method + delivery_status are loaded (beyond GetInboundMessage's column list)
+// because `status` is the review/hold axis, not the delivery axis: an outbound
+// row reads status='sent' the instant it is accepted, long before the send
+// worker submits it. The reply/forward handlers need the delivery axis to tell
+// an outbound that is still queued for external submission (no
+// provider_message_id yet → ThreadMessageID() would return "" and silently drop
+// In-Reply-To/References) from one that is genuinely terminal. See
+// httpapi.parentNotYetSubmitted.
 func (s *Store) GetRepliableMessage(ctx context.Context, id string) (*Message, error) {
 	m := &Message{}
 	var authVerdict []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, COALESCE(provider_message_id, ''), raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), created_at, expires_at
+		`SELECT id, agent_id, direction, sender, recipient, to_recipients, cc, reply_to, subject, email_message_id, COALESCE(provider_message_id, ''), COALESCE(method, ''), COALESCE(delivery_status, ''), raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), created_at, expires_at
 		 FROM messages WHERE id = $1 AND expires_at > now()
 		   AND deleted_at IS NULL
 		   AND status NOT IN (`+heldInboundStatuses+`)`, id,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ProviderMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ProviderMessageID, &m.Method, &m.DeliveryStatus, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
