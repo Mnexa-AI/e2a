@@ -68,13 +68,16 @@ export function loadConfig(): Config {
   if (process.env.E2A_SHARED_DOMAIN) config.shared_domain = process.env.E2A_SHARED_DOMAIN;
 
   // Someone who set E2A_BASE_URL expecting it to steer the CLI (it used to)
-  // would otherwise silently talk to the default host — i.e. a self-hoster
-  // hitting production. Say so, but only when we actually fell through to the
-  // default: an SDK user who ALSO configured the CLI properly gets no noise.
-  if (!process.env.E2A_URL && process.env.E2A_BASE_URL && config.api_url === DEFAULT_URL) {
+  // would otherwise be ignored silently. Warn whenever it's set without the
+  // canonical E2A_URL — the CLI then resolves to either its default OR a host
+  // stored by `e2a login`, and neither is what E2A_BASE_URL asked for. It used
+  // to override the stored config, so a user with stored host A and legacy
+  // env host B now silently gets A. Show the host actually in use so that
+  // mismatch is visible rather than hidden.
+  if (!process.env.E2A_URL && process.env.E2A_BASE_URL) {
     process.stderr.write(
       `e2a: E2A_BASE_URL is set but the CLI does not read it — that name configures the SDKs.\n` +
-        `     The CLI uses E2A_URL for the deployment root and is defaulting to ${DEFAULT_URL}.\n` +
+        `     The CLI uses E2A_URL for the deployment root and is talking to ${config.api_url}.\n` +
         `     Set E2A_URL to point it at a self-hosted deployment.\n`,
     );
   }

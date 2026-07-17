@@ -5,7 +5,8 @@ There are three audiences who configure something — and confusing them is the 
 | Audience | What they configure | Where |
 |---|---|---|
 | **Server operator** — runs the Go backend | DB, signing key, SMTP, OAuth, optional shared domain | `config.yaml` + `E2A_*` env |
-| **CLI / SDK user** — calls the API from their machine | Just the deployment URL (and login) | `E2A_URL` + `e2a login` |
+| **CLI user** — drives an inbox from a terminal | Deployment URL + login | `E2A_URL` + `e2a login` |
+| **SDK / MCP user** — calls `/v1` from code | API host + key | `E2A_API_URL` + `E2A_API_KEY` |
 | **Web dashboard deployer** — hosts the Next.js dashboard | Public site URL + branding | `NEXT_PUBLIC_*` build-time env |
 
 ## Server operator
@@ -51,9 +52,9 @@ The shared domain needs a row in the `domains` table — it's the FK target for 
 
 If you leave `shared_domain` empty, slug registration is disabled and every agent must use a custom domain the user verifies — no DNS setup required from you.
 
-## CLI / SDK user
+## CLI user
 
-End-users only need to know the deployment URL — the rest is auto-discovered.
+The CLI only needs the deployment URL — the rest is auto-discovered.
 
 ```bash
 export E2A_URL=https://e2a.example.com   # default: https://e2a.dev
@@ -64,19 +65,41 @@ The CLI hits `GET /v1/info` on login and caches `shared_domain` to `~/.e2a/confi
 
 | Variable | Description |
 |---|---|
-| `E2A_URL` | **CLI** base URL (default `https://e2a.dev`) — the unified host that serves the `e2a login` browser flow and proxies the `/v1` API |
-| `E2A_API_URL` | **SDK/MCP** base URL (default `https://api.e2a.dev`) — the `/v1` API host alone |
+| `E2A_URL` | CLI base URL (default `https://e2a.dev`) — the deployment root that serves the `e2a login` browser flow and proxies the `/v1` API |
 | `E2A_API_KEY` | Bypass `e2a login` — useful in CI |
 | `E2A_SHARED_DOMAIN` | Force the shared domain instead of auto-discovering it |
+
+The CLI does **not** read `E2A_API_URL` (the SDK var below). It uses `E2A_URL` and defaults to `https://e2a.dev`, so a self-hoster who only exports `E2A_API_URL` leaves the CLI pointed at production.
+
+## SDK / MCP user
+
+The SDKs and the MCP server only ever call `/v1`, so they take the **API host** — not the CLI's deployment root:
+
+```bash
+export E2A_API_URL=https://api.e2a.example.com   # default: https://api.e2a.dev
+export E2A_API_KEY=e2a_…
+```
+
+```ts
+// env is only the fallback — you can pass it directly instead
+const client = new E2AClient({ baseUrl: "https://api.e2a.example.com", apiKey: "e2a_…" });
+```
+
+| Variable | Description |
+|---|---|
+| `E2A_API_URL` | SDK + MCP base URL (default `https://api.e2a.dev`) — the `/v1` API host alone. `E2A_BASE_URL` is the SDKs' former name for it, still read with a deprecation warning. |
+| `E2A_API_KEY` | The API key the SDK / MCP authenticates with |
 
 `E2A_URL` and `E2A_API_URL` are deliberately separate: the CLI opens browser
 pages (the login flow, `/get-started`) that only the web front serves, so it
 needs the deployment root, while the SDKs and the MCP server only ever call
-`/v1` and want the API host. Pointing the CLI at an API host breaks `e2a login`.
-On a single-host deployment both can be the same URL. Setting `E2A_API_URL` for
-an SDK also tells a **server** running on that host what its own externally
-visible API base is (it is the OAuth issuer) — keep that in mind if you run a
-server and point an SDK at a *different* deployment from the same environment.
+`/v1` and want the API host. **Pointing the CLI at an API host breaks
+`e2a login`; pointing an SDK at the deployment root only works if that host
+also proxies `/v1`.** On a single-host deployment both can be the same URL.
+Setting `E2A_API_URL` for an SDK also tells a **server** running on that host
+what its own externally visible API base is (it is the OAuth issuer) — keep
+that in mind if you run a server and point an SDK at a *different* deployment
+from the same environment.
 
 The TypeScript and Python SDKs follow the same pattern: pass `baseUrl` (or `base_url`) once and call `E2AApi.fetchInfo()` if you need the deployment's shared domain in your own code.
 

@@ -23,11 +23,13 @@ describe("loadConfig", () => {
     vi.mocked(readFileSync).mockReset();
     delete process.env.E2A_API_KEY;
     delete process.env.E2A_URL;
+    delete process.env.E2A_BASE_URL;
   });
 
   afterEach(() => {
     delete process.env.E2A_API_KEY;
     delete process.env.E2A_URL;
+    delete process.env.E2A_BASE_URL;
   });
 
   it("returns defaults when no config file exists", () => {
@@ -107,6 +109,28 @@ describe("loadConfig", () => {
     } finally {
       delete process.env.E2A_BASE_URL;
       delete process.env.E2A_URL;
+      warn.mockRestore();
+    }
+  });
+
+  // Regression: E2A_BASE_URL used to override ~/.e2a/config.json. A user with a
+  // stored host (from `e2a login`) and a legacy env override now silently keeps
+  // the stored host. The warning must still fire — gating it on "resolved ==
+  // default" would miss exactly this case — and must name the host in use.
+  it("warns about ignored E2A_BASE_URL even when a non-default api_url is stored", () => {
+    vi.mocked(readFileSync).mockReturnValue(
+      JSON.stringify({ api_key: "e2a_stored", api_url: "https://stored.selfhost.dev" }),
+    );
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    process.env.E2A_BASE_URL = "https://other.selfhost.dev";
+    try {
+      // Stored host wins (env E2A_BASE_URL is not an alias) — the silent part.
+      expect(loadConfig().api_url).toBe("https://stored.selfhost.dev");
+      // …but it is no longer silent, and the message names the host actually used.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("E2A_BASE_URL is set"));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("https://stored.selfhost.dev"));
+    } finally {
+      delete process.env.E2A_BASE_URL;
       warn.mockRestore();
     }
   });
