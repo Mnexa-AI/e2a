@@ -28,6 +28,7 @@ from e2a.v1.generated.models import (
     AttachmentView,
     ConversationSummaryView,
     CreateAPIKeyResponse,
+    CreateWebhookResponse,
     DomainView,
     EventJSON,
     ErrorBody,
@@ -480,6 +481,61 @@ async def test_create_api_key_uses_caller_idempotency_key(httpx_mock):
         await c.account.api_keys.create({"name": "ci"}, idempotency_key="create-key-123")
 
     assert httpx_mock.get_requests()[-1].headers["Idempotency-Key"] == "create-key-123"
+
+
+@pytest.mark.anyio
+async def test_create_webhook_retry_reuses_minted_idempotency_key(httpx_mock):
+    # webhooks.create mints a one-time signing secret, so a blind retry would
+    # register a SECOND subscription with a second secret. The keyed write
+    # makes the retry replay: the transport retry re-sends the SAME minted
+    # Idempotency-Key and the server dedupes.
+    httpx_mock.add_response(
+        status_code=503,
+        json={"error": {"code": "internal_error", "message": "down", "request_id": "req_1"}},
+    )
+    httpx_mock.add_response(
+        status_code=201,
+        json=_valid(
+            CreateWebhookResponse,
+            id="wh_1",
+            url="https://x.com/h",
+            events=["email.received"],
+            signing_secret="whsec_x",
+        ),
+    )
+
+    async with _client() as c:
+        created = await c.webhooks.create({"url": "https://x.com/h", "events": ["email.received"]})
+
+    assert created.id == "wh_1"
+    assert created.signing_secret == "whsec_x"
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 2
+    keys = [request.headers.get("Idempotency-Key") for request in requests]
+    assert keys[0]
+    assert keys[1] == keys[0]
+
+
+@pytest.mark.anyio
+async def test_create_webhook_uses_caller_idempotency_key(httpx_mock):
+    httpx_mock.add_response(
+        status_code=201,
+        json=_valid(
+            CreateWebhookResponse,
+            id="wh_1",
+            url="https://x.com/h",
+            events=["email.received"],
+            signing_secret="whsec_x",
+        ),
+    )
+
+    async with _client() as c:
+        await c.webhooks.create(
+            {"url": "https://x.com/h", "events": ["email.received"]},
+            idempotency_key="wh-key-123",
+        )
+
+    assert httpx_mock.get_requests()[-1].headers["Idempotency-Key"] == "wh-key-123"
 
 
 @pytest.mark.anyio

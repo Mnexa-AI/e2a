@@ -94,6 +94,14 @@ func generateWebhookSecret() string {
 	return "whsec_" + hex.EncodeToString(b)
 }
 
+// WebhookIdemCompleter completes a keyed create's idempotency row inside the
+// webhook-insert transaction, so the new subscription and its cached replay
+// response commit atomically — a crash after the commit replays the first
+// response (same webhook id + one-time secret) instead of re-creating. Same
+// shape as agent.AcceptIdemCompleter on the async accept path. nil = no
+// idempotency (unkeyed create).
+type WebhookIdemCompleter func(ctx context.Context, tx pgx.Tx, wh *Webhook) error
+
 // CreateWebhook inserts a new row and returns it with the plaintext
 // signing secret populated. The plaintext is only available on this
 // response — subsequent GET/list calls scrub it.
@@ -102,6 +110,17 @@ func generateWebhookSecret() string {
 // handler's job in slice 2; the storage layer only verifies the
 // per-user count cap from account_limits.max_webhooks.
 func (s *Store) CreateWebhook(ctx context.Context, userID, url, description string, events []string, filters WebhookFilters) (*Webhook, error) {
+	return s.CreateWebhookIdem(ctx, userID, url, description, events, filters, nil)
+}
+
+// CreateWebhookIdem is CreateWebhook with an optional idempotency completer.
+// When idemCompleteTx is non-nil the insert runs in a transaction and the
+// completer is invoked inside it (mirroring the send/approve same-tx pattern —
+// idempotency.Store.CompleteTx): the webhook row and the completed idempotency
+// key commit together, so there is no window in which a webhook exists without
+// a replayable cached response. A completer error aborts the create entirely.
+// With a nil completer the insert stays the original single statement.
+func (s *Store) CreateWebhookIdem(ctx context.Context, userID, url, description string, events []string, filters WebhookFilters, idemCompleteTx WebhookIdemCompleter) (*Webhook, error) {
 	// Enforce the per-user cap before generating any state. Race
 	// across concurrent creates is bounded by the cap + 1 in the
 	// worst case; an exact race-free check would need SELECT FOR
@@ -136,12 +155,32 @@ func (s *Store) CreateWebhook(ctx context.Context, userID, url, description stri
 		Enabled:       true,
 		CreatedAt:     time.Now(),
 	}
-	if _, err := s.pool.Exec(ctx,
-		`INSERT INTO webhooks (id, user_id, url, description, events, filters, signing_secret, enabled, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+	const insertSQL = `INSERT INTO webhooks (id, user_id, url, description, events, filters, signing_secret, enabled, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	if idemCompleteTx == nil {
+		if _, err := s.pool.Exec(ctx, insertSQL,
+			w.ID, w.UserID, w.URL, w.Description, w.Events, filtersJSON, w.SigningSecret, w.Enabled, w.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("insert webhook: %w", err)
+		}
+		return w, nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin webhook create tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, insertSQL,
 		w.ID, w.UserID, w.URL, w.Description, w.Events, filtersJSON, w.SigningSecret, w.Enabled, w.CreatedAt,
 	); err != nil {
 		return nil, fmt.Errorf("insert webhook: %w", err)
+	}
+	if err := idemCompleteTx(ctx, tx, w); err != nil {
+		return nil, fmt.Errorf("complete idempotency in webhook create tx: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit webhook create tx: %w", err)
 	}
 	return w, nil
 }

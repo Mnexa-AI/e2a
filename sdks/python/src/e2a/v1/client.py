@@ -232,8 +232,8 @@ class AsyncE2AClient:
         return await request_with_retry(make, cfg=self._cfg, retryable=True, idempotency=False)
 
     async def _write_keyed(self, make: _Make, idempotency_key: Optional[str]) -> Any:
-        # send/reply/forward/approve/create-api-key: the server dedupes on the
-        # key, so retrying the same serialized request is safe.
+        # send/reply/forward/approve/create-api-key/create-webhook: the server
+        # dedupes on the key, so retrying the same serialized request is safe.
         return await request_with_retry(
             make, cfg=self._cfg, retryable=True, idempotency=True, idempotency_key=idempotency_key
         )
@@ -711,9 +711,19 @@ class WebhooksResource:
     async def get(self, webhook_id: str) -> WebhookView:
         return await self._c._read(lambda h: self._api.get_webhook(webhook_id, _headers=h))
 
-    async def create(self, body: Body) -> CreateWebhookResponse:
+    async def create(
+        self, body: Body, *, idempotency_key: Optional[str] = None
+    ) -> CreateWebhookResponse:
+        # Returns the one-time signing secret in `.signing_secret` — store it
+        # now. Server-deduped via Idempotency-Key: a keyed retry replays the
+        # same webhook (id + secret) instead of registering a second
+        # subscription, so the SDK can safely retry an ambiguous transport
+        # failure. A key is minted per call when not supplied, so intentional
+        # duplicate subscriptions (even to the same URL) stay expressible.
         req = _coerce(CreateWebhookRequest, body)
-        return await self._c._write_unsafe(lambda h: self._api.create_webhook(req, _headers=h))
+        return await self._c._write_keyed(
+            lambda h: self._api.create_webhook(req, _headers=h), idempotency_key
+        )
 
     async def update(self, webhook_id: str, patch: Body) -> WebhookView:
         req = _coerce(UpdateWebhookRequest, patch)

@@ -438,11 +438,19 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 		InsertReplayDelivery: func(ctx context.Context, eventID, webhookID, eventType string, messageID *string, envelope []byte) (string, error) {
 			return "whd_" + webhookID, nil
 		},
-		CreateWebhook: func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error) {
+		CreateWebhook: func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters, idemCompleteTx identity.WebhookIdemCompleter) (*identity.Webhook, error) {
 			if strings.Contains(url, "capped") {
 				return nil, identity.ErrWebhookCapReached
 			}
-			return &identity.Webhook{ID: "wh_1", URL: url, Description: description, Events: events, Filters: filters, SigningSecret: "whsec_xyz", Enabled: true, CreatedAt: time.Unix(1700000000, 0).UTC()}, nil
+			wh := &identity.Webhook{ID: "wh_1", URL: url, Description: description, Events: events, Filters: filters, SigningSecret: "whsec_xyz", Enabled: true, CreatedAt: time.Unix(1700000000, 0).UTC()}
+			// Mirror identity.CreateWebhookIdem: a keyed create completes its
+			// idempotency row atomically with the insert.
+			if idemCompleteTx != nil {
+				if err := idemCompleteTx(ctx, nil, wh); err != nil {
+					return nil, err
+				}
+			}
+			return wh, nil
 		},
 		ListWebhooks: func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.Webhook, error) {
 			return []identity.Webhook{{ID: "wh_1", URL: "https://x.com/h", Events: []string{"email.received"}, Enabled: true, SigningSecret: "whsec_should_be_hidden", CreatedAt: time.Unix(1700000000, 0).UTC()}}, nil

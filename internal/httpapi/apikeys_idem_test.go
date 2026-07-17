@@ -22,14 +22,19 @@ import (
 // honors the request body-hash: a second Claim of the same key with a DIFFERENT
 // body-hash is a Mismatch (→422), matching the real Store. This lets the tests
 // exercise both the retry-replay path and the reuse-with-different-body path,
-// and proves the handler threads RawBody through for the body-hash.
+// and proves the handler threads RawBody through for the body-hash. Like the
+// real Store it scopes rows by (user_id, key) — two accounts may reuse the same
+// key — and Complete only lands on an in-flight claim (the real Store's
+// `WHERE status = 'in_progress'` guard), so a post-hoc Complete after an
+// in-transaction CompleteTx is a harmless no-op instead of corrupting the
+// cached row.
 type bodyAwareIdem struct {
 	mu       sync.Mutex
 	cached   map[string]struct {
 		hash string
 		resp idempotency.CachedResponse
 	}
-	inflight map[string]string // key -> body hash
+	inflight map[string]string // (uid|key) -> body hash
 }
 
 func newBodyAwareIdem() *bodyAwareIdem {
@@ -42,33 +47,39 @@ func newBodyAwareIdem() *bodyAwareIdem {
 	}
 }
 
-func (m *bodyAwareIdem) Claim(_ context.Context, _, key, _, bodyHash string) (idempotency.ClaimResult, error) {
+func (m *bodyAwareIdem) Claim(_ context.Context, uid, key, _, bodyHash string) (idempotency.ClaimResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if c, ok := m.cached[key]; ok {
+	k := uid + "|" + key
+	if c, ok := m.cached[k]; ok {
 		if c.hash != bodyHash {
 			return idempotency.ClaimResult{Outcome: idempotency.OutcomeMismatch}, nil
 		}
 		return idempotency.ClaimResult{Outcome: idempotency.OutcomeReplay, Cached: c.resp}, nil
 	}
-	if h, ok := m.inflight[key]; ok {
+	if h, ok := m.inflight[k]; ok {
 		if h != bodyHash {
 			return idempotency.ClaimResult{Outcome: idempotency.OutcomeMismatch}, nil
 		}
 		return idempotency.ClaimResult{Outcome: idempotency.OutcomeInFlight}, nil
 	}
-	m.inflight[key] = bodyHash
+	m.inflight[k] = bodyHash
 	return idempotency.ClaimResult{Outcome: idempotency.OutcomeAcquired}, nil
 }
 
-func (m *bodyAwareIdem) Complete(_ context.Context, _, key string, resp idempotency.CachedResponse) error {
+func (m *bodyAwareIdem) Complete(_ context.Context, uid, key string, resp idempotency.CachedResponse) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.cached[key] = struct {
+	k := uid + "|" + key
+	h, ok := m.inflight[k]
+	if !ok {
+		return nil // already completed (e.g. via CompleteTx) — mirrors the real in_progress guard
+	}
+	m.cached[k] = struct {
 		hash string
 		resp idempotency.CachedResponse
-	}{hash: m.inflight[key], resp: resp}
-	delete(m.inflight, key)
+	}{hash: h, resp: resp}
+	delete(m.inflight, k)
 	return nil
 }
 
@@ -76,10 +87,10 @@ func (m *bodyAwareIdem) CompleteTx(_ context.Context, _ pgx.Tx, uid, key string,
 	return m.Complete(context.Background(), uid, key, resp)
 }
 
-func (m *bodyAwareIdem) Release(_ context.Context, _, key string) error {
+func (m *bodyAwareIdem) Release(_ context.Context, uid, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.inflight, key)
+	delete(m.inflight, uid+"|"+key)
 	return nil
 }
 

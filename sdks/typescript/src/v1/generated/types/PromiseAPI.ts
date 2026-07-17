@@ -1516,22 +1516,26 @@ export class PromiseWebhooksApi {
     }
 
     /**
+     * Register a webhook subscriber; the one-time signing secret is returned only on this response. Honors Idempotency-Key so a retried create replays the same webhook (same id + secret) instead of registering a second subscription; omit the key to intentionally create distinct subscriptions, including several to the same URL.
      * Create a webhook
      * @param createWebhookRequest
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.
      */
-    public createWebhookWithHttpInfo(createWebhookRequest: CreateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<CreateWebhookResponse>> {
+    public createWebhookWithHttpInfo(createWebhookRequest: CreateWebhookRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<CreateWebhookResponse>> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.createWebhookWithHttpInfo(createWebhookRequest, observableOptions);
+        const result = this.api.createWebhookWithHttpInfo(createWebhookRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 
     /**
+     * Register a webhook subscriber; the one-time signing secret is returned only on this response. Honors Idempotency-Key so a retried create replays the same webhook (same id + secret) instead of registering a second subscription; omit the key to intentionally create distinct subscriptions, including several to the same URL.
      * Create a webhook
      * @param createWebhookRequest
+     * @param [idempotencyKey] Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request\&#39;s response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.
      */
-    public createWebhook(createWebhookRequest: CreateWebhookRequest, _options?: PromiseConfigurationOptions): Promise<CreateWebhookResponse> {
+    public createWebhook(createWebhookRequest: CreateWebhookRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<CreateWebhookResponse> {
         const observableOptions = wrapOptions(_options);
-        const result = this.api.createWebhook(createWebhookRequest, observableOptions);
+        const result = this.api.createWebhook(createWebhookRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 

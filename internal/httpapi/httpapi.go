@@ -258,7 +258,12 @@ type Deps struct {
 	EventsEnabled bool
 
 	// webhooks
-	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters) (*identity.Webhook, error)
+	// CreateWebhook mirrors identity.Store.CreateWebhookIdem: when the request
+	// carries an Idempotency-Key the handler passes a completer that the store
+	// runs INSIDE the insert transaction, committing the webhook row and the
+	// cached replay response atomically (same-tx pattern as the send/approve
+	// paths). idemCompleteTx is nil for unkeyed creates.
+	CreateWebhook func(ctx context.Context, userID, url, description string, events []string, filters identity.WebhookFilters, idemCompleteTx identity.WebhookIdemCompleter) (*identity.Webhook, error)
 	// ListWebhooks is keyset-paginated on (created_at, id): the handler passes
 	// limit+1 to detect a further page (limit<=0 = all) and the after-key from the
 	// previous page's last row (zero afterCreatedAt = first page).

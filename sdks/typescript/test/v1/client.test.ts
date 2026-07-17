@@ -307,6 +307,25 @@ describe("E2AClient", () => {
     ).toThrow(/delivered_to/);
   });
 
+  // ── webhooks.create: server-deduped one-time-secret mint ────────
+  it("webhooks.create mints an Idempotency-Key for the POST", async () => {
+    globalThis.fetch = mockFetch(201, { id: "wh_1", signing_secret: "whsec_x" });
+    await client.webhooks.create({ url: "https://x.com/h", events: ["email.received"] } as never);
+    const { url, init, headers } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/webhooks");
+    expect(headers["Idempotency-Key"]).toBeTruthy();
+  });
+
+  it("webhooks.create uses a caller-supplied idempotency key", async () => {
+    globalThis.fetch = mockFetch(201, { id: "wh_1", signing_secret: "whsec_x" });
+    await client.webhooks.create(
+      { url: "https://x.com/h", events: ["email.received"] } as never,
+      { idempotencyKey: "wh-key-123" },
+    );
+    expect(lastCall().headers["Idempotency-Key"]).toBe("wh-key-123");
+  });
+
   // ── Reviews: account-scoped, id-addressed (no inbox email) ──────
   it("reviews.approve hits POST /v1/reviews/{id}/approve (no inbox email) + mints Idempotency-Key", async () => {
     globalThis.fetch = mockFetch(200, { message_id: "msg_r1", status: "sent" });

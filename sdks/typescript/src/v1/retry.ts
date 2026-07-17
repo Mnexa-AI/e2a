@@ -146,11 +146,11 @@ export class RetryHttpLibrary implements HttpLibrary {
   //     end state — EXCEPT account deletion, which is irreversible and whose
   //     post-success retry would surface a spurious 404 to the caller;
   //   - server-deduped POSTs (send/reply/forward/approve, rotate-secret,
-  //     create-api-key),
+  //     create-api-key, create-webhook),
   //     recognised by the Idempotency-Key header the generated layer emits ONLY
   //     for those ops — the server replays the first result on a keyed retry.
-  // Every other POST (create agent/domain/webhook, reject, verify, redeliver,
-  // test) carries no server-honored key and is NOT retried.
+  // Every other POST (create agent/domain, reject, verify, redeliver, test)
+  // carries no server-honored key and is NOT retried.
   // Mirrors the Python SDK's per-operation retry gating (rotate-secret →
   // _write_idempotent there, retried + keyed, same as here).
   private isRetrySafe(request: RequestContext): boolean {

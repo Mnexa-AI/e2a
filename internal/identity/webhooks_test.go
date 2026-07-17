@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 )
@@ -329,5 +331,83 @@ func TestDeleteWebhook_OwnerOnly(t *testing.T) {
 	// Second delete is idempotent: not-found, not silent success.
 	if err := store.DeleteWebhook(ctx, w.ID, userA); !errors.Is(err, identity.ErrWebhookNotFound) {
 		t.Errorf("delete-already-gone err = %v, want ErrWebhookNotFound", err)
+	}
+}
+
+// CreateWebhookIdem must run the idempotency completer INSIDE the insert
+// transaction: the completer's tx observes the not-yet-committed webhook row,
+// and the row + the completion commit together (the createWebhook retry-safety
+// requirement — no window where a webhook exists without a replayable cached
+// response).
+func TestCreateWebhookIdem_CompleterRunsInInsertTx(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := webhookTestUser(t, store, "wh-idem-tx")
+
+	var sawInsertInTx bool
+	wh, err := store.CreateWebhookIdem(ctx, userID, "https://example.com/hook", "", []string{"email.received"}, identity.WebhookFilters{},
+		func(ctx context.Context, tx pgx.Tx, w *identity.Webhook) error {
+			var n int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM webhooks WHERE id = $1`, w.ID).Scan(&n); err != nil {
+				return err
+			}
+			sawInsertInTx = n == 1
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("CreateWebhookIdem: %v", err)
+	}
+	if !sawInsertInTx {
+		t.Error("completer must observe the webhook insert within its own transaction")
+	}
+	if _, err := store.GetWebhookByID(ctx, wh.ID, userID); err != nil {
+		t.Errorf("webhook must be committed after CreateWebhookIdem: %v", err)
+	}
+}
+
+// A completer failure must abort the whole create: no webhook row may commit
+// without its idempotency completion (the atomic pairing is the point).
+func TestCreateWebhookIdem_CompleterErrorRollsBackInsert(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := webhookTestUser(t, store, "wh-idem-rb")
+
+	sentinel := errors.New("idempotency completion failed")
+	var attemptedID string
+	_, err := store.CreateWebhookIdem(ctx, userID, "https://example.com/hook", "", []string{"email.received"}, identity.WebhookFilters{},
+		func(_ context.Context, _ pgx.Tx, w *identity.Webhook) error {
+			attemptedID = w.ID
+			return sentinel
+		})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("CreateWebhookIdem err = %v, want the completer's error", err)
+	}
+	if attemptedID == "" {
+		t.Fatal("completer was never invoked")
+	}
+	if _, gerr := store.GetWebhookByID(ctx, attemptedID, userID); !errors.Is(gerr, identity.ErrWebhookNotFound) {
+		t.Errorf("completer failure must roll back the webhook insert; GetWebhookByID err = %v, want ErrWebhookNotFound", gerr)
+	}
+}
+
+// A nil completer keeps the plain single-statement create path byte-identical
+// in behavior (CreateWebhook delegates with nil).
+func TestCreateWebhookIdem_NilCompleter(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := webhookTestUser(t, store, "wh-idem-nil")
+
+	wh, err := store.CreateWebhookIdem(ctx, userID, "https://example.com/hook", "", []string{"email.received"}, identity.WebhookFilters{}, nil)
+	if err != nil {
+		t.Fatalf("CreateWebhookIdem(nil completer): %v", err)
+	}
+	if wh.ID == "" || wh.SigningSecret == "" {
+		t.Errorf("empty id/secret: %+v", wh)
+	}
+	if _, err := store.GetWebhookByID(ctx, wh.ID, userID); err != nil {
+		t.Errorf("GetWebhookByID: %v", err)
 	}
 }

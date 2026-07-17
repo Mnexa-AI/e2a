@@ -182,7 +182,7 @@ func BuildDeps(p Params) httpapi.Deps {
 			return agent.InsertReplayDelivery(ctx, p.Pool, eventID, webhookID, eventType, messageID, envelope)
 		},
 
-		CreateWebhook:     p.Store.CreateWebhook,
+		CreateWebhook:     p.Store.CreateWebhookIdem,
 		ListWebhooks:      p.Store.ListWebhooksByUser,
 		GetWebhook:        p.Store.GetWebhookByID,
 		UpdateWebhook:     p.Store.UpdateWebhook,

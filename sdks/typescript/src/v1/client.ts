@@ -505,8 +505,15 @@ class WebhooksResource {
   get(id: string): Promise<WebhookView> {
     return call(() => this.api.getWebhook(id));
   }
-  create(body: CreateWebhookRequest): Promise<CreateWebhookResponse> {
-    return call(() => this.api.createWebhook(body));
+  // create returns the one-time signing secret in `.signingSecret` — store it
+  // now. Server-deduped via Idempotency-Key: a keyed retry replays the same
+  // webhook (id + secret) instead of registering a second subscription, so the
+  // retry layer can safely re-send ambiguous transport failures. Omit
+  // opts.idempotencyKey and the SDK mints one per call (intentional duplicate
+  // subscriptions — even to the same URL — stay expressible: each create call
+  // gets its own key).
+  create(body: CreateWebhookRequest, opts: RequestOptions = {}): Promise<CreateWebhookResponse> {
+    return call(() => this.api.createWebhook(body, opts.idempotencyKey));
   }
   update(id: string, patch: UpdateWebhookRequest): Promise<WebhookView> {
     return call(() => this.api.updateWebhook(id, patch));

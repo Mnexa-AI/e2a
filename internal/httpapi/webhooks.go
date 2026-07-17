@@ -12,7 +12,10 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/jackc/pgx/v5"
+
 	"github.com/tokencanopy/e2a/internal/agent"
+	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -202,7 +205,18 @@ type CreateWebhookRequest struct {
 	Filters     *WebhookFiltersRequest `json:"filters,omitempty"`
 	Description string                 `json:"description,omitempty"`
 }
-type createWebhookInput struct{ Body CreateWebhookRequest }
+
+// createWebhookInput carries an optional Idempotency-Key so a retried create
+// replays the first subscription (same id, same one-time signing secret)
+// instead of registering a SECOND active subscription with a second secret.
+// Intentional duplicates — including several subscriptions to the same URL —
+// remain expressible by omitting the key (idempotency is opt-in; there is
+// deliberately no unique(user_id, url) constraint).
+type createWebhookInput struct {
+	RawBody        []byte
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit."`
+	Body           CreateWebhookRequest
+}
 
 // WebhookIDParam is the path input for single-webhook read/update ops.
 type WebhookIDParam struct {
@@ -220,7 +234,13 @@ func (s *Server) registerWebhooks() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "createWebhook", Method: http.MethodPost, Path: "/v1/webhooks",
 		Summary: "Create a webhook", Tags: []string{"webhooks"},
-		Security: []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
+		Description: "Register a webhook subscriber; the one-time signing secret is returned only on this response. Honors Idempotency-Key so a retried create replays the same webhook (same id + secret) instead of registering a second subscription; omit the key to intentionally create distinct subscriptions, including several to the same URL.",
+		Security:    []map[string][]string{{"bearer": {}}}, DefaultStatus: http.StatusCreated,
+		Responses: map[string]*huma.Response{
+			"409":     s.idempotencyInFlightResponse(),
+			"422":     s.idempotencyReuseResponse(),
+			"default": s.errorEnvelopeResponse(),
+		},
 	}, s.handleCreateWebhook)
 
 	huma.Register(s.API, huma.Operation{
@@ -563,28 +583,69 @@ func (s *Server) handleCreateWebhook(ctx context.Context, in *createWebhookInput
 	if err != nil {
 		return nil, err
 	}
-	var filters WebhookFiltersView
-	if in.Body.Filters != nil {
-		filters = WebhookFiltersView(*in.Body.Filters)
-	}
-	if env := s.validateWebhookFields(ctx, user.ID, in.Body.URL, in.Body.Events, filters, in.Body.Description); env != nil {
-		return nil, env
-	}
-	wh, err := s.deps.CreateWebhook(ctx, user.ID, in.Body.URL, in.Body.Description, in.Body.Events, identity.WebhookFilters{
-		AgentIDs:        filters.AgentIDs,
-		ConversationIDs: filters.ConversationIDs,
-		Labels:          filters.Labels,
-	})
-	if err != nil {
-		if errors.Is(err, identity.ErrWebhookCapReached) {
-			return nil, NewError(http.StatusBadRequest, "webhook_limit_reached", err.Error())
+	// idemCompleteTx lets the store (identity.CreateWebhookIdem) commit this
+	// request's idempotency-key completion in the SAME transaction as the
+	// webhook insert — so a crash after that commit replays the first response
+	// (same webhook id + one-time secret) instead of re-creating; there is no
+	// post-insert window in which a webhook exists without a replayable
+	// response. It caches the EXACT wire body this handler returns, keeping the
+	// replay byte-faithful. The cached body carries the one-time signing secret
+	// — intended: a same-account byte-identical keyed retry re-reads the secret
+	// it already owns, and the row lives in the same TTL-swept idempotency
+	// store that already caches the createApiKey plaintext key. nil when the
+	// request has no Idempotency-Key or no store is wired; runIdempotent's
+	// post-hoc Complete then no-ops on the in_progress guard (or, unkeyed, the
+	// create runs unguarded — idempotency is opt-in). Mirrors deliver()'s
+	// AcceptIdemCompleter.
+	var idemCompleteTx identity.WebhookIdemCompleter
+	if in.IdempotencyKey != "" && s.deps.Idempotency != nil {
+		nsKey := idemUserNS + in.IdempotencyKey
+		uid := user.ID
+		idemCompleteTx = func(ctx context.Context, tx pgx.Tx, wh *identity.Webhook) error {
+			raw, mErr := json.Marshal(CreateWebhookResponse{WebhookView: webhookView(wh), SigningSecret: wh.SigningSecret})
+			if mErr != nil {
+				raw = []byte("{}")
+			}
+			return s.deps.Idempotency.CompleteTx(ctx, tx, uid, nsKey, idempotency.CachedResponse{
+				StatusCode: http.StatusCreated, ContentType: "application/json", Body: raw,
+			})
 		}
-		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to create webhook")
 	}
-	return &webhookCreateOutput{Body: CreateWebhookResponse{
-		WebhookView:   webhookView(wh),
-		SigningSecret: wh.SigningSecret,
-	}}, nil
+	// Validation runs INSIDE the claimed execution (like the send path): a
+	// keyed replay short-circuits before it — byte-faithful even if mutable
+	// state (agent-filter ownership, the webhook cap) has changed since the
+	// first attempt — and a validation/limit failure returns an error strictly
+	// before the insert, so runIdempotent releases the key for reuse instead
+	// of consuming it.
+	_, body, err := runIdempotent(s, ctx, user.ID, in.IdempotencyKey, "/v1/webhooks", in.RawBody,
+		func() (int, CreateWebhookResponse, error) {
+			var filters WebhookFiltersView
+			if in.Body.Filters != nil {
+				filters = WebhookFiltersView(*in.Body.Filters)
+			}
+			if env := s.validateWebhookFields(ctx, user.ID, in.Body.URL, in.Body.Events, filters, in.Body.Description); env != nil {
+				return 0, CreateWebhookResponse{}, env
+			}
+			wh, cerr := s.deps.CreateWebhook(ctx, user.ID, in.Body.URL, in.Body.Description, in.Body.Events, identity.WebhookFilters{
+				AgentIDs:        filters.AgentIDs,
+				ConversationIDs: filters.ConversationIDs,
+				Labels:          filters.Labels,
+			}, idemCompleteTx)
+			if cerr != nil {
+				if errors.Is(cerr, identity.ErrWebhookCapReached) {
+					return 0, CreateWebhookResponse{}, NewError(http.StatusBadRequest, "webhook_limit_reached", cerr.Error())
+				}
+				return 0, CreateWebhookResponse{}, NewError(http.StatusInternalServerError, "internal_error", "failed to create webhook")
+			}
+			return http.StatusCreated, CreateWebhookResponse{
+				WebhookView:   webhookView(wh),
+				SigningSecret: wh.SigningSecret,
+			}, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+	return &webhookCreateOutput{Body: body}, nil
 }
 
 // listWebhooksInput carries the standard cursor/limit (PageParams).

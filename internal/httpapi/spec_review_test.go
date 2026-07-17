@@ -80,7 +80,7 @@ func TestSpecIdempotencyResponsesDeclared(t *testing.T) {
 	doc := renderSpec(t)
 	for _, operationID := range []string{
 		"sendMessage", "replyToMessage", "forwardMessage", "approveReview",
-		"rotateWebhookSecret", "createApiKey",
+		"rotateWebhookSecret", "createApiKey", "createWebhook",
 	} {
 		resp := operationResponses(t, doc, operationID)
 		for _, code := range []string{"409", "422"} {
@@ -90,6 +90,27 @@ func TestSpecIdempotencyResponsesDeclared(t *testing.T) {
 			}
 		}
 	}
+}
+
+// createWebhook mints a one-time signing secret, so a lost-response retry must
+// be able to replay the first response instead of creating a second active
+// subscription with a second secret: the operation must declare the optional
+// Idempotency-Key request header (same semantics as the other side-effecting
+// creates).
+func TestSpecCreateWebhookIdempotencyKeyDeclared(t *testing.T) {
+	doc := renderSpec(t)
+	op := operationByID(t, doc, "createWebhook")
+	params, _ := op["parameters"].([]any)
+	for _, raw := range params {
+		param, _ := raw.(map[string]any)
+		if param["in"] == "header" && param["name"] == "Idempotency-Key" {
+			if req, _ := param["required"].(bool); req {
+				t.Error("createWebhook Idempotency-Key must be optional")
+			}
+			return
+		}
+	}
+	t.Errorf("createWebhook must declare the Idempotency-Key header parameter; params=%v", params)
 }
 
 // schemaProps returns the properties map of a named component schema.

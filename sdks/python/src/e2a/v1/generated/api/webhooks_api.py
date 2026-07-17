@@ -52,6 +52,7 @@ class WebhooksApi:
     async def create_webhook(
         self,
         create_webhook_request: CreateWebhookRequest,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -67,9 +68,12 @@ class WebhooksApi:
     ) -> CreateWebhookResponse:
         """Create a webhook
 
+        Register a webhook subscriber; the one-time signing secret is returned only on this response. Honors Idempotency-Key so a retried create replays the same webhook (same id + secret) instead of registering a second subscription; omit the key to intentionally create distinct subscriptions, including several to the same URL.
 
         :param create_webhook_request: (required)
         :type create_webhook_request: CreateWebhookRequest
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.
+        :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -94,6 +98,7 @@ class WebhooksApi:
 
         _param = self._create_webhook_serialize(
             create_webhook_request=create_webhook_request,
+            idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -102,6 +107,8 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "CreateWebhookResponse",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -118,6 +125,7 @@ class WebhooksApi:
     async def create_webhook_with_http_info(
         self,
         create_webhook_request: CreateWebhookRequest,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -133,9 +141,12 @@ class WebhooksApi:
     ) -> ApiResponse[CreateWebhookResponse]:
         """Create a webhook
 
+        Register a webhook subscriber; the one-time signing secret is returned only on this response. Honors Idempotency-Key so a retried create replays the same webhook (same id + secret) instead of registering a second subscription; omit the key to intentionally create distinct subscriptions, including several to the same URL.
 
         :param create_webhook_request: (required)
         :type create_webhook_request: CreateWebhookRequest
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.
+        :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -160,6 +171,7 @@ class WebhooksApi:
 
         _param = self._create_webhook_serialize(
             create_webhook_request=create_webhook_request,
+            idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -168,6 +180,8 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "CreateWebhookResponse",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -184,6 +198,7 @@ class WebhooksApi:
     async def create_webhook_without_preload_content(
         self,
         create_webhook_request: CreateWebhookRequest,
+        idempotency_key: Annotated[Optional[StrictStr], Field(description="Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.")] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -199,9 +214,12 @@ class WebhooksApi:
     ) -> RESTResponseType:
         """Create a webhook
 
+        Register a webhook subscriber; the one-time signing secret is returned only on this response. Honors Idempotency-Key so a retried create replays the same webhook (same id + secret) instead of registering a second subscription; omit the key to intentionally create distinct subscriptions, including several to the same URL.
 
         :param create_webhook_request: (required)
         :type create_webhook_request: CreateWebhookRequest
+        :param idempotency_key: Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response — the SAME webhook id and one-time signing secret — instead of registering a second active subscription. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). A keyed create commits the webhook and its replay response atomically, so an accepted create always replays; dedup is best-effort only under idempotency-store degradation before that commit.
+        :type idempotency_key: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -226,6 +244,7 @@ class WebhooksApi:
 
         _param = self._create_webhook_serialize(
             create_webhook_request=create_webhook_request,
+            idempotency_key=idempotency_key,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -234,6 +253,8 @@ class WebhooksApi:
 
         _response_types_map: Dict[str, Optional[str]] = {
             '201': "CreateWebhookResponse",
+            '409': "ErrorEnvelope",
+            '422': "ErrorEnvelope",
         }
         response_data = await self.api_client.call_api(
             *_param,
@@ -245,6 +266,7 @@ class WebhooksApi:
     def _create_webhook_serialize(
         self,
         create_webhook_request,
+        idempotency_key,
         _request_auth,
         _content_type,
         _headers,
@@ -268,6 +290,8 @@ class WebhooksApi:
         # process the path parameters
         # process the query parameters
         # process the header parameters
+        if idempotency_key is not None:
+            _header_params['Idempotency-Key'] = idempotency_key
         # process the form parameters
         # process the body parameter
         if create_webhook_request is not None:
