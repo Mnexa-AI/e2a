@@ -378,6 +378,7 @@ func scanAgentsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]AgentId
 	rows, err := tx.Query(ctx,
 		`SELECT a.id, a.domain, a.name,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action,
+		        a.suppress_notifications,
 		        a.public, a.created_at, a.user_id,
 		        `+webhookStatusSQL+` AS webhook_status
 		   FROM agent_identities a WHERE a.user_id = $1 ORDER BY a.created_at`, userID)
@@ -390,6 +391,7 @@ func scanAgentsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]AgentId
 		var a AgentIdentity
 		if err := rows.Scan(&a.ID, &a.Domain, &a.Name,
 			&a.HITLTTLSeconds, &a.HITLExpirationAction,
+			&a.SuppressNotifications,
 			&a.Public, &a.CreatedAt, &a.UserID, &a.WebhookStatus); err != nil {
 			return nil, err
 		}

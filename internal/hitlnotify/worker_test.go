@@ -86,6 +86,20 @@ func TestNotifyWorker_MessageGoneIsNoOp(t *testing.T) {
 	}
 }
 
+func TestNotifyWorker_SuppressedAgentIsNoOp(t *testing.T) {
+	pn := pending("msg_suppressed")
+	pn.Agent.SuppressNotifications = true
+	st := &fakeStore{pn: pn}
+	dl := &fakeDeliverer{}
+	w := hitlnotify.NewNotifyWorker(st, dl)
+	if err := w.Work(context.Background(), job("msg_suppressed", 1)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if dl.called != 0 || len(st.notified) != 0 {
+		t.Errorf("suppressed agent must be a no-op (deliver=%d notified=%v)", dl.called, st.notified)
+	}
+}
+
 func TestNotifyWorker_ResolvedIsNoOp(t *testing.T) {
 	pn := pending("msg_1")
 	pn.Message.Status = identity.MessageStatusSent // approved/resolved before we notified

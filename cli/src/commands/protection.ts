@@ -13,12 +13,13 @@ export interface ProtectionGetOptions {
 export interface ProtectionSetOptions {
   outboundReview?: string;
   inboundReview?: string;
+  suppressNotifications?: string;
   json?: boolean;
 }
 
 const GET_USAGE = "usage: e2a protection get <agent-email> [--json]";
 const SET_USAGE =
-  "usage: e2a protection set <agent-email> [--outbound-review on|off] [--inbound-review on|off] [--json]";
+  "usage: e2a protection set <agent-email> [--outbound-review on|off] [--inbound-review on|off] [--suppress-notifications on|off] [--json]";
 
 function summarize(config: ProtectionConfigView): string {
   const dir = (d: ProtectionDirectionView) =>
@@ -26,7 +27,7 @@ function summarize(config: ProtectionConfigView): string {
   return (
     `outbound: ${dir(config.outbound)}\n` +
     `inbound:  ${dir(config.inbound)}\n` +
-    `holds:    ttl=${config.holds.ttlSeconds ?? 604800}s on_expiry=${config.holds.onExpiry ?? "reject"}\n`
+    `holds:    ttl=${config.holds.ttlSeconds ?? 604800}s on_expiry=${config.holds.onExpiry ?? "reject"} notifications=${config.holds.suppressNotifications ? "suppressed" : "enabled"}\n`
   );
 }
 
@@ -67,10 +68,14 @@ export async function protectionSet(
   opts: ProtectionSetOptions,
 ): Promise<void> {
   if (!email) fail(EXIT.USAGE, SET_USAGE);
-  for (const v of [opts.outboundReview, opts.inboundReview]) {
+  for (const v of [opts.outboundReview, opts.inboundReview, opts.suppressNotifications]) {
     if (v !== undefined && v !== "on" && v !== "off") fail(EXIT.USAGE, SET_USAGE);
   }
-  if (opts.outboundReview === undefined && opts.inboundReview === undefined) {
+  if (
+    opts.outboundReview === undefined &&
+    opts.inboundReview === undefined &&
+    opts.suppressNotifications === undefined
+  ) {
     fail(EXIT.USAGE, SET_USAGE);
   }
 
@@ -83,6 +88,9 @@ export async function protectionSet(
 
   if (opts.outboundReview) applyReview(config.outbound, opts.outboundReview as "on" | "off");
   if (opts.inboundReview) applyReview(config.inbound, opts.inboundReview as "on" | "off");
+  if (opts.suppressNotifications !== undefined) {
+    config.holds.suppressNotifications = opts.suppressNotifications === "on";
+  }
 
   // ProtectionConfigRequest is the View's field-for-field request twin (the
   // spec splits them only so responses can be additive-open while requests

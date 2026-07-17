@@ -30,6 +30,13 @@ func (f *fakeOutboundEnqueuer) EnqueueSendTx(_ context.Context, _ pgx.Tx, _ stri
 	return f.jobID, nil
 }
 
+type fakeNotifyEnqueuer struct{ called int }
+
+func (f *fakeNotifyEnqueuer) EnqueueNotifyTx(_ context.Context, _ pgx.Tx, _ string) (int64, error) {
+	f.called++
+	return 123, nil
+}
+
 // fakeAsyncDeliverer is the SMTP submit the SendWorker calls — no network.
 type fakeAsyncDeliverer struct{ out outboundsend.DeliverOutcome }
 
@@ -73,6 +80,27 @@ func setupAsyncAPI(t *testing.T) (*agent.API, *identity.Store, webhookpub.Outbox
 	enq := &fakeOutboundEnqueuer{jobID: 999}
 	api.SetOutboundEnqueuer(enq)
 	return api, store, outbox, enq
+}
+
+func TestHoldForApprovalCore_SuppressedAgentCreatesHoldWithoutNotificationJob(t *testing.T) {
+	api, store, _ := newReviewAPI(t)
+	_, ag := selfAgent(t, store, "suppressedhold")
+	ag.SuppressNotifications = true
+	notify := &fakeNotifyEnqueuer{}
+	api.SetNotifyEnqueuer(notify)
+
+	msg, err := api.HoldForApprovalCore(context.Background(), ag, outbound.SendRequest{
+		To: []string{"review-target@example.test"}, Subject: "held quietly", Body: "body",
+	}, "send", "")
+	if err != nil {
+		t.Fatalf("HoldForApprovalCore: %v", err)
+	}
+	if msg == nil || msg.Status != identity.MessageStatusPendingReview {
+		t.Fatalf("held message = %+v, want pending_review", msg)
+	}
+	if notify.called != 0 {
+		t.Errorf("notification jobs enqueued = %d, want 0", notify.called)
+	}
 }
 
 // TestDeliverOutbound_MissingQueueFailsClosed prevents a regression to the

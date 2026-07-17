@@ -98,7 +98,7 @@ function makeStubClient(
     getProtection: vi.fn(async (_addr?: string) => ({
       inbound: { gate: { policy: "open", allowlist: [], action: "flag" }, scan: { sensitivity: "off" } },
       outbound: { gate: { policy: "open", allowlist: [], action: "flag" }, scan: { sensitivity: "off" } },
-      holds: { ttlSeconds: 604800, onExpiry: "reject" },
+      holds: { ttlSeconds: 604800, onExpiry: "reject", suppressNotifications: false },
     })),
     updateProtection: vi.fn(async (config: unknown, _addr?: string) => config),
     deleteAgent: vi.fn(async (addr?: string) => ({ deleted: true, email: addr ?? "bot@example.com", messagesDeleted: 0 })),
@@ -815,9 +815,13 @@ describe("e2a MCP server", () => {
   it("update_protection read-modify-writes only the provided fields", async () => {
     await client.callTool({
       name: "update_protection",
-      arguments: { inbound_scan_sensitivity: "high", outbound_gate_policy: "allowlist" },
+      arguments: {
+        inbound_scan_sensitivity: "high",
+        outbound_gate_policy: "allowlist",
+        holds_suppress_notifications: true,
+      },
     });
-    // Reads current config, then writes back with only the two fields changed.
+    // Reads current config, then writes back with only the provided fields changed.
     expect(stub.getProtection).toHaveBeenCalled();
     const [cfg, addr] = stub.updateProtection.mock.calls.at(-1)!;
     expect(cfg.inbound.scan.sensitivity).toBe("high");
@@ -825,6 +829,7 @@ describe("e2a MCP server", () => {
     // Untouched sections keep their current value.
     expect(cfg.inbound.gate.policy).toBe("open");
     expect(cfg.holds.onExpiry).toBe("reject");
+    expect(cfg.holds.suppressNotifications).toBe(true);
     expect(addr).toBeUndefined();
   });
 

@@ -56,6 +56,7 @@ func TestUpdateAgentProtectionRoundTrip(t *testing.T) {
 		OutboundScanSensitivity: identity.SensitivityOff,
 		HITLTTLSeconds:          3600,
 		HITLExpirationAction:    "approve",
+		SuppressNotifications:   true,
 	}
 	if err := store.UpdateAgentProtection(ctx, agentID, userID, cfg); err != nil {
 		t.Fatalf("UpdateAgentProtection: %v", err)
@@ -89,6 +90,9 @@ func TestUpdateAgentProtectionRoundTrip(t *testing.T) {
 	// Holds persisted.
 	if got.HITLTTLSeconds != 3600 || got.HITLExpirationAction != "approve" {
 		t.Errorf("holds not persisted: ttl=%d expiry=%q", got.HITLTTLSeconds, got.HITLExpirationAction)
+	}
+	if !got.SuppressNotifications {
+		t.Error("suppress_notifications was not persisted")
 	}
 }
 

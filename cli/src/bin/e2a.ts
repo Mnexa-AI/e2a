@@ -53,6 +53,7 @@ Usage:
   e2a protection set <email>        Flip review posture, only the named knobs
         --outbound-review on|off   off = sends go out unheld (gate=flag, scan=off)
         --inbound-review on|off    off = inbound delivered unheld
+        --suppress-notifications on|off   silence or enable hold-review emails
   e2a send [options]                Send an email as the agent
         --to <email>               Recipient (repeatable)
         --subject <s>              Subject line
@@ -303,15 +304,16 @@ async function main() {
         checkFlags(rest, ["--json"]);
         await protectionGet(getPositionals(rest)[0], { json: hasFlag(rest, "--json") });
       } else if (sub === "set") {
-        checkFlags(rest, ["--outbound-review", "--inbound-review", "--json"]);
+        checkFlags(rest, ["--outbound-review", "--inbound-review", "--suppress-notifications", "--json"]);
         await protectionSet(getPositionals(rest)[0], {
           outboundReview: getFlagChecked(rest, "--outbound-review"),
           inboundReview: getFlagChecked(rest, "--inbound-review"),
+          suppressNotifications: getFlagChecked(rest, "--suppress-notifications"),
           json: hasFlag(rest, "--json"),
         });
       } else {
         process.stderr.write(
-          "Usage: e2a protection [get <email>|set <email> [--outbound-review on|off] [--inbound-review on|off]]\n",
+          "Usage: e2a protection [get <email>|set <email> [--outbound-review on|off] [--inbound-review on|off] [--suppress-notifications on|off]]\n",
         );
         process.exit(EXIT.USAGE);
       }
