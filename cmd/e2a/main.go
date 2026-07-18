@@ -259,8 +259,9 @@ func main() {
 	// Outbound delivery is queue-first and at-least-once for GA. The accept-tx
 	// enqueues an outbound_send job in the same transaction as the message row;
 	// there is no submit-inline fallback.
+	rampStore := sendramp.NewStore(pool)
 	outboundRamp := agent.NewOutboundRampGate(
-		sendramp.NewStore(pool),
+		rampStore,
 		sendramp.NewSchedule(cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays),
 		cfg.SendingRamp.Enabled,
 	)
@@ -274,6 +275,7 @@ func main() {
 		outboundRamp,
 	)
 	registrars = append(registrars, outboundJobs)
+	registrars = append(registrars, sendramp.NewMaintenanceJobs(rampStore))
 
 	// Async inbound pipeline (inbound-message-pipeline-river.md), gated by
 	// E2A_INBOUND_MODE=async. The InboundProcessWorker registers on the shared River

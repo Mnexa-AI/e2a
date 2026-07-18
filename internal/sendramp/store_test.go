@@ -11,6 +11,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/testutil"
+	"github.com/tokencanopy/e2a/migrations"
 )
 
 func seedRampMessage(t *testing.T, suffix string) (*sendramp.Store, *pgxpool.Pool, string, string, string) {
@@ -18,6 +19,46 @@ func seedRampMessage(t *testing.T, suffix string) (*sendramp.Store, *pgxpool.Poo
 	pool := testutil.TestDB(t)
 	userID, domain, messageID := seedRampMessageOnPool(t, pool, suffix)
 	return sendramp.NewStore(pool), pool, userID, domain, messageID
+}
+
+func TestMigration067ExemptsOnlyPreexistingVerifiedDomains(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	ids := identity.NewStore(pool)
+	user, err := ids.CreateOrGetUser(ctx, "migration-ramp@example.com", "Migration", "migration-ramp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, unverified := "preverified.example.net", "unverified.example.net"
+	for _, domain := range []string{verified, unverified} {
+		if _, err := ids.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE domains SET sending_status='verified' WHERE domain=$1`, verified); err != nil {
+		t.Fatal(err)
+	}
+	sql, err := migrations.FS.ReadFile("067_domain_sending_ramp.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, string(sql)); err != nil {
+		t.Fatalf("execute migration 067: %v", err)
+	}
+	for domain, want := range map[string]string{verified: sendramp.StatusExempt, unverified: sendramp.StatusInactive} {
+		var got string
+		if err := tx.QueryRow(ctx, `SELECT sending_ramp_status FROM domains WHERE domain=$1`, domain).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("%s status=%q, want %q", domain, got, want)
+		}
+	}
 }
 
 func seedRampMessageOnPool(t *testing.T, pool *pgxpool.Pool, suffix string) (string, string, string) {
@@ -135,7 +176,9 @@ func TestConfirmQualifiesOnlyAtHalfAcceptedVolume(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := 0
-		if i == 24 { want = 1 }
+		if i == 24 {
+			want = 1
+		}
 		if activeDays != want {
 			t.Fatalf("after %d confirms active_days=%d, want %d", i+1, activeDays, want)
 		}
@@ -176,7 +219,9 @@ func TestReserveProgressesOnlyOnActiveDaysAndPersistsCompletion(t *testing.T) {
 	if got := reserve(t, store, userID, domain, firstMessage, 25, day1, schedule); got.DailyLimit != 50 {
 		t.Fatalf("day 1 = %+v, want limit 50", got)
 	}
-	if err := store.Confirm(context.Background(), firstMessage); err != nil { t.Fatal(err) }
+	if err := store.Confirm(context.Background(), firstMessage); err != nil {
+		t.Fatal(err)
+	}
 
 	// Ten idle calendar days do not advance the curve. The next active day is
 	// active-day index 1, not calendar-day index 10.
@@ -185,7 +230,9 @@ func TestReserveProgressesOnlyOnActiveDaysAndPersistsCompletion(t *testing.T) {
 	if got := reserve(t, store, userID, domain, secondMessage, 50, day11, schedule); !got.Allowed || got.DailyLimit != 100 {
 		t.Fatalf("second qualified day = %+v, want allowed at target 100", got)
 	}
-	if err := store.Confirm(context.Background(), secondMessage); err != nil { t.Fatal(err) }
+	if err := store.Confirm(context.Background(), secondMessage); err != nil {
+		t.Fatal(err)
+	}
 
 	thirdMessage := createMessageForAgent(t, pool, "agent@"+domain, "active-third")
 	complete := reserve(t, store, userID, domain, thirdMessage, 50, day11.AddDate(0, 0, 1), schedule)
@@ -246,7 +293,9 @@ func TestReserveSiblingDomainsShareTenantRampProgress(t *testing.T) {
 	}
 
 	messageB2 := createMessageForAgent(t, pool, "agent@"+domainB, "two-second")
-	if err := store.Confirm(context.Background(), messageA); err != nil { t.Fatal(err) }
+	if err := store.Confirm(context.Background(), messageA); err != nil {
+		t.Fatal(err)
+	}
 	if got := reserve(t, store, user.ID, domainB, messageB2, 50, day1.AddDate(0, 0, 1), schedule); !got.Allowed || got.DailyLimit != 100 {
 		t.Fatalf("shared second active day = %+v, want target limit 100", got)
 	}
