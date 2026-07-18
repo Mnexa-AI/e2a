@@ -127,7 +127,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | `address_in_trash` | 409 | The requested agent address is reserved by a soft-deleted agent; restore or permanently delete it first. |
 | `message_held` | 409 | The message is held for review and cannot perform the requested operation until the hold is resolved. |
 | `message_not_pending` | 409 | The review hold was already resolved (approved/rejected/expired). |
-| `message_not_yet_delivered` | 409 | Reply/forward target is an outbound message still queued for provider submission, so it has no Message-ID to thread onto yet. Retry-able: retry once it is sent, or use `wait=sent` on the original send. |
+| `message_not_yet_delivered` | 409 | Reply/forward target is an outbound message still queued for provider submission. A reply cannot thread until the provider assigns its Message-ID; a forward requires the source message to have actually been sent. Retry-able: retry once it is sent, or use `wait=sent` on the original send. |
 | `not_in_trash` | 409 | Restore or permanent-delete was requested for a resource that is not currently in trash. |
 | `send_in_progress` | 409 | The message send is already executing; wait for its terminal outcome. |
 | `webhook_disabled` | 409 | Operation requires an enabled webhook. |
