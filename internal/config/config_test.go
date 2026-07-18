@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,7 +208,7 @@ signing:
 	}
 }
 
-func TestLoadConfigExternalAuthDefaultsDisabled(t *testing.T) {
+func TestLoadConfigOIDCDefaultsDisabled(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	os.WriteFile(cfgPath, []byte(`env: "development"`), 0644)
@@ -216,96 +217,138 @@ func TestLoadConfigExternalAuthDefaultsDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if cfg.ExternalAuth.Enabled {
-		t.Error("ExternalAuth.Enabled should default to false")
+	if cfg.OIDC.Enabled {
+		t.Error("OIDC.Enabled should default to false")
 	}
 }
 
-func TestLoadConfigExternalAuthEnvOverrides(t *testing.T) {
+func TestLoadConfigOIDCEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	os.WriteFile(cfgPath, []byte(`env: "development"`), 0644)
 
-	t.Setenv("E2A_EXTERNAL_AUTH_ENABLED", "true")
-	t.Setenv("E2A_EXTERNAL_AUTH_ISSUER", "https://issuer.example.com")
-	t.Setenv("E2A_EXTERNAL_AUTH_JWKS_URL", "https://issuer.example.com/.well-known/jwks.json")
-	t.Setenv("E2A_EXTERNAL_AUTH_AUDIENCE", "e2a")
-	t.Setenv("E2A_EXTERNAL_AUTH_USER_ID_CLAIM", "e2a_user_id")
+	t.Setenv("E2A_OIDC_ENABLED", "true")
+	t.Setenv("E2A_OIDC_ISSUER_URL", "https://issuer.example.com")
+	t.Setenv("E2A_OIDC_CLIENT_ID", "e2a")
+	t.Setenv("E2A_OIDC_CLIENT_SECRET", "secret")
+	t.Setenv("E2A_OIDC_REDIRECT_URL", "https://e2a.example.com/api/auth/oidc/callback")
+	t.Setenv("E2A_OIDC_USER_ID_CLAIM", "e2a_user_id")
 
 	cfg, err := Load(cfgPath)
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if !cfg.ExternalAuth.Enabled {
-		t.Error("expected ExternalAuth.Enabled = true from env override")
+	if !cfg.OIDC.Enabled {
+		t.Error("expected OIDC.Enabled = true from env override")
 	}
-	if cfg.ExternalAuth.Issuer != "https://issuer.example.com" {
-		t.Errorf("ExternalAuth.Issuer = %q", cfg.ExternalAuth.Issuer)
+	if cfg.OIDC.IssuerURL != "https://issuer.example.com" {
+		t.Errorf("OIDC.IssuerURL = %q", cfg.OIDC.IssuerURL)
 	}
-	if cfg.ExternalAuth.JWKSURL != "https://issuer.example.com/.well-known/jwks.json" {
-		t.Errorf("ExternalAuth.JWKSURL = %q", cfg.ExternalAuth.JWKSURL)
+	if cfg.OIDC.ClientID != "e2a" {
+		t.Errorf("OIDC.ClientID = %q", cfg.OIDC.ClientID)
 	}
-	if cfg.ExternalAuth.Audience != "e2a" {
-		t.Errorf("ExternalAuth.Audience = %q", cfg.ExternalAuth.Audience)
+	if cfg.OIDC.ClientSecret != "secret" {
+		t.Errorf("OIDC.ClientSecret = %q", cfg.OIDC.ClientSecret)
 	}
-	if cfg.ExternalAuth.UserIDClaim != "e2a_user_id" {
-		t.Errorf("ExternalAuth.UserIDClaim = %q", cfg.ExternalAuth.UserIDClaim)
+	if cfg.OIDC.RedirectURL != "https://e2a.example.com/api/auth/oidc/callback" {
+		t.Errorf("OIDC.RedirectURL = %q", cfg.OIDC.RedirectURL)
+	}
+	if cfg.OIDC.UserIDClaim != "e2a_user_id" {
+		t.Errorf("OIDC.UserIDClaim = %q", cfg.OIDC.UserIDClaim)
 	}
 }
 
-func TestValidateExternalAuthEnabledRequiresAllFields(t *testing.T) {
+func TestValidateOIDCEnabledRequiresAllFields(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	os.WriteFile(cfgPath, []byte(`
 env: "development"
-external_auth:
+oidc:
   enabled: true
 `), 0644)
 
 	_, err := Load(cfgPath)
 	if err == nil {
-		t.Fatal("Load should refuse external_auth.enabled with no issuer/jwks_url/audience/user_id_claim")
+		t.Fatal("Load should refuse oidc.enabled with missing fields")
 	}
-	for _, want := range []string{"issuer", "jwks_url", "audience", "user_id_claim"} {
+	for _, want := range []string{"issuer_url", "client_id", "client_secret", "redirect_url", "user_id_claim"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("expected error to mention %q, got: %v", want, err)
 		}
 	}
 }
 
-func TestValidateExternalAuthEnabledAcceptsFullyConfigured(t *testing.T) {
+func TestValidateOIDCEnabledAcceptsFullyConfigured(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	os.WriteFile(cfgPath, []byte(`
 env: "development"
-external_auth:
+oidc:
   enabled: true
-  issuer: "https://issuer.example.com"
-  jwks_url: "https://issuer.example.com/.well-known/jwks.json"
-  audience: "e2a"
+  issuer_url: "https://issuer.example.com"
+  client_id: "e2a"
+  client_secret: "secret"
+  redirect_url: "https://e2a.example.com/api/auth/oidc/callback"
   user_id_claim: "e2a_user_id"
 `), 0644)
 
 	cfg, err := Load(cfgPath)
 	if err != nil {
-		t.Fatalf("Load should accept a fully configured external_auth block, got: %v", err)
+		t.Fatalf("Load should accept a fully configured oidc block, got: %v", err)
 	}
-	if !cfg.ExternalAuth.Enabled {
-		t.Error("expected ExternalAuth.Enabled = true")
+	if !cfg.OIDC.Enabled {
+		t.Error("expected OIDC.Enabled = true")
 	}
 }
 
-func TestValidateExternalAuthDisabledIgnoresEmptyFields(t *testing.T) {
+func TestValidateOIDCEnabledRequiresAbsoluteHTTPURLs(t *testing.T) {
+	tests := []struct {
+		name        string
+		issuerURL   string
+		redirectURL string
+		want        string
+	}{
+		{name: "relative issuer", issuerURL: "/issuer", redirectURL: "https://e2a.example.com/api/auth/oidc/callback", want: "issuer_url"},
+		{name: "issuer query", issuerURL: "https://issuer.example.com?tenant=one", redirectURL: "https://e2a.example.com/api/auth/oidc/callback", want: "issuer_url"},
+		{name: "relative redirect", issuerURL: "https://issuer.example.com", redirectURL: "/api/auth/oidc/callback", want: "redirect_url"},
+		{name: "non-http redirect", issuerURL: "https://issuer.example.com", redirectURL: "javascript:alert(1)", want: "redirect_url"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgPath := filepath.Join(dir, "config.yaml")
+			body := fmt.Sprintf(`
+env: "development"
+oidc:
+  enabled: true
+  issuer_url: %q
+  client_id: "e2a"
+  client_secret: "secret"
+  redirect_url: %q
+  user_id_claim: "e2a_user_id"
+`, test.issuerURL, test.redirectURL)
+			if err := os.WriteFile(cfgPath, []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(cfgPath)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want invalid %s", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateOIDCDisabledIgnoresEmptyFields(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	os.WriteFile(cfgPath, []byte(`
 env: "development"
-external_auth:
+oidc:
   enabled: false
 `), 0644)
 
 	if _, err := Load(cfgPath); err != nil {
-		t.Fatalf("Load should accept external_auth.enabled=false with empty fields, got: %v", err)
+		t.Fatalf("Load should accept oidc.enabled=false with empty fields, got: %v", err)
 	}
 }
 

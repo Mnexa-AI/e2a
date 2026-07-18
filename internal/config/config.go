@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -38,7 +39,7 @@ type Config struct {
 	HTTP             HTTPConfig             `yaml:"http"`
 	Database         DatabaseConfig         `yaml:"database"`
 	OAuth            OAuthConfig            `yaml:"oauth"`
-	ExternalAuth     ExternalAuthConfig     `yaml:"external_auth"`
+	OIDC             OIDCConfig             `yaml:"oidc"`
 	Signing          SigningConfig          `yaml:"signing"`
 	OutboundSMTP     OutboundSMTPConfig     `yaml:"outbound_smtp"`
 	Inbound          InboundConfig          `yaml:"inbound"`
@@ -108,36 +109,21 @@ type OAuthConfig struct {
 	SigningKID string `yaml:"signing_kid"`
 }
 
-// ExternalAuthConfig enables a generic, config-gated federated-login flow:
-// any OIDC/JWT issuer (an identity provider, an internal SSO gateway, a
-// customer's own auth service — the config is issuer-agnostic) can mint a
-// signed JWT naming an existing e2a user, and internal/auth.ExternalAuth's
-// callback handler verifies it and establishes a session exactly like the
-// Google OAuth flow does. It never creates a user — the claimed identity
-// must already have a `users` row.
-//
-// Off by default (Enabled=false): the callback route is not even
-// registered, so an unconfigured deployment gains no new attack surface.
-// When Enabled is true, Issuer/JWKSURL/Audience/UserIDClaim are all
-// required — see Config.Validate.
-type ExternalAuthConfig struct {
-	// Enabled turns the feature on. Override with E2A_EXTERNAL_AUTH_ENABLED.
+// OIDCConfig enables a generic OpenID Connect Authorization Code login for
+// existing e2a users. It is off by default; when disabled no OIDC routes are
+// registered. The provider must include UserIDClaim in its ID token and the
+// claim must name an existing users.id. OIDC login never provisions users.
+type OIDCConfig struct {
+	// Enabled turns the feature on. Override with E2A_OIDC_ENABLED.
 	Enabled bool `yaml:"enabled"`
-	// Issuer is the expected `iss` claim on the assertion. Override with
-	// E2A_EXTERNAL_AUTH_ISSUER.
-	Issuer string `yaml:"issuer"`
-	// JWKSURL is fetched to obtain the issuer's signing keys, selected by
-	// the assertion's `kid` header; the fetched set is cached in-process
-	// and refreshed on an unknown kid. Override with
-	// E2A_EXTERNAL_AUTH_JWKS_URL.
-	JWKSURL string `yaml:"jwks_url"`
-	// Audience is the expected `aud` claim on the assertion. Override with
-	// E2A_EXTERNAL_AUTH_AUDIENCE.
-	Audience string `yaml:"audience"`
-	// UserIDClaim names the assertion claim whose value is looked up
-	// against the existing `users` row (e.g. an issuer-side user/subject
-	// id previously recorded against the e2a account out of band). Override
-	// with E2A_EXTERNAL_AUTH_USER_ID_CLAIM.
+	// IssuerURL is the exact expected ID-token issuer and discovery base URL.
+	IssuerURL string `yaml:"issuer_url"`
+	// ClientID and ClientSecret identify this confidential e2a web client.
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	// RedirectURL is the registered absolute callback URL.
+	RedirectURL string `yaml:"redirect_url"`
+	// UserIDClaim names the ID-token claim containing an existing users.id.
 	UserIDClaim string `yaml:"user_id_claim"`
 }
 
@@ -338,22 +324,25 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_OAUTH_SIGNING_KID"); v != "" {
 		cfg.OAuth.SigningKID = v
 	}
-	if v := os.Getenv("E2A_EXTERNAL_AUTH_ENABLED"); v != "" {
+	if v := os.Getenv("E2A_OIDC_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.ExternalAuth.Enabled = b
+			cfg.OIDC.Enabled = b
 		}
 	}
-	if v := os.Getenv("E2A_EXTERNAL_AUTH_ISSUER"); v != "" {
-		cfg.ExternalAuth.Issuer = v
+	if v := os.Getenv("E2A_OIDC_ISSUER_URL"); v != "" {
+		cfg.OIDC.IssuerURL = v
 	}
-	if v := os.Getenv("E2A_EXTERNAL_AUTH_JWKS_URL"); v != "" {
-		cfg.ExternalAuth.JWKSURL = v
+	if v := os.Getenv("E2A_OIDC_CLIENT_ID"); v != "" {
+		cfg.OIDC.ClientID = v
 	}
-	if v := os.Getenv("E2A_EXTERNAL_AUTH_AUDIENCE"); v != "" {
-		cfg.ExternalAuth.Audience = v
+	if v := os.Getenv("E2A_OIDC_CLIENT_SECRET"); v != "" {
+		cfg.OIDC.ClientSecret = v
 	}
-	if v := os.Getenv("E2A_EXTERNAL_AUTH_USER_ID_CLAIM"); v != "" {
-		cfg.ExternalAuth.UserIDClaim = v
+	if v := os.Getenv("E2A_OIDC_REDIRECT_URL"); v != "" {
+		cfg.OIDC.RedirectURL = v
+	}
+	if v := os.Getenv("E2A_OIDC_USER_ID_CLAIM"); v != "" {
+		cfg.OIDC.UserIDClaim = v
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_HOST"); v != "" {
 		cfg.OutboundSMTP.Host = v
@@ -456,23 +445,42 @@ func (c *Config) Validate() error {
 	if c.Trash.RetentionDays < 1 {
 		return fmt.Errorf("config: trash.retention_days must be at least 1 (got %d) — the stable API promises soft-deleted resources stay restorable", c.Trash.RetentionDays)
 	}
-	if c.ExternalAuth.Enabled {
+	if c.OIDC.Enabled {
 		var missing []string
-		if c.ExternalAuth.Issuer == "" {
-			missing = append(missing, "issuer")
+		if c.OIDC.IssuerURL == "" {
+			missing = append(missing, "issuer_url")
 		}
-		if c.ExternalAuth.JWKSURL == "" {
-			missing = append(missing, "jwks_url")
+		if c.OIDC.ClientID == "" {
+			missing = append(missing, "client_id")
 		}
-		if c.ExternalAuth.Audience == "" {
-			missing = append(missing, "audience")
+		if c.OIDC.ClientSecret == "" {
+			missing = append(missing, "client_secret")
 		}
-		if c.ExternalAuth.UserIDClaim == "" {
+		if c.OIDC.RedirectURL == "" {
+			missing = append(missing, "redirect_url")
+		}
+		if c.OIDC.UserIDClaim == "" {
 			missing = append(missing, "user_id_claim")
 		}
 		if len(missing) > 0 {
-			return fmt.Errorf("config: external_auth.enabled requires %s to be set", strings.Join(missing, ", "))
+			return fmt.Errorf("config: oidc.enabled requires %s to be set", strings.Join(missing, ", "))
+		}
+		issuerURL, err := absoluteHTTPURL(c.OIDC.IssuerURL)
+		if err != nil || issuerURL.RawQuery != "" || issuerURL.Fragment != "" {
+			return fmt.Errorf("config: oidc.issuer_url must be an absolute http(s) issuer URL without query or fragment")
+		}
+		redirectURL, err := absoluteHTTPURL(c.OIDC.RedirectURL)
+		if err != nil || redirectURL.Fragment != "" {
+			return fmt.Errorf("config: oidc.redirect_url must be an absolute http(s) URL without a fragment")
 		}
 	}
 	return nil
+}
+
+func absoluteHTTPURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("invalid absolute http(s) URL")
+	}
+	return parsed, nil
 }

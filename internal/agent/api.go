@@ -161,14 +161,12 @@ type API struct {
 	screen    *piguard.Engine
 	smtpRelay *outbound.SMTPRelay
 	userAuth  *auth.UserAuth
-	// externalAuth wires the generic, config-gated external-auth (federated
-	// JWT) login callback (auth.ExternalAuth). Optional — nil (the default:
-	// config.ExternalAuthConfig.Enabled is false) means the route below is
-	// not registered at all, not merely disabled.
-	externalAuth *auth.ExternalAuth
-	usage        usage.UsageTracker
-	smtpDomain   string
-	fromDomain   string
+	// oidcAuth wires optional, generic OpenID Connect browser login. Nil means
+	// both OIDC routes are absent; it is independent of legacy Google login.
+	oidcAuth   *auth.OIDCAuth
+	usage      usage.UsageTracker
+	smtpDomain string
+	fromDomain string
 	// sharedDomain enables slug-based agent registration when non-empty.
 	// See config.Config.SharedDomain for the rationale.
 	sharedDomain string
@@ -368,11 +366,10 @@ func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
 // agent-identity token paths (later sub-slices) report "not enabled".
 func (a *API) SetSigner(s *agentauth.Signer) { a.signer = s }
 
-// SetExternalAuth wires the optional external-auth (federated JWT) login
-// callback. auth.NewExternalAuth already returns nil when the feature is
-// disabled, so this is safe to call unconditionally with its result — when
-// nil, registerRoutes below does not register the callback route at all.
-func (a *API) SetExternalAuth(ea *auth.ExternalAuth) { a.externalAuth = ea }
+// SetOIDCAuth wires optional OIDC browser login. NewOIDCAuth returns nil when
+// disabled, so callers may invoke this unconditionally and leave the routes
+// genuinely absent from deployments that do not opt in.
+func (a *API) SetOIDCAuth(oa *auth.OIDCAuth) { a.oidcAuth = oa }
 
 // SetOAuthStorage wires in the OAuth storage handle separately from
 // the provider. The consent handler needs Pool() to begin a pgx tx
@@ -564,15 +561,6 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 		r.HandleFunc("/api/auth/me", a.userAuth.HandleMe).Methods("GET")
 		r.HandleFunc("/api/auth/me", a.userAuth.HandleUpdateMe).Methods("PATCH")
 
-		// Generic external-auth (federated JWT) login callback. Off by
-		// default: config.ExternalAuthConfig.Enabled gates whether
-		// a.externalAuth is non-nil (see SetExternalAuth), and only then is
-		// this route registered — a deployment that never enables it has no
-		// route to probe (404, not "disabled and rejects").
-		if a.externalAuth != nil {
-			r.HandleFunc("/api/auth/external/callback", a.externalAuth.HandleCallback).Methods("GET")
-		}
-
 		// Dashboard
 		r.HandleFunc("/api/dashboard/stats", a.userAuth.HandleDashboardStats).Methods("GET")
 		r.HandleFunc("/api/dashboard/agents", a.userAuth.HandleDashboardAgents).Methods("GET")
@@ -584,6 +572,13 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 		r.HandleFunc("/api/keys", a.userAuth.HandleCreateAPIKey).Methods("POST")
 		r.HandleFunc("/api/keys", a.userAuth.HandleListAPIKeys).Methods("GET")
 		r.HandleFunc("/api/keys/{id}", a.userAuth.HandleDeleteAPIKey).Methods("DELETE")
+	}
+
+	// Generic OIDC login is independently optional and does not require the
+	// legacy Google UserAuth integration to be configured.
+	if a.oidcAuth != nil {
+		r.HandleFunc("/api/auth/oidc/login", a.oidcAuth.HandleLogin).Methods("GET").Name("oidc-login")
+		r.HandleFunc("/api/auth/oidc/callback", a.oidcAuth.HandleCallback).Methods("GET").Name("oidc-callback")
 	}
 }
 

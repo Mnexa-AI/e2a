@@ -38,21 +38,24 @@ oauth:
   # TTL. Override via E2A_OAUTH_SIGNING_KID.
   signing_kid: "v1"
 
-# — External auth (generic federated JWT login) —————————————————————————————
-# Optional, off by default. Lets any OIDC/JWT issuer (an identity provider,
-# an internal SSO gateway, etc. — this is not tied to any particular vendor)
-# sign users into e2a: GET /api/auth/external/callback?assertion=<jwt> is
-# verified against the issuer's JWKS, and on success establishes a session
-# for the EXISTING e2a user named by the configured claim. It never creates a
-# user — the claimed identity must already have a `users` row.
-# All four fields below are required when enabled=true (checked at startup).
-external_auth:
+# — OpenID Connect login ————————————————————————————————————————————————————
+# Optional, off by default. Lets any standards-compliant OIDC provider (such
+# as TokenCanopy, WorkOS, or Auth0) sign an existing e2a user in through the
+# Authorization Code flow with PKCE, state, and nonce. The provider's ID token
+# must contain user_id_claim with an unchanged local users.id. e2a never
+# provisions or email-matches a user from OIDC claims.
+#
+# The provider must register redirect_url for this confidential web client.
+# When enabled, startup performs discovery at issuer_url and fails closed if
+# discovery is unavailable or invalid. Legacy Google login remains available.
+oidc:
   enabled: false
-  issuer: ""              # expected `iss` claim, e.g. "https://issuer.example.com". Override: E2A_EXTERNAL_AUTH_ISSUER
-  jwks_url: ""             # e.g. "https://issuer.example.com/.well-known/jwks.json". Override: E2A_EXTERNAL_AUTH_JWKS_URL
-  audience: ""             # expected `aud` claim. Override: E2A_EXTERNAL_AUTH_AUDIENCE
-  user_id_claim: ""        # claim naming the e2a users.id to sign into, e.g. "e2a_user_id". Override: E2A_EXTERNAL_AUTH_USER_ID_CLAIM
-  # Enable with: E2A_EXTERNAL_AUTH_ENABLED=true
+  issuer_url: ""          # exact issuer/discovery base. Override: E2A_OIDC_ISSUER_URL
+  client_id: ""           # registered OIDC client ID. Override: E2A_OIDC_CLIENT_ID
+  client_secret: ""       # keep secret; used only at token endpoint. Override: E2A_OIDC_CLIENT_SECRET
+  redirect_url: ""        # e.g. "https://e2a.example.com/api/auth/oidc/callback". Override: E2A_OIDC_REDIRECT_URL
+  user_id_claim: ""       # TokenCanopy uses "e2a_user_id". Override: E2A_OIDC_USER_ID_CLAIM
+  # Enable with: E2A_OIDC_ENABLED=true
 
 signing:
   # Generate with: openssl rand -hex 32
