@@ -15,11 +15,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm test --workspace @e2a/sdk
       - run: npm run build --workspace @e2a/cli
@@ -40,13 +40,13 @@ jobs:
       # or later and Node 22.14.0 or higher"). Node 20 + npm 10.x silently
       # skips the OIDC handshake and surfaces a misleading 404 PUT error
       # (npm/cli#9088, #8730).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
-      - run: npm install --package-lock=false
+      - run: npm ci
       - run: npm run build --workspace @e2a/sdk
       - run: npm run build --workspace @e2a/cli
 

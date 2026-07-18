@@ -38,7 +38,7 @@ A fresh database needs no manual setup — the harness applies all `migrations/*
 
 ### TypeScript SDK & CLI (npm workspaces)
 ```bash
-npm install --package-lock=false           # install all workspace deps
+npm ci                                     # install exact locked workspace deps
 npm run build --workspace @e2a/sdk         # build SDK (must build before CLI)
 npm test --workspace @e2a/sdk              # SDK unit tests (vitest)
 npm run test:contract --workspace @e2a/sdk # SDK contract tests (needs live server)
@@ -57,7 +57,7 @@ pytest tests/test_contract.py -v  # contract tests (needs live server)
 ### Web dashboard
 ```bash
 cd web
-npm install
+npm ci
 npm run dev     # dev server (proxies /api/* to localhost:8080)
 npm test        # Jest tests
 npm run lint    # ESLint
@@ -194,7 +194,7 @@ the built-in `GITHUB_TOKEN` (no trusted publisher involved).
 
 ## Key Conventions
 
-- **npm workspaces**: root `package.json` declares `cli`, `sdks/typescript`, `mcp`, and `design-system` as workspaces. Always use `--workspace` flag for workspace commands. Use `--package-lock=false` for install.
+- **npm workspaces**: root `package.json` declares `cli`, `sdks/typescript`, `mcp`, and `design-system` as workspaces. Always use `--workspace` for workspace commands and `npm ci` for deterministic installs; commit every intentional lockfile update.
 - **Go module**: `github.com/tokencanopy/e2a`, Go 1.25
 - **Go test tiers**: `test-unit` needs no DB (headers, outbound, relay, config, webhook, approvaltoken, limits, httpapi, ratelimit). `test-integration` needs Postgres (identity, agent, hitlworker, hitlnotify, limits, relay). `test-e2e` uses build tag `integration` and runs `internal/e2e/` + `internal/senderidentity/`. `make test` runs everything (including e2e) with `-tags integration -p 1`. `make cover-check` enforces per-package coverage floors from `.testcoverage.yml`.
 - **Schema changes**: when changing a table shape, add or update DB-backed tests for every package that writes direct SQL against that table. Higher-level e2e tests are not enough. Our migration helper is idempotent and will not automatically catch old query assumptions if runtime SQL drifts from the redesigned schema.

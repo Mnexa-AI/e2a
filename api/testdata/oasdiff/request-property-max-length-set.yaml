@@ -1,0 +1,45 @@
+openapi: 3.1.0
+info:
+  title: Compatibility fixture
+  version: "1"
+paths:
+  /stable:
+    post:
+      operationId: stableOperation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StableRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StableResponse"
+  /experimental:
+    get:
+      operationId: experimentalOperation
+      x-stability: experimental
+      responses:
+        "200":
+          description: Success
+components:
+  schemas:
+    StableRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+    StableResponse:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: string

@@ -32,7 +32,7 @@ design-system/
 ## Develop
 
 ```bash
-npm install              # install deps
+npm ci                   # install locked deps
 npm run storybook        # component workshop at http://localhost:6006
 npm run build            # compile to dist/ (index.js + .d.ts + tokens.css + styles.css)
 npm run typecheck        # tsc --noEmit

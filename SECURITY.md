@@ -37,13 +37,15 @@ anonymous. We don't currently run a paid bounty program.
 
 | Version | Status |
 |---------|--------|
-| `1.x` (current GA line) | ✅ Receives security fixes |
+| `1.x` (current release-candidate line) | ✅ Receives security fixes |
 | `0.x` (pre-GA) | ❌ Please upgrade to the latest 1.x release |
 
-e2a is 1.0 GA: the `1.x` release line receives security fixes, delivered
-in the latest `1.x` release (we don't backport to older `1.x` patch
-versions). Self-hosters running pinned versions should plan to upgrade
-promptly when an advisory is published.
+e2a has not yet published its official GA release. The latest `1.x`
+release-candidate receives security fixes; existing `v1.0.x` application and
+cherry-pick tags do not establish the stable `/v1` API baseline. Fixes are
+delivered in the latest `1.x` release (we don't backport to older `1.x` patch
+versions). Self-hosters running pinned versions should plan to upgrade promptly
+when an advisory is published.
 
 ## Scope
 

@@ -13,12 +13,36 @@ This separation matters: freshness prevents the implementation and committed
 spec from drifting together, while semantic comparison prevents both from
 changing incompatibly together.
 
+## Freeze baseline
+
+The cumulative pre-release `/v1` freeze anchor is commit
+`af5d3c7486db76cf7e62ba18763b47e4a5b95b35`, the mainline contract immediately
+before the strict GA policy was enabled. This intentionally comes after the
+pre-GA bounds program; an earlier gate-introduction commit would make those
+approved pre-freeze request bounds look retroactively breaking. Until the first
+explicitly announced API GA release tag exists, release audits compare the
+candidate against this anchor as well as the normal pull-request base:
+
+```sh
+make openapi-compat-check \
+  OPENAPI_BASE=af5d3c7486db76cf7e62ba18763b47e4a5b95b35:api/openapi.yaml
+```
+
+Existing `v1.0.x` tags are application/cherry-pick releases that predate the
+API contract freeze; they are not `/v1` compatibility baselines. The first
+official API GA tag supersedes the commit anchor, and every later release must
+compare against the most recent GA tag.
+
 ## Policy
 
 The default oasdiff breaking-change rules apply with the overrides in
 `api/oasdiff-levels.txt`. In particular, the gate additionally rejects:
 
 - an `operationId` change, because it renames generated SDK methods;
+- removal or renaming of a stable `components.schemas` entry, because its
+  component key is the public model name in generated SDKs;
+- changing the ordered tags of a stable operation, because generators use
+  them to group methods into public SDK classes or modules;
 - removal of a stable endpoint or parameter, including after deprecation;
 - any authentication or security-scheme change without an API-version review.
   A strict semantic comparison of `components.securitySchemes` supplements
@@ -30,17 +54,12 @@ response objects and value sets are explicitly forward-compatible. Tightening
 requests, removing response fields, changing types or nullability, removing
 success responses, and other incompatible changes remain blocked by oasdiff.
 
-**Pre-GA exception — restore at the freeze:** `request-property-max-length-set`
-is temporarily downgraded to `info` in `api/oasdiff-levels.txt` so the
-pre-freeze bounds program (setting a FIRST `maxLength` on previously-unbounded
-request fields) can land without tripping the gate. Once GA is cut, adding a
-`maxLength` to an existing field becomes a request tightening the gate must
-flag again: **at the GA freeze, delete the `request-property-max-length-set
-info` line** so the check reverts to its failing default. (The severity file
-does not support comment lines — oasdiff rejects `#` — so this note is the
-marker; grep for `request-property-max-length-set`.)
-`request-property-max-length-decreased` was never downgraded: lowering an
-already-published cap fails the gate throughout.
+The GA freeze rejects adding a first `maxLength` to an existing request field
+(`request-property-max-length-set`) and lowering an existing cap
+(`request-property-max-length-decreased`). Both changes tighten requests that
+previously valid clients may already send. The compatibility fixture suite pins
+the first-bound rule so a future severity override cannot silently reopen the
+pre-GA exception.
 
 Beta operations carry the canonical `x-stability-level: beta` lifecycle marker
 understood by oasdiff. Historical specs that used
@@ -50,6 +69,12 @@ The gate uses the `stable` threshold, so beta operations are excluded
 even when an entire path disappears. Removing the canonical marker promotes an
 operation into the stable gate; adding it to a stable operation is a blocked
 stability decrease.
+
+The same beta exemption applies to generated SDK names: beta component schemas
+may be renamed or removed, and beta operation tags may change. A stable schema
+cannot be relabeled beta to escape the frozen SDK surface. These name checks
+supplement oasdiff, which compares wire compatibility but does not treat an
+equivalent component rename or operation-tag change as breaking.
 
 ### The account export's versioned interior
 
@@ -95,8 +120,8 @@ fixture changes. Update those fixtures whenever the policy itself changes.
 
 ## Releases and exceptions
 
-Before publishing a release, run the check against the most recent GA tag in
-addition to the normal pull-request comparison. Stable `/v1` findings are not
-silently ignored: an intentional breaking change requires a new major API path.
-Beta changes should remain marked beta until they are ready to
-join the stable contract.
+Before the first GA release, run the check against the freeze anchor above. From
+GA onward, run it against the most recent GA tag in addition to the normal
+pull-request comparison. Stable `/v1` findings are not silently ignored: an
+intentional breaking change requires a new major API path. Beta changes should
+remain marked beta until they are ready to join the stable contract.

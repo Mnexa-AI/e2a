@@ -648,10 +648,7 @@ func main() {
 		},
 	})
 
-	httpServer := &http.Server{
-		Addr:    cfg.HTTP.ListenAddr,
-		Handler: v1,
-	}
+	httpServer := newHTTPServer(cfg.HTTP.ListenAddr, v1)
 
 	// SMTP Relay
 	smtpServer := relay.NewServer(cfg, store, signer, usageTracker, wsHub)

@@ -71,3 +71,8 @@ run_oasdiff breaking \
   --severity-levels "$levels" \
   --format "$format" \
   "$tmpdir/base.yaml" "$tmpdir/revision.yaml"
+
+# oasdiff findings take precedence when both the wire contract and generated
+# SDK surface change. If the wire contract is compatible, freeze the stable
+# component model names and operation grouping used by SDK generators.
+(cd "$repo_root" && GOWORK=off go run ./cmd/e2a-openapi-sdk-check "$tmpdir/base.yaml" "$tmpdir/revision.yaml")

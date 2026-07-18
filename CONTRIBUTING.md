@@ -148,7 +148,7 @@ If you want the Next.js dashboard too:
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev    # http://localhost:3000, proxies /api/* to :8080
 ```
 
