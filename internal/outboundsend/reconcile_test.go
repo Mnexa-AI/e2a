@@ -294,7 +294,8 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	sentID := f.seed(t, "sent", "sent", "completed", false)
 	missingID := f.seed(t, "missing", "accepted", "", true)
 
-	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter)
+	gate := &fakeRampGate{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
 	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
 		t.Fatalf("Work: %v", err)
 	}
@@ -336,6 +337,9 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 			t.Errorf("failure source for %s = %q, want local", id, source)
 		}
 	}
+	if len(gate.resolved) != 4 {
+		t.Errorf("ramp resolutions = %v, want four terminal outcomes", gate.resolved)
+	}
 	for _, id := range []string{retryableID, sentID} {
 		if got := f.failedEventCount(t, id); got != 0 {
 			t.Errorf("email.failed count for untouched %s = %d, want 0", id, got)
@@ -366,7 +370,8 @@ func TestTerminalReconcileWorker_GraceWindowHoldsFreshTerminalJobs(t *testing.T)
 	freshID := f.seed(t, "fresh-discard", "accepted", "discarded", false)
 	f.freshenJob(t, freshID) // terminal seconds ago — inside the grace window
 
-	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter)
+	gate := &fakeRampGate{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
 	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
 		t.Fatalf("Work: %v", err)
 	}
@@ -417,7 +422,8 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 		t.Fatalf("RecordProviderAcceptEvidence: %v", err)
 	}
 
-	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter)
+	gate := &fakeRampGate{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
 	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
 		t.Fatalf("Work: %v", err)
 	}
@@ -448,6 +454,9 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 	}
 	if got := f.failedEventCount(t, evidenceID); got != 0 {
 		t.Errorf("email.failed count = %d, want 0 — evidence must suppress the false failure", got)
+	}
+	if len(gate.resolved) != 1 || gate.resolved[0] != evidenceID {
+		t.Errorf("ramp resolutions = %v, want evidence message", gate.resolved)
 	}
 
 	// Idempotent: a second pass no-ops (the row left accepted/sending).

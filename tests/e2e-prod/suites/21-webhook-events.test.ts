@@ -40,12 +40,13 @@ import { writeReport, info } from "../harness/report.ts";
 //   email.review_approved — approve a held message addressed to the simulator
 //                           (approve→send succeeds; a non-simulator recipient
 //                           500s on staging's SES sandbox).
+//   email.blocked         — outbound gate policy=allowlist action=block + a
+//                           non-allowlisted recipient → the send is REFUSED
+//                           (403 blocked_by_policy) and email.blocked fires.
 //
 // Event types SKIPPED with reasons (not HTTP-triggerable on staging here):
 //   email.received  — needs a real inbound SMTP delivery; that is the prober's
 //                     dedicated round-trip, not an API-driven trigger.
-//   email.blocked   — needs a screening `block` gate/scan config to refuse a
-//                     message; out of scope for the emission battery.
 //   email.delivered/bounced/complained — async SES delivery-feedback, arrives via
 //                     SNS on an unbounded timeline (and the simulator's feedback
 //                     is not deterministic within a test window).
@@ -428,6 +429,60 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
     if (heldId && !resolved) {
       await client.post(`/v1/reviews/${heldId}/reject`, { body: { reason: "e2e approve-emit cleanup" } });
     }
+    await delHook(hook.id);
+    await delAgent(email);
+  }
+});
+
+// ---- email.blocked: outbound gate action=block refuses the send ----
+test("emit: email.blocked — a gate-blocked send emits the event and attempts a delivery", { skip }, async () => {
+  const email = await createAgent("blocked");
+  // Block-all-outbound: same allowlist+empty-list gate as holdAllOutbound, but
+  // with action=block — every recipient is unknown to the allowlist and every
+  // send is REFUSED outright (vs. held for review). The /protection
+  // sub-resource is a full replace (PUT), so send the complete shape.
+  const prot = await client.put(`/v1/agents/${encodeURIComponent(email)}/protection`, {
+    body: {
+      inbound: { gate: {}, scan: {} },
+      outbound: { gate: { policy: "allowlist", action: "block", allowlist: [] }, scan: {} },
+      holds: {},
+    },
+  });
+  if (prot.status !== 200) {
+    await delAgent(email);
+    throw new Error(`block-all-outbound protection PUT failed: ${prot.status} ${prot.raw.slice(0, 200)}`);
+  }
+  const hook = await createHook(["email.blocked"]);
+  const since = sinceNow();
+  try {
+    const subject = uniqueSubject("emit blocked");
+    const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+      body: { to: [SIMULATOR], subject, text: "refused by the outbound gate" },
+    });
+    // An egress block REFUSES the send: 403 blocked_by_policy, and NO message
+    // row is persisted. The event anchors to a stable server-derived soft-ref
+    // id (msgblk_…) that the 403 body does NOT return — so the poll below
+    // correlates on the unique subject instead of a message id.
+    assert.equal(send.status, 403, `blocked send expected 403, got ${send.status}: ${send.raw.slice(0, 200)}`);
+    assert.equal((send.body as { error?: { code?: string } })?.error?.code, "blocked_by_policy", "403 carries the blocked_by_policy code");
+
+    const ev = await pollEvent({ type: "email.blocked", agentId: email, since }, (e) => e.data.subject === subject);
+    assert.ok(ev, `email.blocked event for subject ${JSON.stringify(subject)} must appear in listEvents within 15s`);
+    assertEventShape(ev!, { type: "email.blocked", agentId: email });
+    // Beta payload: rowless soft-ref message id + the gate attribution.
+    const blockedId = ev!.data.message_id;
+    assert.ok(typeof blockedId === "string" && blockedId.startsWith("msgblk_"), `blocked payload carries the msgblk_ soft-ref id: ${String(blockedId)}`);
+    assert.equal(ev!.data.direction, "outbound", "blocked payload carries direction=outbound");
+    assert.equal(ev!.data.reason_source, "recipient_gate", "block is attributed to the recipient gate");
+    assert.deepEqual(ev!.data.to, [SIMULATOR], "blocked payload echoes the refused recipient");
+
+    const fanout = await pollEventFanout(ev!.id);
+    assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
+    const del = await pollDelivery(hook.id, "email.blocked");
+    assert.ok(del, `a delivery ATTEMPT for email.blocked must appear on webhook ${hook.id}`);
+    assert.ok(del!.attempts >= 1, `delivery attempted (attempts=${del!.attempts})`);
+    info(SUITE, "email.blocked", `emitted evt=${ev!.id} fanned to ${fanout!.matched_webhooks} webhook(s); our webhook whd=${del!.id} attempts=${del!.attempts}`);
+  } finally {
     await delHook(hook.id);
     await delAgent(email);
   }

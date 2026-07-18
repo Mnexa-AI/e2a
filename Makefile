@@ -18,7 +18,7 @@ test-unit:
 	go test -short ./internal/headers/ ./internal/outbound/ ./internal/relay/ ./internal/config/ ./internal/webhook/ ./internal/approvaltoken/ ./internal/limits/ ./internal/httpapi/ ./internal/ratelimit/
 
 test-integration:
-	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 ./internal/identity/ ./internal/agent/ ./internal/hitlworker/ ./internal/hitlnotify/ ./internal/limits/ ./internal/relay/
+	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 ./internal/identity/ ./internal/agent/ ./internal/hitlworker/ ./internal/hitlnotify/ ./internal/limits/ ./internal/relay/ ./internal/sendramp/
 
 test-e2e:
 	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 ./internal/e2e/ ./internal/senderidentity/
@@ -88,6 +88,8 @@ generate-sdk: generate-sdk-ts generate-sdk-py
 generate-check: spec-check generate-sdk-check
 
 generate-sdk-check: generate-sdk
+	@echo "==> Testing generated import normalization"
+	python3 -m unittest scripts/test_strip_unused_generated_imports.py
 	@echo "==> Checking generated code is up to date"
 	git diff --exit-code sdks/typescript/src/v1/generated/ sdks/python/src/e2a/v1/generated/
 

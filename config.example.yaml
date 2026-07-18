@@ -110,6 +110,21 @@ outbound_smtp:
 sender_identity:
   ses_region: ""  # e.g. "us-east-1"
 
+# Operator-managed recipient-volume ramp for newly verified custom sender
+# domains. Disabled by default for self-hosts. When enabled, the schedule is
+# snapshotted on a domain's first eligible external send. A UTC day advances
+# only after provider-accepted recipient volume reaches 50% of that day's cap;
+# the higher limit starts the following UTC day. Existing verified domains are
+# persistently exempt; operator reset procedures are in docs/runbooks/sending-ramp.md.
+# This policy is visible read-only in the domain API and cannot be disabled by
+# end users. start_daily must be at least 50, the API's per-message recipient
+# maximum, so one accepted message can never be stranded permanently.
+sending_ramp:
+  enabled: false
+  start_daily: 50
+  target_daily: 2000
+  ramp_days: 30
+
 # Outbound delivery feedback (decision 9 / Slice 4b). When ses_configuration_set
 # is set, outbound mail is tagged with X-SES-CONFIGURATION-SET so SES publishes
 # delivery/bounce/complaint events to an SNS topic; e2a's public endpoint

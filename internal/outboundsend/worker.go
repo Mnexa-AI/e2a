@@ -22,6 +22,7 @@ package outboundsend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -51,6 +52,10 @@ const MaxSendAttempts = 6
 // MaxSendAttempts (design §8 circuit breaker).
 const outageSnoozeInterval = 5 * time.Minute
 
+// rampErrorSnoozeInterval keeps a durable message queued when the ramp store is
+// temporarily unavailable. JobSnooze does not consume a River attempt.
+const rampErrorSnoozeInterval = time.Minute
+
 // sendRetryHorizon bounds the outage-tolerant tail: past this age (from accept) an
 // outage-snoozing job stops deferring and is declared terminally failed. 72h matches
 // the industry MTA retry horizon (and the webhook deliverer's envelope) — long enough
@@ -71,6 +76,8 @@ type SendJob struct {
 	// UserID is the owning account — the tenant scope for the pre-provider
 	// suppression guard (suppressions are per-account).
 	UserID       string
+	Domain       string // exact registered sender domain
+	MessageType  string // send|reply|test; platform tests are ramp-exempt
 	Status       string // messages.delivery_status
 	EnvelopeFrom string
 	Recipients   []string
@@ -130,6 +137,27 @@ type Deliverer interface {
 	Deliver(ctx context.Context, j *SendJob) DeliverOutcome
 }
 
+type RampRequest struct {
+	MessageID string
+	UserID    string
+	Domain    string
+	Units     int
+}
+
+type RampDecision struct {
+	Allowed bool
+	RetryAt time.Time
+}
+
+// RampGate reserves recipient capacity for an eligible custom-domain send.
+// Implementations must make a same-message/day call idempotent.
+type RampGate interface {
+	Reserve(ctx context.Context, req RampRequest) (RampDecision, error)
+	Confirm(ctx context.Context, messageID string) error
+	Release(ctx context.Context, messageID string) error
+	Resolve(ctx context.Context, messageID string) error
+}
+
 // Store is the messages-store surface the worker needs. Implemented over
 // internal/identity in the binary. ClaimSend atomically checks that the message
 // and agent are live and persists delivery_status='sending' for the stamped River
@@ -167,10 +195,15 @@ type SendWorker struct {
 	river.WorkerDefaults[OutboundSendArgs]
 	store     Store
 	deliverer Deliverer
+	ramp      RampGate
 }
 
-func NewSendWorker(store Store, deliverer Deliverer) *SendWorker {
-	return &SendWorker{store: store, deliverer: deliverer}
+func NewSendWorker(store Store, deliverer Deliverer, ramp ...RampGate) *SendWorker {
+	w := &SendWorker{store: store, deliverer: deliverer}
+	if len(ramp) > 0 {
+		w.ramp = ramp[0]
+	}
+	return w
 }
 
 // NextRetry overrides River's default backoff with the decided send envelope.
@@ -194,6 +227,11 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return nil // message gone (cascade/TTL) — nothing to send
 	}
 	if j.alreadyDone() {
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Resolve(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("resolve sending ramp for completed message: %w", err)
+			}
+		}
 		return nil // already submitted (sent+) — idempotent re-drive
 	}
 	if j.ProviderAccepted {
@@ -201,7 +239,13 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		// earlier attempt's submit reached the provider — the crash window
 		// between SMTP accept and mark-sent. Re-submitting would duplicate the
 		// email; settle the row as sent (email.sent + metering, in the store).
-		return w.store.MarkSent(ctx, j.MessageID, j.ProviderMessageID, j.SentAs)
+		if err := w.store.MarkSent(ctx, j.MessageID, j.ProviderMessageID, j.SentAs); err != nil {
+			return err
+		}
+		if w.ramp != nil && j.rampEligible() {
+			return w.ramp.Confirm(ctx, j.MessageID)
+		}
+		return nil
 	}
 
 	// Final suppression guard before provider I/O: a suppression added AFTER
@@ -223,13 +267,72 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	if len(suppressed) > 0 {
 		supErr := fmt.Errorf("recipient_suppressed: %s — remove via DELETE /v1/account/suppressions/{address}", strings.Join(suppressed, ", "))
 		w.markFailed(ctx, j.MessageID, job.Attempt, supErr.Error(), delivery.FailureSourceLocal)
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("release ramp reservation after suppression: %w", err)
+			}
+		}
 		return river.JobCancel(supErr)
+	}
+
+	// Ramp only mail that uses a verified customer identity. Platform-originated
+	// test mail uses the relay identity and remains exempt; loopback never enters
+	// this worker. Reserve after the provider-evidence and suppression guards so
+	// neither an already-submitted nor locally refused message consumes capacity.
+	if w.ramp != nil && j.rampEligible() {
+		decision, rerr := w.ramp.Reserve(ctx, RampRequest{
+			MessageID: j.MessageID,
+			UserID:    j.UserID,
+			Domain:    j.Domain,
+			Units:     uniqueRecipientCount(j.Recipients),
+		})
+		if rerr != nil {
+			if isPermanentRampError(rerr) {
+				w.markFailed(ctx, j.MessageID, job.Attempt, "sending_ramp_invalid: "+rerr.Error(), delivery.FailureSourceLocal)
+				return river.JobCancel(rerr)
+			}
+			if j.pastRetryHorizon() {
+				w.markFailed(ctx, j.MessageID, job.Attempt, "ramp_capacity_timeout: "+rerr.Error(), delivery.FailureSourceLocal)
+				_ = w.ramp.Release(ctx, j.MessageID)
+				return river.JobCancel(fmt.Errorf("sending ramp unavailable past %s horizon: %w", sendRetryHorizon, rerr))
+			}
+			if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+				return fmt.Errorf("release outbound send claim after ramp-check failure: %w", err)
+			}
+			log.Printf("[outbound-send] ramp reservation failed for %s (snoozing): %v", j.MessageID, rerr)
+			return river.JobSnooze(rampErrorSnoozeInterval)
+		}
+		if !decision.Allowed {
+			if j.pastRetryHorizon() {
+				w.markFailed(ctx, j.MessageID, job.Attempt, "ramp_capacity_timeout", delivery.FailureSourceLocal)
+				if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+					return fmt.Errorf("release ramp reservation after timeout: %w", err)
+				}
+				return river.JobCancel(fmt.Errorf("sending ramp deferred past %s horizon", sendRetryHorizon))
+			}
+			if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+				return fmt.Errorf("release outbound send claim after ramp deferral: %w", err)
+			}
+			delay := time.Until(decision.RetryAt)
+			if delay < time.Minute {
+				delay = time.Minute
+			}
+			return river.JobSnooze(delay)
+		}
 	}
 
 	out := w.deliverer.Deliver(ctx, j)
 	if out.Err == nil {
 		// Success — one tx (in the store): mark sent + provider id + email.sent.
-		return w.store.MarkSent(ctx, j.MessageID, out.ProviderMessageID, out.SentAs)
+		if err := w.store.MarkSent(ctx, j.MessageID, out.ProviderMessageID, out.SentAs); err != nil {
+			return err
+		}
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Confirm(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("confirm sending ramp: %w", err)
+			}
+		}
+		return nil
 	}
 
 	// Permanent failure (validation / permanent 5xx) — terminal now, no retries.
@@ -237,6 +340,11 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// correction never revives it.
 	if out.Permanent {
 		w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error(), delivery.FailureSourceProvider)
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("release ramp reservation after provider rejection: %w", err)
+			}
+		}
 		return river.JobCancel(out.Err)
 	}
 	// Provider outage (relay unreachable) — snooze WITHOUT burning an attempt so a
@@ -247,6 +355,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	if out.Outage {
 		if j.pastRetryHorizon() {
 			w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error(), delivery.FailureSourceLocal)
+			if w.ramp != nil && j.rampEligible() {
+				_ = w.ramp.Release(ctx, j.MessageID)
+			}
 			return fmt.Errorf("outbound send failed (provider outage past %s horizon): %w", sendRetryHorizon, out.Err)
 		}
 		if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
@@ -271,6 +382,26 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return fmt.Errorf("release outbound send claim after retryable failure: %w", err)
 	}
 	return fmt.Errorf("outbound send attempt %d failed: %w", job.Attempt, out.Err)
+}
+
+func (j *SendJob) rampEligible() bool {
+	return j.SentAs == "own_address" && j.MessageType != "test"
+}
+
+func isPermanentRampError(err error) bool {
+	var permanent interface{ Permanent() bool }
+	return errors.As(err, &permanent) && permanent.Permanent()
+}
+
+func uniqueRecipientCount(recipients []string) int {
+	seen := make(map[string]struct{}, len(recipients))
+	for _, recipient := range recipients {
+		recipient = strings.ToLower(strings.TrimSpace(recipient))
+		if recipient != "" {
+			seen[recipient] = struct{}{}
+		}
+	}
+	return len(seen)
 }
 
 // markFailed writes the terminal 'failed' status, retrying a transient DB error a

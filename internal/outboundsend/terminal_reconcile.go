@@ -48,11 +48,16 @@ type TerminalReconcileWorker struct {
 	river.WorkerDefaults[TerminalReconcileArgs]
 	pool  *pgxpool.Pool
 	store Store
+	ramp  RampGate
 }
 
 // NewTerminalReconcileWorker builds the periodic safety-net worker.
-func NewTerminalReconcileWorker(pool *pgxpool.Pool, store Store) *TerminalReconcileWorker {
-	return &TerminalReconcileWorker{pool: pool, store: store}
+func NewTerminalReconcileWorker(pool *pgxpool.Pool, store Store, ramps ...RampGate) *TerminalReconcileWorker {
+	w := &TerminalReconcileWorker{pool: pool, store: store}
+	if len(ramps) > 0 {
+		w.ramp = ramps[0]
+	}
+	return w
 }
 
 type terminalCandidate struct {
@@ -115,6 +120,11 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 				log.Printf("[outbound-terminal-reconcile] processed %d candidates", processed)
 			}
 			return err
+		}
+		if w.ramp != nil {
+			if err := w.ramp.Resolve(ctx, candidate.messageID); err != nil {
+				return fmt.Errorf("resolve sending ramp for %s: %w", candidate.messageID, err)
+			}
 		}
 		processed++
 	}

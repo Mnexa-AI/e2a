@@ -5,9 +5,27 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 )
+
+func TestGetDomainIncludesReadOnlySendingRamp(t *testing.T) {
+	srv := testServer(t, func(deps *Deps) {
+		deps.SendingRampSnapshot = func(context.Context, string, string, time.Time) (sendramp.Snapshot, error) {
+			return sendramp.Snapshot{Status: sendramp.StatusRamping, ActiveDays: 2, RampDays: 30, DailyLimit: 115, UsedToday: 93}, nil
+		}
+	})
+	code, body := getJSON(t, srv.URL+"/v1/domains/acme.com", "good")
+	if code != http.StatusOK {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	ramp, ok := body["sending_ramp"].(map[string]any)
+	if !ok || ramp["status"] != "ramping" || ramp["daily_recipient_limit"] != float64(115) || ramp["recipients_used_today"] != float64(93) {
+		t.Fatalf("sending_ramp = %#v, want ramping 93/115", body["sending_ramp"])
+	}
+}
 
 func TestListDomains(t *testing.T) {
 	srv := testServer(t)

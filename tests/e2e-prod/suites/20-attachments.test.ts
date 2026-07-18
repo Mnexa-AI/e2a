@@ -23,9 +23,11 @@ import { fail, info, warn, writeReport } from "../harness/report.ts";
 //     deliberate server property (internal/httpapi/messages.go: "held drafts
 //     (no raw_message) carry []"). We assert it below rather than assume it.
 //   - REAL outbound to the SES simulator (success@simulator.amazonses.com)
-//     WITHOUT holding DOES work: staging sends via relay, persists the sent
-//     MIME, and getAttachment/download then operate on real bytes. This is the
-//     happy path this suite uses. If a real send ever stops yielding a
+//     WITHOUT holding DOES work: the send returns 202 "accepted" (a no-hold
+//     send is async — the River worker delivers it and persists the sent MIME
+//     afterwards), and getAttachment/download then operate on real bytes. This
+//     is the happy path this suite uses; the setup polls the sent message to
+//     tolerate the async worker. If a real send ever stops yielding a
 //     retrievable attachment, the happy-path tests self-downgrade to a flagged
 //     staging limitation (see ensureSentAttachment) rather than fail.
 
@@ -81,22 +83,22 @@ async function doSetup(): Promise<SentAttachment | null> {
       },
     },
   );
-  if (send.status !== 200 || !send.body?.message_id) {
-    warn(SUITE, "setup", `real send with attachment did not return 200+message_id (got ${send.status}); happy-path flagged`, send.raw.slice(0, 200));
+  if ((send.status !== 200 && send.status !== 202) || !send.body?.message_id) {
+    warn(SUITE, "setup", `real send with attachment did not return 200/202+message_id (got ${send.status}); happy-path flagged`, send.raw.slice(0, 200));
     return null;
   }
   const messageId = send.body.message_id;
 
-  // The sent MIME is normally persisted synchronously, but poll a few times to
-  // tolerate an async delivery worker before flagging a limitation.
-  for (let attempt = 0; attempt < 8; attempt++) {
+  // A no-hold send is async (202 accepted): the worker persists the sent MIME
+  // only after delivery, so poll generously before flagging a limitation.
+  for (let attempt = 0; attempt < 24; attempt++) {
     const msg = await client.get<{ attachments?: Array<{ index: number }> }>(
       `/v1/agents/${encodeURIComponent(agentEmail)}/messages/${messageId}`,
     );
     if (msg.status === 200 && Array.isArray(msg.body?.attachments) && msg.body!.attachments.length > 0) {
       return { agentEmail, messageId };
     }
-    await new Promise((r) => setTimeout(r, 750));
+    await new Promise((r) => setTimeout(r, 1000));
   }
   warn(
     SUITE,

@@ -28,8 +28,11 @@ func (d trippingDeliverer) Deliver(_ context.Context, j *outboundsend.SendJob) o
 }
 
 func TestSendWorker_SuppressedRecipientFailsTerminallyWithoutProviderIO(t *testing.T) {
-	st := &fakeStore{job: acceptedJob("msg_1"), suppressed: []string{"b@y.com"}}
-	w := outboundsend.NewSendWorker(st, trippingDeliverer{t})
+	j := acceptedJob("msg_1")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j, suppressed: []string{"b@y.com"}}
+	gate := &fakeRampGate{}
+	w := outboundsend.NewSendWorker(st, trippingDeliverer{t}, gate)
 
 	err := w.Work(context.Background(), job("msg_1", 1))
 	if err == nil {
@@ -46,6 +49,9 @@ func TestSendWorker_SuppressedRecipientFailsTerminallyWithoutProviderIO(t *testi
 	}
 	if st.suppressionUserID != st.job.UserID {
 		t.Errorf("suppression check scoped to %q, want the job's owning account %q", st.suppressionUserID, st.job.UserID)
+	}
+	if len(gate.released) != 1 || gate.released[0] != "msg_1" {
+		t.Errorf("ramp releases = %v, want [msg_1]", gate.released)
 	}
 }
 

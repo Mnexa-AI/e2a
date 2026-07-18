@@ -47,6 +47,7 @@ type Config struct {
 	Webhook          WebhookConfig          `yaml:"webhook"`
 	SenderIdentity   SenderIdentityConfig   `yaml:"sender_identity"`
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
+	SendingRamp      SendingRampConfig      `yaml:"sending_ramp"`
 	Limits           LimitsConfig           `yaml:"limits"`
 	Trash            TrashConfig            `yaml:"trash"`
 	Env              string                 `yaml:"env"` // "development" or "production"
@@ -215,6 +216,17 @@ type SenderIdentityConfig struct {
 	SESRegion string `yaml:"ses_region"`
 }
 
+// SendingRampConfig is an operator-owned safety policy for newly verified
+// custom sender domains. It is intentionally not user-configurable through the
+// public API. Values are snapshotted when a domain first sends, so later config
+// changes do not reshape an in-flight ramp.
+type SendingRampConfig struct {
+	Enabled     bool `yaml:"enabled"`
+	StartDaily  int  `yaml:"start_daily"`
+	TargetDaily int  `yaml:"target_daily"`
+	RampDays    int  `yaml:"ramp_days"`
+}
+
 // LimitsConfig is the operator-configured fallback applied to any user
 // who does not yet have a row in account_limits. The hosted billing
 // sidecar populates rows for paying customers; self-hosted operators
@@ -291,8 +303,13 @@ func Load(path string) (*Config, error) {
 		},
 		Inbound:       InboundConfig{Mode: "sync"},
 		WebhookFanout: WebhookFanoutConfig{Mode: "legacy"},
-		Trash:         TrashConfig{RetentionDays: 30},
-		Env:           "development",
+		SendingRamp: SendingRampConfig{
+			StartDaily:  50,
+			TargetDaily: 2000,
+			RampDays:    30,
+		},
+		Trash: TrashConfig{RetentionDays: 30},
+		Env:   "development",
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
@@ -472,6 +489,20 @@ func (c *Config) Validate() error {
 		redirectURL, err := absoluteHTTPURL(c.OIDC.RedirectURL)
 		if err != nil || redirectURL.Fragment != "" {
 			return fmt.Errorf("config: oidc.redirect_url must be an absolute http(s) URL without a fragment")
+		}
+	}
+	if c.SendingRamp.Enabled {
+		// The send API accepts up to 50 deduplicated envelope recipients. A
+		// lower day-one cap could strand a single accepted message forever,
+		// because idle days deliberately do not advance the ramp.
+		if c.SendingRamp.StartDaily < 50 {
+			return fmt.Errorf("config: sending_ramp.start_daily must be at least 50 when enabled (got %d)", c.SendingRamp.StartDaily)
+		}
+		if c.SendingRamp.TargetDaily < c.SendingRamp.StartDaily {
+			return fmt.Errorf("config: sending_ramp.target_daily must be >= start_daily")
+		}
+		if c.SendingRamp.RampDays < 1 {
+			return fmt.Errorf("config: sending_ramp.ramp_days must be at least 1")
 		}
 	}
 	return nil

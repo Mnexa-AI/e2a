@@ -78,6 +78,9 @@ func TestCreateOutboundMessageTx_AcceptedRow(t *testing.T) {
 	if p.DeliveryStatus != "accepted" || p.EnvelopeFrom != "agent@test.e2a.dev" || p.SentAs != "relay" {
 		t.Errorf("payload = %+v, want accepted/agent@.../relay", p)
 	}
+	if p.Domain != "async-accept.example.com" || p.MessageType != "send" {
+		t.Errorf("payload ramp identity = domain %q type %q, want async-accept.example.com/send", p.Domain, p.MessageType)
+	}
 	if len(p.Recipients) != 3 {
 		t.Errorf("recipients = %v, want 3 (to+cc+bcc)", p.Recipients)
 	}
@@ -134,6 +137,60 @@ func TestClaimOutboundForSend_JobOwnership(t *testing.T) {
 	}
 	if status != "accepted" || claimedAt != nil {
 		t.Fatalf("released claim = status %q claimed_at %v, want accepted/nil", status, claimedAt)
+	}
+}
+
+func TestOutboundForSend_UsesRegisteredParentDomain(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, err := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "claim-parent-domain")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, "parent.example.com", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	if err := store.VerifyDomain(ctx, "parent.example.com", user.ID); err != nil {
+		t.Fatalf("VerifyDomain: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, "agent@child.parent.example.com", "parent.example.com", "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	var messageID string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		message, err := store.CreateOutboundMessageTx(ctx, tx, agent.ID,
+			[]string{"recipient@example.net"}, nil, nil, "Subject", "send", "smtp", "", "conv-parent-domain",
+			[]byte("raw"), "accepted", agent.EmailAddress(), "relay")
+		if err != nil {
+			return err
+		}
+		messageID = message.ID
+		return store.StampSendJobIDTx(ctx, tx, messageID, 5150)
+	}); err != nil {
+		t.Fatalf("accept tx: %v", err)
+	}
+
+	loaded, err := store.LoadOutboundForSend(ctx, messageID)
+	if err != nil {
+		t.Fatalf("LoadOutboundForSend: %v", err)
+	}
+	if loaded == nil || loaded.Domain != "parent.example.com" {
+		t.Fatalf("loaded payload = %+v, want registered parent domain", loaded)
+	}
+
+	payload, err := store.ClaimOutboundForSend(ctx, messageID, 5150)
+	if err != nil {
+		t.Fatalf("ClaimOutboundForSend: %v", err)
+	}
+	if payload == nil {
+		t.Fatal("ClaimOutboundForSend returned nil")
+	}
+	if payload.Domain != "parent.example.com" {
+		t.Fatalf("payload domain = %q, want registered parent domain", payload.Domain)
 	}
 }
 
