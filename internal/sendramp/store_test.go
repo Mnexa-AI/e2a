@@ -2,6 +2,7 @@ package sendramp_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -13,6 +14,22 @@ import (
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/migrations"
 )
+
+type permanentMarker interface{ Permanent() bool }
+
+func TestReserveClassifiesInvariantErrorsAsPermanent(t *testing.T) {
+	store, _, userID, _, messageID := seedRampMessage(t, "permanent-errors")
+	for name, req := range map[string]sendramp.ReserveRequest{
+		"invalid request": {},
+		"missing domain":  {MessageID: messageID, UserID: userID, Domain: "missing.example.com", Units: 1, Day: time.Now(), Schedule: sendramp.DefaultSchedule},
+	} {
+		_, err := store.Reserve(context.Background(), req)
+		var permanent permanentMarker
+		if !errors.As(err, &permanent) || !permanent.Permanent() || errors.Unwrap(err) == nil {
+			t.Errorf("%s error=%v, want wrapped permanent error", name, err)
+		}
+	}
+}
 
 func seedRampMessage(t *testing.T, suffix string) (*sendramp.Store, *pgxpool.Pool, string, string, string) {
 	t.Helper()

@@ -47,3 +47,27 @@ func TestMaintenanceJobsRegistersDailyMaintenancePeriodic(t *testing.T) {
 		t.Fatalf("periodic jobs=%d, want 1", len(periodic))
 	}
 }
+
+func TestMaintenanceWorkerRunsSweep(t *testing.T) {
+	store, pool, userID, domain, messageID := seedRampMessage(t, "maintenance-worker")
+	oldDay := time.Now().UTC().AddDate(0, 0, -40)
+	if !reserve(t, store, userID, domain, messageID, 1, oldDay, sendramp.DefaultSchedule).Allowed {
+		t.Fatal("reserve denied")
+	}
+	if err := store.Release(context.Background(), messageID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE sending_ramp_reservations SET updated_at=now()-interval '8 days' WHERE message_id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if err := sendramp.NewMaintenanceWorker(store).Work(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM sending_ramp_reservations WHERE message_id=$1`, messageID).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("terminal reservation rows=%d, want 0", rows)
+	}
+}

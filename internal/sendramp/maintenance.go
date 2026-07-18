@@ -40,6 +40,10 @@ type MaintenanceWorker struct {
 	store *Store
 }
 
+func NewMaintenanceWorker(store *Store) *MaintenanceWorker {
+	return &MaintenanceWorker{store: store}
+}
+
 func (w *MaintenanceWorker) Work(ctx context.Context, _ *river.Job[MaintenanceArgs]) error {
 	return w.store.Sweep(ctx, time.Now().UTC())
 }
@@ -49,7 +53,7 @@ type MaintenanceJobs struct{ store *Store }
 func NewMaintenanceJobs(store *Store) *MaintenanceJobs { return &MaintenanceJobs{store: store} }
 
 func (m *MaintenanceJobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, &MaintenanceWorker{store: m.store})
+	river.AddWorker(w, NewMaintenanceWorker(m.store))
 	return []*river.PeriodicJob{river.NewPeriodicJob(
 		river.PeriodicInterval(maintenanceInterval),
 		func() (river.JobArgs, *river.InsertOpts) {
