@@ -1,0 +1,46 @@
+openapi: 3.1.0
+info:
+  title: SDK compatibility fixture
+  version: "1"
+paths:
+  /stable:
+    $ref: "#/components/pathItems/Stable"
+  /beta:
+    get:
+      operationId: getBeta
+      tags: [beta]
+      x-stability-level: beta
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BetaView"
+components:
+  pathItems:
+    Stable:
+      get:
+        operationId: getStable
+        tags: [renamed]
+        responses:
+          "200":
+            description: Success
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/StableView"
+  schemas:
+    StableView:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+    BetaView:
+      type: object
+      additionalProperties: true
+      x-stability-level: beta
+      properties:
+        id:
+          type: string
