@@ -6543,3 +6543,36 @@ paths:
 servers:
   - description: Production
     url: https://api.e2a.dev
+x-e2a-standalone-schema-refs:
+  DomainSendingFailedData:
+    $ref: "#/components/schemas/DomainSendingFailedData"
+  DomainSendingVerifiedData:
+    $ref: "#/components/schemas/DomainSendingVerifiedData"
+  DomainSuppressionAddedData:
+    $ref: "#/components/schemas/DomainSuppressionAddedData"
+  EmailBouncedData:
+    $ref: "#/components/schemas/EmailBouncedData"
+  EmailComplainedData:
+    $ref: "#/components/schemas/EmailComplainedData"
+  EmailDeliveredData:
+    $ref: "#/components/schemas/EmailDeliveredData"
+  EmailFailedData:
+    $ref: "#/components/schemas/EmailFailedData"
+  EmailReceivedData:
+    $ref: "#/components/schemas/EmailReceivedData"
+  EmailSentData:
+    $ref: "#/components/schemas/EmailSentData"
+  EventEnvelope:
+    $ref: "#/components/schemas/EventEnvelope"
+  LimitExceededDetails:
+    $ref: "#/components/schemas/LimitExceededDetails"
+  PayloadTooLargeDetails:
+    $ref: "#/components/schemas/PayloadTooLargeDetails"
+  RateLimitedDetails:
+    $ref: "#/components/schemas/RateLimitedDetails"
+  RetryAfterDetails:
+    $ref: "#/components/schemas/RetryAfterDetails"
+  TooManyRecipientsDetails:
+    $ref: "#/components/schemas/TooManyRecipientsDetails"
+  ValidationErrorDetails:
+    $ref: "#/components/schemas/ValidationErrorDetails"

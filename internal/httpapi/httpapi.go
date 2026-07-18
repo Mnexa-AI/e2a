@@ -518,6 +518,9 @@ func (s *Server) registerOperations() {
 	// Not an operation: exports the typed per-event `data` payload schemas
 	// (EmailReceivedData, …) into components.schemas for docs + codegen.
 	s.registerEventPayloadSchemas()
+	// Preserve the intentionally public schemas that are selected through
+	// string-valued metadata rather than referenced by an HTTP operation.
+	s.registerStandaloneSchemaExports()
 }
 
 // suppressRawBodyOctetStream removes the phantom `application/octet-stream`
