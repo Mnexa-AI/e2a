@@ -13,9 +13,11 @@ type Schedule struct {
 
 var DefaultSchedule = Schedule{StartDaily: 50, TargetDaily: 2000, RampDays: 30}
 
+const MinimumStartDaily = 50
+
 func NewSchedule(startDaily, targetDaily, rampDays int) Schedule {
-	if startDaily < 1 {
-		startDaily = 1
+	if startDaily < MinimumStartDaily {
+		startDaily = MinimumStartDaily
 	}
 	if targetDaily < startDaily {
 		targetDaily = startDaily
@@ -24,6 +26,12 @@ func NewSchedule(startDaily, targetDaily, rampDays int) Schedule {
 		rampDays = 1
 	}
 	return Schedule{StartDaily: startDaily, TargetDaily: targetDaily, RampDays: rampDays}
+}
+
+// Qualifies reports whether provider-accepted recipient volume reached half of
+// the day's snapshotted allowance, rounded up.
+func Qualifies(confirmed, limit int) bool {
+	return limit >= MinimumStartDaily && confirmed >= (limit+1)/2
 }
 
 // CapForActiveDay returns the recipient allowance for a zero-based active-day

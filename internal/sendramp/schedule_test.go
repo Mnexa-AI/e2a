@@ -23,9 +23,16 @@ func TestScheduleCapForActiveDay(t *testing.T) {
 	}
 }
 
-func TestNewScheduleSanitizesInvalidValues(t *testing.T) {
+func TestNewScheduleEnforcesProductionMinimum(t *testing.T) {
 	s := sendramp.NewSchedule(0, -1, 0)
-	if s.StartDaily != 1 || s.TargetDaily != 1 || s.RampDays != 1 {
-		t.Fatalf("NewSchedule invalid values = %+v, want 1/1/1", s)
+	if s.StartDaily != 50 || s.TargetDaily != 50 || s.RampDays != 1 {
+		t.Fatalf("NewSchedule invalid values = %+v, want 50/50/1", s)
+	}
+}
+
+func TestQualifiesRequiresHalfRoundedUp(t *testing.T) {
+	if sendramp.Qualifies(24, 50) || !sendramp.Qualifies(25, 50) ||
+		sendramp.Qualifies(25, 51) || !sendramp.Qualifies(26, 51) {
+		t.Fatal("qualification threshold is not ceil(limit/2)")
 	}
 }

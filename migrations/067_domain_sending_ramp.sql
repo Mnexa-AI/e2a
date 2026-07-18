@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS sending_ramp_scopes (
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
     active_days INTEGER NOT NULL DEFAULT 0 CHECK (active_days >= 0),
-    last_active_day DATE,
-    start_daily INTEGER NOT NULL CHECK (start_daily > 0),
+    last_qualified_day DATE,
+    start_daily INTEGER NOT NULL CHECK (start_daily >= 50),
     target_daily INTEGER NOT NULL CHECK (target_daily >= start_daily),
     ramp_days INTEGER NOT NULL CHECK (ramp_days > 0),
     PRIMARY KEY (user_id, domain)
@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS domain_send_counters (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     domain TEXT NOT NULL,
     day DATE NOT NULL,
-    recipient_count INTEGER NOT NULL DEFAULT 0 CHECK (recipient_count >= 0),
+    reserved_count INTEGER NOT NULL DEFAULT 0 CHECK (reserved_count >= 0),
+    confirmed_count INTEGER NOT NULL DEFAULT 0 CHECK (confirmed_count >= 0 AND confirmed_count <= reserved_count),
     daily_limit INTEGER NOT NULL CHECK (daily_limit > 0),
     PRIMARY KEY (user_id, domain, day)
 );
@@ -44,9 +45,14 @@ CREATE TABLE IF NOT EXISTS sending_ramp_reservations (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     domain TEXT NOT NULL,
     units INTEGER NOT NULL CHECK (units > 0),
+    state TEXT NOT NULL DEFAULT 'reserved' CHECK (state IN ('reserved', 'confirmed', 'released')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (message_id, day)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (message_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_sending_ramp_reservations_scope_day
-    ON sending_ramp_reservations (user_id, domain, day);
+CREATE INDEX IF NOT EXISTS idx_domain_send_counters_day
+    ON domain_send_counters (day);
+
+CREATE INDEX IF NOT EXISTS idx_sending_ramp_reservations_state_updated
+    ON sending_ramp_reservations (state, updated_at);
