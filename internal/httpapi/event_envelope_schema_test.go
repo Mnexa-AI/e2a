@@ -83,6 +83,46 @@ func TestEventEnvelopeIsOpenAndMapped(t *testing.T) {
 	}
 }
 
+func TestStandaloneSchemasHaveExportAnchors(t *testing.T) {
+	raw, err := json.Marshal(New(Deps{}).API.OpenAPI())
+	if err != nil {
+		t.Fatalf("render OpenAPI: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse OpenAPI: %v", err)
+	}
+
+	anchors, ok := doc["x-e2a-exported-schemas"].(map[string]any)
+	if !ok {
+		t.Fatalf("x-e2a-exported-schemas = %#v, want object", doc["x-e2a-exported-schemas"])
+	}
+	want := map[string]string{
+		"EventEnvelope": "#/components/schemas/EventEnvelope",
+	}
+	for _, event := range eventpayload.StableEvents {
+		want[event.SchemaName] = "#/components/schemas/" + event.SchemaName
+	}
+	for _, entry := range errorCodeCatalog {
+		if entry.DetailsSchema != "" {
+			want[entry.DetailsSchema] = "#/components/schemas/" + entry.DetailsSchema
+		}
+	}
+	if len(anchors) != len(want) {
+		t.Errorf("x-e2a-exported-schemas has %d entries, want %d", len(anchors), len(want))
+	}
+	for name, ref := range want {
+		anchor, ok := anchors[name].(map[string]any)
+		if !ok {
+			t.Errorf("x-e2a-exported-schemas[%s] = %#v, want $ref object", name, anchors[name])
+			continue
+		}
+		if got := anchor["$ref"]; got != ref {
+			t.Errorf("x-e2a-exported-schemas[%s].$ref = %#v, want %q", name, got, ref)
+		}
+	}
+}
+
 func TestStableEventFixturesValidateAgainstEnvelopeAndMappedData(t *testing.T) {
 	server := New(Deps{})
 	registry := server.API.OpenAPI().Components.Schemas

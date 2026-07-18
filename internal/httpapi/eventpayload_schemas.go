@@ -94,6 +94,38 @@ func (s *Server) registerEventPayloadSchemas() {
 	data.Extensions["x-e2a-event-data-schemas"] = mapping
 }
 
+// registerStandaloneSchemaExports anchors public component schemas that are
+// deliberately not referenced by an HTTP operation.
+func (s *Server) registerStandaloneSchemaExports() {
+	// Huma prunes component schemas that are not reachable through a real
+	// OpenAPI $ref when serializing the document. The event schemas and some
+	// structured error-detail schemas are intentionally operation-unreachable:
+	// consumers select them using the string-valued mappings published on the
+	// open EventEnvelope and ErrorBody. Publish explicit anchors so these
+	// standalone schemas remain part of the public contract without turning
+	// either open shape into a closed union.
+	oapi := s.API.OpenAPI()
+	if oapi.Extensions == nil {
+		oapi.Extensions = map[string]any{}
+	}
+	exported := map[string]any{
+		"EventEnvelope": map[string]any{"$ref": "#/components/schemas/EventEnvelope"},
+	}
+	for _, event := range eventpayload.StableEvents {
+		exported[event.SchemaName] = map[string]any{
+			"$ref": "#/components/schemas/" + event.SchemaName,
+		}
+	}
+	for _, entry := range errorCodeCatalog {
+		if entry.DetailsSchema != "" {
+			exported[entry.DetailsSchema] = map[string]any{
+				"$ref": "#/components/schemas/" + entry.DetailsSchema,
+			}
+		}
+	}
+	oapi.Extensions["x-e2a-exported-schemas"] = exported
+}
+
 // openResponseComponent flips additionalProperties from the strict default to
 // true on a consumer-facing component and every object reachable from it.
 // Event envelopes and error-detail schemas share this additive response rule.
