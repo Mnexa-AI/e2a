@@ -11,13 +11,13 @@ Two hosts are relevant:
 
 e2a already implements the OAuth 2.1 surface that MCP clients depend on: RFC 8414 authorization-server metadata at [`/.well-known/oauth-authorization-server`](https://api.e2a.dev/.well-known/oauth-authorization-server), RFC 7591 Dynamic Client Registration at `/oauth2/register` (rate-limited per IP), `authorization_code` + `refresh_token` grants with PKCE S256, RFC 7009 revocation, and RFC 6750 Bearer challenges on 401s. MCP clients can register and onboard without any human-supplied secret — the user only sees a browser consent screen.
 
-What e2a does **not** yet implement is the WorkOS [auth.md](https://github.com/workos/auth.md) flow specifically: there is no `/agent/auth` endpoint, no `agent_auth` block in the AS metadata, no RFC 9728 protected-resource metadata document, no ID-JAG verification, and no email-OTP claim ceremony. See [Agent identity](#agent-identity) for where we're heading — because every e2a agent has an end-to-end-verified email address, e2a is positioned to act as an identity provider in this protocol, and that's the direction we're building.
+e2a also implements the first pieces of the WorkOS [auth.md](https://github.com/workos/auth.md) autonomous-agent flow: a JSON Web Key Set at `/.well-known/jwks.json`, an `agent_auth` block in the AS metadata, and a bootstrap endpoint (`POST /agent/identity`) that exchanges an agent-scoped API key for a long-lived identity assertion, redeemable at `/oauth2/token` via `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` for a short-lived access token. Still missing: an RFC 9728 protected-resource metadata document, ID-JAG assertion intake from third parties, and the email-OTP claim ceremony. See [Agent identity](#agent-identity) for where we're heading — because every e2a agent has an end-to-end-verified email address, e2a is positioned to act as an identity provider in this protocol, and that's the direction we're building.
 
 ## Use the existing tooling first
 
 Before you do anything credential-shaped, check whether the user has already wired e2a into your environment. Most of the time they have, and you should not be handling credentials (API keys or OAuth tokens) yourself.
 
-1. **e2a MCP server** — if you are an MCP client (Claude, Cursor, Codex, ChatGPT, etc.), e2a ships an official MCP server (`@e2a/mcp-server`) that exposes inbox, send, reply, agents, domains, and HITL approval as tools. The user configures it once with their key; you call the tools without ever seeing the key. Package: `https://www.npmjs.com/package/@e2a/mcp-server`. Repository: `https://github.com/tokencanopy/e2a/tree/main/mcp`.
+1. **e2a MCP server** — if you are an MCP client (Claude, Cursor, Codex, ChatGPT, etc.), e2a's MCP server is hosted: point your MCP client at the Streamable HTTP endpoint `https://api.e2a.dev/mcp` (OAuth 2.1 — no key pasted) to get inbox, send, reply, agents, domains, and HITL approval as tools. Repository: `https://github.com/tokencanopy/e2a/tree/main/mcp`.
 2. **e2a agent skill** — a guidance document covering inbox patterns, idempotency, HITL approval, attachment handling, and webhook verification. Load it before calling the API directly so you don't relearn the gotchas on the user's dime.
 3. **e2a CLI** — if you are running shell commands, prefer `e2a` over hand-rolled `curl`. It handles auth resolution, retries, and non-interactive flags. Install: `npm i -g @e2a/cli`. Repository: `https://github.com/tokencanopy/e2a/tree/main/cli`.
 
@@ -123,15 +123,15 @@ The `WWW-Authenticate` header on 401 responses tells you whether the failing cre
 
 ## Agent identity
 
-This section describes e2a's bet on where agent auth is heading. It does not describe shipped surface — only direction. If you are implementing today, use the credential paths above; come back here when you are building for the protocol's next phase.
+This section describes e2a's bet on where agent auth is heading. The bootstrap identity endpoint below is shipped (behind an opt-in signing-key config); third-party ID-JAG consumption and the email-loop claim ceremony are still direction, not shipped surface. If you are implementing today, use the credential paths above for anything beyond the identity bootstrap.
 
 Every e2a agent has a stable, verified email address. The owner proved control of the domain (via DNS records and a verification token), and e2a enforces SPF and DKIM on every inbound message routed to that agent. Equivalently for agents on the shared `agents.e2a.dev` domain, e2a is the authoritative issuer. **The agent's email is not a label — it's an identity claim e2a stands behind.**
 
 We are building two pieces on top of this:
 
-### e2a as an identity provider (planned)
+### e2a as an identity provider
 
-e2a already operates as an OAuth issuer at `https://api.e2a.dev` (see AS metadata above). The remaining work is publishing a JSON Web Key Set at `https://api.e2a.dev/.well-known/jwks.json` and issuing audience-bound [ID-JAG](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/) assertions (`urn:ietf:params:oauth:token-type:id-jag`) with:
+e2a already operates as an OAuth issuer at `https://api.e2a.dev` (see AS metadata above), publishes a JSON Web Key Set at `https://api.e2a.dev/.well-known/jwks.json`, and lets an agent bootstrap a long-lived identity assertion from its API key via `POST /agent/identity`, redeemable for a short-lived access token at `/oauth2/token`. The remaining work is issuing audience-bound [ID-JAG](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/) assertions (`urn:ietf:params:oauth:token-type:id-jag`) that a *third-party* service can verify, with:
 
 - `iss` = `https://api.e2a.dev`
 - `sub` = the agent's verified email
@@ -161,14 +161,19 @@ What e2a publishes today:
 - **RFC 8414 authorization-server metadata** at [`https://api.e2a.dev/.well-known/oauth-authorization-server`](https://api.e2a.dev/.well-known/oauth-authorization-server) — advertises `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `revocation_endpoint`, supported grants (`authorization_code`, `refresh_token`), PKCE (`S256`), and the RFC 9207 `iss` parameter. Request the `mcp` scope.
 - **RFC 6750 Bearer challenges** on every 401 from `/v1/...` — `WWW-Authenticate: Bearer realm="e2a"` for unknown/missing credentials, plus RFC 6750 §3.1 error params for OAuth-bearer failures.
 
+What e2a publishes for the autonomous-agent path today (gated behind an opt-in signing-key config; see [Agent identity](#agent-identity)):
+
+- An `agent_auth` block in the AS metadata (`identity_endpoint`, `jwks_uri`, and related fields).
+- A JSON Web Key Set at `/.well-known/jwks.json`.
+- A bootstrap endpoint, `POST /agent/identity`, that mints an identity assertion from an agent-scoped API key — e2a's adaptation of the flow (the bootstrap credential is a domain-verified agent-scoped key, not an ownerless self-registration).
+
 What's missing for full auth.md compliance:
 
-- An `agent_auth` block in the AS metadata describing `register_uri`, `claim_uri`, `revocation_uri`, `identity_types_supported`, etc.
 - An RFC 9728 protected-resource metadata document at `/.well-known/oauth-protected-resource`, and `resource_metadata="..."` parameter on the WWW-Authenticate challenge so agents can auto-discover it.
-- The `/agent/auth` endpoint itself, with `anonymous`, `identity_assertion + verified_email`, and `identity_assertion + id-jag` flows.
-- A JSON Web Key Set at `/.well-known/jwks.json` for verifying e2a-issued ID-JAGs (see [Agent identity](#agent-identity)).
+- ID-JAG assertion intake so third-party services can register e2a-issued assertions (the `anonymous` and `identity_assertion + id-jag` flows from the spec).
+- The email-OTP claim ceremony (see [Email-loop claim completion](#email-loop-claim-completion-proposed)).
 
-These will land together. When they do, this document will be updated and the AS metadata will carry the canonical machine-readable description.
+When these land, this document will be updated and the AS metadata will carry the canonical machine-readable description.
 
 ## Revocation
 
