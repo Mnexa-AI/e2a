@@ -364,6 +364,45 @@ func TestIsProduction(t *testing.T) {
 	}
 }
 
+func TestSendingRampDefaultsOverridesAndValidation(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	cfg, err := Load(write("default-ramp.yaml", "env: development\n"))
+	if err != nil {
+		t.Fatalf("Load defaults: %v", err)
+	}
+	if cfg.SendingRamp.Enabled || cfg.SendingRamp.StartDaily != 50 || cfg.SendingRamp.TargetDaily != 2000 || cfg.SendingRamp.RampDays != 30 {
+		t.Fatalf("sending ramp defaults = %+v, want disabled 50/2000/30", cfg.SendingRamp)
+	}
+
+	cfg, err = Load(write("ramp.yaml", `
+env: development
+sending_ramp:
+  enabled: true
+  start_daily: 75
+  target_daily: 3000
+  ramp_days: 21
+`))
+	if err != nil {
+		t.Fatalf("Load override: %v", err)
+	}
+	if !cfg.SendingRamp.Enabled || cfg.SendingRamp.StartDaily != 75 || cfg.SendingRamp.TargetDaily != 3000 || cfg.SendingRamp.RampDays != 21 {
+		t.Fatalf("sending ramp override = %+v", cfg.SendingRamp)
+	}
+
+	if _, err := Load(write("too-small.yaml", "env: development\nsending_ramp:\n  enabled: true\n  start_daily: 49\n")); err == nil {
+		t.Fatal("Load should reject an enabled start_daily below the API's 50-recipient message maximum")
+	}
+}
+
 // Trash retention: defaults to 30 days, yaml + env override, and a value
 // below 1 day is refused at startup (the stable API promises soft-deleted
 // resources stay restorable — see internal/identity.TrashRetention).
