@@ -151,7 +151,7 @@ shows the set your scope allows, with per-tool descriptions.
 
 | Tool | Description |
 | --- | --- |
-| `send_message` | Send a new email. When the agent's outbound policy or content scan holds it for review, the message is held and returns `status: pending_review` instead of `sent`. |
+| `send_message` | Send a new email. The message is durably queued and returns `status: accepted` (the terminal outcome arrives via webhook/event or a follow-up read). When the agent's outbound policy or content scan holds it for review, it instead returns `status: pending_review`. |
 | `reply_to_message` | Reply to a message — one the agent received (replies to its sender) or one it sent (continues the thread to the original recipients). Preserves In-Reply-To / References for thread continuity. |
 | `list_messages` | List mail; pass `deleted:true` to list trash. Filter by `read_status` (unread / read / all) and sender with reserved-word-safe `from_`; cursor-paginated (`cursor` + `limit` in, `next_cursor` out). |
 | `restore_message` | Restore a soft-deleted message and resume its retention clock. |

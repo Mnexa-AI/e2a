@@ -191,5 +191,5 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 - Webhook + SDK code: https://e2a.dev/sdk.md
 - Exact tool signatures: call `tools/list` (authoritative).
 - OpenAPI contract: https://e2a.dev/openapi.yaml
-- The MCP surface is **48 tools** (14 runtime/inbox + 34 admin/setup) spanning agents, messages, HITL review, attachments, domains, events, webhooks, API keys, and templates (beta). The set you see depends on your credential's scope: an agent-scoped credential sees the 14 runtime tools; an account-scoped credential sees all 48. Tool descriptions teach behavior; this skill teaches the mental model. (`create_api_key` mints **agent-scoped** keys only — account-scoped keys come from the dashboard or raw API.)
+- The MCP surface is **50 tools** (14 runtime/inbox + 36 admin/setup) spanning agents, messages, HITL review, attachments, domains, events, webhooks, API keys, and templates (beta). The set you see depends on your credential's scope: an agent-scoped credential sees the 14 runtime tools; an account-scoped credential sees all 50. Tool descriptions teach behavior; this skill teaches the mental model. (`create_api_key` mints **agent-scoped** keys only — account-scoped keys come from the dashboard or raw API.)
 - Plugin homepage / docs index: https://e2a.dev (machine-readable index: https://e2a.dev/llms.txt)

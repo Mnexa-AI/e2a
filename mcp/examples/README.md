@@ -12,7 +12,7 @@ End-to-end demos showing how to wire the e2a MCP surface into popular agent fram
 
 ## One hosted endpoint, same tool surface
 
-Each example exercises the same e2a tool surface (37 tools; the visible set depends on your key's scope) against the hosted MCP server. The Python framework examples ship an `agent.py` script; the Codex example ships a TOML block (Codex is itself the agent, so you configure it instead of writing a script).
+Each example exercises the same e2a tool surface (50 tools; the visible set depends on your key's scope) against the hosted MCP server. The Python framework examples ship an `agent.py` script; the Codex example ships a TOML block (Codex is itself the agent, so you configure it instead of writing a script).
 
 Every example connects to `https://api.e2a.dev/mcp` over Streamable HTTP with your API key in the `Authorization` header. No Node toolchain or local build is needed, and updates land without rebuilding the agent's image — so it works equally well on a laptop or on serverless runtimes (Cloud Run, Lambda, Vercel).
 
