@@ -97,11 +97,10 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 		// inherit, so an agent on a subdomain of this (verified) domain — e.g.
 		// otto@acme.<domain> — only receives mail once a subdomain MX exists.
 		// One wildcard covers all such subdomains. Only needed if the user runs
-		// subdomain agents; send-only or apex-only setups can ignore it. Shares
-		// the inbound axis for `status`, but note it is NOT independently probed
-		// by domain verification (which checks the apex MX) — it is surfaced as
-		// guidance, and its live coverage is what the create-time advisory checks.
-		{Type: "MX", Name: "*." + d.Domain, Value: s.deps.SMTPDomain, Priority: &mxPriority, Purpose: "inbound_mx_wildcard", Status: inboundStatus},
+		// subdomain agents; send-only or apex-only setups can ignore it. It is not
+		// independently probed or persisted, so it must never mirror the apex and
+		// falsely claim verification.
+		{Type: "MX", Name: "*." + d.Domain, Value: s.deps.SMTPDomain, Priority: &mxPriority, Purpose: "inbound_mx_wildcard", Status: "pending"},
 	}
 
 	// dkim — surfaced for rows that have a stored per-domain key (migration 014+).

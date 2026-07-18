@@ -76,13 +76,12 @@ type DomainLookup func(ctx context.Context, domain, userID string) (*identity.Do
 // tolerated (feature disabled ⇒ exact-match-only behavior).
 type CoveringDomainLookup func(ctx context.Context, sub, userID string) (*identity.Domain, error)
 
-// MXResolver returns the effective MX hosts published for a name (best-effort
-// DNS). Used ONLY for the create-time subdomain MX-coverage advisory: a single
+// MXResolver returns the effective MX hosts published for a name. Used for the
+// create-time subdomain MX gate: a single
 // lookup on the subdomain FQDN answers both the explicit-subdomain-MX and the
 // wildcard-MX-on-parent cases, because a resolver synthesizes the wildcard for
-// the queried name. Optional — nil disables the advisory (creation is never
-// gated on it). Injected so unit tests mock the resolver and the httpapi layer
-// stays off the network.
+// the queried name. Injected so unit tests mock the resolver and the httpapi
+// layer stays off the network.
 type MXResolver func(ctx context.Context, name string) ([]string, error)
 
 // AgentCreateEnforcer mirrors enforcer.CheckAgentCreate; returns a
@@ -129,7 +128,7 @@ type Deps struct {
 	CreateAgent          AgentCreator
 	LookupDomain         DomainLookup
 	LookupCoveringDomain CoveringDomainLookup
-	// ResolveMX backs the create-time subdomain MX-coverage advisory (optional).
+	// ResolveMX backs the required create-time subdomain MX gate.
 	ResolveMX          MXResolver
 	EnforceAgentCreate AgentCreateEnforcer
 	// UpdateAgentName updates an agent's display name (the only mutable field on

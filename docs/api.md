@@ -134,6 +134,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | `domain_not_registered` | 400 | Create-agent on a domain the account has not registered. |
 | `domain_has_agents` | 400 | Domain delete blocked while agents exist on it. |
 | `domain_not_verified` | 400 / 403 | Domain verification pending — 400 on create-agent, 403 on send paths. |
+| `inbound_mx_missing` | 400 | Inherited subdomain agent creation requires an exact or wildcard MX routing to e2a. |
 | **Capacity — see the 402/429 split above** | | |
 | `limit_exceeded` | 402 | Plan **quota** (stock/flow cap); `details` is `LimitExceededDetails`. Not retryable. |
 | `rate_limited` | 429 | Request-**rate** limit; wait `details.retry_after_seconds` / `Retry-After`, then retry. |
@@ -148,6 +149,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | `not_implemented` | 501 | The feature (API keys, reviews, suppressions) is not available on this deployment. Not retryable. |
 | `events_log_disabled` | 501 | The events log is disabled on this deployment (expected on some hosted configurations). Not retryable. |
 | `limits_unavailable` | 503 | The limits subsystem is not available — transient, retryable. |
+| `inbound_mx_check_failed` | 503 | DNS could not be queried while validating an inherited subdomain inbox — transient, retryable. |
 | **Server / fallback** | | |
 | `internal_error` | 5xx | Server-side failure; safe to retry with backoff unless the message says otherwise. |
 | `method_not_allowed` | 405 | Fallback code (wrong HTTP method on a real route). |

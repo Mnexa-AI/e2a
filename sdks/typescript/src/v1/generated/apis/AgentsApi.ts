@@ -9,7 +9,6 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 
 import { AgentView } from '../models/AgentView.js';
-import { CreateAgentBody } from '../models/CreateAgentBody.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
@@ -457,13 +456,13 @@ export class AgentsApiResponseProcessor {
      * @params response Response returned by the server for a request to createAgent
      * @throws ApiException if the response code was not in [200, 299]
      */
-     public async createAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<CreateAgentBody >> {
+     public async createAgentWithHttpInfo(response: ResponseContext): Promise<HttpInfo<AgentView >> {
         const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
         if (isCodeInRange("201", response.httpStatusCode)) {
-            const body: CreateAgentBody = ObjectSerializer.deserialize(
+            const body: AgentView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "CreateAgentBody", ""
-            ) as CreateAgentBody;
+                "AgentView", ""
+            ) as AgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
         if (isCodeInRange("402", response.httpStatusCode)) {
@@ -490,10 +489,10 @@ export class AgentsApiResponseProcessor {
 
         // Work around for missing responses in specification, e.g. for petstore.yaml
         if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
-            const body: CreateAgentBody = ObjectSerializer.deserialize(
+            const body: AgentView = ObjectSerializer.deserialize(
                 ObjectSerializer.parse(await response.body.text(), contentType),
-                "CreateAgentBody", ""
-            ) as CreateAgentBody;
+                "AgentView", ""
+            ) as AgentView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

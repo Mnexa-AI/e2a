@@ -36,11 +36,10 @@ func TestDomainViewInboundStatus(t *testing.T) {
 		if mx.Type != "MX" || mx.Value != "mx.e2a.dev" || mx.Priority == nil || *mx.Priority != 10 || mx.Status != "verified" {
 			t.Fatalf("inbound_mx record wrong: %+v", mx)
 		}
-		// Wildcard MX (slice 2): *.<domain> → relay, same priority + inbound axis
-		// as the exact MX, so subdomain agents under this verified domain can
-		// receive mail once the customer publishes the one wildcard record.
+		// Wildcard MX is guidance, not part of parent verification. Its status
+		// must never mirror the apex and falsely claim it was probed.
 		wc := m["inbound_mx_wildcard"]
-		if wc.Type != "MX" || wc.Name != "*.acme.com" || wc.Value != "mx.e2a.dev" || wc.Priority == nil || *wc.Priority != 10 || wc.Status != "verified" {
+		if wc.Type != "MX" || wc.Name != "*.acme.com" || wc.Value != "mx.e2a.dev" || wc.Priority == nil || *wc.Priority != 10 || wc.Status != "pending" {
 			t.Fatalf("inbound_mx_wildcard record wrong: %+v", wc)
 		}
 		if _, ok := m["dkim"]; ok {

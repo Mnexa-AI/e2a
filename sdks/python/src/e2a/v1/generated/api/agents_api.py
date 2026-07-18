@@ -20,7 +20,6 @@ from pydantic import Field, StrictBool, StrictStr, field_validator
 from typing import Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.agent_view import AgentView
-from e2a.v1.generated.models.create_agent_body import CreateAgentBody
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
 from e2a.v1.generated.models.delete_agent_result import DeleteAgentResult
 from e2a.v1.generated.models.page_agent_view import PageAgentView
@@ -63,7 +62,7 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> CreateAgentBody:
+    ) -> AgentView:
         """Create an agent
 
         Register an agent by full email. A custom-domain agent's domain must be a verified domain the caller owns; an email on the deployment's shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
@@ -101,7 +100,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "CreateAgentBody",
+            '201': "AgentView",
             '402': "LimitExceededEnvelope",
             '429': "RateLimitedEnvelope",
         }
@@ -132,7 +131,7 @@ class AgentsApi:
         _content_type: Optional[StrictStr] = None,
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
-    ) -> ApiResponse[CreateAgentBody]:
+    ) -> ApiResponse[AgentView]:
         """Create an agent
 
         Register an agent by full email. A custom-domain agent's domain must be a verified domain the caller owns; an email on the deployment's shared domain (e.g. xyz@agents.e2a.dev) is registered as a shared-domain agent. Returns the full agent.
@@ -170,7 +169,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "CreateAgentBody",
+            '201': "AgentView",
             '402': "LimitExceededEnvelope",
             '429': "RateLimitedEnvelope",
         }
@@ -239,7 +238,7 @@ class AgentsApi:
         )
 
         _response_types_map: Dict[str, Optional[str]] = {
-            '201': "CreateAgentBody",
+            '201': "AgentView",
             '402': "LimitExceededEnvelope",
             '429': "RateLimitedEnvelope",
         }

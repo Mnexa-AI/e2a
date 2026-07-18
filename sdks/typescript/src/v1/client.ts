@@ -24,7 +24,6 @@ import {
 } from "./generated/types/PromiseAPI.js";
 import type {
   AgentView,
-  CreateAgentBody,
   CreateAgentRequest,
   UpdateAgentRequest,
   ProtectionConfigView,
@@ -244,9 +243,7 @@ class AgentsResource {
   get(email: string): Promise<AgentView> {
     return call(() => this.api.getAgent(email));
   }
-  // Returns the created agent plus any non-fatal `warnings` (e.g. a subdomain
-  // agent whose inbound MX coverage could not be confirmed — advisory only).
-  create(body: CreateAgentRequest): Promise<CreateAgentBody> {
+  create(body: CreateAgentRequest): Promise<AgentView> {
     return call(() => this.api.createAgent(body));
   }
   update(email: string, patch: UpdateAgentRequest): Promise<AgentView> {

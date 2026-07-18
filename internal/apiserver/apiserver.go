@@ -109,7 +109,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		CreateAgent:          p.Store.CreateAgent,
 		LookupDomain:         p.Store.LookupDomain,
 		LookupCoveringDomain: p.Store.LookupCoveringDomain,
-		// Best-effort MX probe for the create-time subdomain-agent advisory.
+		// Exact-domain MX probe for the create-time two-way-inbox gate.
 		// net.Resolver honors the ctx deadline the handler sets.
 		ResolveMX: func(ctx context.Context, name string) ([]string, error) {
 			var r net.Resolver

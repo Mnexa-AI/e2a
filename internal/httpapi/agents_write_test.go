@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -20,6 +19,9 @@ func coveringParentDep(d *Deps) {
 			return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
 		}
 		return nil, errors.New("no covering domain")
+	}
+	d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+		return []string{"mx.e2a.dev."}, nil
 	}
 }
 
@@ -179,6 +181,9 @@ func TestCreateAgentSubdomainCoveredByVerifiedParent(t *testing.T) {
 			}
 			return nil, errors.New("no covering domain")
 		}
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return []string{"mx.e2a.dev."}, nil
+		}
 	})
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
 		"email": "otto@acme.team.mnexa.ai",
@@ -263,13 +268,10 @@ func TestCreateAgentExactUnverifiedNotMaskedByParent(t *testing.T) {
 	}
 }
 
-// TestCreateAgentSubdomainWarnsWhenNoMXCoverage (Task C): when a subdomain agent
-// is created via parent-resolution and the MX probe finds no coverage routing to
-// the relay, the create SUCCEEDS (201) and returns a non-fatal warning — it must
-// never block.
-func TestCreateAgentSubdomainWarnsWhenNoMXCoverage(t *testing.T) {
+// Two-way inbox invariant: a subdomain authorized by its parent is not created
+// until its exact address domain routes inbound mail to the relay.
+func TestCreateAgentSubdomainBlocksWhenNoMXCoverage(t *testing.T) {
 	srv := testServer(t, coveringParentDep, func(d *Deps) {
-		// Resolver returns an unrelated MX host (not the relay) ⇒ no coverage.
 		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
 			return []string{"aspmx.someone-else.example."}, nil
 		}
@@ -277,15 +279,8 @@ func TestCreateAgentSubdomainWarnsWhenNoMXCoverage(t *testing.T) {
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
 		"email": "otto@acme.team.mnexa.ai",
 	})
-	if code != 201 {
-		t.Fatalf("MX warning must NOT block creation; got %d %v", code, body)
-	}
-	warnings, ok := body["warnings"].([]any)
-	if !ok || len(warnings) == 0 {
-		t.Fatalf("expected a non-fatal MX-coverage warning, got %v", body["warnings"])
-	}
-	if msg, _ := warnings[0].(string); !strings.Contains(msg, "MX") || !strings.Contains(msg, "otto@acme.team.mnexa.ai") {
-		t.Fatalf("warning should name the agent and the missing MX record: %q", warnings[0])
+	if code != 400 || errCode(body) != "inbound_mx_missing" {
+		t.Fatalf("want 400 inbound_mx_missing, got %d %v", code, body)
 	}
 }
 
@@ -306,7 +301,38 @@ func TestCreateAgentSubdomainNoWarnWhenMXCovers(t *testing.T) {
 		t.Fatalf("status %d body %v", code, body)
 	}
 	if _, has := body["warnings"]; has {
-		t.Fatalf("MX coverage present ⇒ no warning, got %v", body["warnings"])
+		t.Fatalf("create response must remain the shared AgentView shape: %v", body)
+	}
+}
+
+func TestCreateAgentSubdomainMXLookupFailureIsRetryable(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return nil, errors.New("resolver unavailable")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 503 || errCode(body) != "inbound_mx_check_failed" {
+		t.Fatalf("want 503 inbound_mx_check_failed, got %d %v", code, body)
+	}
+}
+
+func TestCreateAgentReservedMailFromSubtreeRejected(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+		}
+	})
+	for _, address := range []string{
+		"bot@bounce.team.mnexa.ai",
+		"bot@tenant.bounce.team.mnexa.ai",
+	} {
+		code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{"email": address})
+		if code != 400 || errCode(body) != "reserved_domain" {
+			t.Errorf("%s: want 400 reserved_domain, got %d %v", address, code, body)
+		}
 	}
 }
 

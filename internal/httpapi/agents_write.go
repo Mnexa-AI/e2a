@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/limits"
 )
@@ -47,19 +47,9 @@ type createAgentInput struct {
 }
 
 // createAgentOutput returns the full AgentView (AG-5) — one agent shape across
-// create/get/update/list, so a caller never needs a follow-up GET — plus any
-// non-fatal create-time warnings.
+// create/get/update/list, so a caller never needs a follow-up GET.
 type createAgentOutput struct {
-	Body createAgentBody
-}
-
-// createAgentBody is the shared AgentView plus a create-only `warnings` array.
-// Warnings live HERE (not on AgentView) so list/get responses are unchanged;
-// the field is create-scoped. Currently the only warning is the subdomain
-// MX-coverage advisory (see subdomainMXCoverageWarning).
-type createAgentBody struct {
-	AgentView
-	Warnings []string `json:"warnings,omitempty" doc:"Non-fatal advisories about this newly created agent. Present only when the create surfaced a caveat worth acting on. Currently: a subdomain agent created under a verified PARENT domain whose inbound MX coverage — an MX on the subdomain, or a wildcard MX on the parent, pointing at the e2a relay — could not be confirmed, so the inbox will not receive mail until that record is published. Advisory only (best-effort DNS check; RFC 4592 wildcard shadowing makes detection imperfect); creation still succeeds and send-only agents can ignore it. Open set; tolerate unknown entries."`
+	Body AgentView
 }
 
 // slugPattern / reservedSlugs replicate the legacy validateSlug rule (slug
@@ -302,18 +292,12 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
 	}
-	domain := parts[1]
-	// Reject a malformed address domain BEFORE any ownership/covering resolution
-	// (QA F2/F3): empty, leading/trailing-dot, or consecutive-dot labels
-	// (x@acme..mnexa.ai, x@.team.mnexa.ai, x@team.mnexa.ai.) would otherwise
-	// resolve to a covering parent and mint a junk agent — and the trailing-dot
-	// form also slips past the covering candidate/public-suffix normalization.
-	// The shared-domain path is exempt: its host comes from config, not the
-	// caller. Structural only (no charset restriction) so IDN/punycode domains,
-	// which normalize downstream, still pass.
-	if !(s.deps.SharedDomain != "" && strings.EqualFold(domain, s.deps.SharedDomain)) && !isWellFormedDomain(domain) {
+	domain, err := agent.ValidateDomain(parts[1])
+	if err != nil {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
 	}
+	// Persist the same ASCII/IDNA canonical domain used by registration and DNS.
+	email = identity.NormalizeEmail(parts[0] + "@" + domain)
 	subdomain := domain // the agent's literal address domain, before any parent rebind
 	viaParent := false  // true when the agent was authorized via a covering parent
 	isShared := s.deps.SharedDomain != "" && strings.EqualFold(domain, s.deps.SharedDomain)
@@ -337,7 +321,7 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	// SES DKIM-signs and DMARC-aligns subdomain mail under the parent identity,
 	// so a subdomain agent needs no separate registration. On a parent match we
 	// rebind `domain` to the PARENT: it is what gets stored in
-	// agent_identities.domain, satisfying the FK and making the quota JOIN, the
+	// agent_identities.registered_domain, satisfying the FK and making the quota JOIN, the
 	// DKIM signer, and the sending-status lookup all resolve to the verified
 	// parent while the agent keeps its full subdomain address.
 	if !isShared {
@@ -361,6 +345,14 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 			}
 			domain = parent.Domain // bind the agent to the verified parent identity
 			viaParent = true
+		}
+	}
+	if viaParent {
+		if isReservedMailFromSubtree(subdomain, domain) {
+			return nil, NewError(http.StatusBadRequest, "reserved_domain", "the bounce namespace is reserved for managed MAIL FROM")
+		}
+		if mxErr := s.requireSubdomainMX(ctx, subdomain, domain); mxErr != nil {
+			return nil, mxErr
 		}
 	}
 
@@ -404,80 +396,35 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register agent")
 	}
-	body := createAgentBody{AgentView: agentViewFromIdentity(ag)}
-	// Advisory only (never fatal): a subdomain agent authorized via a covering
-	// parent needs a subdomain MX (explicit or a wildcard on the parent) to
-	// RECEIVE mail — MX records don't inherit. Warn if we can't confirm coverage
-	// so the inbox isn't silently mail-less; a send-only agent can ignore it.
-	if viaParent {
-		if w := s.subdomainMXCoverageWarning(ctx, ag.EmailAddress(), subdomain); w != "" {
-			body.Warnings = append(body.Warnings, w)
-		}
-	}
-	return &createAgentOutput{Body: body}, nil
+	return &createAgentOutput{Body: agentViewFromIdentity(ag)}, nil
 }
 
-// isWellFormedDomain reports whether d is a structurally valid DNS name for an
-// agent address: 1..253 bytes, at least one label, every label non-empty and
-// <=63 bytes, no leading/trailing dot and no consecutive dots. It deliberately
-// does NOT constrain the character set — internationalized (unicode) domains are
-// normalized to punycode downstream (identity.normalizeDomain), so restricting
-// to ASCII here would wrongly reject valid IDN addresses. Its job is only to
-// reject the empty/leading/trailing/consecutive-dot label forms (QA F2/F3).
-func isWellFormedDomain(d string) bool {
-	if d == "" || len(d) > 253 {
-		return false
-	}
-	if strings.HasPrefix(d, ".") || strings.HasSuffix(d, ".") {
-		return false
-	}
-	for _, label := range strings.Split(d, ".") {
-		if label == "" || len(label) > 63 {
-			return false
-		}
-	}
-	return true
+func isReservedMailFromSubtree(addressDomain, registeredDomain string) bool {
+	reserved := "bounce." + registeredDomain
+	return addressDomain == reserved || strings.HasSuffix(addressDomain, "."+reserved)
 }
 
-// subdomainMXCoverageWarning best-effort checks whether inbound mail for a
-// subdomain agent will actually reach the e2a relay, returning a human-readable
-// advisory when it cannot confirm coverage (empty string = coverage confirmed,
-// or the check is disabled/not applicable). It is NEVER fatal — send-only
-// agents are legitimate and the user may publish the record afterward.
-//
-// One MX lookup on the subdomain FQDN answers both shapes at once: a resolver
-// synthesizes a parent wildcard (`*.<parent> MX`) for the queried subdomain, so
-// an explicit subdomain MX and a wildcard-on-parent are indistinguishable here —
-// and that is fine, we only care whether SOME MX routes to the relay. Detection
-// is deliberately best-effort: per RFC 4592, an explicit non-MX record on the
-// subdomain SHADOWS the parent wildcard (the resolver then returns no MX for the
-// name even though a wildcard exists), and transient DNS failures look the same
-// as "no record", so a false warning is possible. Hence advisory, not a gate.
-func (s *Server) subdomainMXCoverageWarning(ctx context.Context, agentEmail, subdomain string) string {
+// requireSubdomainMX enforces the two-way-inbox invariant before an inherited
+// subdomain agent consumes quota or gets inserted. Looking up the exact address
+// domain covers both an explicit MX and a synthesized wildcard answer.
+func (s *Server) requireSubdomainMX(ctx context.Context, subdomain, registeredDomain string) *ErrorEnvelope {
 	relay := strings.TrimSuffix(strings.ToLower(s.deps.SMTPDomain), ".")
 	if s.deps.ResolveMX == nil || relay == "" {
-		return "" // no resolver / no configured relay host — cannot check, stay silent
+		return NewError(http.StatusInternalServerError, "internal_error", "inbound MX verification is unavailable")
 	}
-	// Bound the probe so a slow/hanging resolver never stalls agent creation.
 	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	hosts, err := s.deps.ResolveMX(probeCtx, subdomain)
-	if err == nil {
-		for _, h := range hosts {
-			if strings.EqualFold(strings.TrimSuffix(h, "."), relay) {
-				return "" // an MX for this subdomain routes to the relay — covered
-			}
+	if err != nil {
+		return NewError(http.StatusServiceUnavailable, "inbound_mx_check_failed", "could not verify inbound MX; retry after DNS is reachable")
+	}
+	for _, h := range hosts {
+		if strings.EqualFold(strings.TrimSuffix(h, "."), relay) {
+			return nil
 		}
 	}
-	// No confirmable coverage (no matching MX, or the lookup failed).
-	parent := subdomain
-	if i := strings.IndexByte(subdomain, '.'); i >= 0 {
-		parent = subdomain[i+1:]
-	}
-	return fmt.Sprintf(
-		"inbound MX coverage for %s could not be confirmed: %s will not receive email until you publish an MX record routing this subdomain to %s — publish a wildcard \"*.%s MX 10 %s\" to cover all subdomains at once, or an MX on %s. This does not affect sending.",
-		agentEmail, agentEmail, relay, parent, relay, subdomain,
-	)
+	return NewError(http.StatusBadRequest, "inbound_mx_missing",
+		"publish an MX on "+subdomain+" or *."+registeredDomain+" routing to "+relay+" before creating this inbox")
 }
 
 // limitEnvelope translates a limits.LimitExceededError into a 402 envelope
