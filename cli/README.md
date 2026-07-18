@@ -2,14 +2,20 @@
 
 A thin developer convenience for [e2a](https://e2a.dev) — email for AI agents.
 
-The CLI deliberately covers only what the other surfaces don't do ergonomically:
-**browser login** and **real-time inbound streaming** (with a local forward proxy
-for testing webhook handlers). For everything else, use the surface built for it:
+The CLI is two things in one: a developer convenience (**browser login** and
+**real-time inbound streaming**, with a local forward proxy for testing webhook
+handlers) and the **scripting surface** — `whoami`/`send`/`reply`/`messages` are
+stateless primitives for shell-based harnesses (skills, hooks, CI), with a
+documented, frozen exit-code contract (see [Exit codes](#exit-codes) below) so
+scripts can branch on the process exit status instead of parsing JSON. For
+interactive, stateful agent work (an MCP client or a long-running process),
+use the **MCP tools** or the **SDK** (`@e2a/sdk`, `e2a`) instead.
 
 | Task | Use |
 |---|---|
-| Drive an agent (read/send/reply/list/labels) | the **MCP tools** or the **SDK** (`@e2a/sdk`, `e2a`) |
-| Manage domains, agents, webhooks, API keys, HITL | the **web dashboard** |
+| Script a send/reply/read from a shell harness, with exit codes | the **CLI** (`send`, `reply`, `messages`, `whoami`) |
+| Drive an agent interactively (MCP client, long-running process) | the **MCP tools** or the **SDK** (`@e2a/sdk`, `e2a`) |
+| Manage domains, webhooks, HITL review queues | the **web dashboard**, MCP tools, or SDK |
 | React to inbound mail in production | **webhooks** (public URL) or `client.listen()` (SDK) |
 
 ## Install
@@ -29,7 +35,87 @@ Open a browser login and save your API key + default agent to `~/.e2a/config.jso
 
 ```bash
 e2a login
+e2a login --agent bot@acme.com   # exchange for a least-privilege agent-scoped key
+                                  # bound to <inbox>; revokes the account bootstrap key
+e2a login --with-key             # headless: validate + save a key (from the arg,
+                                  # $E2A_API_KEY, or stdin) — no browser needed
 ```
+
+### `e2a whoami`
+
+Show the key identity: user, scope, bound agent, plan.
+
+```bash
+e2a whoami
+e2a whoami --json
+```
+
+### `e2a agents`
+
+Manage inboxes (requires an account-scoped key).
+
+```bash
+e2a agents list
+e2a agents create bot@acme.com --name "Support bot"
+e2a agents get bot@acme.com
+```
+
+### `e2a keys`
+
+Mint, list, and revoke API keys (requires an account-scoped key).
+
+```bash
+e2a keys create --agent bot@acme.com --name "prod key"   # bound, least-privilege
+                                                            # (plaintext printed once)
+e2a keys list
+e2a keys delete <key-id>
+```
+
+### `e2a protection`
+
+Show or update an agent's protection (screening/review) config.
+
+```bash
+e2a protection get bot@acme.com
+e2a protection set bot@acme.com --outbound-review off   # sends go out unheld
+e2a protection set bot@acme.com --inbound-review off     # inbound delivered unheld
+e2a protection set bot@acme.com --suppress-notifications on
+```
+
+### `e2a send` / `e2a reply`
+
+Send an email as the agent, or reply in-thread. Together with `whoami` and
+`messages`, these are the stateless scripting primitives — see
+[Exit codes](#exit-codes).
+
+```bash
+e2a send --to alice@example.com --subject "Hi" --body "Plain-text body." \
+  --agent bot@acme.com
+e2a send --to alice@example.com --subject "Hi" --html-file body.html \
+  --attach report.pdf --conversation-id conv_123 --idempotency-key <uuid>
+e2a reply msg_abc123 --body "On it." --agent bot@acme.com
+```
+
+Common `send`/`reply` flags: `--to` (repeatable), `--subject`, `--body` /
+`--body-file`, `--html-file` (text fallback derived if no `--body`), `--attach`
+(repeatable; max 10 files, 10 MB each, 25 MB total), `--conversation-id`
+(alias `--conversation`), `--reply-to`, `--idempotency-key`, `--agent`, `--json`
+(print the full send result).
+
+### `e2a messages`
+
+List or fetch messages for an agent.
+
+```bash
+e2a messages list --agent bot@acme.com --direction inbound --read-status unread
+e2a messages list --agent bot@acme.com --since 2026-07-01T00:00:00Z --json
+e2a messages get msg_abc123 --agent bot@acme.com --text
+```
+
+`list` flags: `--direction` (`inbound`/`outbound`/`all`), `--since` (inclusive
+ISO timestamp), `--conversation` (alias `--conversation-id`), `--read-status`
+(`unread`/`read`/`all`, default `all`), `--limit`, `--agent`, `--json` (NDJSON
+instead of TSV). `get` flags: `--text` (print parsed body text only), `--agent`.
 
 ### `e2a listen`
 
@@ -52,6 +138,13 @@ e2a listen --agent bot@acme.com --forward http://localhost:3000/inbound --forwar
 
 # Emit the full message as JSON (one object per line) for piping:
 e2a listen --agent bot@acme.com --json
+
+# Only messages in one conversation:
+e2a listen --agent bot@acme.com --conversation conv_123
+
+# Exit after the first (matching) message, or TIMEOUT (exit 6) if none arrives
+# by the deadline — useful for a script waiting on one reply:
+e2a listen --agent bot@acme.com --once --until 2026-07-18T13:00:00Z --text
 ```
 
 `--agent` falls back to the `agent_email` saved in config.
@@ -113,3 +206,20 @@ has no effect until you unset it.
 
 - `--help`, `-h` — show help
 - `--version`, `-v` — show version
+
+## Exit codes
+
+`whoami`, `send`, `reply`, and `messages` publish a stable, frozen exit-code
+contract (`cli/src/exit.ts`) so shell harnesses can branch on the process exit
+status instead of parsing JSON. Codes are never renumbered — only added to.
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Transient error (network / 5xx / rate limit) — retry may help |
+| `2` | Usage error (bad flags or arguments) |
+| `3` | Send held for review (`pending_review`) — HTTP-successful but not delivered |
+| `4` | Bad credentials or wrong key scope |
+| `5` | Permanent request error (not found / invalid / conflict) — do not retry |
+| `6` | Bounded wait (`listen --once --until`) expired with no matching message |
+| `7` | A persisted send failed or returned an unrecognized outcome — do not retry; inspect the returned message id |
