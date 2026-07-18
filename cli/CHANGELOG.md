@@ -1,8 +1,25 @@
 # Changelog
 
+## 1.6.0
+
+Current release. Adds the CLI's scripting/harness surface: `whoami`,
+`send`/`reply` (with `--attach`), `messages list`/`get`, and a stable 0–7
+exit-code contract (`cli/src/exit.ts`) for shell-based harnesses (skills,
+hooks, CI) — scripts can branch on the process exit status instead of
+parsing JSON. Also adds:
+
+- `agents list`/`create`/`get`, `keys create`/`list`/`delete`, and
+  `protection get`/`set` — provision an inbox and a least-privilege key
+  end to end without the dashboard.
+- `login --agent <inbox>` (mint a least-privilege agent-scoped key, revoking
+  the account bootstrap key) and `login --with-key` (headless: validate and
+  save a key from the arg, `$E2A_API_KEY`, or stdin).
+- `listen --conversation`/`--once`/`--until`/`--text` — a blocking-wait
+  primitive for a script waiting on one reply.
+
 ## 1.5.1
 
-Current release. Republishes the CLI with a corrected `@e2a/sdk` dependency
+Republishes the CLI with a corrected `@e2a/sdk` dependency
 range (`^4.0.0`); the previously published 1.5.0 still declared `^3.0.0`, so a
 fresh `npm i -g @e2a/cli` could resolve an SDK major incompatible with the
 current API. No CLI behavior changes.
