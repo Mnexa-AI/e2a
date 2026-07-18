@@ -278,15 +278,25 @@ test("unauth: every account op rejects an unauthenticated caller with 401", asyn
 });
 
 // ---------------------------------------------------------------------------
-// deleteAccount — DELIBERATELY NOT EXERCISED. It permanently deletes the
-// account (and cascades all owned data) that the entire conformance suite
-// authenticates as. There is no black-box API to mint a throwaway account, so
-// there is no safe target. A dedicated disposable-account fixture is a
-// follow-up. This test never invokes DELETE /v1/account.
+// deleteAccount — DELIBERATELY NOT EXERCISED. DELETE /v1/account permanently
+// deletes the account (and cascades all owned data) that the ENTIRE conformance
+// suite authenticates as, so it can only be run against a disposable account.
+//
+// WHY it can't be un-skipped in-suite: there is no black-box API to mint a
+// throwaway account. Account creation is Google OAuth (dashboard) or the
+// server's `-bootstrap-email` CLI run inside the container — neither reachable
+// from this API-only suite — so there is no safe target to create-then-delete.
+//
+// PATH FORWARD (a pipeline change, not a test tweak): have the staging release
+// pipeline mint a disposable account per run via `-bootstrap-email`, thread its
+// account-scoped key in as a distinct env (e.g. E2A_DISPOSABLE_API_KEY), and
+// un-skip this test to create/delete strictly against THAT key — never the
+// conformance account. Until that provisioning exists, this stays skipped.
+// This test never invokes DELETE /v1/account.
 // ---------------------------------------------------------------------------
 test(
   "deleteAccount: DELETE /v1/account",
-  { skip: "destructive — needs a dedicated throwaway account (follow-up); never run against the conformance account" },
+  { skip: "destructive — needs a disposable account minted by the pipeline (bootstrap-email → E2A_DISPOSABLE_API_KEY); no black-box account-creation API exists, so it can never run against the conformance account" },
   () => {
     assert.fail("unreachable — deleteAccount is intentionally skipped and must never execute here");
   },
