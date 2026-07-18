@@ -398,18 +398,18 @@ func (s *Store) GetSendOutcome(ctx context.Context, messageID string) (SendOutco
 // bytes; does not touch message_recipients (those are written at MarkSent).
 func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*OutboundSendPayload, error) {
 	var (
-		deliveryStatus string
-		envelopeFrom   string
-		sentAs         string
-		userID         string
-		domain         string
-		messageType    string
-		to, cc, bcc    []string
-		raw            []byte
-		createdAt      time.Time
+		deliveryStatus   string
+		envelopeFrom     string
+		sentAs           string
+		userID           string
+		registeredDomain string
+		messageType      string
+		to, cc, bcc      []string
+		raw              []byte
+		createdAt        time.Time
 	)
 	err := s.pool.QueryRow(ctx,
-		`SELECT COALESCE(m.delivery_status,''), COALESCE(m.envelope_from,''), COALESCE(m.sent_as,''), a.user_id, a.domain,
+		`SELECT COALESCE(m.delivery_status,''), COALESCE(m.envelope_from,''), COALESCE(m.sent_as,''), a.user_id, a.registered_domain,
 		        COALESCE(m.message_type,''),
 		        m.to_recipients, m.cc, m.bcc, m.raw_message, m.created_at
 		   FROM messages m
@@ -417,7 +417,7 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.deleted_at IS NULL AND a.deleted_at IS NULL`,
 		messageID,
-	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &userID, &domain, &messageType, &to, &cc, &bcc, &raw, &createdAt)
+	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &userID, &registeredDomain, &messageType, &to, &cc, &bcc, &raw, &createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -431,7 +431,7 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 	return &OutboundSendPayload{
 		ID:             messageID,
 		UserID:         userID,
-		Domain:         domain,
+		Domain:         registeredDomain,
 		MessageType:    messageType,
 		DeliveryStatus: deliveryStatus,
 		EnvelopeFrom:   envelopeFrom,
@@ -487,13 +487,13 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 		providerMessageID  string
 		messageType        string
 	)
-	var userID, domain string
+	var userID, registeredDomain string
 	// Lock agent first to match permanent agent deletion's lock order, then
 	// lock the message. Message-only trash operations never need the agent lock.
 	err = tx.QueryRow(ctx,
-		`SELECT deleted_at, user_id, domain FROM agent_identities WHERE id = $1 FOR UPDATE`,
+		`SELECT deleted_at, user_id, registered_domain FROM agent_identities WHERE id = $1 FOR UPDATE`,
 		agentID,
-	).Scan(&agentDeletedAt, &userID, &domain)
+	).Scan(&agentDeletedAt, &userID, &registeredDomain)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
@@ -566,7 +566,7 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 	p := &OutboundSendPayload{
 		ID:                messageID,
 		UserID:            userID,
-		Domain:            domain,
+		Domain:            registeredDomain,
 		MessageType:       messageType,
 		DeliveryStatus:    deliveryStatus,
 		EnvelopeFrom:      envelopeFrom,
