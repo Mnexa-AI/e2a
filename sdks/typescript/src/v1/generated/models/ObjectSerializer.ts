@@ -97,6 +97,7 @@ export * from '../models/ReviewView.js';
 export * from '../models/RotateSecretResponse.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
+export * from '../models/SendingRampView.js';
 export * from '../models/StarterTemplateDetailView.js';
 export * from '../models/StarterTemplateVariableView.js';
 export * from '../models/StarterTemplateView.js';
@@ -224,6 +225,7 @@ import { ReviewView   , ReviewViewDirectionEnum          } from '../models/Revie
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
+import { SendingRampView } from '../models/SendingRampView.js';
 import { StarterTemplateDetailView } from '../models/StarterTemplateDetailView.js';
 import { StarterTemplateVariableView } from '../models/StarterTemplateVariableView.js';
 import { StarterTemplateView } from '../models/StarterTemplateView.js';
@@ -381,6 +383,7 @@ let typeMap: {[index: string]: any} = {
     "RotateSecretResponse": RotateSecretResponse,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,
+    "SendingRampView": SendingRampView,
     "StarterTemplateDetailView": StarterTemplateDetailView,
     "StarterTemplateVariableView": StarterTemplateVariableView,
     "StarterTemplateView": StarterTemplateView,

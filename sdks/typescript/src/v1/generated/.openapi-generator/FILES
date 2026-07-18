@@ -116,6 +116,7 @@ models/ReviewView.ts
 models/RotateSecretResponse.ts
 models/SendEmailRequest.ts
 models/SendResultView.ts
+models/SendingRampView.ts
 models/StarterTemplateDetailView.ts
 models/StarterTemplateVariableView.ts
 models/StarterTemplateView.ts

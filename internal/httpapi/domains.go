@@ -14,6 +14,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/dkim"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/mailfrom"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 )
 
 // DNSRecord is one row in the unified DomainView.DNSRecords array. It supersedes
@@ -52,6 +53,45 @@ type DomainView struct {
 	SendingStatus        string     `json:"sending_status" doc:"Async SES sending-identity state (rollup). Open set; tolerate unknown values. Known values: none, pending, verified, failed."`
 	SendingError         string     `json:"sending_error,omitempty"`
 	SendingLastCheckedAt *time.Time `json:"sending_last_checked_at,omitempty"`
+	// SendingRamp is platform-managed and deliberately read-only. Customers can
+	// observe why accepted mail is waiting but cannot weaken the reputation guard.
+	SendingRamp SendingRampView `json:"sending_ramp"`
+}
+
+type SendingRampView struct {
+	Status                string     `json:"status" doc:"Platform-managed sending-ramp state. Open set; known values: inactive, ramping, complete, exempt."`
+	DailyRecipientLimit   int        `json:"daily_recipient_limit" doc:"Current UTC-day recipient allowance. Zero means no ramp cap applies."`
+	RecipientsUsedToday   int        `json:"recipients_used_today"`
+	ResetsAt              *time.Time `json:"resets_at,omitempty"`
+	ActiveDays            int        `json:"active_days"`
+	RampDays              int        `json:"ramp_days"`
+	EstimatedCompletionAt *time.Time `json:"estimated_completion_at,omitempty" doc:"Earliest estimated completion assuming the domain sends on every remaining active day."`
+}
+
+func sendingRampView(snap sendramp.Snapshot, now time.Time) SendingRampView {
+	status := snap.Status
+	if status == "" {
+		status = sendramp.StatusInactive
+	}
+	v := SendingRampView{
+		Status:              status,
+		DailyRecipientLimit: snap.DailyLimit,
+		RecipientsUsedToday: snap.UsedToday,
+		ActiveDays:          snap.ActiveDays,
+		RampDays:            snap.RampDays,
+	}
+	if status == sendramp.StatusRamping {
+		u := now.UTC()
+		reset := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC).Add(24 * time.Hour)
+		v.ResetsAt = &reset
+		remaining := snap.RampDays - snap.ActiveDays
+		if remaining < 0 {
+			remaining = 0
+		}
+		estimate := now.AddDate(0, 0, remaining)
+		v.EstimatedCompletionAt = &estimate
+	}
+	return v
 }
 
 // domainView builds the unified DNS-records array. Status derivation:
@@ -131,6 +171,7 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 		SendingStatus:        sendingStatus,
 		SendingError:         d.SendingError,
 		SendingLastCheckedAt: d.SendingLastCheckedAt,
+		SendingRamp:          SendingRampView{Status: sendramp.StatusInactive},
 	}
 }
 
@@ -355,7 +396,11 @@ func (s *Server) handleListDomains(ctx context.Context, in *listDomainsInput) (*
 	}
 	items := make([]DomainView, 0, len(domains))
 	for i := range domains {
-		items = append(items, s.domainView(&domains[i]))
+		view, err := s.domainViewWithRamp(ctx, user.ID, &domains[i])
+		if err != nil {
+			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to read sending ramp status")
+		}
+		items = append(items, view)
 	}
 	var nextCursor string
 	if hasMore {
@@ -379,7 +424,11 @@ func (s *Server) handleGetDomain(ctx context.Context, in *DomainParam) (*domainO
 	if err != nil || d == nil {
 		return nil, NewError(http.StatusNotFound, "not_found", "domain not found")
 	}
-	return &domainOutput{Body: s.domainView(d)}, nil
+	view, err := s.domainViewWithRamp(ctx, user.ID, d)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to read sending ramp status")
+	}
+	return &domainOutput{Body: view}, nil
 }
 
 // RegisterDomainRequest is the create-domain body. `domain` is required (D-4):
@@ -426,7 +475,25 @@ func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInp
 		// 400 "domain_unavailable" misclassified it as the caller's fault.
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register domain")
 	}
-	return &domainCreateOutput{Body: s.domainView(d)}, nil
+	view, err := s.domainViewWithRamp(ctx, user.ID, d)
+	if err != nil {
+		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to read sending ramp status")
+	}
+	return &domainCreateOutput{Body: view}, nil
+}
+
+func (s *Server) domainViewWithRamp(ctx context.Context, userID string, d *identity.Domain) (DomainView, error) {
+	view := s.domainView(d)
+	if s.deps.SendingRampSnapshot == nil {
+		return view, nil
+	}
+	now := time.Now().UTC()
+	snapshot, err := s.deps.SendingRampSnapshot(ctx, userID, d.Domain, now)
+	if err != nil {
+		return DomainView{}, err
+	}
+	view.SendingRamp = sendingRampView(snapshot, now)
+	return view, nil
 }
 
 type deleteDomainOutput struct{ Body DeleteDomainResult }

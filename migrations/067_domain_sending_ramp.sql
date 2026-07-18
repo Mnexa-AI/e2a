@@ -3,13 +3,6 @@
 -- established sender. New domains arm on their first eligible external send.
 
 ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_status TEXT NOT NULL DEFAULT 'inactive';
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_started_at TIMESTAMPTZ;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_completed_at TIMESTAMPTZ;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_active_days INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_last_active_day DATE;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_start_daily INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_target_daily INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE domains ADD COLUMN IF NOT EXISTS sending_ramp_days INTEGER NOT NULL DEFAULT 0;
 
 DO $$ BEGIN
     ALTER TABLE domains ADD CONSTRAINT domains_sending_ramp_status_check
@@ -18,6 +11,23 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 UPDATE domains SET sending_ramp_status = 'exempt'
  WHERE sending_status = 'verified' AND sending_ramp_status = 'inactive';
+
+-- Reputation and the daily pool are organizational-domain scoped, but tenant
+-- isolated: sibling subdomains owned by one account share one progression;
+-- unrelated accounts under a delegated suffix cannot throttle each other.
+CREATE TABLE IF NOT EXISTS sending_ramp_scopes (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    domain TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ramping' CHECK (status IN ('ramping', 'complete')),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    active_days INTEGER NOT NULL DEFAULT 0 CHECK (active_days >= 0),
+    last_active_day DATE,
+    start_daily INTEGER NOT NULL CHECK (start_daily > 0),
+    target_daily INTEGER NOT NULL CHECK (target_daily >= start_daily),
+    ramp_days INTEGER NOT NULL CHECK (ramp_days > 0),
+    PRIMARY KEY (user_id, domain)
+);
 
 CREATE TABLE IF NOT EXISTS domain_send_counters (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

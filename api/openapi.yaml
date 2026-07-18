@@ -986,6 +986,8 @@ components:
         sending_last_checked_at:
           format: date-time
           type: string
+        sending_ramp:
+          $ref: "#/components/schemas/SendingRampView"
         sending_status:
           description: "Async SES sending-identity state (rollup). Open set; tolerate unknown values. Known values: none, pending, verified, failed."
           type: string
@@ -1004,6 +1006,7 @@ components:
         - created_at
         - agent_count
         - sending_status
+        - sending_ramp
       type: object
     EmailBouncedData:
       additionalProperties: true
@@ -2894,6 +2897,39 @@ components:
       required:
         - status
         - message_id
+      type: object
+    SendingRampView:
+      additionalProperties: true
+      properties:
+        active_days:
+          format: int64
+          type: integer
+        daily_recipient_limit:
+          description: Current UTC-day recipient allowance. Zero means no ramp cap applies.
+          format: int64
+          type: integer
+        estimated_completion_at:
+          description: Earliest estimated completion assuming the domain sends on every remaining active day.
+          format: date-time
+          type: string
+        ramp_days:
+          format: int64
+          type: integer
+        recipients_used_today:
+          format: int64
+          type: integer
+        resets_at:
+          format: date-time
+          type: string
+        status:
+          description: "Platform-managed sending-ramp state. Open set; known values: inactive, ramping, complete, exempt."
+          type: string
+      required:
+        - status
+        - daily_recipient_limit
+        - recipients_used_today
+        - active_days
+        - ramp_days
       type: object
     StarterTemplateDetailView:
       additionalProperties: true

@@ -11,6 +11,7 @@
  */
 
 import { DNSRecord } from '../models/DNSRecord.js';
+import { SendingRampView } from '../models/SendingRampView.js';
 import { HttpFile } from '../http/http.js';
 
 export class DomainView {
@@ -21,6 +22,7 @@ export class DomainView {
     'lastCheckedAt'?: Date;
     'sendingError'?: string;
     'sendingLastCheckedAt'?: Date;
+    'sendingRamp': SendingRampView;
     /**
     * Async SES sending-identity state (rollup). Open set; tolerate unknown values. Known values: none, pending, verified, failed.
     */
@@ -75,6 +77,12 @@ export class DomainView {
             "baseName": "sending_last_checked_at",
             "type": "Date",
             "format": "date-time"
+        },
+        {
+            "name": "sendingRamp",
+            "baseName": "sending_ramp",
+            "type": "SendingRampView",
+            "format": ""
         },
         {
             "name": "sendingStatus",
