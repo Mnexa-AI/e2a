@@ -357,7 +357,7 @@ func TestListReviews_SurfacesHoldReason(t *testing.T) {
 		ReviewReason: identity.ReviewReasonSenderGate, ApprovalExpiresAt: &exp,
 	})
 
-	items, err := store.ListReviews(ctx, userID)
+	items, err := store.ListReviews(ctx, userID, 0, time.Time{}, "")
 	if err != nil {
 		t.Fatalf("ListReviews: %v", err)
 	}
