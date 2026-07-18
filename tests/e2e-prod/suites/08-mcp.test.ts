@@ -116,11 +116,15 @@ test("mcp: list_messages tool works against the inbox", async () => {
     info(SUITE, "list-messages-absent", "no list_messages tool — skipping");
     return;
   }
-  // list_messages is cursor-paginated with no page-size knob in its strict
-  // schema (direction / read_status / sort / cursor / search filters only).
-  // Call with a valid arg; the strict-schema test below verifies unknown
-  // keys are rejected.
-  const r = await callTool(mcp, "list_messages", { direction: "inbound" });
+  // list_messages is per-inbox and cursor-paginated (direction / read_status /
+  // sort / cursor / search filters). Under an account-scoped credential `email`
+  // is required to select the inbox (an agent-scoped credential resolves it);
+  // the conformance key is account-scoped, so pass it explicitly. The
+  // strict-schema test below verifies unknown keys are rejected.
+  const r = await callTool(mcp, "list_messages", {
+    email: apiClient.env.primaryAgentEmail,
+    direction: "inbound",
+  });
   assert.equal(r.isError, undefined, `list_messages isError: ${JSON.stringify(r)}`);
   const text = r.content?.find((c) => c.type === "text")?.text;
   assert.ok(text, "text content present");
