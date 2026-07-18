@@ -6538,7 +6538,7 @@ paths:
 servers:
   - description: Production
     url: https://api.e2a.dev
-x-e2a-exported-schemas:
+x-e2a-standalone-schema-refs:
   DomainSendingFailedData:
     $ref: "#/components/schemas/DomainSendingFailedData"
   DomainSendingVerifiedData:

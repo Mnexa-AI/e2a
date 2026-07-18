@@ -123,7 +123,7 @@ func (s *Server) registerStandaloneSchemaExports() {
 			}
 		}
 	}
-	oapi.Extensions["x-e2a-exported-schemas"] = exported
+	oapi.Extensions["x-e2a-standalone-schema-refs"] = exported
 }
 
 // openResponseComponent flips additionalProperties from the strict default to

@@ -13,6 +13,14 @@ This separation matters: freshness prevents the implementation and committed
 spec from drifting together, while semantic comparison prevents both from
 changing incompatibly together.
 
+The semantic `x-e2a-event-data-schemas` and
+`x-e2a-error-details-schemas` mappings intentionally contain bare JSON Pointer
+strings so generators do not interpret them as model composition. The
+top-level `x-e2a-standalone-schema-refs` extension instead contains real
+`$ref` objects solely to keep those operation-unreachable public components
+in Huma's serialized document; consumers should use the semantic mappings for
+event- or error-specific schema lookup.
+
 ## Freeze baseline
 
 The cumulative pre-release `/v1` freeze anchor is commit
