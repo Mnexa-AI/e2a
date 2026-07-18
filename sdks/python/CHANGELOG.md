@@ -161,10 +161,6 @@ Additive, no breaking changes.
   `retry_after_seconds` and retry. A `402` previously surfaced as the base
   `E2AError`; it now surfaces as this subclass (still an `E2AError`, so existing
   `except E2AError` handlers are unaffected).
-
-Additive, no breaking changes.
-
-### Added
 - `email.received` is a metadata-only notification; `webhooks.fetch_message(event)`
   + the `EmailReceivedPayload` type fetch the full message (body + attachments)
   on demand (#321).
