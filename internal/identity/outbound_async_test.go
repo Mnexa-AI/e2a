@@ -78,6 +78,9 @@ func TestCreateOutboundMessageTx_AcceptedRow(t *testing.T) {
 	if p.DeliveryStatus != "accepted" || p.EnvelopeFrom != "agent@test.e2a.dev" || p.SentAs != "relay" {
 		t.Errorf("payload = %+v, want accepted/agent@.../relay", p)
 	}
+	if p.Domain != "async-accept.example.com" || p.MessageType != "send" {
+		t.Errorf("payload ramp identity = domain %q type %q, want async-accept.example.com/send", p.Domain, p.MessageType)
+	}
 	if len(p.Recipients) != 3 {
 		t.Errorf("recipients = %v, want 3 (to+cc+bcc)", p.Recipients)
 	}

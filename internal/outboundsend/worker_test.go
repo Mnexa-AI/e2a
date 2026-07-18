@@ -67,6 +67,17 @@ type fakeDeliverer struct {
 	calls int
 }
 
+type fakeRampGate struct {
+	decision outboundsend.RampDecision
+	err      error
+	calls    []outboundsend.RampRequest
+}
+
+func (f *fakeRampGate) Reserve(_ context.Context, req outboundsend.RampRequest) (outboundsend.RampDecision, error) {
+	f.calls = append(f.calls, req)
+	return f.decision, f.err
+}
+
 func (f *fakeDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) outboundsend.DeliverOutcome {
 	f.calls++
 	return f.out
@@ -181,6 +192,79 @@ func TestSendWorker_ProviderEvidenceSettlesWithoutResubmit(t *testing.T) {
 	}
 	if len(st.failed) != 0 || len(st.deferred) != 0 {
 		t.Errorf("evidence settle must not fail/defer, got failed=%+v deferred=%+v", st.failed, st.deferred)
+	}
+}
+
+func TestSendWorker_RampLimitedReleasesAndSnoozesWithoutProviderIO(t *testing.T) {
+	j := acceptedJob("msg_1")
+	j.Domain = "new.example.com"
+	j.MessageType = "send"
+	j.SentAs = "own_address"
+	j.Recipients = []string{"One@example.net", "one@example.net", "two@example.net"}
+	st := &fakeStore{job: j}
+	dl := &fakeDeliverer{}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{
+		Allowed: false,
+		RetryAt: time.Now().Add(6 * time.Hour),
+	}}
+
+	err := outboundsend.NewSendWorker(st, dl, gate).Work(context.Background(), job("msg_1", 5))
+	if err == nil {
+		t.Fatal("limited send should snooze")
+	}
+	if dl.calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", dl.calls)
+	}
+	if len(st.released) != 1 || st.released[0] != "msg_1" {
+		t.Fatalf("released = %v, want msg_1", st.released)
+	}
+	if len(gate.calls) != 1 || gate.calls[0].Units != 2 || gate.calls[0].Domain != "new.example.com" {
+		t.Fatalf("gate calls = %+v, want two deduplicated recipients", gate.calls)
+	}
+}
+
+func TestSendWorker_RampErrorFailsClosedAndSnoozes(t *testing.T) {
+	j := acceptedJob("msg_1")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j}
+	dl := &fakeDeliverer{}
+	gate := &fakeRampGate{err: errors.New("database unavailable")}
+
+	if err := outboundsend.NewSendWorker(st, dl, gate).Work(context.Background(), job("msg_1", 1)); err == nil {
+		t.Fatal("ramp storage error should snooze")
+	}
+	if dl.calls != 0 || len(st.released) != 1 {
+		t.Fatalf("gate error must release without provider I/O: calls=%d released=%v", dl.calls, st.released)
+	}
+}
+
+func TestSendWorker_RampExemptsPlatformTest(t *testing.T) {
+	j := acceptedJob("msg_test")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "test", "relay"
+	st := &fakeStore{job: j}
+	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "ses-test"}}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: false}}
+
+	if err := outboundsend.NewSendWorker(st, dl, gate).Work(context.Background(), job("msg_test", 1)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(gate.calls) != 0 || dl.calls != 1 {
+		t.Fatalf("platform test should bypass ramp: gate=%d provider=%d", len(gate.calls), dl.calls)
+	}
+}
+
+func TestSendWorker_ProviderEvidencePrecedesRamp(t *testing.T) {
+	j := acceptedJob("msg_1")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	j.ProviderAccepted, j.ProviderMessageID = true, "ses-evidence"
+	st := &fakeStore{job: j}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: false}}
+
+	if err := outboundsend.NewSendWorker(st, &fakeDeliverer{}, gate).Work(context.Background(), job("msg_1", 2)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(gate.calls) != 0 {
+		t.Fatalf("provider evidence must settle before ramp reservation, got %+v", gate.calls)
 	}
 }
 

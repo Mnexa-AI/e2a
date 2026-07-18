@@ -37,6 +37,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/senderidentity"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/telemetry"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhook"
@@ -258,10 +259,19 @@ func main() {
 	// Outbound delivery is queue-first and at-least-once for GA. The accept-tx
 	// enqueues an outbound_send job in the same transaction as the message row;
 	// there is no submit-inline fallback.
+	var outboundRamp outboundsend.RampGate
+	if cfg.SendingRamp.Enabled {
+		outboundRamp = agent.NewOutboundRampGate(
+			sendramp.NewStore(pool),
+			sendramp.NewSchedule(cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays),
+		)
+		log.Printf("Outbound sending ramp enabled: %d→%d recipients over %d active days", cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays)
+	}
 	outboundJobs := outboundsend.NewJobs(
 		agent.NewOutboundSendStore(store, webhookOutbox, usageTracker),
 		agent.NewOutboundDeliverer(sender),
 		pool,
+		outboundRamp,
 	)
 	registrars = append(registrars, outboundJobs)
 

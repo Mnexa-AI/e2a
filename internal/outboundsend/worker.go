@@ -51,6 +51,10 @@ const MaxSendAttempts = 6
 // MaxSendAttempts (design §8 circuit breaker).
 const outageSnoozeInterval = 5 * time.Minute
 
+// rampErrorSnoozeInterval keeps a durable message queued when the ramp store is
+// temporarily unavailable. JobSnooze does not consume a River attempt.
+const rampErrorSnoozeInterval = time.Minute
+
 // sendRetryHorizon bounds the outage-tolerant tail: past this age (from accept) an
 // outage-snoozing job stops deferring and is declared terminally failed. 72h matches
 // the industry MTA retry horizon (and the webhook deliverer's envelope) — long enough
@@ -71,6 +75,8 @@ type SendJob struct {
 	// UserID is the owning account — the tenant scope for the pre-provider
 	// suppression guard (suppressions are per-account).
 	UserID       string
+	Domain       string // exact registered sender domain
+	MessageType  string // send|reply|test; platform tests are ramp-exempt
 	Status       string // messages.delivery_status
 	EnvelopeFrom string
 	Recipients   []string
@@ -130,6 +136,24 @@ type Deliverer interface {
 	Deliver(ctx context.Context, j *SendJob) DeliverOutcome
 }
 
+type RampRequest struct {
+	MessageID string
+	UserID    string
+	Domain    string
+	Units     int
+}
+
+type RampDecision struct {
+	Allowed bool
+	RetryAt time.Time
+}
+
+// RampGate reserves recipient capacity for an eligible custom-domain send.
+// Implementations must make a same-message/day call idempotent.
+type RampGate interface {
+	Reserve(ctx context.Context, req RampRequest) (RampDecision, error)
+}
+
 // Store is the messages-store surface the worker needs. Implemented over
 // internal/identity in the binary. ClaimSend atomically checks that the message
 // and agent are live and persists delivery_status='sending' for the stamped River
@@ -167,10 +191,15 @@ type SendWorker struct {
 	river.WorkerDefaults[OutboundSendArgs]
 	store     Store
 	deliverer Deliverer
+	ramp      RampGate
 }
 
-func NewSendWorker(store Store, deliverer Deliverer) *SendWorker {
-	return &SendWorker{store: store, deliverer: deliverer}
+func NewSendWorker(store Store, deliverer Deliverer, ramp ...RampGate) *SendWorker {
+	w := &SendWorker{store: store, deliverer: deliverer}
+	if len(ramp) > 0 {
+		w.ramp = ramp[0]
+	}
+	return w
 }
 
 // NextRetry overrides River's default backoff with the decided send envelope.
@@ -226,6 +255,36 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return river.JobCancel(supErr)
 	}
 
+	// Ramp only mail that uses a verified customer identity. Platform-originated
+	// test mail uses the relay identity and remains exempt; loopback never enters
+	// this worker. Reserve after the provider-evidence and suppression guards so
+	// neither an already-submitted nor locally refused message consumes capacity.
+	if w.ramp != nil && j.SentAs == "own_address" && j.MessageType != "test" {
+		decision, rerr := w.ramp.Reserve(ctx, RampRequest{
+			MessageID: j.MessageID,
+			UserID:    j.UserID,
+			Domain:    j.Domain,
+			Units:     uniqueRecipientCount(j.Recipients),
+		})
+		if rerr != nil {
+			if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+				return fmt.Errorf("release outbound send claim after ramp-check failure: %w", err)
+			}
+			log.Printf("[outbound-send] ramp reservation failed for %s (snoozing): %v", j.MessageID, rerr)
+			return river.JobSnooze(rampErrorSnoozeInterval)
+		}
+		if !decision.Allowed {
+			if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+				return fmt.Errorf("release outbound send claim after ramp deferral: %w", err)
+			}
+			delay := time.Until(decision.RetryAt)
+			if delay < time.Minute {
+				delay = time.Minute
+			}
+			return river.JobSnooze(delay)
+		}
+	}
+
 	out := w.deliverer.Deliver(ctx, j)
 	if out.Err == nil {
 		// Success — one tx (in the store): mark sent + provider id + email.sent.
@@ -271,6 +330,17 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return fmt.Errorf("release outbound send claim after retryable failure: %w", err)
 	}
 	return fmt.Errorf("outbound send attempt %d failed: %w", job.Attempt, out.Err)
+}
+
+func uniqueRecipientCount(recipients []string) int {
+	seen := make(map[string]struct{}, len(recipients))
+	for _, recipient := range recipients {
+		recipient = strings.ToLower(strings.TrimSpace(recipient))
+		if recipient != "" {
+			seen[recipient] = struct{}{}
+		}
+	}
+	return len(seen)
 }
 
 // markFailed writes the terminal 'failed' status, retrying a transient DB error a

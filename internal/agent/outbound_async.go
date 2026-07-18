@@ -12,6 +12,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -59,6 +60,30 @@ func NewOutboundSendStore(store *identity.Store, outbox webhookpub.Outbox, usage
 	return &outboundSendStore{store: store, outbox: outbox, usage: usageTracker}
 }
 
+type outboundRampGate struct {
+	store    *sendramp.Store
+	schedule sendramp.Schedule
+}
+
+// NewOutboundRampGate adapts the durable sendramp store to the worker-owned
+// gate contract. The schedule is snapshotted by Store on the first eligible
+// send; config changes therefore affect only domains that have not armed yet.
+func NewOutboundRampGate(store *sendramp.Store, schedule sendramp.Schedule) outboundsend.RampGate {
+	return &outboundRampGate{store: store, schedule: schedule}
+}
+
+func (g *outboundRampGate) Reserve(ctx context.Context, req outboundsend.RampRequest) (outboundsend.RampDecision, error) {
+	d, err := g.store.Reserve(ctx, sendramp.ReserveRequest{
+		MessageID: req.MessageID,
+		UserID:    req.UserID,
+		Domain:    req.Domain,
+		Units:     req.Units,
+		Day:       time.Now().UTC(),
+		Schedule:  g.schedule,
+	})
+	return outboundsend.RampDecision{Allowed: d.Allowed, RetryAt: d.RetryAt}, err
+}
+
 func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, jobID int64) (*outboundsend.SendJob, error) {
 	p, err := a.store.ClaimOutboundForSend(ctx, messageID, jobID)
 	if err != nil || p == nil {
@@ -67,6 +92,8 @@ func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, job
 	return &outboundsend.SendJob{
 		MessageID:         p.ID,
 		UserID:            p.UserID,
+		Domain:            p.Domain,
+		MessageType:       p.MessageType,
 		Status:            p.DeliveryStatus,
 		EnvelopeFrom:      p.EnvelopeFrom,
 		Recipients:        p.Recipients,
