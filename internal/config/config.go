@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -38,6 +39,7 @@ type Config struct {
 	HTTP             HTTPConfig             `yaml:"http"`
 	Database         DatabaseConfig         `yaml:"database"`
 	OAuth            OAuthConfig            `yaml:"oauth"`
+	OIDC             OIDCConfig             `yaml:"oidc"`
 	Signing          SigningConfig          `yaml:"signing"`
 	OutboundSMTP     OutboundSMTPConfig     `yaml:"outbound_smtp"`
 	Inbound          InboundConfig          `yaml:"inbound"`
@@ -105,6 +107,24 @@ type OAuthConfig struct {
 	// issued JWT (E2A_OAUTH_SIGNING_KID; default "v1"). Rotation advertises a
 	// new kid, then retires the old after the longest token TTL.
 	SigningKID string `yaml:"signing_kid"`
+}
+
+// OIDCConfig enables a generic OpenID Connect Authorization Code login for
+// existing e2a users. It is off by default; when disabled no OIDC routes are
+// registered. The provider must include UserIDClaim in its ID token and the
+// claim must name an existing users.id. OIDC login never provisions users.
+type OIDCConfig struct {
+	// Enabled turns the feature on. Override with E2A_OIDC_ENABLED.
+	Enabled bool `yaml:"enabled"`
+	// IssuerURL is the exact expected ID-token issuer and discovery base URL.
+	IssuerURL string `yaml:"issuer_url"`
+	// ClientID and ClientSecret identify this confidential e2a web client.
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	// RedirectURL is the registered absolute callback URL.
+	RedirectURL string `yaml:"redirect_url"`
+	// UserIDClaim names the ID-token claim containing an existing users.id.
+	UserIDClaim string `yaml:"user_id_claim"`
 }
 
 type SigningConfig struct {
@@ -304,6 +324,26 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_OAUTH_SIGNING_KID"); v != "" {
 		cfg.OAuth.SigningKID = v
 	}
+	if v := os.Getenv("E2A_OIDC_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.OIDC.Enabled = b
+		}
+	}
+	if v := os.Getenv("E2A_OIDC_ISSUER_URL"); v != "" {
+		cfg.OIDC.IssuerURL = v
+	}
+	if v := os.Getenv("E2A_OIDC_CLIENT_ID"); v != "" {
+		cfg.OIDC.ClientID = v
+	}
+	if v := os.Getenv("E2A_OIDC_CLIENT_SECRET"); v != "" {
+		cfg.OIDC.ClientSecret = v
+	}
+	if v := os.Getenv("E2A_OIDC_REDIRECT_URL"); v != "" {
+		cfg.OIDC.RedirectURL = v
+	}
+	if v := os.Getenv("E2A_OIDC_USER_ID_CLAIM"); v != "" {
+		cfg.OIDC.UserIDClaim = v
+	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_HOST"); v != "" {
 		cfg.OutboundSMTP.Host = v
 	}
@@ -405,5 +445,42 @@ func (c *Config) Validate() error {
 	if c.Trash.RetentionDays < 1 {
 		return fmt.Errorf("config: trash.retention_days must be at least 1 (got %d) — the stable API promises soft-deleted resources stay restorable", c.Trash.RetentionDays)
 	}
+	if c.OIDC.Enabled {
+		var missing []string
+		if c.OIDC.IssuerURL == "" {
+			missing = append(missing, "issuer_url")
+		}
+		if c.OIDC.ClientID == "" {
+			missing = append(missing, "client_id")
+		}
+		if c.OIDC.ClientSecret == "" {
+			missing = append(missing, "client_secret")
+		}
+		if c.OIDC.RedirectURL == "" {
+			missing = append(missing, "redirect_url")
+		}
+		if c.OIDC.UserIDClaim == "" {
+			missing = append(missing, "user_id_claim")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("config: oidc.enabled requires %s to be set", strings.Join(missing, ", "))
+		}
+		issuerURL, err := absoluteHTTPURL(c.OIDC.IssuerURL)
+		if err != nil || issuerURL.RawQuery != "" || issuerURL.Fragment != "" {
+			return fmt.Errorf("config: oidc.issuer_url must be an absolute http(s) issuer URL without query or fragment")
+		}
+		redirectURL, err := absoluteHTTPURL(c.OIDC.RedirectURL)
+		if err != nil || redirectURL.Fragment != "" {
+			return fmt.Errorf("config: oidc.redirect_url must be an absolute http(s) URL without a fragment")
+		}
+	}
 	return nil
+}
+
+func absoluteHTTPURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("invalid absolute http(s) URL")
+	}
+	return parsed, nil
 }

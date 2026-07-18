@@ -38,6 +38,25 @@ oauth:
   # TTL. Override via E2A_OAUTH_SIGNING_KID.
   signing_kid: "v1"
 
+# — OpenID Connect login ————————————————————————————————————————————————————
+# Optional, off by default. Lets any standards-compliant OIDC provider (such
+# as TokenCanopy, WorkOS, or Auth0) sign an existing e2a user in through the
+# Authorization Code flow with PKCE, state, and nonce. The provider's ID token
+# must contain user_id_claim with an unchanged local users.id. e2a never
+# provisions or email-matches a user from OIDC claims.
+#
+# The provider must register redirect_url for this confidential web client.
+# When enabled, startup performs discovery at issuer_url and fails closed if
+# discovery is unavailable or invalid. Legacy Google login remains available.
+oidc:
+  enabled: false
+  issuer_url: ""          # exact issuer/discovery base. Override: E2A_OIDC_ISSUER_URL
+  client_id: ""           # registered OIDC client ID. Override: E2A_OIDC_CLIENT_ID
+  client_secret: ""       # keep secret; used only at token endpoint. Override: E2A_OIDC_CLIENT_SECRET
+  redirect_url: ""        # e.g. "https://e2a.example.com/api/auth/oidc/callback". Override: E2A_OIDC_REDIRECT_URL
+  user_id_claim: ""       # TokenCanopy uses "e2a_user_id". Override: E2A_OIDC_USER_ID_CLAIM
+  # Enable with: E2A_OIDC_ENABLED=true
+
 signing:
   # Generate with: openssl rand -hex 32
   # Production refuses to start with this placeholder or with anything < 32 bytes.

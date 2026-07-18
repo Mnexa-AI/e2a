@@ -158,9 +158,12 @@ type API struct {
 	sender *outbound.Sender
 	// screen runs outbound content screening (Slice 5). Stateless heuristics
 	// engine; mirrors the relay's inbound piguard engine.
-	screen     *piguard.Engine
-	smtpRelay  *outbound.SMTPRelay
-	userAuth   *auth.UserAuth
+	screen    *piguard.Engine
+	smtpRelay *outbound.SMTPRelay
+	userAuth  *auth.UserAuth
+	// oidcAuth wires optional, generic OpenID Connect browser login. Nil means
+	// both OIDC routes are absent; it is independent of legacy Google login.
+	oidcAuth   *auth.OIDCAuth
 	usage      usage.UsageTracker
 	smtpDomain string
 	fromDomain string
@@ -363,6 +366,11 @@ func (a *API) SetOAuthProvider(p fosite.OAuth2Provider) { a.oauthProvider = p }
 // agent-identity token paths (later sub-slices) report "not enabled".
 func (a *API) SetSigner(s *agentauth.Signer) { a.signer = s }
 
+// SetOIDCAuth wires optional OIDC browser login. NewOIDCAuth returns nil when
+// disabled, so callers may invoke this unconditionally and leave the routes
+// genuinely absent from deployments that do not opt in.
+func (a *API) SetOIDCAuth(oa *auth.OIDCAuth) { a.oidcAuth = oa }
+
 // SetOAuthStorage wires in the OAuth storage handle separately from
 // the provider. The consent handler needs Pool() to begin a pgx tx
 // that spans the agent-create (identity pkg) and the auth-code insert
@@ -564,6 +572,13 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 		r.HandleFunc("/api/keys", a.userAuth.HandleCreateAPIKey).Methods("POST")
 		r.HandleFunc("/api/keys", a.userAuth.HandleListAPIKeys).Methods("GET")
 		r.HandleFunc("/api/keys/{id}", a.userAuth.HandleDeleteAPIKey).Methods("DELETE")
+	}
+
+	// Generic OIDC login is independently optional and does not require the
+	// legacy Google UserAuth integration to be configured.
+	if a.oidcAuth != nil {
+		r.HandleFunc("/api/auth/oidc/login", a.oidcAuth.HandleLogin).Methods("GET").Name("oidc-login")
+		r.HandleFunc("/api/auth/oidc/callback", a.oidcAuth.HandleCallback).Methods("GET").Name("oidc-callback")
 	}
 }
 

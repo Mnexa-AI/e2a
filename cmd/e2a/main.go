@@ -454,6 +454,15 @@ func main() {
 
 	// User auth (Google OAuth for agent developers)
 	userAuth := auth.NewUserAuth(&cfg.OAuth, store, cfg.IsProduction())
+	// Generic OIDC Authorization Code login. Disabled configurations perform
+	// no discovery and leave both OIDC routes unregistered.
+	oidcAuth, err := auth.NewOIDCAuth(ctx, cfg.OIDC, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize OIDC login: %v", err)
+	}
+	if oidcAuth != nil {
+		log.Printf("[auth] OIDC login enabled (issuer=%s)", cfg.OIDC.IssuerURL)
+	}
 
 	// HTTP API
 	router := mux.NewRouter()
@@ -480,6 +489,7 @@ func main() {
 		log.Printf("[agentauth] JWT signing disabled (E2A_OAUTH_SIGNING_KEY not set); /.well-known/jwks.json serves an empty set")
 	}
 	api.SetSigner(jwtSigner)
+	api.SetOIDCAuth(oidcAuth)
 	// HITL reviewer-notification emails. Requires both a configured
 	// outbound SMTP relay (to actually send) and a public base URL (so
 	// the magic links in the email are absolute and clickable from any

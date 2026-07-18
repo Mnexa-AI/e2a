@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tokencanopy/e2a/internal/agent"
+	"github.com/tokencanopy/e2a/internal/auth"
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -34,6 +35,31 @@ func setupAPI(t *testing.T) (*httptest.Server, *identity.Store, *pgxpool.Pool) {
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 	return server, store, pool
+}
+
+func TestOIDCRoutesAbsentUnlessWired(t *testing.T) {
+	api := agent.NewAPI(nil, nil, nil, nil, usage.NewNoopUsageTracker(), "", "", "", "", false)
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+
+	for _, name := range []string{"oidc-login", "oidc-callback"} {
+		if router.Get(name) != nil {
+			t.Errorf("disabled OIDC route %s was registered", name)
+		}
+	}
+}
+
+func TestOIDCRoutesPresentWhenWired(t *testing.T) {
+	api := agent.NewAPI(nil, nil, nil, nil, usage.NewNoopUsageTracker(), "", "", "", "", false)
+	api.SetOIDCAuth(&auth.OIDCAuth{})
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+
+	for _, name := range []string{"oidc-login", "oidc-callback"} {
+		if router.Get(name) == nil {
+			t.Errorf("enabled OIDC route %s was not registered", name)
+		}
+	}
 }
 
 // createTestUser creates a user and API key, returning the bearer token for authenticated requests.
