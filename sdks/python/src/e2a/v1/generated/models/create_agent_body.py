@@ -17,23 +17,25 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
-class DNSRecord(BaseModel):
+class CreateAgentBody(BaseModel):
     """
-    DNSRecord
+    CreateAgentBody
     """ # noqa: E501
-    name: StrictStr = Field(description="Record name (host). The apex domain for ownership/inbound_mx; an FQDN for dkim/mail_from records.")
-    priority: Optional[StrictInt] = Field(description="MX priority. Null for non-MX records.")
-    purpose: StrictStr = Field(description="What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, inbound_mx_wildcard, dkim, mail_from_mx, mail_from_spf. inbound_mx_wildcard is the OPTIONAL wildcard MX (*.<domain>) that routes inbound mail for every subdomain to the e2a relay in one record; publish it only if you run agents on subdomains of this domain (MX records do not inherit).")
-    status: StrictStr = Field(description="Persisted verification state of this DNS record — the stored domain state, updated when verification checks and the SES reconciler run, NOT a live DNS probe result. Open set; tolerate unknown values. Known values: verified (record confirmed), pending (not yet confirmed — awaiting publish/propagation or an SES result), missing (documented for forward compatibility; not currently emitted), failed (verification failed, or pending exceeded its TTL). Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records reflect their own SES axis: the dkim record follows the DKIM axis, while mail_from_mx and mail_from_spf follow the custom MAIL FROM axis, so a domain with working DKIM but a broken MAIL FROM (or the reverse) shows exactly which record to fix rather than failing all three. Before SES has reported a per-axis result (pre-provision rows) the sending records fall back to the all-or-nothing sending_status rollup; consult sending_error for the failure reason. The domain-level sending_status field remains the all-or-nothing rollup summary. POST /v1/domains/{domain}/verify reports the LIVE probe outcome for the same records in probe vocabulary (found/missing/deferred/mismatch) — persisted state and live probe outcome are deliberately distinct axes; do not map one vocabulary onto the other.")
-    type: StrictStr = Field(description="DNS record type. MX or TXT.")
-    value: StrictStr = Field(description="Record value. For MX records this is the mail-server host only; the priority is in the priority field.")
+    created_at: datetime
+    deleted_at: Optional[datetime] = Field(default=None, description="When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages' expiry clocks are paused; restore resumes them where they stopped.")
+    domain: StrictStr
+    domain_verified: StrictBool
+    email: StrictStr
+    name: StrictStr
+    warnings: Optional[List[StrictStr]] = Field(default=None, description="Non-fatal advisories about this newly created agent. Present only when the create surfaced a caveat worth acting on. Currently: a subdomain agent created under a verified PARENT domain whose inbound MX coverage — an MX on the subdomain, or a wildcard MX on the parent, pointing at the e2a relay — could not be confirmed, so the inbox will not receive mail until that record is published. Advisory only (best-effort DNS check; RFC 4592 wildcard shadowing makes detection imperfect); creation still succeeds and send-only agents can ignore it. Open set; tolerate unknown entries.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["name", "priority", "purpose", "status", "type", "value"]
+    __properties: ClassVar[List[str]] = ["created_at", "deleted_at", "domain", "domain_verified", "email", "name", "warnings"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -53,7 +55,7 @@ class DNSRecord(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of DNSRecord from a JSON string"""
+        """Create an instance of CreateAgentBody from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -81,16 +83,16 @@ class DNSRecord(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
-        # set to None if priority (nullable) is None
+        # set to None if warnings (nullable) is None
         # and model_fields_set contains the field
-        if self.priority is None and "priority" in self.model_fields_set:
-            _dict['priority'] = None
+        if self.warnings is None and "warnings" in self.model_fields_set:
+            _dict['warnings'] = None
 
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of DNSRecord from a dict"""
+        """Create an instance of CreateAgentBody from a dict"""
         if obj is None:
             return None
 
@@ -98,12 +100,13 @@ class DNSRecord(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "created_at": obj.get("created_at"),
+            "deleted_at": obj.get("deleted_at"),
+            "domain": obj.get("domain"),
+            "domain_verified": obj.get("domain_verified"),
+            "email": obj.get("email"),
             "name": obj.get("name"),
-            "priority": obj.get("priority"),
-            "purpose": obj.get("purpose"),
-            "status": obj.get("status"),
-            "type": obj.get("type"),
-            "value": obj.get("value")
+            "warnings": obj.get("warnings")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

@@ -6,10 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/identity"
 )
+
+// coveringParentDep wires the covering-parent lookup used by the subdomain
+// create tests: only acme.team.mnexa.ai resolves, to the verified parent.
+func coveringParentDep(d *Deps) {
+	d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+		if sub == "acme.team.mnexa.ai" {
+			return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+		}
+		return nil, errors.New("no covering domain")
+	}
+}
 
 func sendJSON(t *testing.T, method, url, bearer string, body any) (int, map[string]any) {
 	t.Helper()
@@ -247,6 +259,78 @@ func TestCreateAgentExactUnverifiedNotMaskedByParent(t *testing.T) {
 	})
 	if code != 400 || errCode(body) != "domain_not_verified" {
 		t.Fatalf("exact unverified row must yield domain_not_verified (not masked by parent), got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentSubdomainWarnsWhenNoMXCoverage (Task C): when a subdomain agent
+// is created via parent-resolution and the MX probe finds no coverage routing to
+// the relay, the create SUCCEEDS (201) and returns a non-fatal warning — it must
+// never block.
+func TestCreateAgentSubdomainWarnsWhenNoMXCoverage(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		// Resolver returns an unrelated MX host (not the relay) ⇒ no coverage.
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return []string{"aspmx.someone-else.example."}, nil
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 201 {
+		t.Fatalf("MX warning must NOT block creation; got %d %v", code, body)
+	}
+	warnings, ok := body["warnings"].([]any)
+	if !ok || len(warnings) == 0 {
+		t.Fatalf("expected a non-fatal MX-coverage warning, got %v", body["warnings"])
+	}
+	if msg, _ := warnings[0].(string); !strings.Contains(msg, "MX") || !strings.Contains(msg, "otto@acme.team.mnexa.ai") {
+		t.Fatalf("warning should name the agent and the missing MX record: %q", warnings[0])
+	}
+}
+
+// TestCreateAgentSubdomainNoWarnWhenMXCovers: when the probe finds an MX (explicit
+// on the subdomain, or a wildcard on the parent that the resolver synthesizes for
+// the queried name) routing to the relay, no warning is emitted. Also exercises
+// trailing-dot + case-insensitive host matching.
+func TestCreateAgentSubdomainNoWarnWhenMXCovers(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return []string{"MX.E2A.DEV."}, nil // matches the fixture SMTPDomain mx.e2a.dev
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 201 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if _, has := body["warnings"]; has {
+		t.Fatalf("MX coverage present ⇒ no warning, got %v", body["warnings"])
+	}
+}
+
+// TestCreateAgentExactDomainNoMXProbe: an exact-domain agent (not parent-resolved)
+// is never probed and never warned, even with a resolver wired that would report
+// no coverage — the advisory is scoped to subdomain agents only.
+func TestCreateAgentExactDomainNoMXProbe(t *testing.T) {
+	probed := false
+	srv := testServer(t, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			probed = true
+			return nil, errors.New("no mx")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@acme.com", // acme.com is an exact verified domain in the fixture
+	})
+	if code != 201 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if probed {
+		t.Fatalf("exact-domain create must not run the subdomain MX probe")
+	}
+	if _, has := body["warnings"]; has {
+		t.Fatalf("exact-domain create must not carry warnings, got %v", body["warnings"])
 	}
 }
 

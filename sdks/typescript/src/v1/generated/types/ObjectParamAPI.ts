@@ -18,6 +18,7 @@ import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
+import { CreateAgentBody } from '../models/CreateAgentBody.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
@@ -535,7 +536,7 @@ export class ObjectAgentsApi {
      * Create an agent
      * @param param the request object
      */
-    public createAgentWithHttpInfo(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<AgentView>> {
+    public createAgentWithHttpInfo(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<HttpInfo<CreateAgentBody>> {
         return this.api.createAgentWithHttpInfo(param.createAgentRequest,  options).toPromise();
     }
 
@@ -544,7 +545,7 @@ export class ObjectAgentsApi {
      * Create an agent
      * @param param the request object
      */
-    public createAgent(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<AgentView> {
+    public createAgent(param: AgentsApiCreateAgentRequest, options?: ConfigurationOptions): Promise<CreateAgentBody> {
         return this.api.createAgent(param.createAgentRequest,  options).toPromise();
     }
 

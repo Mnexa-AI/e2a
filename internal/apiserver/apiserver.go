@@ -12,6 +12,7 @@ package apiserver
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -105,9 +106,23 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListConversations: p.Store.ListConversationsByAgent,
 		GetConversation:   p.Store.GetConversationByID,
 
-		CreateAgent:           p.Store.CreateAgent,
-		LookupDomain:          p.Store.LookupDomain,
-		LookupCoveringDomain:  p.Store.LookupCoveringDomain,
+		CreateAgent:          p.Store.CreateAgent,
+		LookupDomain:         p.Store.LookupDomain,
+		LookupCoveringDomain: p.Store.LookupCoveringDomain,
+		// Best-effort MX probe for the create-time subdomain-agent advisory.
+		// net.Resolver honors the ctx deadline the handler sets.
+		ResolveMX: func(ctx context.Context, name string) ([]string, error) {
+			var r net.Resolver
+			mxs, err := r.LookupMX(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			hosts := make([]string, len(mxs))
+			for i, m := range mxs {
+				hosts[i] = m.Host
+			}
+			return hosts, nil
+		},
 		EnforceAgentCreate:    p.Enforcer.CheckAgentCreate,
 		UpdateAgentName:       p.Store.UpdateAgentName,
 		UpdateAgentProtection: p.Store.UpdateAgentProtection,

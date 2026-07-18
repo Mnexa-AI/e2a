@@ -3,9 +3,11 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -45,9 +47,19 @@ type createAgentInput struct {
 }
 
 // createAgentOutput returns the full AgentView (AG-5) — one agent shape across
-// create/get/update/list, so a caller never needs a follow-up GET.
+// create/get/update/list, so a caller never needs a follow-up GET — plus any
+// non-fatal create-time warnings.
 type createAgentOutput struct {
-	Body AgentView
+	Body createAgentBody
+}
+
+// createAgentBody is the shared AgentView plus a create-only `warnings` array.
+// Warnings live HERE (not on AgentView) so list/get responses are unchanged;
+// the field is create-scoped. Currently the only warning is the subdomain
+// MX-coverage advisory (see subdomainMXCoverageWarning).
+type createAgentBody struct {
+	AgentView
+	Warnings []string `json:"warnings,omitempty" doc:"Non-fatal advisories about this newly created agent. Present only when the create surfaced a caveat worth acting on. Currently: a subdomain agent created under a verified PARENT domain whose inbound MX coverage — an MX on the subdomain, or a wildcard MX on the parent, pointing at the e2a relay — could not be confirmed, so the inbox will not receive mail until that record is published. Advisory only (best-effort DNS check; RFC 4592 wildcard shadowing makes detection imperfect); creation still succeeds and send-only agents can ignore it. Open set; tolerate unknown entries."`
 }
 
 // slugPattern / reservedSlugs replicate the legacy validateSlug rule (slug
@@ -291,6 +303,8 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
 	}
 	domain := parts[1]
+	subdomain := domain // the agent's literal address domain, before any parent rebind
+	viaParent := false  // true when the agent was authorized via a covering parent
 	isShared := s.deps.SharedDomain != "" && strings.EqualFold(domain, s.deps.SharedDomain)
 	if isShared {
 		domain = s.deps.SharedDomain // normalize to the configured casing
@@ -335,6 +349,7 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 				return nil, NewError(http.StatusBadRequest, "domain_not_registered", "register and verify your domain first")
 			}
 			domain = parent.Domain // bind the agent to the verified parent identity
+			viaParent = true
 		}
 	}
 
@@ -378,7 +393,58 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		}
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register agent")
 	}
-	return &createAgentOutput{Body: agentViewFromIdentity(ag)}, nil
+	body := createAgentBody{AgentView: agentViewFromIdentity(ag)}
+	// Advisory only (never fatal): a subdomain agent authorized via a covering
+	// parent needs a subdomain MX (explicit or a wildcard on the parent) to
+	// RECEIVE mail — MX records don't inherit. Warn if we can't confirm coverage
+	// so the inbox isn't silently mail-less; a send-only agent can ignore it.
+	if viaParent {
+		if w := s.subdomainMXCoverageWarning(ctx, ag.EmailAddress(), subdomain); w != "" {
+			body.Warnings = append(body.Warnings, w)
+		}
+	}
+	return &createAgentOutput{Body: body}, nil
+}
+
+// subdomainMXCoverageWarning best-effort checks whether inbound mail for a
+// subdomain agent will actually reach the e2a relay, returning a human-readable
+// advisory when it cannot confirm coverage (empty string = coverage confirmed,
+// or the check is disabled/not applicable). It is NEVER fatal — send-only
+// agents are legitimate and the user may publish the record afterward.
+//
+// One MX lookup on the subdomain FQDN answers both shapes at once: a resolver
+// synthesizes a parent wildcard (`*.<parent> MX`) for the queried subdomain, so
+// an explicit subdomain MX and a wildcard-on-parent are indistinguishable here —
+// and that is fine, we only care whether SOME MX routes to the relay. Detection
+// is deliberately best-effort: per RFC 4592, an explicit non-MX record on the
+// subdomain SHADOWS the parent wildcard (the resolver then returns no MX for the
+// name even though a wildcard exists), and transient DNS failures look the same
+// as "no record", so a false warning is possible. Hence advisory, not a gate.
+func (s *Server) subdomainMXCoverageWarning(ctx context.Context, agentEmail, subdomain string) string {
+	relay := strings.TrimSuffix(strings.ToLower(s.deps.SMTPDomain), ".")
+	if s.deps.ResolveMX == nil || relay == "" {
+		return "" // no resolver / no configured relay host — cannot check, stay silent
+	}
+	// Bound the probe so a slow/hanging resolver never stalls agent creation.
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	hosts, err := s.deps.ResolveMX(probeCtx, subdomain)
+	if err == nil {
+		for _, h := range hosts {
+			if strings.EqualFold(strings.TrimSuffix(h, "."), relay) {
+				return "" // an MX for this subdomain routes to the relay — covered
+			}
+		}
+	}
+	// No confirmable coverage (no matching MX, or the lookup failed).
+	parent := subdomain
+	if i := strings.IndexByte(subdomain, '.'); i >= 0 {
+		parent = subdomain[i+1:]
+	}
+	return fmt.Sprintf(
+		"inbound MX coverage for %s could not be confirmed: %s will not receive email until you publish an MX record routing this subdomain to %s — publish a wildcard \"*.%s MX 10 %s\" to cover all subdomains at once, or an MX on %s. This does not affect sending.",
+		agentEmail, agentEmail, relay, parent, relay, subdomain,
+	)
 }
 
 // limitEnvelope translates a limits.LimitExceededError into a 402 envelope

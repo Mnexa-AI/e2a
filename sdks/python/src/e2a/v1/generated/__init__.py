@@ -53,6 +53,7 @@ __all__ = [
     "ConversationSummaryView",
     "CreateAPIKeyRequest",
     "CreateAPIKeyResponse",
+    "CreateAgentBody",
     "CreateAgentRequest",
     "CreateTemplateRequest",
     "CreateWebhookRequest",
@@ -205,6 +206,7 @@ from e2a.v1.generated.models.conversation_detail_view import ConversationDetailV
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView as ConversationSummaryView
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest as CreateAPIKeyRequest
 from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse as CreateAPIKeyResponse
+from e2a.v1.generated.models.create_agent_body import CreateAgentBody as CreateAgentBody
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest as CreateTemplateRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest

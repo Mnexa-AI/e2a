@@ -32,6 +32,7 @@ models/ConversationDetailView.ts
 models/ConversationSummaryView.ts
 models/CreateAPIKeyRequest.ts
 models/CreateAPIKeyResponse.ts
+models/CreateAgentBody.ts
 models/CreateAgentRequest.ts
 models/CreateTemplateRequest.ts
 models/CreateWebhookRequest.ts

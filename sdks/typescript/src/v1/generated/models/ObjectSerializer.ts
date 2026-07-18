@@ -14,6 +14,7 @@ export * from '../models/ConversationDetailView.js';
 export * from '../models/ConversationSummaryView.js';
 export * from '../models/CreateAPIKeyRequest.js';
 export * from '../models/CreateAPIKeyResponse.js';
+export * from '../models/CreateAgentBody.js';
 export * from '../models/CreateAgentRequest.js';
 export * from '../models/CreateTemplateRequest.js';
 export * from '../models/CreateWebhookRequest.js';
@@ -141,6 +142,7 @@ import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
+import { CreateAgentBody } from '../models/CreateAgentBody.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
@@ -298,6 +300,7 @@ let typeMap: {[index: string]: any} = {
     "ConversationSummaryView": ConversationSummaryView,
     "CreateAPIKeyRequest": CreateAPIKeyRequest,
     "CreateAPIKeyResponse": CreateAPIKeyResponse,
+    "CreateAgentBody": CreateAgentBody,
     "CreateAgentRequest": CreateAgentRequest,
     "CreateTemplateRequest": CreateTemplateRequest,
     "CreateWebhookRequest": CreateWebhookRequest,

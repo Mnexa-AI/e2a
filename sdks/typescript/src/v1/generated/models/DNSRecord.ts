@@ -22,7 +22,7 @@ export class DNSRecord {
     */
     'priority': number | null;
     /**
-    * What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf.
+    * What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, inbound_mx_wildcard, dkim, mail_from_mx, mail_from_spf. inbound_mx_wildcard is the OPTIONAL wildcard MX (*.<domain>) that routes inbound mail for every subdomain to the e2a relay in one record; publish it only if you run agents on subdomains of this domain (MX records do not inherit).
     */
     'purpose': string;
     /**

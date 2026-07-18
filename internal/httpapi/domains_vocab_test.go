@@ -66,8 +66,8 @@ func TestDNSRecordStatusVocabularyPinned(t *testing.T) {
 						SendingMailFromStatus: mailFromAxis,
 					}
 					view := s.domainView(d)
-					if len(view.DNSRecords) != 5 {
-						t.Fatalf("expected all 5 purpose-tagged records (ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf), got %d", len(view.DNSRecords))
+					if len(view.DNSRecords) != 6 {
+						t.Fatalf("expected all 6 purpose-tagged records (ownership, inbound_mx, inbound_mx_wildcard, dkim, mail_from_mx, mail_from_spf), got %d", len(view.DNSRecords))
 					}
 					for _, r := range view.DNSRecords {
 						got[r.Status] = true

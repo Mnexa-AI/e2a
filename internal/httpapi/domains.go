@@ -27,7 +27,7 @@ type DNSRecord struct {
 	Name     string `json:"name" doc:"Record name (host). The apex domain for ownership/inbound_mx; an FQDN for dkim/mail_from records."`
 	Value    string `json:"value" doc:"Record value. For MX records this is the mail-server host only; the priority is in the priority field."`
 	Priority *int   `json:"priority" doc:"MX priority. Null for non-MX records."`
-	Purpose  string `json:"purpose" doc:"What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, dkim, mail_from_mx, mail_from_spf."`
+	Purpose  string `json:"purpose" doc:"What the record is for. Open set; tolerate unknown values. Known values: ownership, inbound_mx, inbound_mx_wildcard, dkim, mail_from_mx, mail_from_spf. inbound_mx_wildcard is the OPTIONAL wildcard MX (*.<domain>) that routes inbound mail for every subdomain to the e2a relay in one record; publish it only if you run agents on subdomains of this domain (MX records do not inherit)."`
 	Status   string `json:"status" doc:"Persisted verification state of this DNS record — the stored domain state, updated when verification checks and the SES reconciler run, NOT a live DNS probe result. Open set; tolerate unknown values. Known values: verified (record confirmed), pending (not yet confirmed — awaiting publish/propagation or an SES result), missing (documented for forward compatibility; not currently emitted), failed (verification failed, or pending exceeded its TTL). Inbound records (ownership, inbound_mx) become verified once inbound verification passes, which requires BOTH the ownership TXT and the inbound MX. Sending records reflect their own SES axis: the dkim record follows the DKIM axis, while mail_from_mx and mail_from_spf follow the custom MAIL FROM axis, so a domain with working DKIM but a broken MAIL FROM (or the reverse) shows exactly which record to fix rather than failing all three. Before SES has reported a per-axis result (pre-provision rows) the sending records fall back to the all-or-nothing sending_status rollup; consult sending_error for the failure reason. The domain-level sending_status field remains the all-or-nothing rollup summary. POST /v1/domains/{domain}/verify reports the LIVE probe outcome for the same records in probe vocabulary (found/missing/deferred/mismatch) — persisted state and live probe outcome are deliberately distinct axes; do not map one vocabulary onto the other."`
 }
 
@@ -92,6 +92,16 @@ func (s *Server) domainView(d *identity.Domain) DomainView {
 		{Type: "TXT", Name: d.Domain, Value: d.VerificationToken, Purpose: "ownership", Status: inboundStatus},
 		// inbound_mx — route inbound mail to the e2a relay.
 		{Type: "MX", Name: d.Domain, Value: s.deps.SMTPDomain, Priority: &mxPriority, Purpose: "inbound_mx", Status: inboundStatus},
+		// inbound_mx_wildcard — OPTIONAL: route inbound mail for EVERY subdomain
+		// (`*.<domain>`) to the e2a relay in one record. MX records do not
+		// inherit, so an agent on a subdomain of this (verified) domain — e.g.
+		// otto@acme.<domain> — only receives mail once a subdomain MX exists.
+		// One wildcard covers all such subdomains. Only needed if the user runs
+		// subdomain agents; send-only or apex-only setups can ignore it. Shares
+		// the inbound axis for `status`, but note it is NOT independently probed
+		// by domain verification (which checks the apex MX) — it is surfaced as
+		// guidance, and its live coverage is what the create-time advisory checks.
+		{Type: "MX", Name: "*." + d.Domain, Value: s.deps.SMTPDomain, Priority: &mxPriority, Purpose: "inbound_mx_wildcard", Status: inboundStatus},
 	}
 
 	// dkim — surfaced for rows that have a stored per-domain key (migration 014+).

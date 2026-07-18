@@ -29,6 +29,7 @@ from e2a.v1.generated.models.conversation_detail_view import ConversationDetailV
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest
 from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse
+from e2a.v1.generated.models.create_agent_body import CreateAgentBody
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest

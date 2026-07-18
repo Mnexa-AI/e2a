@@ -19,6 +19,7 @@ import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
+import { CreateAgentBody } from '../models/CreateAgentBody.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
@@ -447,7 +448,7 @@ export class ObservableAgentsApi {
      * Create an agent
      * @param createAgentRequest
      */
-    public createAgentWithHttpInfo(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<HttpInfo<AgentView>> {
+    public createAgentWithHttpInfo(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<HttpInfo<CreateAgentBody>> {
         const _config = mergeConfiguration(this.configuration, _options);
 
         const requestContextPromise = this.requestFactory.createAgent(createAgentRequest, _config);
@@ -472,8 +473,8 @@ export class ObservableAgentsApi {
      * Create an agent
      * @param createAgentRequest
      */
-    public createAgent(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<AgentView> {
-        return this.createAgentWithHttpInfo(createAgentRequest, _options).pipe(map((apiResponse: HttpInfo<AgentView>) => apiResponse.data));
+    public createAgent(createAgentRequest: CreateAgentRequest, _options?: ConfigurationOptions): Observable<CreateAgentBody> {
+        return this.createAgentWithHttpInfo(createAgentRequest, _options).pipe(map((apiResponse: HttpInfo<CreateAgentBody>) => apiResponse.data));
     }
 
     /**
