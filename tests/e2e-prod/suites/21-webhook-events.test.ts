@@ -575,11 +575,31 @@ test("events: unauthenticated listEvents / getEvent → 401", async () => {
   assert.equal(get.status, 401, `unauth getEvent expected 401, got ${get.status}`);
 });
 
-// ---- Documented skips for events that can't be HTTP-triggered on staging here ----
-test("emit: email.received — needs real inbound SMTP (prober's round-trip)", { skip: "email.received requires a real inbound SMTP delivery; that is the prober's dedicated job, not an API-driven trigger from this suite" }, () => {});
-test("emit: email.blocked — needs a screening block config", { skip: "email.blocked requires a screening gate/scan `block` action to refuse a message; out of scope for the HTTP emission battery" }, () => {});
-test("emit: email.delivered/bounced/complained — async SES delivery feedback", { skip: "delivery-feedback events arrive async via SES→SNS on an unbounded timeline and are not deterministic within a test window" }, () => {});
-test("emit: domain.sending_verified/failed, domain.suppression_added — need sending-identity provisioning", { skip: "domain.* events require real SES sending-identity provisioning against a custom domain, not available to a throwaway shared-domain agent" }, () => {});
+// ---- Documented skips: events whose trigger is out of this suite's reach ----
+// These are NOT coverage gaps to be quietly ignored — each names WHY it can't be
+// driven from an API-only battery on staging, and where the coverage actually
+// lives (or the concrete work that would unlock it), so a future reader doesn't
+// mistake a deliberate boundary for an oversight.
+//
+// email.received — COVERED ELSEWHERE, deliberately not duplicated. It requires a
+//   real inbound SMTP delivery, which the prober's dedicated round-trip
+//   (inbound SMTP → webhook → HMAC) exercises every cycle against this same
+//   staging stack. Re-triggering it here would need an MX-backed mailbox this
+//   API-only suite has no way to inject into; the prober is the right home.
+test("emit: email.received — covered by the prober's inbound SMTP round-trip (not duplicated here)", { skip: "email.received needs a real inbound SMTP delivery; it is covered by the prober's dedicated round-trip against this same staging stack, not re-triggered from this API-only suite" }, () => {});
+// email.delivered/bounced/complained — NOT DETERMINISTIC in a synchronous gate.
+//   These are SES delivery-feedback events that arrive asynchronously via
+//   SES→SNS→/webhooks/ses on an unbounded timeline; even the simulator's
+//   feedback can land seconds-to-minutes later, so polling for them inside a
+//   test window would trade the gate's determinism for flakiness. Belongs in
+//   the async SES delivery-feedback checks, not this emission battery.
+test("emit: email.delivered/bounced/complained — async SES delivery feedback (non-deterministic here)", { skip: "delivery-feedback events arrive async via SES→SNS→/webhooks/ses on an unbounded timeline; asserting them in a synchronous test window would make the gate flaky — out of scope for this emission battery" }, () => {});
+// domain.sending_verified/failed, domain.suppression_added — NEEDS REAL SES
+//   sending-identity (DKIM) provisioning against a custom domain, which SES
+//   verifies asynchronously over minutes-to-hours; a throwaway shared-domain
+//   agent has no sending identity to provision. Unlocking these means a
+//   dedicated custom-domain + sending-identity fixture, not an in-suite tweak.
+test("emit: domain.sending_verified/failed, domain.suppression_added — need real SES sending-identity provisioning", { skip: "domain.* events require real SES sending-identity (DKIM) provisioning on a custom domain, verified async over minutes-to-hours; a throwaway shared-domain agent has no sending identity — needs a dedicated custom-domain fixture, out of scope here" }, () => {});
 
 after(async () => {
   await writeReport(`./reports/${SUITE}.json`);
