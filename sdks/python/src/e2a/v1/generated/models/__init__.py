@@ -112,6 +112,7 @@ from e2a.v1.generated.models.review_view import ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView
+from e2a.v1.generated.models.sending_ramp_view import SendingRampView
 from e2a.v1.generated.models.starter_template_detail_view import StarterTemplateDetailView
 from e2a.v1.generated.models.starter_template_variable_view import StarterTemplateVariableView
 from e2a.v1.generated.models.starter_template_view import StarterTemplateView

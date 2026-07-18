@@ -12,6 +12,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -59,6 +60,54 @@ func NewOutboundSendStore(store *identity.Store, outbox webhookpub.Outbox, usage
 	return &outboundSendStore{store: store, outbox: outbox, usage: usageTracker}
 }
 
+type outboundRampGate struct {
+	store    *sendramp.Store
+	schedule sendramp.Schedule
+	enabled  bool
+	now      func() time.Time
+}
+
+// NewOutboundRampGate adapts the durable sendramp store to the worker-owned
+// gate contract. The schedule is snapshotted by Store on the first eligible
+// send; config changes therefore affect only domains that have not armed yet.
+func NewOutboundRampGate(store *sendramp.Store, schedule sendramp.Schedule, enabled bool, clocks ...func() time.Time) outboundsend.RampGate {
+	now := time.Now
+	if len(clocks) > 0 && clocks[0] != nil {
+		now = clocks[0]
+	}
+	return &outboundRampGate{store: store, schedule: schedule, enabled: enabled, now: now}
+}
+
+func (g *outboundRampGate) Reserve(ctx context.Context, req outboundsend.RampRequest) (outboundsend.RampDecision, error) {
+	if !g.enabled {
+		if err := g.store.Exempt(ctx, req.UserID, req.Domain); err != nil {
+			return outboundsend.RampDecision{}, err
+		}
+		return outboundsend.RampDecision{Allowed: true}, nil
+	}
+	d, err := g.store.Reserve(ctx, sendramp.ReserveRequest{
+		MessageID: req.MessageID,
+		UserID:    req.UserID,
+		Domain:    req.Domain,
+		Units:     req.Units,
+		Day:       g.now().UTC(),
+		Schedule:  g.schedule,
+	})
+	return outboundsend.RampDecision{Allowed: d.Allowed, RetryAt: d.RetryAt}, err
+}
+
+func (g *outboundRampGate) Confirm(ctx context.Context, messageID string) error {
+	return g.store.Confirm(ctx, messageID)
+}
+
+func (g *outboundRampGate) Release(ctx context.Context, messageID string) error {
+	return g.store.Release(ctx, messageID)
+}
+
+func (g *outboundRampGate) Resolve(ctx context.Context, messageID string) error {
+	return g.store.Resolve(ctx, messageID)
+}
+
 func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, jobID int64) (*outboundsend.SendJob, error) {
 	p, err := a.store.ClaimOutboundForSend(ctx, messageID, jobID)
 	if err != nil || p == nil {
@@ -67,6 +116,8 @@ func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, job
 	return &outboundsend.SendJob{
 		MessageID:         p.ID,
 		UserID:            p.UserID,
+		Domain:            p.Domain,
+		MessageType:       p.MessageType,
 		Status:            p.DeliveryStatus,
 		EnvelopeFrom:      p.EnvelopeFrom,
 		Recipients:        p.Recipients,

@@ -37,6 +37,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/senderidentity"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/telemetry"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhook"
@@ -258,12 +259,23 @@ func main() {
 	// Outbound delivery is queue-first and at-least-once for GA. The accept-tx
 	// enqueues an outbound_send job in the same transaction as the message row;
 	// there is no submit-inline fallback.
+	rampStore := sendramp.NewStore(pool)
+	outboundRamp := agent.NewOutboundRampGate(
+		rampStore,
+		sendramp.NewSchedule(cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays),
+		cfg.SendingRamp.Enabled,
+	)
+	if cfg.SendingRamp.Enabled {
+		log.Printf("Outbound sending ramp enabled: %d→%d recipients over %d qualified days", cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays)
+	}
 	outboundJobs := outboundsend.NewJobs(
 		agent.NewOutboundSendStore(store, webhookOutbox, usageTracker),
 		agent.NewOutboundDeliverer(sender),
 		pool,
+		outboundRamp,
 	)
 	registrars = append(registrars, outboundJobs)
+	registrars = append(registrars, sendramp.NewMaintenanceJobs(rampStore))
 
 	// Async inbound pipeline (inbound-message-pipeline-river.md), gated by
 	// E2A_INBOUND_MODE=async. The InboundProcessWorker registers on the shared River

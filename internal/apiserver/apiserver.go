@@ -15,6 +15,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,6 +24,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/limits"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhook"
 )
@@ -93,6 +95,10 @@ type SenderIdentityEnqueuer interface {
 // BuildDeps maps Params into the httpapi dependency set. Kept as the single
 // definition of the /v1 wiring so production and tests cannot diverge.
 func BuildDeps(p Params) httpapi.Deps {
+	var rampSnapshot func(context.Context, string, string, time.Time) (sendramp.Snapshot, error)
+	if p.Pool != nil {
+		rampSnapshot = sendramp.NewStore(p.Pool).Snapshot
+	}
 	return httpapi.Deps{
 		Authenticator:          p.API.AuthenticateUser,
 		PrincipalAuthenticator: p.API.AuthenticatePrincipal,
@@ -143,6 +149,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		PurgeMessage:         p.Store.PurgeMessage,
 
 		ListDomains:          p.Store.ListDomainsByUser,
+		SendingRampSnapshot:  rampSnapshot,
 		ClaimDomain:          p.Store.ClaimOrCreateDomain,
 		EnforceDomainCreate:  p.Enforcer.CheckDomainCreate,
 		DeleteDomain:         deleteDomainFunc(p),

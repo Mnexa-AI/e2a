@@ -29,6 +29,9 @@ override:
   # Outbound send on River — the at-least-once send worker + accept-tx enqueue.
   - threshold: 75
     path: ^internal/outboundsend$
+  # Sending-ramp storage + River janitor — pre-provider abuse-control state.
+  - threshold: 70
+    path: ^internal/sendramp$
   # Inbound processing on River — the at-least-once worker + reconciler + retention.
   # (The relay-side ProcessIntake adapter is covered cross-package by relay tests.)
   - threshold: 65

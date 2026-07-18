@@ -136,6 +136,7 @@ __all__ = [
     "RotateSecretResponse",
     "SendEmailRequest",
     "SendResultView",
+    "SendingRampView",
     "StarterTemplateDetailView",
     "StarterTemplateVariableView",
     "StarterTemplateView",
@@ -288,6 +289,7 @@ from e2a.v1.generated.models.review_view import ReviewView as ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
+from e2a.v1.generated.models.sending_ramp_view import SendingRampView as SendingRampView
 from e2a.v1.generated.models.starter_template_detail_view import StarterTemplateDetailView as StarterTemplateDetailView
 from e2a.v1.generated.models.starter_template_variable_view import StarterTemplateVariableView as StarterTemplateVariableView
 from e2a.v1.generated.models.starter_template_view import StarterTemplateView as StarterTemplateView

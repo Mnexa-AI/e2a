@@ -15,6 +15,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/limits"
 	"github.com/tokencanopy/e2a/internal/outbound"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/webhook"
 )
 
@@ -166,6 +167,7 @@ type Deps struct {
 	// after-key from the previous page's last row (zero afterCreatedAt = first
 	// page).
 	ListDomains         func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterDomain string) ([]identity.Domain, error)
+	SendingRampSnapshot func(ctx context.Context, userID, domain string, now time.Time) (sendramp.Snapshot, error)
 	ClaimDomain         func(ctx context.Context, domain, userID string) (*identity.Domain, error)
 	EnforceDomainCreate func(ctx context.Context, userID string) error
 	DeleteDomain        func(ctx context.Context, domain, userID string) error

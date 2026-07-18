@@ -2,9 +2,35 @@ package httpapi
 
 import (
 	"testing"
+	"time"
 
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 )
+
+func TestSendingRampViewIsReadOnlyProgressSnapshot(t *testing.T) {
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	view := sendingRampView(sendramp.Snapshot{
+		Status:      sendramp.StatusRamping,
+		ActiveDays:  3,
+		RampDays:    30,
+		DailyLimit:  251,
+		UsedToday:   93,
+		TargetDaily: 2000,
+	}, now)
+
+	if view.Status != "ramping" || view.DailyRecipientLimit != 251 || view.RecipientsUsedToday != 93 {
+		t.Fatalf("view = %+v, want ramping 93/251", view)
+	}
+	wantReset := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	if view.ResetsAt == nil || !view.ResetsAt.Equal(wantReset) {
+		t.Fatalf("resets_at = %v, want %v", view.ResetsAt, wantReset)
+	}
+	wantCompletion := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	if view.EstimatedCompletionAt == nil || !view.EstimatedCompletionAt.Equal(wantCompletion) {
+		t.Fatalf("estimated_completion_at = %v, want first UTC rollover after the final active ramp day", view.EstimatedCompletionAt)
+	}
+}
 
 // byPurpose indexes a domainView's unified DNS-records array by purpose so the
 // assertions can address records by what they're for rather than by position.
