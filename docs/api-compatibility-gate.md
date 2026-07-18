@@ -39,6 +39,10 @@ The default oasdiff breaking-change rules apply with the overrides in
 `api/oasdiff-levels.txt`. In particular, the gate additionally rejects:
 
 - an `operationId` change, because it renames generated SDK methods;
+- removal or renaming of a stable `components.schemas` entry, because its
+  component key is the public model name in generated SDKs;
+- changing the ordered tags of a stable operation, because generators use
+  them to group methods into public SDK classes or modules;
 - removal of a stable endpoint or parameter, including after deprecation;
 - any authentication or security-scheme change without an API-version review.
   A strict semantic comparison of `components.securitySchemes` supplements
@@ -65,6 +69,12 @@ The gate uses the `stable` threshold, so beta operations are excluded
 even when an entire path disappears. Removing the canonical marker promotes an
 operation into the stable gate; adding it to a stable operation is a blocked
 stability decrease.
+
+The same beta exemption applies to generated SDK names: beta component schemas
+may be renamed or removed, and beta operation tags may change. A stable schema
+cannot be relabeled beta to escape the frozen SDK surface. These name checks
+supplement oasdiff, which compares wire compatibility but does not treat an
+equivalent component rename or operation-tag change as breaking.
 
 ### The account export's versioned interior
 
