@@ -29,8 +29,8 @@ a rendered preview with an HTML/text tab switch and light/dark toggle).
 
 ## Syntax
 
-Template syntax is intentionally minimal — **flat variables only**, no loops,
-no conditionals, no partials:
+Template syntax is intentionally minimal — variable interpolation only, no
+loops, no conditionals, no partials:
 
 | Form | Behavior |
 |---|---|
@@ -38,7 +38,8 @@ no conditionals, no partials:
 | `{{{variable}}}` | Raw insertion (HTML part): the value is inserted **without escaping**. For pre-rendered HTML fragments only — see the warning below. |
 
 Missing variables render as **empty strings**. Variable names match
-`[A-Za-z][A-Za-z0-9_]*`-style flat identifiers (e.g. `order_id`, `items_html`).
+`[A-Za-z_][A-Za-z0-9_.]*` — dot paths into nested objects are supported
+(e.g. `order_id`, `items_html`, `customer.name`).
 
 **Reserved-section note:** anything that is not a `{{…}}` / `{{{…}}}` slot is
 literal template text and is emitted verbatim — including `{` and `}`
@@ -48,7 +49,7 @@ interpreted; there is no escape sequence and no other directive syntax.
 ## Sending with a template
 
 Reference the template by its per-account alias (`template_alias`) or id
-(`template_id`) — mutually exclusive with literal `subject`/`body`/`html_body` —
+(`template_id`) — mutually exclusive with literal `subject`/`text`/`html` —
 and pass the variables in `template_data`:
 
 ```bash
@@ -75,7 +76,7 @@ curl -X POST https://api.e2a.dev/v1/agents/billing-bot%40agents.e2a.dev/messages
 Rendering happens **before** any human-in-the-loop review hold, so reviewers
 see the final subject and body.
 
-> **Wire change.** To make room for the template shape, `subject` and `body`
+> **Wire change.** To make room for the template shape, `subject` and `text`
 > moved from schema-required to handler-enforced on
 > `POST /v1/agents/{email}/messages`. A literal send that omits them now
 > returns **400 `invalid_request`** where it previously returned a **422**
@@ -140,5 +141,5 @@ tokens alone do not save you — the scanner's GET consumes the token.)
 
 ## See also
 
-- [`docs/api.md`](api.md) — REST surface overview and conventions
+- [`docs/api.md`](https://github.com/tokencanopy/e2a/blob/main/docs/api.md) — REST surface overview and conventions
 - [`api/openapi.yaml`](https://e2a.dev/openapi.yaml) — the canonical machine-readable contract

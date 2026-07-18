@@ -106,13 +106,13 @@ Held messages (outbound drafts + screened inbound) are the account-scoped review
 queue. With an account-scoped key:
 
 ```ts
-const held = await client.reviews.list().toArray();   // both directions
+const held = await client.reviews.list().toArray({ limit: 100 });   // both directions
 await client.reviews.approve(id);                      // outbound: send; inbound: release
 await client.reviews.reject(id, { reason: "spam" });
 ```
 
 ```python
-held = await client.reviews.list().to_list()
+held = await client.reviews.list().to_list(limit=100)
 await client.reviews.approve(message_id)
 await client.reviews.reject(message_id, {"reason": "spam"})
 ```
