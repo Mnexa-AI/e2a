@@ -298,6 +298,27 @@ func (s *Store) Release(ctx context.Context, messageID string) error {
 	return tx.Commit(ctx)
 }
 
+// Resolve settles a pending reservation from the message's durable provider
+// outcome. It is used by terminal reconciliation after ambiguous worker exits.
+func (s *Store) Resolve(ctx context.Context, messageID string) error {
+	var status string
+	err := s.pool.QueryRow(ctx, `SELECT delivery_status FROM messages WHERE id=$1`, messageID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	switch status {
+	case "sent", "deferred", "delivered", "bounced", "complained":
+		return s.Confirm(ctx, messageID)
+	case "failed":
+		return s.Release(ctx, messageID)
+	default:
+		return nil
+	}
+}
+
 func commitDecision(ctx context.Context, tx pgx.Tx, d Decision) (Decision, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return Decision{}, err

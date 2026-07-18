@@ -61,11 +61,11 @@ type DomainView struct {
 type SendingRampView struct {
 	Status                string     `json:"status" doc:"Platform-managed sending-ramp state. Open set; known values: inactive, ramping, complete, exempt."`
 	DailyRecipientLimit   int        `json:"daily_recipient_limit" doc:"Current UTC-day recipient allowance. Zero means no ramp cap applies."`
-	RecipientsUsedToday   int        `json:"recipients_used_today"`
+	RecipientsUsedToday   int        `json:"recipients_used_today" doc:"Recipient capacity reserved for the current UTC day, including submissions whose provider outcome is still pending."`
 	ResetsAt              *time.Time `json:"resets_at,omitempty"`
-	ActiveDays            int        `json:"active_days"`
+	ActiveDays            int        `json:"active_days" doc:"UTC days that reached the provider-accepted volume threshold."`
 	RampDays              int        `json:"ramp_days"`
-	EstimatedCompletionAt *time.Time `json:"estimated_completion_at,omitempty" doc:"Earliest estimated completion assuming the domain sends on every remaining active day."`
+	EstimatedCompletionAt *time.Time `json:"estimated_completion_at,omitempty" doc:"Earliest estimated completion assuming every remaining UTC day reaches the provider-accepted volume threshold."`
 }
 
 func sendingRampView(snap sendramp.Snapshot, now time.Time) SendingRampView {
@@ -90,7 +90,7 @@ func sendingRampView(snap sendramp.Snapshot, now time.Time) SendingRampView {
 		}
 		// The final ramp-day cap remains in force through its UTC day. The
 		// domain becomes complete on the following rollover, not immediately
-		// after its first reservation on that final day.
+		// after the final day reaches its confirmed-volume threshold.
 		estimate := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, remaining+1)
 		v.EstimatedCompletionAt = &estimate
 	}

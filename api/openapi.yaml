@@ -2902,6 +2902,7 @@ components:
       additionalProperties: true
       properties:
         active_days:
+          description: UTC days that reached the provider-accepted volume threshold.
           format: int64
           type: integer
         daily_recipient_limit:
@@ -2909,13 +2910,14 @@ components:
           format: int64
           type: integer
         estimated_completion_at:
-          description: Earliest estimated completion assuming the domain sends on every remaining active day.
+          description: Earliest estimated completion assuming every remaining UTC day reaches the provider-accepted volume threshold.
           format: date-time
           type: string
         ramp_days:
           format: int64
           type: integer
         recipients_used_today:
+          description: Recipient capacity reserved for the current UTC day, including submissions whose provider outcome is still pending.
           format: int64
           type: integer
         resets_at:

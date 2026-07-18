@@ -13,16 +13,22 @@
 import { HttpFile } from '../http/http.js';
 
 export class SendingRampView {
+    /**
+    * UTC days that reached the provider-accepted volume threshold.
+    */
     'activeDays': number;
     /**
     * Current UTC-day recipient allowance. Zero means no ramp cap applies.
     */
     'dailyRecipientLimit': number;
     /**
-    * Earliest estimated completion assuming the domain sends on every remaining active day.
+    * Earliest estimated completion assuming every remaining UTC day reaches the provider-accepted volume threshold.
     */
     'estimatedCompletionAt'?: Date;
     'rampDays': number;
+    /**
+    * Recipient capacity reserved for the current UTC day, including submissions whose provider outcome is still pending.
+    */
     'recipientsUsedToday': number;
     'resetsAt'?: Date;
     /**

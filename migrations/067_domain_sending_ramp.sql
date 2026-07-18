@@ -1,4 +1,4 @@
--- Durable, active-day sending ramp for verified custom sender identities.
+-- Durable, confirmed-volume sending ramp for verified custom sender identities.
 -- Existing verified domains are exempt so deployment cannot re-throttle an
 -- established sender. New domains arm on their first eligible external send.
 

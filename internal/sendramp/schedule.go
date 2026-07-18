@@ -3,8 +3,8 @@
 package sendramp
 
 // Schedule is snapshotted when a domain first sends through its verified
-// identity. Progress is measured in active sending days, not elapsed calendar
-// days, so an idle domain cannot age into full volume.
+// identity. Progress is measured in UTC days that reach the provider-accepted
+// volume threshold, so idle or token sends cannot age into full volume.
 type Schedule struct {
 	StartDaily  int
 	TargetDaily int
@@ -34,7 +34,7 @@ func Qualifies(confirmed, limit int) bool {
 	return limit >= MinimumStartDaily && confirmed >= (limit+1)/2
 }
 
-// CapForActiveDay returns the recipient allowance for a zero-based active-day
+// CapForActiveDay returns the recipient allowance for a zero-based qualified-day
 // index. The target is reached on the final configured ramp day.
 func (s Schedule) CapForActiveDay(activeDay int) int {
 	s = NewSchedule(s.StartDaily, s.TargetDaily, s.RampDays)

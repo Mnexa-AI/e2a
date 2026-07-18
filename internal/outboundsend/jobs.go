@@ -40,7 +40,7 @@ func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 // client's bundle. Implements jobs.Registrar.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
 	river.AddWorker(w, NewSendWorker(j.store, j.deliverer, j.ramp))
-	river.AddWorker(w, NewTerminalReconcileWorker(j.pool, j.store))
+	river.AddWorker(w, NewTerminalReconcileWorker(j.pool, j.store, j.ramp))
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(terminalReconcileInterval),

@@ -155,6 +155,7 @@ type RampGate interface {
 	Reserve(ctx context.Context, req RampRequest) (RampDecision, error)
 	Confirm(ctx context.Context, messageID string) error
 	Release(ctx context.Context, messageID string) error
+	Resolve(ctx context.Context, messageID string) error
 }
 
 // Store is the messages-store surface the worker needs. Implemented over
@@ -226,9 +227,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return nil // message gone (cascade/TTL) — nothing to send
 	}
 	if j.alreadyDone() {
-		if w.ramp != nil && j.rampEligible() && j.Status != string(delivery.StatusFailed) {
-			if err := w.ramp.Confirm(ctx, j.MessageID); err != nil {
-				return fmt.Errorf("confirm sending ramp for completed message: %w", err)
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Resolve(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("resolve sending ramp for completed message: %w", err)
 			}
 		}
 		return nil // already submitted (sent+) — idempotent re-drive
@@ -266,6 +267,11 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	if len(suppressed) > 0 {
 		supErr := fmt.Errorf("recipient_suppressed: %s — remove via DELETE /v1/account/suppressions/{address}", strings.Join(suppressed, ", "))
 		w.markFailed(ctx, j.MessageID, job.Attempt, supErr.Error(), delivery.FailureSourceLocal)
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("release ramp reservation after suppression: %w", err)
+			}
+		}
 		return river.JobCancel(supErr)
 	}
 

@@ -27,11 +27,11 @@ class SendingRampView(BaseModel):
     """
     SendingRampView
     """ # noqa: E501
-    active_days: StrictInt
+    active_days: StrictInt = Field(description="UTC days that reached the provider-accepted volume threshold.")
     daily_recipient_limit: StrictInt = Field(description="Current UTC-day recipient allowance. Zero means no ramp cap applies.")
-    estimated_completion_at: Optional[datetime] = Field(default=None, description="Earliest estimated completion assuming the domain sends on every remaining active day.")
+    estimated_completion_at: Optional[datetime] = Field(default=None, description="Earliest estimated completion assuming every remaining UTC day reaches the provider-accepted volume threshold.")
     ramp_days: StrictInt
-    recipients_used_today: StrictInt
+    recipients_used_today: StrictInt = Field(description="Recipient capacity reserved for the current UTC day, including submissions whose provider outcome is still pending.")
     resets_at: Optional[datetime] = None
     status: StrictStr = Field(description="Platform-managed sending-ramp state. Open set; known values: inactive, ramping, complete, exempt.")
     additional_properties: Dict[str, Any] = {}

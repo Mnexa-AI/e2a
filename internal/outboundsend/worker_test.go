@@ -73,6 +73,7 @@ type fakeRampGate struct {
 	calls      []outboundsend.RampRequest
 	confirmed  []string
 	released   []string
+	resolved   []string
 	confirmErr error
 	releaseErr error
 }
@@ -90,6 +91,11 @@ func (f *fakeRampGate) Confirm(_ context.Context, messageID string) error {
 func (f *fakeRampGate) Release(_ context.Context, messageID string) error {
 	f.released = append(f.released, messageID)
 	return f.releaseErr
+}
+
+func (f *fakeRampGate) Resolve(_ context.Context, messageID string) error {
+	f.resolved = append(f.resolved, messageID)
+	return nil
 }
 
 type permanentRampError struct{ msg string }
@@ -309,8 +315,8 @@ func TestSendWorker_RepairsRampConfirmationForAlreadySentMessage(t *testing.T) {
 	if err := outboundsend.NewSendWorker(&fakeStore{job: j}, dl, gate).Work(context.Background(), job(j.MessageID, 2)); err != nil {
 		t.Fatalf("Work: %v", err)
 	}
-	if dl.calls != 0 || len(gate.confirmed) != 1 {
-		t.Fatalf("deliver=%d confirmed=%v", dl.calls, gate.confirmed)
+	if dl.calls != 0 || len(gate.resolved) != 1 {
+		t.Fatalf("deliver=%d resolved=%v", dl.calls, gate.resolved)
 	}
 }
 

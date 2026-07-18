@@ -229,6 +229,34 @@ func TestReleaseReturnsPendingCapacityWithoutProgress(t *testing.T) {
 	}
 }
 
+func TestResolveUsesDurableMessageOutcome(t *testing.T) {
+	store, pool, userID, domain, sentMessage := seedRampMessage(t, "terminal-outcome")
+	failedMessage := createMessageForAgent(t, pool, "agent@"+domain, "resolve-failed")
+	day := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	for _, id := range []string{sentMessage, failedMessage} {
+		if !reserve(t, store, userID, domain, id, 1, day, sendramp.DefaultSchedule).Allowed {
+			t.Fatal("reserve denied")
+		}
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE messages SET delivery_status='sent' WHERE id=$1`, sentMessage); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE messages SET delivery_status='failed' WHERE id=$1`, failedMessage); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{sentMessage, failedMessage} {
+		if err := store.Resolve(context.Background(), id); err != nil {
+			t.Fatalf("Resolve(%s): %v", id, err)
+		}
+	}
+	var sentState, failedState string
+	_ = pool.QueryRow(context.Background(), `SELECT state FROM sending_ramp_reservations WHERE message_id=$1`, sentMessage).Scan(&sentState)
+	_ = pool.QueryRow(context.Background(), `SELECT state FROM sending_ramp_reservations WHERE message_id=$1`, failedMessage).Scan(&failedState)
+	if sentState != "confirmed" || failedState != "released" {
+		t.Fatalf("sent=%q failed=%q", sentState, failedState)
+	}
+}
+
 func TestReserveProgressesOnlyOnActiveDaysAndPersistsCompletion(t *testing.T) {
 	store, pool, userID, domain, firstMessage := seedRampMessage(t, "active-days")
 	schedule := sendramp.NewSchedule(50, 100, 2)

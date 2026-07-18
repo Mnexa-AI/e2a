@@ -104,6 +104,10 @@ func (g *outboundRampGate) Release(ctx context.Context, messageID string) error 
 	return g.store.Release(ctx, messageID)
 }
 
+func (g *outboundRampGate) Resolve(ctx context.Context, messageID string) error {
+	return g.store.Resolve(ctx, messageID)
+}
+
 func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, jobID int64) (*outboundsend.SendJob, error) {
 	p, err := a.store.ClaimOutboundForSend(ctx, messageID, jobID)
 	if err != nil || p == nil {
