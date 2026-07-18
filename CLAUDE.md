@@ -71,7 +71,7 @@ make generate-sdk   # regenerate the TS + Python SDK bases from api/openapi.yaml
 make generate       # both of the above
 ```
 
-After changing a `/v1` handler, run `make generate` and commit the regenerated `api/openapi.yaml` plus the SDK bases in `sdks/typescript/src/v1/generated/` and `sdks/python/src/e2a/v1/generated/`. CI (`spec-check` + `generate-sdk-check`) fails if either is stale. (The legacy swag pipeline is gone — `web/public/openapi.yaml` is a frozen copy for the dashboard's API-reference page only and no longer feeds the SDKs.)
+After changing a `/v1` handler, run `make generate` and commit the regenerated `api/openapi.yaml` plus the SDK bases in `sdks/typescript/src/v1/generated/` and `sdks/python/src/e2a/v1/generated/`. CI (`spec-check` + `generate-sdk-check`) fails if either is stale. (The legacy swag pipeline is gone — the dashboard's API-reference page fetches the spec live from `/v1/openapi.yaml`, served directly by the Huma handlers; there is no static copy and no separate feed into the SDKs.)
 
 ## Architecture
 
@@ -140,9 +140,10 @@ ergonomic layer (`client.ts` / `client.py` etc.) wired up via
 any `/v1` handler change.
 
 The old swag-annotation pipeline was fully retired (the `make swagger` target and
-its `internal/agent/api_docs.go` source are gone). `web/public/openapi.yaml` is
-retained only because the dashboard's API-reference page
-(`web/public/scalar.html`) renders it; it is a frozen copy and not CI-checked.
+its `internal/agent/api_docs.go` source are gone). The dashboard's
+API-reference page (`web/public/scalar.html`) renders the spec by fetching it
+live from `/v1/openapi.yaml`, served directly by the `/v1` Huma handlers —
+there is no static `web/public/openapi.yaml` file and nothing to keep in sync.
 
 ### TypeScript SDK (`sdks/typescript/`)
 
@@ -150,7 +151,7 @@ Layered: generated types → `E2AApi` (raw HTTP) → `E2AClient` (high-level wit
 
 ### CLI (`cli/`)
 
-Commands: login, listen, config, whoami, send, reply, messages. Config stored in `~/.e2a/config.json`. The `listen` command supports `--forward` mode for proxying WebSocket messages to local HTTP endpoints. The messaging commands (whoami/send/reply/messages) are the scripting surface for shell-based harnesses and publish a stable exit-code contract (`cli/src/exit.ts`): 0 ok, 1 transient error, 2 usage, 3 held-for-review (any non-`sent` status — HTTP-successful but undelivered), 4 auth, 5 permanent request error (non-retryable 4xx). Exit codes are frozen once published; add new ones, never renumber.
+Commands: login, listen, config, whoami, send, reply, messages. Config stored in `~/.e2a/config.json`. The `listen` command supports `--forward` mode for proxying WebSocket messages to local HTTP endpoints. The messaging commands (whoami/send/reply/messages) are the scripting surface for shell-based harnesses and publish a stable exit-code contract (`cli/src/exit.ts`): 0 ok, 1 transient error, 2 usage, 3 held-for-review (`pending_review` — HTTP-successful but undelivered), 4 auth, 5 permanent request error (non-retryable 4xx), 6 timeout (`listen --once --until` expired unmatched), 7 send-outcome (a persisted send failed or returned an unknown outcome; do not retry). Exit codes are frozen once published; add new ones, never renumber.
 
 ### Web (`web/`)
 
