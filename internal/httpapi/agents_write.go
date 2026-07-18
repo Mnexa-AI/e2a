@@ -303,6 +303,17 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
 	}
 	domain := parts[1]
+	// Reject a malformed address domain BEFORE any ownership/covering resolution
+	// (QA F2/F3): empty, leading/trailing-dot, or consecutive-dot labels
+	// (x@acme..mnexa.ai, x@.team.mnexa.ai, x@team.mnexa.ai.) would otherwise
+	// resolve to a covering parent and mint a junk agent — and the trailing-dot
+	// form also slips past the covering candidate/public-suffix normalization.
+	// The shared-domain path is exempt: its host comes from config, not the
+	// caller. Structural only (no charset restriction) so IDN/punycode domains,
+	// which normalize downstream, still pass.
+	if !(s.deps.SharedDomain != "" && strings.EqualFold(domain, s.deps.SharedDomain)) && !isWellFormedDomain(domain) {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
+	}
 	subdomain := domain // the agent's literal address domain, before any parent rebind
 	viaParent := false  // true when the agent was authorized via a covering parent
 	isShared := s.deps.SharedDomain != "" && strings.EqualFold(domain, s.deps.SharedDomain)
@@ -404,6 +415,28 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		}
 	}
 	return &createAgentOutput{Body: body}, nil
+}
+
+// isWellFormedDomain reports whether d is a structurally valid DNS name for an
+// agent address: 1..253 bytes, at least one label, every label non-empty and
+// <=63 bytes, no leading/trailing dot and no consecutive dots. It deliberately
+// does NOT constrain the character set — internationalized (unicode) domains are
+// normalized to punycode downstream (identity.normalizeDomain), so restricting
+// to ASCII here would wrongly reject valid IDN addresses. Its job is only to
+// reject the empty/leading/trailing/consecutive-dot label forms (QA F2/F3).
+func isWellFormedDomain(d string) bool {
+	if d == "" || len(d) > 253 {
+		return false
+	}
+	if strings.HasPrefix(d, ".") || strings.HasSuffix(d, ".") {
+		return false
+	}
+	for _, label := range strings.Split(d, ".") {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+	}
+	return true
 }
 
 // subdomainMXCoverageWarning best-effort checks whether inbound mail for a

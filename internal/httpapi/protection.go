@@ -49,7 +49,7 @@ type ProtectionGateView struct {
 	// vocabularies — a new gate posture or disposition must not break
 	// spec-generated clients); the mirroring ProtectionGateRequest keeps the
 	// closed enums, which is where validation belongs.
-	Policy    string   `json:"policy,omitempty" default:"open" doc:"Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain."`
+	Policy    string   `json:"policy,omitempty" default:"open" doc:"Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain."`
 	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."`
 	Action    string   `json:"action,omitempty" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: flag, review, block."`
 }
@@ -119,7 +119,7 @@ func protectionViewFromIdentity(ag *identity.AgentIdentity) ProtectionConfigView
 // are open; see docs/api.md "Versioning & stability"), while an unknown value
 // a client SENDS is still validated and rejected here.
 type ProtectionGateRequest struct {
-	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain), allowlist (listed addresses)."`
+	Policy    string   `json:"policy,omitempty" enum:"open,allowlist,domain" default:"open" doc:"Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses)."`
 	Allowlist []string `json:"allowlist,omitempty" nullable:"false" maxItems:"1000" doc:"Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."`
 	Action    string   `json:"action,omitempty" enum:"flag,review,block" default:"flag" doc:"What a gate non-match does: flag (deliver + annotate), review (hold), block."`
 }

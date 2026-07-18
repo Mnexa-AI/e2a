@@ -334,6 +334,53 @@ func TestCreateAgentExactDomainNoMXProbe(t *testing.T) {
 	}
 }
 
+// TestCreateAgentMalformedSubdomainRejected (QA F2/F3): malformed address
+// domains — empty, leading/trailing-dot, or consecutive-dot labels — are
+// rejected at the create boundary BEFORE covering resolution, so they can never
+// mint a junk agent under a parent. A covering fake that WOULD resolve is wired
+// to prove the malformed check short-circuits it.
+func TestCreateAgentMalformedSubdomainRejected(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		// Would cover anything if reached — the F2 guard must run first.
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return &identity.Domain{Domain: "mnexa.ai", Verified: true}, nil
+		}
+	})
+	for _, bad := range []string{
+		"x@acme..mnexa.ai", // consecutive dots → empty middle label
+		"x@.team.mnexa.ai", // leading dot → empty first label
+		"x@team.mnexa.ai.", // trailing dot (F3 normalization-fragility case)
+		"x@team..",         // multiple empty labels
+	} {
+		code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{"email": bad})
+		if code != 400 || errCode(body) != "invalid_request" {
+			t.Errorf("malformed %q: want 400 invalid_request, got %d %v", bad, code, body)
+		}
+	}
+}
+
+// TestCreateAgentCrossTenantCoveringSurfacedAsUnregistered (QA F1, handler
+// surface): when the store's covering lookup refuses the cover because a
+// different tenant owns a more-specific name (returns no-covering), the handler
+// surfaces it exactly like an uncovered domain — 400 domain_not_registered — so
+// no cross-tenant land-grab is possible via the API. (The label-boundary guard
+// itself is exercised against a real DB in identity.TestLookupCoveringDomain_
+// CrossTenantIntrusionRejected.)
+func TestCreateAgentCrossTenantCoveringSurfacedAsUnregistered(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		// Mirror the store's F1 rejection: no cover for the intruded name.
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return nil, errors.New("no covering domain")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_registered" {
+		t.Fatalf("cross-tenant refusal must surface as domain_not_registered, got %d %v", code, body)
+	}
+}
+
 func TestCreateAgentDuplicate(t *testing.T) {
 	srv := testServer(t)
 	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{

@@ -2496,7 +2496,7 @@ components:
           type: array
         policy:
           default: open
-          description: "Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain), allowlist (listed addresses)."
+          description: "Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses)."
           enum:
             - open
             - allowlist
@@ -2519,7 +2519,7 @@ components:
           type: array
         policy:
           default: open
-          description: "Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain."
+          description: "Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses). Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: open, allowlist, domain."
           type: string
       type: object
       x-stability-level: beta

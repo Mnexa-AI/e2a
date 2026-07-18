@@ -975,7 +975,54 @@ func (s *Store) LookupCoveringDomain(ctx context.Context, sub, userID string) (*
 	if best == nil {
 		return nil, fmt.Errorf("no covering domain")
 	}
+
+	// Cross-tenant namespace guard (QA F1): `best` proves the REQUESTER owns some
+	// verified ANCESTOR of the address domain — but a DIFFERENT user may own a
+	// MORE-SPECIFIC name inside that ancestor. Binding the agent to `best` would
+	// then plant it inside another tenant's verified namespace (land-grab of
+	// unclaimed subdomain addresses, inbound interception, DKIM-signed
+	// impersonation). Reject the cover if ANY registered domain owned by another
+	// user is equal to the address domain OR strictly more specific than `best`
+	// (i.e. any name from the address domain up to, but excluding, `best`). A
+	// same-user intermediate (even unverified) does NOT block — the grandparent
+	// legitimately covers it. Ownership is checked regardless of the other user's
+	// verified state: a mere registration claims the namespace.
+	intruders := namesMoreSpecificThan(sub, best.Domain)
+	if len(intruders) > 0 {
+		var taken bool
+		if err := s.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM domains WHERE domain = ANY($1) AND user_id <> $2)`,
+			intruders, userID,
+		).Scan(&taken); err != nil {
+			return nil, err
+		}
+		if taken {
+			return nil, fmt.Errorf("no covering domain")
+		}
+	}
 	return best, nil
+}
+
+// namesMoreSpecificThan returns the DNS names covering sub that are strictly
+// more specific than match: sub itself plus every ancestor of sub with more
+// labels than match (i.e. the names strictly between sub and match, inclusive of
+// sub, exclusive of match). For sub="acme.team.mnexa.ai", match="mnexa.ai" it
+// yields ["acme.team.mnexa.ai", "team.mnexa.ai"]. These are exactly the names a
+// different tenant could own that would make covering by `match` an intrusion.
+func namesMoreSpecificThan(sub, match string) []string {
+	sub = normalizeDomain(sub)
+	matchLabels := strings.Count(match, ".")
+	var out []string
+	name := sub
+	for strings.Count(name, ".") > matchLabels {
+		out = append(out, name)
+		i := strings.IndexByte(name, '.')
+		if i < 0 {
+			break
+		}
+		name = name[i+1:]
+	}
+	return out
 }
 
 // VerifyDomain marks a domain as verified, only if owned by the given user.
