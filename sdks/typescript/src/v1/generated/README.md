@@ -9,6 +9,7 @@ so the base uses the runtime's native global `fetch` (Node 18+, browsers,
 edge/Workers) — no fetch dependency.
 
 Generated transport + models + typed `ApiException<ErrorEnvelope>`. The
-hand-written ergonomic layer (`client.ts`, `ws.ts`, `webhook-signature.ts`,
-`inbound-email.ts`) wraps it — api-v1-redesign **Slice 8**. Staged now; wired
-into the published client in the next slice.
+hand-written ergonomic layer (`client.ts`, `ws.ts`, `webhook-signature.ts`)
+wraps it — api-v1-redesign **Slice 8**. Wired into the published `E2AClient`;
+the legacy hand-written `api.ts` / `inbound-email.ts` surface and the old
+swag-generated types have been retired in favor of this.
