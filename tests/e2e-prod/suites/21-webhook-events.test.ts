@@ -372,7 +372,10 @@ test("emit: email.review_rejected — rejecting a hold emits the event and attem
     );
     assert.ok(ev, `email.review_rejected event for ${heldId} must appear within 15s`);
     assertEventShape(ev!, { type: "email.review_rejected", agentId: email, messageId: heldId });
-    assert.equal(ev!.data.rejection_reason, reason, "payload echoes the rejection reason");
+    // The event-data "why" field is `reason` (unified across events in #451,
+    // renamed from `rejection_reason`). The RejectResultView response still
+    // exposes `rejection_reason`; only the event payload was renamed.
+    assert.equal(ev!.data.reason, reason, "payload echoes the rejection reason");
 
     const fanout = await pollEventFanout(ev!.id);
     assert.ok(fanout, `event ${ev!.id} must fan out (matched_webhooks>=1) within 15s`);
