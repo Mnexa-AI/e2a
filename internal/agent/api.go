@@ -1703,12 +1703,27 @@ func validateDomain(domain string) (string, error) {
 	if domain == "" {
 		return "", errors.New("domain is required")
 	}
+	// Reject IP literals outright: every all-numeric label is valid
+	// IDNA, so "192.168.1.1" would otherwise parse as four legal
+	// labels and register as a "domain" — burning quota on a name
+	// that can never carry the MX/TXT/DKIM records we provision and
+	// can never verify. Check the raw input (catches IPv4, IPv6, and
+	// bracketed IPv6 before IDNA rejects the colons with a more
+	// confusing error) and, below, the IDNA-normalized form (catches
+	// Unicode digit forms like "１０.０.０.５" that only become an IP
+	// literal after mapping).
+	if isIPLiteral(domain) {
+		return "", errors.New("invalid domain: IP address is not a registrable domain")
+	}
 	if !strings.Contains(domain, ".") {
 		return "", errors.New("domain must contain at least one period")
 	}
 	ascii, err := idna.Lookup.ToASCII(domain)
 	if err != nil {
 		return "", fmt.Errorf("invalid domain: %w", err)
+	}
+	if isIPLiteral(ascii) {
+		return "", errors.New("invalid domain: IP address is not a registrable domain")
 	}
 	// IDNA's VerifyDNSLength option only enforces the 253-char total
 	// length; the 63-char per-label DNS limit (RFC 1035) is not
@@ -1723,6 +1738,15 @@ func validateDomain(domain string) (string, error) {
 		}
 	}
 	return ascii, nil
+}
+
+// isIPLiteral reports whether s is a bare IP literal (IPv4 or IPv6),
+// including the bracketed IPv6 form used in URLs/SMTP address literals.
+func isIPLiteral(s string) bool {
+	if len(s) >= 2 && s[0] == '[' && s[len(s)-1] == ']' {
+		s = s[1 : len(s)-1]
+	}
+	return net.ParseIP(s) != nil
 }
 
 // clientIP keys the per-IP limiters on the same trusted source as the
