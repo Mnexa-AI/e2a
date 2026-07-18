@@ -70,6 +70,7 @@ func TestValidateDomain(t *testing.T) {
 		// Valid
 		{"plain ASCII", "example.com", false, "example.com"},
 		{"subdomain", "agents.example.com", false, "agents.example.com"},
+		{"multi-level public suffix", "sub.example.co.uk", false, "sub.example.co.uk"},
 		{"with hyphen", "my-domain.example.com", false, "my-domain.example.com"},
 		{"IDN normalizes to Punycode", "пример.рф", false, "xn--e1afmkfd.xn--p1ai"},
 		// Invalid — what today's prod was accepting before the fix
@@ -81,6 +82,19 @@ func TestValidateDomain(t *testing.T) {
 		{"control char", "exa\x00mple.com", true, ""},
 		// Length bounds — IDNA enforces 63-char label and 253-char total
 		{"label exceeds 63 chars", strings.Repeat("a", 64) + ".com", true, ""},
+		// IP literals are not registrable domains (B3): all-numeric
+		// labels are valid IDNA, so without an explicit check a bare
+		// IPv4 address sails through and registers with a nonsensical
+		// wildcard-MX/DKIM record set, burning domain quota on a name
+		// that can never verify.
+		{"IPv4 literal — private", "10.0.0.5", true, ""},
+		{"IPv4 literal — the bug repro", "192.168.1.1", true, ""},
+		{"IPv4 literal — broadcast", "255.255.255.255", true, ""},
+		{"IPv6 literal — loopback", "::1", true, ""},
+		{"IPv6 literal — doc range", "2001:db8::1", true, ""},
+		{"IPv6 literal — bracketed", "[2001:db8::1]", true, ""},
+		{"IPv4-mapped IPv6 literal", "::ffff:192.168.1.1", true, ""},
+		{"full-width-digit IPv4 — normalizes to an IP", "１９２.１６８.１.１", true, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
