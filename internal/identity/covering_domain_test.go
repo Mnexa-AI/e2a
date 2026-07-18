@@ -2,6 +2,7 @@ package identity_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -83,9 +84,7 @@ func TestLookupCoveringDomain_LabelBoundaryRejection(t *testing.T) {
 	}
 }
 
-// TestLookupCoveringDomain_UnverifiedParentDoesNotCover: an unverified parent
-// grants nothing — the SES identity it would sign under is not proven.
-func TestLookupCoveringDomain_UnverifiedParentDoesNotCover(t *testing.T) {
+func TestLookupCoveringDomain_ReturnsUnverifiedParentForCallerToGate(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -99,16 +98,17 @@ func TestLookupCoveringDomain_UnverifiedParentDoesNotCover(t *testing.T) {
 	}
 	// Intentionally NOT verified.
 
-	if _, err := store.LookupCoveringDomain(ctx, "acme.team.mnexa.ai", user.ID); err == nil {
-		t.Fatalf("unverified parent must not cover a subdomain")
+	got, err := store.LookupCoveringDomain(ctx, "acme.team.mnexa.ai", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Domain != "team.mnexa.ai" || got.Verified {
+		t.Fatalf("got domain=%q verified=%v, want pending parent", got.Domain, got.Verified)
 	}
 }
 
-// TestLookupCoveringDomain_CrossTenantIntrusionRejected is the QA F1 regression:
-// user A owns+verified the GRANDPARENT (mnexa.ai); user B owns+verified a
-// MORE-SPECIFIC name (team.mnexa.ai) inside it. A must NOT be able to cover
-// team.mnexa.ai or acme.team.mnexa.ai via its grandparent — that would plant A
-// inside B's verified namespace. B, the rightful owner, still resolves.
+// Namespace claims reject the conflicting registration before lookup can ever
+// observe split ownership.
 func TestLookupCoveringDomain_CrossTenantIntrusionRejected(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -122,43 +122,21 @@ func TestLookupCoveringDomain_CrossTenantIntrusionRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOrGetUser B: %v", err)
 	}
-	// A owns+verifies the grandparent; B owns+verifies the more-specific parent.
+	// A owns+verifies the grandparent; B cannot claim inside it.
 	if _, err := store.ClaimOrCreateDomain(ctx, "mnexa.ai", a.ID); err != nil {
 		t.Fatalf("claim mnexa.ai: %v", err)
 	}
 	if err := store.VerifyDomain(ctx, "mnexa.ai", a.ID); err != nil {
 		t.Fatalf("verify mnexa.ai: %v", err)
 	}
-	if _, err := store.ClaimOrCreateDomain(ctx, "team.mnexa.ai", b.ID); err != nil {
-		t.Fatalf("claim team.mnexa.ai: %v", err)
-	}
-	if err := store.VerifyDomain(ctx, "team.mnexa.ai", b.ID); err != nil {
-		t.Fatalf("verify team.mnexa.ai: %v", err)
-	}
-
-	// A: both the exact parent and a child under it are refused (would intrude).
-	if got, err := store.LookupCoveringDomain(ctx, "team.mnexa.ai", a.ID); err == nil {
-		t.Fatalf("F1: A must not cover team.mnexa.ai (owned by B); got %q", got.Domain)
-	}
-	if got, err := store.LookupCoveringDomain(ctx, "acme.team.mnexa.ai", a.ID); err == nil {
-		t.Fatalf("F1: A must not cover acme.team.mnexa.ai inside B's namespace; got %q", got.Domain)
-	}
-
-	// B, the rightful owner, still resolves the child to its own parent.
-	got, err := store.LookupCoveringDomain(ctx, "acme.team.mnexa.ai", b.ID)
-	if err != nil {
-		t.Fatalf("F1: B (rightful owner) must still cover acme.team.mnexa.ai: %v", err)
-	}
-	if got.Domain != "team.mnexa.ai" {
-		t.Fatalf("B covering = %q, want team.mnexa.ai", got.Domain)
+	if _, err := store.ClaimOrCreateDomain(ctx, "team.mnexa.ai", b.ID); !errors.Is(err, identity.ErrDomainTaken) {
+		t.Fatalf("cross-account child claim must fail with ErrDomainTaken, got %v", err)
 	}
 }
 
-// TestLookupCoveringDomain_SameUserIntermediateStillCovers proves the F1 guard
-// is scoped to DIFFERENT-user ownership: a same-user intermediate (even
-// unverified) does NOT block the grandparent from covering, and the legitimate
-// single-owner case still works.
-func TestLookupCoveringDomain_SameUserIntermediateStillCovers(t *testing.T) {
+// An explicitly registered child is authoritative for its subtree immediately;
+// a verified grandparent cannot mask the child's pending verification state.
+func TestLookupCoveringDomain_MostSpecificOwnedParentWinsEvenWhenUnverified(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -173,19 +151,17 @@ func TestLookupCoveringDomain_SameUserIntermediateStillCovers(t *testing.T) {
 	if err := store.VerifyDomain(ctx, "mnexa.ai", a.ID); err != nil {
 		t.Fatalf("verify grandparent: %v", err)
 	}
-	// A also holds the intermediate, UNVERIFIED — same user, so it must not block.
+	// A also holds the intermediate, UNVERIFIED.
 	if _, err := store.ClaimOrCreateDomain(ctx, "team.mnexa.ai", a.ID); err != nil {
 		t.Fatalf("claim intermediate: %v", err)
 	}
 
 	got, err := store.LookupCoveringDomain(ctx, "acme.team.mnexa.ai", a.ID)
 	if err != nil {
-		t.Fatalf("same-user intermediate must not block grandparent cover: %v", err)
+		t.Fatalf("lookup most-specific owned parent: %v", err)
 	}
-	// Most-specific VERIFIED owned ancestor is the grandparent (intermediate is
-	// unverified), so the bind is to mnexa.ai.
-	if got.Domain != "mnexa.ai" {
-		t.Fatalf("covering = %q, want mnexa.ai (verified grandparent)", got.Domain)
+	if got.Domain != "team.mnexa.ai" || got.Verified {
+		t.Fatalf("covering = %q verified=%v, want pending team.mnexa.ai", got.Domain, got.Verified)
 	}
 
 	// And the plain single-owner case still works (no other owner anywhere).
@@ -198,9 +174,7 @@ func TestLookupCoveringDomain_SameUserIntermediateStillCovers(t *testing.T) {
 	}
 }
 
-// TestLookupCoveringDomain_ExactNameOwnedByOtherNotCoverable (QA test 2): an
-// EXACT name owned by another user is not coverable by the requester's parent,
-// even when no intermediate exists — the address domain X itself is checked.
+// Exact child claims are rejected when another account owns the parent.
 func TestLookupCoveringDomain_ExactNameOwnedByOtherNotCoverable(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -215,12 +189,8 @@ func TestLookupCoveringDomain_ExactNameOwnedByOtherNotCoverable(t *testing.T) {
 	if err := store.VerifyDomain(ctx, "mnexa.ai", a.ID); err != nil {
 		t.Fatalf("verify parent: %v", err)
 	}
-	if _, err := store.ClaimOrCreateDomain(ctx, "bot.mnexa.ai", b.ID); err != nil {
-		t.Fatalf("claim exact child (B): %v", err)
-	}
-
-	if got, err := store.LookupCoveringDomain(ctx, "bot.mnexa.ai", a.ID); err == nil {
-		t.Fatalf("F1: A must not cover bot.mnexa.ai (exact name owned by B); got %q", got.Domain)
+	if _, err := store.ClaimOrCreateDomain(ctx, "bot.mnexa.ai", b.ID); !errors.Is(err, identity.ErrDomainTaken) {
+		t.Fatalf("claim exact child: want ErrDomainTaken, got %v", err)
 	}
 }
 

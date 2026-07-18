@@ -268,6 +268,20 @@ func TestCreateAgentExactUnverifiedNotMaskedByParent(t *testing.T) {
 	}
 }
 
+func TestCreateAgentUnverifiedIntermediateNotMaskedByGrandparent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return &identity.Domain{Domain: "team.mnexa.ai", Verified: false}, nil
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@acme.team.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_verified" {
+		t.Fatalf("pending intermediate must be authoritative, got %d %v", code, body)
+	}
+}
+
 // Two-way inbox invariant: a subdomain authorized by its parent is not created
 // until its exact address domain routes inbound mail to the relay.
 func TestCreateAgentSubdomainBlocksWhenNoMXCoverage(t *testing.T) {

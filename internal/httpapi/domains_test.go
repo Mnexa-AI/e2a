@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/tokencanopy/e2a/internal/identity"
 )
 
 func TestListDomains(t *testing.T) {
@@ -73,6 +76,18 @@ func TestRegisterDomainReserved(t *testing.T) {
 	srv := testServer(t)
 	// SharedDomain is "agents.e2a.dev" in the test server.
 	code, body := postJSON(t, srv.URL+"/v1/domains", "good", map[string]any{"domain": "agents.e2a.dev"})
+	if code != 400 || errCode(body) != "reserved_domain" {
+		t.Fatalf("want 400 reserved_domain, got %d %v", code, body)
+	}
+}
+
+func TestRegisterDomainReservedMailFromSubtree(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.ClaimDomain = func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
+			return nil, identity.ErrReservedDomain
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/domains", "good", map[string]any{"domain": "bounce.acme.com"})
 	if code != 400 || errCode(body) != "reserved_domain" {
 		t.Fatalf("want 400 reserved_domain, got %d %v", code, body)
 	}

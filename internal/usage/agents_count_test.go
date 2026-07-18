@@ -49,7 +49,7 @@ func TestCountAgentsByUser_ExcludesOrphanedAgents(t *testing.T) {
 	}
 
 	// Orphan the second agent by deleting its domain row. The
-	// agent_identities.domain FK is ON DELETE NO ACTION, so a normal delete is
+	// agent_identities.registered_domain FK is ON DELETE NO ACTION, so a normal delete is
 	// blocked; disable replication-role triggers on a single pinned connection
 	// to force the orphaned state this test exists to reproduce.
 	conn, err := pool.Acquire(ctx)
@@ -94,7 +94,7 @@ func TestCountAgentsByUser_ExcludesOrphanedAgents(t *testing.T) {
 
 // TestCountAgentsByUser_CountsSubdomainAgent proves the association decision
 // for subdomain agents: the agent is stored under its VERIFIED PARENT domain
-// (agent_identities.domain = "team.mnexa.ai") while keeping its full subdomain
+// (agent_identities.registered_domain = "team.mnexa.ai") while keeping its full subdomain
 // address ("otto@acme.team.mnexa.ai"). Because the stored domain has a real
 // domains row, the CountAgentsByUser JOIN resolves and the subdomain agent is
 // counted against max_agents — it does not slip past the quota. This mirrors

@@ -343,6 +343,9 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 			if parent == nil {
 				return nil, NewError(http.StatusBadRequest, "domain_not_registered", "register and verify your domain first")
 			}
+			if !parent.Verified {
+				return nil, NewError(http.StatusBadRequest, "domain_not_verified", "verify your most-specific registered parent domain first")
+			}
 			domain = parent.Domain // bind the agent to the verified parent identity
 			viaParent = true
 		}

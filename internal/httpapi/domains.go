@@ -414,6 +414,9 @@ func (s *Server) handleRegisterDomain(ctx context.Context, in *registerDomainInp
 	}
 	d, err := s.deps.ClaimDomain(ctx, normalized, user.ID)
 	if err != nil {
+		if errors.Is(err, identity.ErrReservedDomain) {
+			return nil, NewError(http.StatusBadRequest, "reserved_domain", "reserved domain")
+		}
 		if errors.Is(err, identity.ErrDomainTaken) {
 			return nil, NewError(http.StatusConflict, "domain_taken", "domain is already claimed by another account")
 		}

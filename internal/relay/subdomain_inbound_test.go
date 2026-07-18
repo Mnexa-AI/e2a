@@ -21,7 +21,7 @@ import (
 //
 //	(a) mail to a subdomain agent (otto@acme.team.mnexa.ai) whose PARENT domain
 //	    (team.mnexa.ai) is verified is ACCEPTED and resolves to that agent —
-//	    the agent stores the parent in agent_identities.domain, so the RCPT
+//	    the agent stores the parent in agent_identities.registered_domain, so the RCPT
 //	    gate's DomainVerified read (which joins to the parent's domains row) is
 //	    true, and resolveAgent matches on the full subdomain address (the PK).
 //	(b) mail to a subdomain with no matching agent is cleanly REJECTED as

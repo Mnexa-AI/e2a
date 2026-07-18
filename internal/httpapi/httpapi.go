@@ -71,8 +71,9 @@ type AgentCreator func(ctx context.Context, email, domain, name, webhookURL, age
 type DomainLookup func(ctx context.Context, domain, userID string) (*identity.Domain, error)
 
 // CoveringDomainLookup mirrors store.LookupCoveringDomain(sub, userID): the
-// create-time fallback that finds the most-specific VERIFIED parent domain the
-// user owns which covers an agent's subdomain (label-boundary match). Nil is
+// create-time fallback that finds the most-specific registered parent domain
+// the user owns which covers an agent's subdomain (label-boundary match). The
+// caller checks its Verified state so a pending child cannot be masked. Nil is
 // tolerated (feature disabled ⇒ exact-match-only behavior).
 type CoveringDomainLookup func(ctx context.Context, sub, userID string) (*identity.Domain, error)
 
