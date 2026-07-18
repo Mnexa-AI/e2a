@@ -40,9 +40,9 @@ MCP tool surface), see:
   hand-rolled clients must do it themselves.
 - **Pagination.** List endpoints return `{ items, next_cursor }`; pass
   `next_cursor` back as `?cursor=…` to page forward. The SDKs auto-page.
-- **Idempotency.** Six mutating operations honor an opt-in `Idempotency-Key`
+- **Idempotency.** Seven mutating operations honor an opt-in `Idempotency-Key`
   header: `sendMessage`, `replyToMessage`, `forwardMessage`, `approveReview`,
-  `rotateWebhookSecret`, and `createApiKey`. Semantics:
+  `createWebhook`, `rotateWebhookSecret`, and `createApiKey`. Semantics:
   - **Replay.** A retry with the same key and a **byte-identical** body replays
     the first request's response instead of re-executing the side effect (the
     dedup hash covers the route + the raw body bytes, so the same key on a
