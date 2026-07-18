@@ -87,6 +87,16 @@ func (s *Server) idempotencyReuseResponse() *huma.Response {
 		"Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body.")
 }
 
+// replyForwardConflictResponse is the declared 409 for reply/forward. They honor
+// Idempotency-Key like /send, so idempotency_in_flight applies — but they alone
+// also resolve a PARENT message, which adds message_not_yet_delivered. Both are
+// retry-able and render the same envelope, so the two codes share one declared
+// 409; a client branches on error.code.
+func (s *Server) replyForwardConflictResponse() *huma.Response {
+	return s.jsonResponse(reflect.TypeOf(ErrorEnvelope{}), "ErrorEnvelope",
+		"Conflict — branch on error.code; both codes are retry-able. idempotency_in_flight: a request with this Idempotency-Key is still executing — wait for the first request to finish, then retry with the SAME key and byte-identical body to replay its response. message_not_yet_delivered: the referenced message is one this agent sent that is still queued for provider submission. A reply cannot thread until the provider assigns the source a Message-ID; a forward requires the source message to have actually been sent. Retry once it reaches status=sent (poll GET /v1/messages/{id} or await the email.sent event), or send the original with wait=sent so it is terminal before you reply to or forward it.")
+}
+
 const composedMessageCeilingDoc = "Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large."
 
 // outboundPayloadTooLargeResponse documents both independent outbound size
@@ -281,19 +291,19 @@ func (s *Server) registerOutbound() {
 	huma.Register(s.API, huma.Operation{
 		OperationID: "replyToMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/reply",
 		Summary: "Reply to a message", Tags: []string{"messages"},
-		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). " + composedMessageCeilingDoc,
+		Description:  "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Replying to a message this agent sent that has not been submitted to the provider yet returns 409 message_not_yet_delivered — it has no Message-ID to thread onto; retry once it is sent, or use wait=sent on the original send. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). " + composedMessageCeilingDoc,
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "409": s.idempotencyInFlightResponse(), "413": s.outboundPayloadTooLargeResponse(), "422": s.idempotencyReuseResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "409": s.replyForwardConflictResponse(), "413": s.outboundPayloadTooLargeResponse(), "422": s.idempotencyReuseResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleReply)
 
 	huma.Register(s.API, huma.Operation{
 		OperationID: "forwardMessage", Method: http.MethodPost, Path: "/v1/agents/{email}/messages/{id}/forward",
 		Summary: "Forward a message", Tags: []string{"messages"},
-		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). " + composedMessageCeilingDoc,
+		Description:  "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Forwarding a message this agent sent that has not been submitted to the provider yet returns 409 message_not_yet_delivered — a forward requires the source message to have actually been sent; retry once it is sent, or use wait=sent on the original send. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). " + composedMessageCeilingDoc,
 		Security:     []map[string][]string{{"bearer": {}}},
 		MaxBodyBytes: maxOutboundBytes,
-		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "409": s.idempotencyInFlightResponse(), "413": s.outboundPayloadTooLargeResponse(), "422": s.idempotencyReuseResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
+		Responses:    map[string]*huma.Response{"202": accepted202(), "400": badRequest400(), "402": s.limitExceededResponse(), "409": s.replyForwardConflictResponse(), "413": s.outboundPayloadTooLargeResponse(), "422": s.idempotencyReuseResponse(), "429": s.rateLimitedResponse(), "default": s.errorEnvelopeResponse()},
 	}, s.handleForward)
 
 	huma.Register(s.API, huma.Operation{
@@ -383,7 +393,54 @@ func (s *Server) loadRepliableMessage(ctx context.Context, address, msgID string
 	if err != nil || msg == nil || msg.AgentID != ag.ID {
 		return nil, nil, nil, NewError(http.StatusNotFound, "not_found", "message not found")
 	}
+	if env := parentNotYetSubmitted(msg); env != nil {
+		return nil, nil, nil, env
+	}
 	return ag, msg, user, nil
+}
+
+// parentNotYetSubmitted returns a retriable 409 when the reply/forward target is
+// the agent's own outbound message that is still queued for external submission.
+//
+// Threading is composed ONCE, at accept time, off the parent's RFC 5322
+// Message-ID (identity.Message.ThreadMessageID). For an outbound parent that id
+// is provider_message_id — which the send worker only records when it submits to
+// SES (MarkOutboundSentTx). Reply to such a parent inside that window and
+// ThreadMessageID() returns "", so the reply's In-Reply-To/References are
+// omitted from its raw bytes PERMANENTLY and the recipient's client forks a new
+// thread. The window is normally sub-second but widens to the retry horizon
+// during a provider outage, so failing closed with a retriable conflict beats
+// silently forking the thread.
+//
+// Each clause is load-bearing; together they say "queued for external
+// submission, not yet submitted":
+//
+//   - direction == outbound — only an outbound parent threads off
+//     provider_message_id. Inbound parents anchor on email_message_id, which is
+//     written at intake and never empty-then-filled, so they can't hit this.
+//   - method != loopback — a self-send's outbound copy is delivered locally and
+//     terminally by performSelfSend (internal/agent/selfsend.go), which commits
+//     it with delivery_status='sent' and a synthetic loopback provider id. It is
+//     never awaiting external submission, so replying to it must not 409. It is
+//     already excluded by both clauses below; this states the intent explicitly
+//     rather than relying on that overlap.
+//   - provider_message_id == "" — the exact condition that makes
+//     ThreadMessageID() return "". Once populated, threading resolves and the
+//     reply is unaffected.
+//   - delivery_status in (accepted, sending) — the row is genuinely still in
+//     flight. This is what keeps the guard from firing on a TERMINAL send that
+//     never got a provider id (delivery_status='failed', e.g. SES rejected the
+//     submit): that parent will never gain one, so a retry cannot clear the
+//     condition and a 409 would strand the caller forever.
+func parentNotYetSubmitted(msg *identity.Message) *ErrorEnvelope {
+	if msg.Direction != "outbound" || msg.Method == "loopback" || msg.ProviderMessageID != "" {
+		return nil
+	}
+	if msg.DeliveryStatus != "accepted" && msg.DeliveryStatus != "sending" {
+		return nil
+	}
+	return NewError(http.StatusConflict, "message_not_yet_delivered",
+		"referenced message not yet delivered — retry after it is sent, or use wait=sent on the original send")
 }
 
 func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, error) {

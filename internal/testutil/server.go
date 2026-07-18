@@ -44,6 +44,7 @@ type testServerOpts struct {
 	outboundSMTPPort            int
 	outboundSMTPFromDomain      string
 	outboundSMTPMessageIDDomain string
+	manualJobs                  bool
 }
 
 type TestServerOption func(*testServerOpts)
@@ -71,6 +72,18 @@ func WithOutboundSMTPMessageIDDomain(domain string) TestServerOption {
 	}
 }
 
+// WithManualJobs builds the shared River client but does NOT start it, so no
+// queue is worked until the test calls StartJobs. Enqueue still works (an
+// InsertTx is just a row), so an accepted send durably lands its outbound_send
+// job and then SITS there — which is how a test pins the accept→submit window
+// (delivery_status='accepted', provider_message_id still empty) with no sleeps
+// and no race: an unstarted client has no producers, so the worker CANNOT run.
+// Default (unset) keeps the production-shaped behavior every other test relies
+// on: the client is started and drains the queue on its own.
+func WithManualJobs() TestServerOption {
+	return func(o *testServerOpts) { o.manualJobs = true }
+}
+
 type E2ATestServer struct {
 	HTTPServer *httptest.Server
 	SMTPAddr   string
@@ -91,6 +104,28 @@ type E2ATestServer struct {
 	pool          *pgxpool.Pool
 	outboxWorker  *webhookpub.OutboxWorker
 	deliverWorker *webhookdelivery.DeliverWorker
+
+	// jobsClient is the shared River client. jobsStarted tracks whether it is
+	// running so StartJobs is idempotent and cleanup only stops a started
+	// client (see WithManualJobs).
+	jobsClient  *jobs.Client
+	jobsStarted bool
+}
+
+// StartJobs starts the shared River client for a server built with
+// WithManualJobs, releasing every queued job to its worker. Idempotent, and a
+// no-op on a server whose client is already running. Pair it with a bounded
+// poll on the state the worker produces (e.g. provider_message_id becoming
+// non-empty) rather than a sleep.
+func (ts *E2ATestServer) StartJobs(t *testing.T, ctx context.Context) {
+	t.Helper()
+	if ts.jobsStarted {
+		return
+	}
+	if err := ts.jobsClient.Start(ctx); err != nil {
+		t.Fatalf("start River client: %v", err)
+	}
+	ts.jobsStarted = true
 }
 
 // DrainAndDeliver runs the outbox drain (webhook_events →
@@ -183,8 +218,11 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		t.Fatalf("build River client: %v", err)
 	}
 	outboundJobs.SetEnqueuer(jobsClient)
-	if err := jobsClient.Start(context.Background()); err != nil {
-		t.Fatalf("start River client: %v", err)
+	// Deferred under WithManualJobs so the test owns when queues start draining.
+	if !o.manualJobs {
+		if err := jobsClient.Start(context.Background()); err != nil {
+			t.Fatalf("start River client: %v", err)
+		}
 	}
 	usageStore := usage.NewStore(pool)
 	// Generous caps — e2e exercises behavior, not quota enforcement.
@@ -267,13 +305,18 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		pool:            pool,
 		outboxWorker:    outboxWorker,
 		deliverWorker:   deliverWorker,
+		jobsClient:      jobsClient,
+		jobsStarted:     !o.manualJobs,
 	}
 
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := jobsClient.Stop(ctx); err != nil {
-			t.Errorf("stop River client: %v", err)
+		// Stop only a started client — Stop on one that never started errors.
+		if ts.jobsStarted {
+			if err := jobsClient.Stop(ctx); err != nil {
+				t.Errorf("stop River client: %v", err)
+			}
 		}
 		httpServer.Close()
 		smtpServer.Close()
