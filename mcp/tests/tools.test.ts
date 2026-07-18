@@ -13,7 +13,7 @@ import { registerWebhookTools } from "../src/tools/webhooks.js";
 import { registerEventTools } from "../src/tools/events.js";
 import { registerTemplateTools } from "../src/tools/templates.js";
 import { registerApiKeyTools } from "../src/tools/apikeys.js";
-import { CodedError, runTool } from "../src/tools/util.js";
+import { CodedError, runTool, toMcpOutput } from "../src/tools/util.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Build a small RFC822 blob with one attachment so the MessageView's
@@ -1620,6 +1620,47 @@ describe("e2a MCP server", () => {
       delivery_meta: { created_at: "2026-07-16T00:00:00Z" },
       attachments: [{ content_type: "text/plain", size_bytes: 4 }],
     });
+  });
+
+  it("converts SDK class instances (non-plain objects) to snake_case recursively", async () => {
+    // Regression: the generated SDK's ObjectSerializer.deserialize does
+    // `new typeMap[type]()` and assigns camelCase attributes, so the values
+    // flowing through runTool are CLASS INSTANCES, not plain object literals.
+    // toMcpOutput used to gate conversion on `prototype === Object.prototype`,
+    // silently passing every SDK model through with camelCase keys — breaking
+    // the frozen snake_case MCP contract for every tool that forwards an SDK
+    // model verbatim.
+    class FakeDeliveryMeta {
+      createdAt = new Date("2026-07-16T00:00:00Z");
+      readStatus = "read";
+    }
+    class FakeAttachment {
+      contentType = "text/plain";
+      sizeBytes = 4;
+    }
+    class FakeMessageView {
+      messageId = "msg_1";
+      conversationId = null;
+      domainVerified = true;
+      deliveryMeta = new FakeDeliveryMeta();
+      attachments = [new FakeAttachment()];
+    }
+
+    const res = await runTool(async () => new FakeMessageView());
+    expect(JSON.parse(res.content[0]!.text)).toEqual({
+      message_id: "msg_1",
+      conversation_id: null,
+      domain_verified: true,
+      // Date instances must survive as timestamps, not be flattened to {}.
+      delivery_meta: { created_at: "2026-07-16T00:00:00.000Z", read_status: "read" },
+      attachments: [{ content_type: "text/plain", size_bytes: 4 }],
+    });
+
+    // Top-level arrays of class instances (list endpoints) convert too.
+    class FakeAgentView {
+      createdAt = "2026-06-01T00:00:00Z";
+    }
+    expect(toMcpOutput([new FakeAgentView()])).toEqual([{ created_at: "2026-06-01T00:00:00Z" }]);
   });
 
   // ── Templates (beta) ────────────────────────────────────────────
