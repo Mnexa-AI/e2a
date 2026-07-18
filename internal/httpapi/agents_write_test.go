@@ -2,9 +2,13 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
+
+	"github.com/tokencanopy/e2a/internal/identity"
 )
 
 func sendJSON(t *testing.T, method, url, bearer string, body any) (int, map[string]any) {
@@ -148,6 +152,101 @@ func TestCreateAgentUnregisteredDomain(t *testing.T) {
 	})
 	if code != 400 || errCode(body) != "domain_not_registered" {
 		t.Fatalf("want 400 domain_not_registered, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentSubdomainCoveredByVerifiedParent: an agent on a subdomain of a
+// verified parent domain is created and BOUND to the parent domain (which drives
+// DKIM signing, sending status, and quota), while keeping its full subdomain
+// address. No exact registration for the subdomain is required.
+func TestCreateAgentSubdomainCoveredByVerifiedParent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			if sub == "acme.team.mnexa.ai" {
+				return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+			}
+			return nil, errors.New("no covering domain")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 201 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if body["email"] != "otto@acme.team.mnexa.ai" {
+		t.Fatalf("email = %v, want the full subdomain address", body["email"])
+	}
+	// The load-bearing assertion: the agent is stored under the PARENT domain
+	// so the FK, quota JOIN, DKIM signer, and sending-status lookup all resolve.
+	if body["domain"] != "team.mnexa.ai" {
+		t.Fatalf("subdomain agent must bind to verified parent domain, got %v", body["domain"])
+	}
+}
+
+// TestCreateAgentSubdomainNoCoveringParent: even with the covering lookup wired,
+// a subdomain that no verified parent covers is still rejected — the ownership
+// guard is not weakened.
+func TestCreateAgentSubdomainNoCoveringParent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return nil, errors.New("no covering domain")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@uncovered.example.org",
+	})
+	if code != 400 || errCode(body) != "domain_not_registered" {
+		t.Fatalf("want 400 domain_not_registered, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentSubdomainLabelBoundaryRejected: the handler surfaces the
+// store's label-boundary rejection (evilteam.mnexa.ai is NOT a child of the
+// registered team.mnexa.ai) as domain_not_registered. The load-bearing
+// label-matching security proof lives in identity.TestLookupCoveringDomain_
+// LabelBoundaryRejection; this pins the handler mapping.
+func TestCreateAgentSubdomainLabelBoundaryRejected(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			if sub == "acme.team.mnexa.ai" {
+				return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+			}
+			// evilteam.mnexa.ai shares a string suffix but is not a label child.
+			return nil, errors.New("no covering domain")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@evilteam.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_registered" {
+		t.Fatalf("SECURITY: evilteam.mnexa.ai must be rejected, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentExactUnverifiedNotMaskedByParent pins resolution precedence
+// (trap #3): an EXACT registered-but-unverified row wins over a verified parent
+// — the parent fallback must not mask it. The user must verify the exact domain,
+// not silently inherit the parent's identity.
+func TestCreateAgentExactUnverifiedNotMaskedByParent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupDomain = func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
+			if domain == "sub.mnexa.ai" {
+				return &identity.Domain{Domain: domain, Verified: false}, nil // exact row, unverified
+			}
+			return nil, errors.New("not registered")
+		}
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			// A verified parent EXISTS — precedence must still reject on the
+			// exact unverified row rather than fall through to this.
+			return &identity.Domain{Domain: "mnexa.ai", Verified: true}, nil
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@sub.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_verified" {
+		t.Fatalf("exact unverified row must yield domain_not_verified (not masked by parent), got %d %v", code, body)
 	}
 }
 

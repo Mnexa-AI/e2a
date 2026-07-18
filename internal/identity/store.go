@@ -22,6 +22,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/inboundpolicy"
 	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 // normalizeDomain lowercases and IDNA-normalizes a domain string.
@@ -880,6 +881,101 @@ func (s *Store) LookupDomain(ctx context.Context, domain, userID string) (*Domai
 		return nil, fmt.Errorf("domain not found")
 	}
 	return d, nil
+}
+
+// coveringParentCandidates returns the proper DNS-label ancestors of sub,
+// most-specific first, that could serve as a covering parent domain. For
+// "acme.team.mnexa.ai" it yields ["team.mnexa.ai", "mnexa.ai"] — each is an
+// exact ancestor on a label boundary, so this is the injection-safe,
+// suffix-attack-proof basis for the parent match (a naive HasSuffix would let
+// "evilteam.mnexa.ai" match "team.mnexa.ai"; here stripping the first label of
+// "evilteam.mnexa.ai" yields "mnexa.ai", never "team.mnexa.ai"). sub itself is
+// excluded (that is the exact-match case, handled by LookupDomain). Any
+// candidate that is itself a public suffix (e.g. "ai", "co.uk") is dropped:
+// no one can own+verify a public suffix, so it can never be a real parent, and
+// excluding it is defense-in-depth against a pathological registered row.
+func coveringParentCandidates(sub string) []string {
+	sub = normalizeDomain(sub)
+	var out []string
+	rest := sub
+	for {
+		i := strings.IndexByte(rest, '.')
+		if i < 0 {
+			break
+		}
+		parent := rest[i+1:]
+		rest = parent
+		if parent == "" || !strings.Contains(parent, ".") {
+			// A single-label remainder is a TLD; stop before it.
+			if parent != "" && !isPublicSuffix(parent) {
+				out = append(out, parent)
+			}
+			break
+		}
+		if isPublicSuffix(parent) {
+			continue
+		}
+		out = append(out, parent)
+	}
+	return out
+}
+
+// isPublicSuffix reports whether d is itself a public suffix (ICANN or private),
+// i.e. it has no registrable label of its own — mirrors emailauth.isPublicSuffix.
+func isPublicSuffix(d string) bool {
+	suffix, _ := publicsuffix.PublicSuffix(d)
+	return suffix == d
+}
+
+// LookupCoveringDomain returns the MOST-SPECIFIC verified domain owned by
+// userID that is a proper label-boundary parent of sub, or an error if none
+// covers it. This backs subdomain-agent creation: a verified parent SES
+// identity (e.g. team.mnexa.ai) DKIM-signs and DMARC-aligns mail from any
+// subdomain (acme.team.mnexa.ai), so e2a lets an agent be created on the
+// subdomain without a separate registration. Only VERIFIED parents qualify
+// (an unverified parent grants nothing), and the parent must be an exact
+// ancestor on a DNS label boundary — see coveringParentCandidates. The
+// returned Domain.Domain is what the caller stores in agent_identities.domain
+// so the FK, quota JOIN, DKIM signer, and sending-status lookup all resolve to
+// the parent.
+func (s *Store) LookupCoveringDomain(ctx context.Context, sub, userID string) (*Domain, error) {
+	candidates := coveringParentCandidates(sub)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no covering domain")
+	}
+	// candidates is most-specific-first; ANY() ignores order, so pick the
+	// most specific (longest, i.e. most labels) among the verified matches in
+	// Go. Scoping to user_id + verified=true is the authorization: a user can
+	// only ever match a parent they actually own and have proven.
+	rows, err := s.pool.Query(ctx,
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')
+		 FROM domains WHERE user_id = $1 AND verified = true AND domain = ANY($2)`,
+		userID, candidates,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var best *Domain
+	for rows.Next() {
+		d := &Domain{}
+		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus); err != nil {
+			return nil, err
+		}
+		// Most-specific = most DNS labels. Ties are impossible (a domain is
+		// unique in the table), so a strict '>' is deterministic.
+		if best == nil || strings.Count(d.Domain, ".") > strings.Count(best.Domain, ".") {
+			best = d
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if best == nil {
+		return nil, fmt.Errorf("no covering domain")
+	}
+	return best, nil
 }
 
 // VerifyDomain marks a domain as verified, only if owned by the given user.

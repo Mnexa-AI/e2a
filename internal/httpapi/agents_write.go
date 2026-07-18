@@ -303,16 +303,38 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	// registered to this user AND verified. This is the load-bearing
 	// authorization that an agent can only be created on a domain the
 	// caller controls.
+	//
+	// Resolution precedence (subdomain agents): an EXACT registered-domain
+	// row wins first — so an exact row that is unverified still yields
+	// domain_not_verified and is never masked by a covering parent. Only when
+	// no exact row exists do we fall back to the most-specific VERIFIED parent
+	// the user owns (label-boundary covered — see LookupCoveringDomain). AWS
+	// SES DKIM-signs and DMARC-aligns subdomain mail under the parent identity,
+	// so a subdomain agent needs no separate registration. On a parent match we
+	// rebind `domain` to the PARENT: it is what gets stored in
+	// agent_identities.domain, satisfying the FK and making the quota JOIN, the
+	// DKIM signer, and the sending-status lookup all resolve to the verified
+	// parent while the agent keeps its full subdomain address.
 	if !isShared {
 		if s.deps.LookupDomain == nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "domain lookup unavailable")
 		}
 		dom, err := s.deps.LookupDomain(ctx, domain, user.ID)
-		if err != nil {
-			return nil, NewError(http.StatusBadRequest, "domain_not_registered", "register and verify your domain first")
-		}
-		if !dom.Verified {
-			return nil, NewError(http.StatusBadRequest, "domain_not_verified", "verify your domain first")
+		if err == nil {
+			// Exact registered row exists — preserve today's behavior exactly.
+			if !dom.Verified {
+				return nil, NewError(http.StatusBadRequest, "domain_not_verified", "verify your domain first")
+			}
+		} else {
+			// No exact row: try a verified covering parent before rejecting.
+			var parent *identity.Domain
+			if s.deps.LookupCoveringDomain != nil {
+				parent, _ = s.deps.LookupCoveringDomain(ctx, domain, user.ID)
+			}
+			if parent == nil {
+				return nil, NewError(http.StatusBadRequest, "domain_not_registered", "register and verify your domain first")
+			}
+			domain = parent.Domain // bind the agent to the verified parent identity
 		}
 	}
 

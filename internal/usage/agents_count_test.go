@@ -92,6 +92,69 @@ func TestCountAgentsByUser_ExcludesOrphanedAgents(t *testing.T) {
 	}
 }
 
+// TestCountAgentsByUser_CountsSubdomainAgent proves the association decision
+// for subdomain agents: the agent is stored under its VERIFIED PARENT domain
+// (agent_identities.domain = "team.mnexa.ai") while keeping its full subdomain
+// address ("otto@acme.team.mnexa.ai"). Because the stored domain has a real
+// domains row, the CountAgentsByUser JOIN resolves and the subdomain agent is
+// counted against max_agents — it does not slip past the quota. This mirrors
+// exactly what handleCreateAgent does after resolving a covering parent.
+func TestCountAgentsByUser_CountsSubdomainAgent(t *testing.T) {
+	pool := testutil.TestDB(t)
+	usageStore := usage.NewStore(pool)
+	idStore := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, err := idStore.CreateOrGetUser(ctx, "owner@mnexa.ai", "Owner", "google-sub-count")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	// Register + verify the PARENT only — no separate subdomain registration.
+	if _, err := idStore.ClaimOrCreateDomain(ctx, "team.mnexa.ai", user.ID); err != nil {
+		t.Fatalf("ClaimOrCreateDomain: %v", err)
+	}
+	if err := idStore.VerifyDomain(ctx, "team.mnexa.ai", user.ID); err != nil {
+		t.Fatalf("VerifyDomain: %v", err)
+	}
+
+	// The covering parent the handler resolves, confirmed from the store.
+	parent, err := idStore.LookupCoveringDomain(ctx, "acme.team.mnexa.ai", user.ID)
+	if err != nil {
+		t.Fatalf("LookupCoveringDomain: %v", err)
+	}
+	// Create the subdomain agent bound to the parent domain (what the handler does).
+	sub, err := idStore.CreateAgent(ctx, "otto@acme.team.mnexa.ai", parent.Domain, "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent subdomain: %v", err)
+	}
+	if sub.EmailAddress() != "otto@acme.team.mnexa.ai" {
+		t.Fatalf("agent address = %q, want the full subdomain", sub.EmailAddress())
+	}
+	if sub.Domain != "team.mnexa.ai" {
+		t.Fatalf("agent bound domain = %q, want parent team.mnexa.ai", sub.Domain)
+	}
+	if !sub.DomainVerified {
+		t.Fatalf("subdomain agent must inherit the parent's verified state")
+	}
+
+	// The quota JOIN resolves the parent domains row, so the agent is counted.
+	count, err := usageStore.CountAgentsByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("CountAgentsByUser: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("CountAgentsByUser = %d, want 1 (subdomain agent must count against max_agents)", count)
+	}
+	// And it is visible in the list (same JOIN) — never invisible/orphaned.
+	list, err := idStore.ListAgentsByUser(ctx, user.ID, 0, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListAgentsByUser: %v", err)
+	}
+	if len(list) != 1 || list[0].EmailAddress() != "otto@acme.team.mnexa.ai" {
+		t.Errorf("subdomain agent must appear in the agent list, got %+v", list)
+	}
+}
+
 // TestCountAgentsByUser_ExcludesTrashedAgents mirrors migration 063's trash
 // exclusion: a soft-deleted agent is invisible to ListAgentsByUser, so it
 // must neither show up as usage nor consume a max_agents slot — the user can
