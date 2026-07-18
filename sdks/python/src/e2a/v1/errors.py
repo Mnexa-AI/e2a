@@ -127,7 +127,7 @@ class E2ARateLimitError(E2AError):
 
 
 class E2AServerError(E2AError):
-    """5xx / 408 — server-side or timeout."""
+    """5xx / 408, or a successful response that violates the API schema."""
 
 
 class E2AConnectionError(E2AError):

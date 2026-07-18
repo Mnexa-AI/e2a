@@ -19,6 +19,7 @@ from e2a.v1.errors import (
     E2AError,
     E2ANotFoundError,
     E2APermissionError,
+    E2AServerError,
     E2AValidationError,
 )
 from e2a.v1.webhook_signature import WebhookEvent
@@ -578,6 +579,28 @@ async def test_messages_list_threads_cursor(httpx_mock):
     reqs = httpx_mock.get_requests()
     assert len(reqs) == 2
     assert "cursor=cur_2" in str(reqs[1].url)
+
+
+@pytest.mark.anyio
+async def test_malformed_success_response_is_typed_server_error(httpx_mock):
+    httpx_mock.add_response(
+        status_code=200,
+        headers={"X-Request-Id": "req_bad_response"},
+        json={},
+    )
+
+    async with _client() as c:
+        with pytest.raises(E2AServerError) as ei:
+            await c.messages.list("bot@test.dev").page()
+
+    err = ei.value
+    assert not isinstance(err, E2AValidationError)
+    assert err.code == "invalid_response"
+    assert err.status == 200
+    assert err.request_id == "req_bad_response"
+    assert err.retryable is False
+    assert "items" in str(err.details)
+    assert isinstance(err.__cause__, ValidationError)
 
 
 @pytest.mark.anyio
