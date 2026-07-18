@@ -45,10 +45,11 @@ async function loopbackMessage(email: string, subject: string): Promise<{ id: st
   });
   for (let i = 0; i < 12; i++) {
     const list = await client.get<{
-      items: Array<{ message_id: string; subject: string; conversation_id: string }>;
+      items: Array<{ id: string; subject: string; conversation_id: string }>;
     }>(`/v1/agents/${encodeURIComponent(email)}/messages`, { query: { direction: "inbound", limit: 20 } });
     const m = list.body?.items?.find((x) => x.subject === subject);
-    if (m) return { id: m.message_id, conversationId: m.conversation_id };
+    // MessageSummaryView's id field is `id` (not `message_id`).
+    if (m) return { id: m.id, conversationId: m.conversation_id };
     await sleep(1500);
   }
   throw new Error(`loopback message "${subject}" never appeared for ${email}`);

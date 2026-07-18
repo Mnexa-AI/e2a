@@ -71,8 +71,11 @@ test("billing: usage.agents counts roughly match the actual /agents list", async
     info(SUITE, "usage-skip", `limits unavailable (${limits.status}), skipping usage-vs-list check`);
     return;
   }
-  const agents = await client.get<{ agents: unknown[] }>("/v1/agents");
-  const actual = agents.body?.agents?.length ?? 0;
+  // /v1/agents returns the standard PageAgentView { items, next_cursor } (GA
+  // PR #240 replaced the bespoke { agents: [] } wrapper). limit covers the
+  // whole account in one page so this compares against the full usage.agents count.
+  const agents = await client.get<{ items: unknown[] }>("/v1/agents", { query: { limit: 100 } });
+  const actual = agents.body?.items?.length ?? 0;
   const reported = limits.body.usage.agents!;
   const drift = Math.abs(reported - actual);
   // ±1 is benign timing under 1 RPS concurrent creates (the two HTTP calls

@@ -537,7 +537,8 @@ test("events: redeliverEvent re-queues a delivery for the event; a new attempt a
     // Single-webhook replay: RedeliverView carries event_id + status + top-level
     // delivery_id + webhook_id (probed status "pending"). requestBody is required.
     const rd = await client.post<RedeliverView>(`/v1/events/${ev!.id}/redeliver`, { body: { webhook_id: hook.id } });
-    assert.equal(rd.status, 200, `redeliver expected 200, got ${rd.status}: ${rd.raw.slice(0, 200)}`);
+    // Redeliver re-queues asynchronously → 202 Accepted (status "pending").
+    assert.equal(rd.status, 202, `redeliver expected 202 accepted, got ${rd.status}: ${rd.raw.slice(0, 200)}`);
     assert.equal(rd.body?.event_id, ev!.id, "RedeliverView echoes the event id");
     assert.ok(typeof rd.body?.status === "string" && rd.body.status.length > 0, "RedeliverView has a status");
     // Collect the new delivery id(s) from either the single or bulk shape.
