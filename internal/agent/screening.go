@@ -57,6 +57,9 @@ func recipientGate(agent *identity.AgentIdentity, req outbound.SendRequest) (fla
 			}
 		}
 	case identity.OutboundPolicyDomain:
+		// Address semantics are exact: an inherited subdomain agent compares
+		// recipients with the domain in its own email, not the registered parent
+		// used for DKIM and sending state.
 		for _, r := range allRecipients(req) {
 			if !strings.EqualFold(domainOf(r), agent.Domain) {
 				return true, r

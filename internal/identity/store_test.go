@@ -886,18 +886,32 @@ func TestIsSharedDomain(t *testing.T) {
 
 func TestActualDomain(t *testing.T) {
 	tests := []struct {
-		domain string
-		want   string
+		id               string
+		domain           string
+		registeredDomain string
+		want             string
 	}{
-		{"example.com", "example.com"},
-		{"agents.e2a.dev", "agents.e2a.dev"},
-		{"", ""},
+		{"bot@example.com", "example.com", "example.com", "example.com"},
+		{"otto@acme.example.com", "acme.example.com", "example.com", "acme.example.com"},
+		{"my-bot@agents.e2a.dev", "agents.e2a.dev", "agents.e2a.dev", "agents.e2a.dev"},
+		{"", "", "", ""},
 	}
 	for _, tt := range tests {
-		a := &identity.AgentIdentity{Domain: tt.domain}
+		a := &identity.AgentIdentity{ID: tt.id, Domain: tt.domain, RegisteredDomain: tt.registeredDomain}
 		if got := a.ActualDomain(); got != tt.want {
-			t.Errorf("ActualDomain(%q) = %q, want %q", tt.domain, got, tt.want)
+			t.Errorf("ActualDomain(%q) = %q, want %q", tt.id, got, tt.want)
 		}
+	}
+}
+
+func TestRegisteredDomainName(t *testing.T) {
+	a := &identity.AgentIdentity{
+		ID:               "otto@acme.example.com",
+		Domain:           "acme.example.com",
+		RegisteredDomain: "example.com",
+	}
+	if got := a.RegisteredDomainName(); got != "example.com" {
+		t.Fatalf("RegisteredDomainName() = %q, want example.com", got)
 	}
 }
 

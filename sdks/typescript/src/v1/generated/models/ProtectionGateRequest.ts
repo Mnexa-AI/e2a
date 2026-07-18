@@ -22,7 +22,7 @@ export class ProtectionGateRequest {
     */
     'allowlist'?: Array<string>;
     /**
-    * Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent\'s own domain), allowlist (listed addresses).
+    * Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent\'s own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses).
     */
     'policy'?: ProtectionGateRequestPolicyEnum;
 

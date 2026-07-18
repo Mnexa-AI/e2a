@@ -111,7 +111,7 @@ func (s *Store) GetAccountClass(ctx context.Context, userID string) (AccountClas
 // CountAgentsByUser returns the number of ACTIVE agents owned by the user —
 // active meaning the agent's domain row still exists. The INNER JOIN on
 // domains mirrors identity.Store.ListAgentsByUser EXACTLY (same
-// `agent_identities a JOIN domains d ON a.domain = d.domain WHERE a.user_id`
+// `agent_identities a JOIN domains d ON a.registered_domain = d.domain WHERE a.user_id`
 // predicate), so this count is guaranteed to equal the length of the
 // /v1/agents list. Without the join an orphaned agent (one whose domain row
 // is gone) would inflate the count above the list length, silently consuming
@@ -129,7 +129,7 @@ func (s *Store) CountAgentsByUser(ctx context.Context, userID string) (int, erro
 	err := s.pool.QueryRow(ctx,
 		`SELECT COUNT(*)
 		   FROM agent_identities a
-		   JOIN domains d ON a.domain = d.domain
+		   JOIN domains d ON a.registered_domain = d.domain
 		  WHERE a.user_id = $1 AND a.deleted_at IS NULL`, userID,
 	).Scan(&count)
 	return count, err

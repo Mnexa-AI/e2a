@@ -25,8 +25,8 @@ func TestDomainViewInboundStatus(t *testing.T) {
 	t.Run("verified, no key", func(t *testing.T) {
 		v := s.domainView(&identity.Domain{Domain: "acme.com", Verified: true, VerificationToken: "tok"})
 		m := byPurpose(v.DNSRecords)
-		if len(v.DNSRecords) != 2 {
-			t.Fatalf("want exactly ownership+inbound_mx, got %d: %+v", len(v.DNSRecords), v.DNSRecords)
+		if len(v.DNSRecords) != 3 {
+			t.Fatalf("want exactly ownership+inbound_mx+inbound_mx_wildcard, got %d: %+v", len(v.DNSRecords), v.DNSRecords)
 		}
 		own := m["ownership"]
 		if own.Type != "TXT" || own.Value != "tok" || own.Status != "verified" {
@@ -35,6 +35,12 @@ func TestDomainViewInboundStatus(t *testing.T) {
 		mx := m["inbound_mx"]
 		if mx.Type != "MX" || mx.Value != "mx.e2a.dev" || mx.Priority == nil || *mx.Priority != 10 || mx.Status != "verified" {
 			t.Fatalf("inbound_mx record wrong: %+v", mx)
+		}
+		// Wildcard MX is guidance, not part of parent verification. Its status
+		// must never mirror the apex and falsely claim it was probed.
+		wc := m["inbound_mx_wildcard"]
+		if wc.Type != "MX" || wc.Name != "*.acme.com" || wc.Value != "mx.e2a.dev" || wc.Priority == nil || *wc.Priority != 10 || wc.Status != "pending" {
+			t.Fatalf("inbound_mx_wildcard record wrong: %+v", wc)
 		}
 		if _, ok := m["dkim"]; ok {
 			t.Fatalf("no stored key ⇒ no dkim record: %+v", v.DNSRecords)

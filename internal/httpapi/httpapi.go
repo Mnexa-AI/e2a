@@ -70,6 +70,21 @@ type AgentCreator func(ctx context.Context, email, domain, name, webhookURL, age
 // ownership guard.
 type DomainLookup func(ctx context.Context, domain, userID string) (*identity.Domain, error)
 
+// CoveringDomainLookup mirrors store.LookupCoveringDomain(sub, userID): the
+// create-time fallback that finds the most-specific registered parent domain
+// the user owns which covers an agent's subdomain (label-boundary match). The
+// caller checks its Verified state so a pending child cannot be masked. Nil is
+// tolerated (feature disabled ⇒ exact-match-only behavior).
+type CoveringDomainLookup func(ctx context.Context, sub, userID string) (*identity.Domain, error)
+
+// MXResolver returns the effective MX hosts published for a name. Used for the
+// create-time subdomain MX gate: a single
+// lookup on the subdomain FQDN answers both the explicit-subdomain-MX and the
+// wildcard-MX-on-parent cases, because a resolver synthesizes the wildcard for
+// the queried name. Injected so unit tests mock the resolver and the httpapi
+// layer stays off the network.
+type MXResolver func(ctx context.Context, name string) ([]string, error)
+
 // AgentCreateEnforcer mirrors enforcer.CheckAgentCreate; returns a
 // limits.LimitExceededError when the per-user cap is hit.
 type AgentCreateEnforcer func(ctx context.Context, userID string) error
@@ -111,8 +126,11 @@ type Deps struct {
 	ListConversations ConversationLister
 	GetConversation   ConversationGetter
 
-	CreateAgent        AgentCreator
-	LookupDomain       DomainLookup
+	CreateAgent          AgentCreator
+	LookupDomain         DomainLookup
+	LookupCoveringDomain CoveringDomainLookup
+	// ResolveMX backs the required create-time subdomain MX gate.
+	ResolveMX          MXResolver
 	EnforceAgentCreate AgentCreateEnforcer
 	// UpdateAgentName updates an agent's display name (the only mutable field on
 	// the agent PATCH after the screening config moved to /protection).

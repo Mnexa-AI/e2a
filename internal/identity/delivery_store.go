@@ -709,7 +709,7 @@ func addSentRecipientRowsTx(ctx context.Context, tx pgx.Tx, messageID string, to
 func outboundSentInfoTx(ctx context.Context, tx pgx.Tx, m *Message) (*OutboundSentInfo, error) {
 	info := &OutboundSentInfo{Message: m}
 	if err := tx.QueryRow(ctx,
-		`SELECT user_id, domain FROM agent_identities WHERE id = $1`, m.AgentID,
+		`SELECT user_id, registered_domain FROM agent_identities WHERE id = $1`, m.AgentID,
 	).Scan(&info.UserID, &info.Domain); err != nil {
 		return nil, err
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/inboundpolicy"
 	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 // normalizeDomain lowercases and IDNA-normalizes a domain string.
@@ -96,14 +97,15 @@ type AgentIdentity struct {
 	// EmailAddress() returns it). It is never serialized: every API surface
 	// keys an agent on `email`, and the #436 rename dropped the redundant
 	// `id` from the public contract. Kept as a field for internal use only.
-	ID             string    `json:"-"`
-	Domain         string    `json:"domain"`
-	Email          string    `json:"email"`
-	Name           string    `json:"name"`
-	DomainVerified bool      `json:"domain_verified"`
-	Public         bool      `json:"public"`
-	CreatedAt      time.Time `json:"created_at"`
-	UserID         string    `json:"user_id"`
+	ID               string    `json:"-"`
+	Domain           string    `json:"domain"`
+	RegisteredDomain string    `json:"registered_domain"`
+	Email            string    `json:"email"`
+	Name             string    `json:"name"`
+	DomainVerified   bool      `json:"domain_verified"`
+	Public           bool      `json:"public"`
+	CreatedAt        time.Time `json:"created_at"`
+	UserID           string    `json:"user_id"`
 	// HITL review-queue mechanism. The producer policies hitl_enabled/hitl_mode
 	// were retired (Slice 5b/5c, columns dropped in migration 043) — outbound_policy
 	// + outbound_scan own holds now. These two knobs govern how the review queue
@@ -260,6 +262,10 @@ func ValidateHITLConfig(ttlSeconds int, expirationAction string) error {
 // populateEmail sets the Email field from the agent ID (which is the full email).
 func (a *AgentIdentity) populateEmail() {
 	a.Email = a.ID
+	a.Domain = a.ActualDomain()
+	if a.RegisteredDomain == "" {
+		a.RegisteredDomain = a.Domain
+	}
 }
 
 // IsSharedDomain returns true if the agent's domain matches the configured
@@ -267,12 +273,27 @@ func (a *AgentIdentity) populateEmail() {
 // sharedDomain is empty, the deployment has slug registration disabled
 // and no agent can be on the shared domain.
 func (a *AgentIdentity) IsSharedDomain(sharedDomain string) bool {
-	return sharedDomain != "" && a.Domain == sharedDomain
+	return sharedDomain != "" && a.ActualDomain() == sharedDomain
 }
 
-// ActualDomain returns the DNS domain for the agent.
+// ActualDomain returns the exact domain present in the agent's email address.
+// It may differ from RegisteredDomain for an inherited subdomain agent.
 func (a *AgentIdentity) ActualDomain() string {
+	if i := strings.LastIndexByte(a.ID, '@'); i >= 0 && i+1 < len(a.ID) {
+		return a.ID[i+1:]
+	}
 	return a.Domain
+}
+
+// RegisteredDomainName returns the explicitly registered domain identity that
+// authorizes this agent. It is the DNS/DKIM/sending-state and lifecycle parent.
+// The fallback preserves callers that construct exact-domain identities in
+// memory without populating RegisteredDomain.
+func (a *AgentIdentity) RegisteredDomainName() string {
+	if a.RegisteredDomain != "" {
+		return a.RegisteredDomain
+	}
+	return a.ActualDomain()
 }
 
 // EmailAddress returns the agent's email address (always the ID).
@@ -558,7 +579,7 @@ func (s *Store) EncryptLegacyDKIMKeys(ctx context.Context) (int, error) {
 
 // EnsureSharedDomain inserts a system row for the configured shared
 // mail domain so slug-based agent registration can satisfy the
-// agent_identities.domain → domains.domain foreign key. The row is
+// agent_identities.registered_domain → domains.domain foreign key. The row is
 // owned by no user (user_id = NULL) and pre-verified — it represents
 // infrastructure the operator runs, not user-claimed identity.
 //
@@ -584,18 +605,17 @@ func (s *Store) EnsureSharedDomain(ctx context.Context, domain string) error {
 	return nil
 }
 
-// ClaimOrCreateDomain implements the atomic create/claim logic from the design doc.
-// Creates if new, returns the existing row when the same user already owns
-// it (verified or not), and errors if a different user owns it. The
+// ClaimOrCreateDomain atomically claims a DNS namespace. A row reserves its
+// exact name plus every ancestor/descendant against other accounts; the same
+// account may explicitly register a child. The
 // verification_token and DKIM keypair are minted on first INSERT and remain
 // stable across re-claims — a caller that has already published the TXT
 // record on DNS (or has mail in flight signed with the DKIM key) isn't
 // silently invalidated by a second call. A different user cannot take
 // over an unverified row; that closes a squatting window where the new
 // owner could verify against a TXT record the original owner already
-// published. Callers are responsible for rejecting the configured shared
-// domain before invoking this — the store has no concept of a reserved
-// domain.
+// published. The managed bounce.<domain> subtree is reserved once an account
+// owns the parent because SES custom MAIL FROM uses that namespace.
 func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) (*Domain, error) {
 	domain = normalizeDomain(domain)
 
@@ -626,50 +646,83 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		log.Printf("[identity] dkim keygen failed for %s: %v", domain, kerr)
 	}
 
-	// Atomic upsert. The conflict branch only fires for a same-user
-	// re-claim of an unverified row, and runs as a no-op SET so
-	// RETURNING surfaces the existing row. DKIM columns and the
-	// verification_token are only written on a true INSERT, so they
-	// stay stable across re-claims — DKIM stability avoids
-	// invalidating signatures on mail in flight, and token stability
-	// means a caller who already published the TXT record on DNS
-	// isn't silently invalidated. A different-user conflict falls
-	// through to the SELECT below and returns "domain not available",
-	// preventing squatting on an unverified row whose TXT record the
-	// original owner may have already published.
-	d := &Domain{}
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO domains (domain, user_id, verified, verification_token, dkim_selector, dkim_public_key, dkim_private_key)
-		 VALUES ($1, $2, false, $3, $4, $5, $6)
-		 ON CONFLICT (domain) DO UPDATE
-		 SET user_id = domains.user_id
-		 WHERE domains.verified = false AND domains.user_id = $2
-		 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')`,
-		domain, userID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
-	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
 
-	if err == nil {
-		return d, nil
+	// Parent and child candidates share at least one lock name. Taking all
+	// suffix locks in sorted order makes the subsequent hierarchy check+insert
+	// serializable without forcing unrelated registrable domains to contend.
+	for _, name := range domainClaimLockNames(domain) {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, name); err != nil {
+			return nil, err
+		}
 	}
 
-	// No row returned — the row exists but the conflict UPDATE was
-	// skipped because either it's already verified or a different user
-	// owns it. Re-read to decide between "verified + same user → return
-	// it" and "different user → not available".
-	existing := &Domain{}
-	err = s.pool.QueryRow(ctx,
+	var crossAccountConflict bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM domains
+			 WHERE (domain = $1
+			        OR right(domain, char_length($1) + 1) = '.' || $1
+			        OR right($1, char_length(domain) + 1) = '.' || domain)
+			   AND user_id IS DISTINCT FROM $2
+		)`, domain, userID,
+	).Scan(&crossAccountConflict); err != nil {
+		return nil, err
+	}
+	if crossAccountConflict {
+		return nil, ErrDomainTaken
+	}
+
+	var reserved bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM domains
+			 WHERE user_id = $2
+			   AND ($1 = 'bounce.' || domain
+			        OR right($1, char_length(domain) + 8) = '.bounce.' || domain)
+		)`, domain, userID,
+	).Scan(&reserved); err != nil {
+		return nil, err
+	}
+	if reserved {
+		return nil, ErrReservedDomain
+	}
+
+	d := &Domain{}
+	err = tx.QueryRow(ctx,
 		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')
 		 FROM domains WHERE domain = $1`, domain,
-	).Scan(&existing.Domain, &existing.UserID, &existing.Verified, &existing.VerificationToken, &existing.CreatedAt, &existing.VerifiedAt, &existing.IsPrimary, &existing.LastCheckedAt, &existing.DKIMSelector, &existing.DKIMPublicKey, &existing.SendingStatus, &existing.SendingError, &existing.SendingDNSRecordsJSON, &existing.SendingLastCheckedAt, &existing.SendingDkimStatus, &existing.SendingMailFromStatus)
+	).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx,
+			`INSERT INTO domains (domain, user_id, verified, verification_token, dkim_selector, dkim_public_key, dkim_private_key)
+			 VALUES ($1, $2, false, $3, $4, $5, $6)
+			 RETURNING domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')`,
+			domain, userID, verificationToken, nullIfEmpty(dkimSelector), nullIfEmpty(dkimPubKey), nullIfEmptyBytes(dkimPrivKey),
+		).Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("domain lookup failed: %w", err)
+		return nil, err
 	}
 
-	if existing.UserID != nil && *existing.UserID == userID {
-		return existing, nil // verified + same user
+	// A pending child reserves its namespace immediately, but inherited agents
+	// remain bound to their verified ancestor so registration alone cannot take
+	// working inboxes offline. VerifyDomain atomically promotes them once the
+	// child is verified.
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
+	return d, nil
+}
 
-	return nil, ErrDomainTaken
+func domainClaimLockNames(domain string) []string {
+	names := append([]string{domain}, coveringParentCandidates(domain)...)
+	sort.Strings(names)
+	return names
 }
 
 // AdoptSharedDomain assigns ownership of the server-seeded shared-domain row to
@@ -882,12 +935,162 @@ func (s *Store) LookupDomain(ctx context.Context, domain, userID string) (*Domai
 	return d, nil
 }
 
+// coveringParentCandidates returns the proper DNS-label ancestors of sub,
+// most-specific first, that could serve as a covering parent domain. For
+// "acme.team.mnexa.ai" it yields ["team.mnexa.ai", "mnexa.ai"] — each is an
+// exact ancestor on a label boundary, so this is the injection-safe,
+// suffix-attack-proof basis for the parent match (a naive HasSuffix would let
+// "evilteam.mnexa.ai" match "team.mnexa.ai"; here stripping the first label of
+// "evilteam.mnexa.ai" yields "mnexa.ai", never "team.mnexa.ai"). sub itself is
+// excluded (that is the exact-match case, handled by LookupDomain). Any
+// candidate that is itself a public suffix (e.g. "ai", "co.uk") is dropped:
+// no one can own+verify a public suffix, so it can never be a real parent, and
+// excluding it is defense-in-depth against a pathological registered row.
+func coveringParentCandidates(sub string) []string {
+	sub = normalizeDomain(sub)
+	var out []string
+	rest := sub
+	for {
+		i := strings.IndexByte(rest, '.')
+		if i < 0 {
+			break
+		}
+		parent := rest[i+1:]
+		rest = parent
+		if parent == "" || !strings.Contains(parent, ".") {
+			// A single-label remainder is a TLD; stop before it.
+			if parent != "" && !isPublicSuffix(parent) {
+				out = append(out, parent)
+			}
+			break
+		}
+		if isPublicSuffix(parent) {
+			continue
+		}
+		out = append(out, parent)
+	}
+	return out
+}
+
+// isPublicSuffix reports whether d is itself a public suffix (ICANN or private),
+// i.e. it has no registrable label of its own — mirrors emailauth.isPublicSuffix.
+func isPublicSuffix(d string) bool {
+	suffix, _ := publicsuffix.PublicSuffix(d)
+	return suffix == d
+}
+
+// LookupCoveringDomain returns the MOST-SPECIFIC registered domain owned by
+// userID that is a proper label-boundary parent of sub, or an error if none
+// covers it. This backs subdomain-agent creation: a verified parent SES
+// identity (e.g. team.mnexa.ai) DKIM-signs and DMARC-aligns mail from any
+// subdomain (acme.team.mnexa.ai), so e2a lets an agent be created on the
+// subdomain without a separate registration. The caller must inspect Verified:
+// an explicitly registered pending child is authoritative for its subtree and
+// must not be masked by a verified grandparent. The parent must be an exact
+// ancestor on a DNS label boundary — see coveringParentCandidates. The
+// returned Domain.Domain is what the caller stores in agent_identities.registered_domain
+// so the FK, quota JOIN, DKIM signer, and sending-status lookup all resolve to
+// the parent.
+func (s *Store) LookupCoveringDomain(ctx context.Context, sub, userID string) (*Domain, error) {
+	candidates := coveringParentCandidates(sub)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no covering domain")
+	}
+	// candidates is most-specific-first; ANY() ignores order, so pick the
+	// most specific (longest, i.e. most labels) among the owned matches in Go.
+	rows, err := s.pool.Query(ctx,
+		`SELECT domain, user_id, verified, verification_token, created_at, verified_at, is_primary, last_checked_at, COALESCE(dkim_selector, ''), COALESCE(dkim_public_key, ''), sending_status, COALESCE(sending_error, ''), sending_dns_records, sending_last_checked_at, COALESCE(sending_dkim_status, ''), COALESCE(sending_mail_from_status, '')
+		 FROM domains WHERE user_id = $1 AND domain = ANY($2)`,
+		userID, candidates,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var best *Domain
+	for rows.Next() {
+		d := &Domain{}
+		if err := rows.Scan(&d.Domain, &d.UserID, &d.Verified, &d.VerificationToken, &d.CreatedAt, &d.VerifiedAt, &d.IsPrimary, &d.LastCheckedAt, &d.DKIMSelector, &d.DKIMPublicKey, &d.SendingStatus, &d.SendingError, &d.SendingDNSRecordsJSON, &d.SendingLastCheckedAt, &d.SendingDkimStatus, &d.SendingMailFromStatus); err != nil {
+			return nil, err
+		}
+		// Most-specific = most DNS labels. Ties are impossible (a domain is
+		// unique in the table), so a strict '>' is deterministic.
+		if best == nil || strings.Count(d.Domain, ".") > strings.Count(best.Domain, ".") {
+			best = d
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if best == nil {
+		return nil, fmt.Errorf("no covering domain")
+	}
+
+	// Cross-tenant namespace guard (QA F1): `best` proves the REQUESTER owns some
+	// verified ANCESTOR of the address domain — but a DIFFERENT user may own a
+	// MORE-SPECIFIC name inside that ancestor. Binding the agent to `best` would
+	// then plant it inside another tenant's verified namespace (land-grab of
+	// unclaimed subdomain addresses, inbound interception, DKIM-signed
+	// impersonation). Reject the cover if ANY registered domain owned by another
+	// user is equal to the address domain OR strictly more specific than `best`
+	// (i.e. any name from the address domain up to, but excluding, `best`). A
+	// same-user registration does not count as an intruder; when it is an
+	// intermediate, the most-specific-owned selection above already returns it
+	// and lets the caller gate on its verification state. Ownership is checked
+	// regardless of another owner's verified state: registration claims the
+	// namespace, including ownerless system rows.
+	intruders := namesMoreSpecificThan(sub, best.Domain)
+	if len(intruders) > 0 {
+		var taken bool
+		if err := s.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM domains WHERE domain = ANY($1) AND user_id IS DISTINCT FROM $2)`,
+			intruders, userID,
+		).Scan(&taken); err != nil {
+			return nil, err
+		}
+		if taken {
+			return nil, fmt.Errorf("no covering domain")
+		}
+	}
+	return best, nil
+}
+
+// namesMoreSpecificThan returns the DNS names covering sub that are strictly
+// more specific than match: sub itself plus every ancestor of sub with more
+// labels than match (i.e. the names strictly between sub and match, inclusive of
+// sub, exclusive of match). For sub="acme.team.mnexa.ai", match="mnexa.ai" it
+// yields ["acme.team.mnexa.ai", "team.mnexa.ai"]. These are exactly the names a
+// different tenant could own that would make covering by `match` an intrusion.
+func namesMoreSpecificThan(sub, match string) []string {
+	sub = normalizeDomain(sub)
+	matchLabels := strings.Count(match, ".")
+	var out []string
+	name := sub
+	for strings.Count(name, ".") > matchLabels {
+		out = append(out, name)
+		i := strings.IndexByte(name, '.')
+		if i < 0 {
+			break
+		}
+		name = name[i+1:]
+	}
+	return out
+}
+
 // VerifyDomain marks a domain as verified, only if owned by the given user.
 func (s *Store) VerifyDomain(ctx context.Context, domain, userID string) error {
-	tag, err := s.pool.Exec(ctx,
+	domain = normalizeDomain(domain)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
 		`UPDATE domains SET verified = true, verified_at = now()
 		 WHERE domain = $1 AND user_id = $2 AND verified = false`,
-		normalizeDomain(domain), userID,
+		domain, userID,
 	)
 	if err != nil {
 		return err
@@ -895,13 +1098,28 @@ func (s *Store) VerifyDomain(ctx context.Context, domain, userID string) error {
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("domain not found, not owned by user, or already verified")
 	}
-	return nil
+
+	// The now-verified child becomes the sending/verification identity for
+	// inherited agents in its subtree. Only bindings to a less-specific
+	// ancestor qualify; an agent already bound to a deeper child is untouched.
+	if _, err := tx.Exec(ctx,
+		`UPDATE agent_identities
+		    SET registered_domain = $1
+		  WHERE user_id = $2
+		    AND (split_part(id, '@', 2) = $1
+		         OR right(split_part(id, '@', 2), char_length($1) + 1) = '.' || $1)
+		    AND right($1, char_length(registered_domain) + 1) = '.' || registered_domain`,
+		domain, userID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // AgentCount is computed inline via a correlated subquery — one round-trip
 // regardless of how many domains the page has, and the per-row count is
-// cheap because (agent_identities.user_id, agent_identities.domain) is
-// indexed via the existing idx_agent_identities_user. Excludes system rows.
+// supported by the existing user and registered-domain indexes. Excludes
+// system rows.
 //
 // ListDomainsByUser returns one page of the user's domains, newest-first,
 // keyset-paginated on (created_at, domain) — domain is the table's unique key,
@@ -915,7 +1133,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string, limit int,
 	        COALESCE(d.dkim_selector, ''), COALESCE(d.dkim_public_key, ''),
 	        d.sending_status, COALESCE(d.sending_error, ''), d.sending_dns_records, d.sending_last_checked_at,
 	        COALESCE(d.sending_dkim_status, ''), COALESCE(d.sending_mail_from_status, ''),
-	        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
+	        (SELECT count(*) FROM agent_identities a WHERE a.registered_domain = d.domain AND a.user_id = d.user_id) AS agent_count
 	 FROM domains d
 	 WHERE d.user_id = $1`
 	args := []interface{}{userID}
@@ -967,7 +1185,7 @@ func (s *Store) TouchDomainLastChecked(ctx context.Context, domain, userID strin
 func (s *Store) HasAgentsOnDomain(ctx context.Context, domain, userID string) (bool, error) {
 	var count int
 	err := s.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM agent_identities WHERE domain = $1 AND user_id = $2`,
+		`SELECT COUNT(*) FROM agent_identities WHERE registered_domain = $1 AND user_id = $2`,
 		normalizeDomain(domain), userID,
 	).Scan(&count)
 	if err != nil {
@@ -987,6 +1205,11 @@ var ErrDomainNotFound = fmt.Errorf("domain not found or not owned by user")
 // not be squatted). The API layer maps it to 409 conflict, distinct from the
 // 400 used for malformed input.
 var ErrDomainTaken = fmt.Errorf("domain not available: already claimed by another account")
+
+// ErrReservedDomain is returned when a claim falls inside infrastructure e2a
+// manages beneath an owned domain (currently the bounce.<domain> MAIL FROM
+// subtree). The API maps it to reserved_domain.
+var ErrReservedDomain = fmt.Errorf("domain is reserved for managed infrastructure")
 
 // DeleteDomain deletes a domain only if owned by the user.
 // The handler should check for existing agents first.
@@ -1046,7 +1269,7 @@ func (s *Store) GetAgentByIDAnyState(ctx context.Context, id string) (*AgentIden
 }
 
 func (s *Store) getAgentByID(ctx context.Context, id string, includeDeleted bool) (*AgentIdentity, error) {
-	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
+	q := `SELECT a.id, a.registered_domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action, a.suppress_notifications,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
@@ -1058,13 +1281,13 @@ func (s *Store) getAgentByID(ctx context.Context, id string, includeDeleted bool
 		        a.deleted_at,
 		        d.verified as domain_verified
 		 FROM agent_identities a
-		 JOIN domains d ON a.domain = d.domain
+		 JOIN domains d ON a.registered_domain = d.domain
 		 WHERE a.id = $1`
 	if !includeDeleted {
 		q += ` AND a.deleted_at IS NULL`
 	}
 	a := &AgentIdentity{}
-	err := s.pool.QueryRow(ctx, q, id).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
+	err := s.pool.QueryRow(ctx, q, id).Scan(&a.ID, &a.RegisteredDomain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 		&a.HITLTTLSeconds, &a.HITLExpirationAction, &a.SuppressNotifications,
 		&a.InboundPolicy, &a.InboundAllowlist,
 		&a.InboundPolicyAction,
@@ -1125,8 +1348,8 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		return nil, err
 	}
 	a := &AgentIdentity{
-		ID:                   agentEmail,
-		Domain:               normalizeDomain(domain),
+		ID:                   NormalizeEmail(agentEmail),
+		RegisteredDomain:     normalizeDomain(domain),
 		Name:                 name,
 		Public:               true,
 		CreatedAt:            time.Now(),
@@ -1145,14 +1368,14 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 	// round-trip, and no post-commit window (a separate SELECT after the INSERT
 	// auto-commits on the pool path would, if it errored transiently, surface a
 	// 500 even though the agent row is already committed — a retry then 409s).
-	// The FK on agent_identities.domain guarantees the domains row exists and is
+	// The FK on agent_identities.registered_domain guarantees the domains row exists and is
 	// visible here, so the subquery always resolves to a non-NULL bool. Works
 	// identically on the pool and inside a caller-owned tx.
 	if err := exec.QueryRow(ctx,
-		`INSERT INTO agent_identities (id, domain, user_id, name, public, created_at)
+		`INSERT INTO agent_identities (id, registered_domain, user_id, name, public, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING (SELECT verified FROM domains WHERE domain = $2)`,
-		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
+		a.ID, a.RegisteredDomain, a.UserID, a.Name, a.Public, a.CreatedAt,
 	).Scan(&a.DomainVerified); err != nil {
 		return nil, err
 	}
@@ -1296,7 +1519,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 	// true) the stats are skipped entirely below: the trash view renders
 	// identity fields only, and five correlated probes per trashed agent
 	// against the prod-sized messages table would be pure waste.
-	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at, a.deleted_at,
+	q := `SELECT a.id, a.registered_domain, a.user_id, a.name, a.public, a.created_at, a.deleted_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action, a.suppress_notifications,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
@@ -1335,7 +1558,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 	}
 	q += `
 		 FROM agent_identities a
-		 JOIN domains d ON a.domain = d.domain
+		 JOIN domains d ON a.registered_domain = d.domain
 		 WHERE a.user_id = $1`
 	if deleted {
 		q += ` AND a.deleted_at IS NOT NULL`
@@ -1363,7 +1586,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 	for rows.Next() {
 		var a AgentIdentity
 		var lastDeliveryAt *time.Time
-		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt, &a.DeletedAt,
+		if err := rows.Scan(&a.ID, &a.RegisteredDomain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt, &a.DeletedAt,
 			&a.HITLTTLSeconds, &a.HITLExpirationAction, &a.SuppressNotifications,
 			&a.InboundPolicy, &a.InboundAllowlist,
 			&a.InboundPolicyAction,

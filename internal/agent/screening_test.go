@@ -56,6 +56,22 @@ func TestRecipientGate(t *testing.T) {
 	}
 }
 
+func TestRecipientGate_SubdomainAgentUsesExactAddressDomain(t *testing.T) {
+	ag := &identity.AgentIdentity{
+		ID:               "otto@acme.team.mnexa.ai",
+		Domain:           "acme.team.mnexa.ai",
+		RegisteredDomain: "team.mnexa.ai",
+		OutboundPolicy:   identity.OutboundPolicyDomain,
+	}
+
+	if flagged, addr := recipientGate(ag, outbound.SendRequest{To: []string{"owner@acme.team.mnexa.ai"}}); flagged {
+		t.Fatalf("exact address domain should be allowed, flagged %q", addr)
+	}
+	if flagged, _ := recipientGate(ag, outbound.SendRequest{To: []string{"owner@team.mnexa.ai"}}); !flagged {
+		t.Fatal("registered parent must not be treated as the agent's exact address domain")
+	}
+}
+
 // TestScreenOutbound_GateAction: a flagged recipient escalates to the agent's
 // outbound_policy_action; open/allow produces ActionAllow.
 func TestScreenOutbound_GateAction(t *testing.T) {

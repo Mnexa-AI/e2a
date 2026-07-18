@@ -3,12 +3,15 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/limits"
 )
@@ -290,7 +293,14 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
 	}
-	domain := parts[1]
+	domain, err := agent.ValidateDomain(parts[1])
+	if err != nil {
+		return nil, NewError(http.StatusBadRequest, "invalid_request", "invalid email address")
+	}
+	// Persist the same ASCII/IDNA canonical domain used by registration and DNS.
+	email = identity.NormalizeEmail(parts[0] + "@" + domain)
+	subdomain := domain // the agent's literal address domain, before any parent rebind
+	viaParent := false  // true when the agent was authorized via a covering parent
 	isShared := s.deps.SharedDomain != "" && strings.EqualFold(domain, s.deps.SharedDomain)
 	if isShared {
 		domain = s.deps.SharedDomain // normalize to the configured casing
@@ -303,16 +313,50 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 	// registered to this user AND verified. This is the load-bearing
 	// authorization that an agent can only be created on a domain the
 	// caller controls.
+	//
+	// Resolution precedence (subdomain agents): an EXACT registered-domain
+	// row wins first — so an exact row that is unverified still yields
+	// domain_not_verified and is never masked by a covering parent. Only when
+	// no exact row exists do we fall back to the most-specific VERIFIED parent
+	// the user owns (label-boundary covered — see LookupCoveringDomain). AWS
+	// SES DKIM-signs and DMARC-aligns subdomain mail under the parent identity,
+	// so a subdomain agent needs no separate registration. On a parent match we
+	// rebind `domain` to the PARENT: it is what gets stored in
+	// agent_identities.registered_domain, satisfying the FK and making the quota JOIN, the
+	// DKIM signer, and the sending-status lookup all resolve to the verified
+	// parent while the agent keeps its full subdomain address.
 	if !isShared {
 		if s.deps.LookupDomain == nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "domain lookup unavailable")
 		}
 		dom, err := s.deps.LookupDomain(ctx, domain, user.ID)
-		if err != nil {
-			return nil, NewError(http.StatusBadRequest, "domain_not_registered", "register and verify your domain first")
+		if err == nil {
+			// Exact registered row exists — preserve today's behavior exactly.
+			if !dom.Verified {
+				return nil, NewError(http.StatusBadRequest, "domain_not_verified", "verify your domain first")
+			}
+		} else {
+			// No exact row: try a verified covering parent before rejecting.
+			var parent *identity.Domain
+			if s.deps.LookupCoveringDomain != nil {
+				parent, _ = s.deps.LookupCoveringDomain(ctx, domain, user.ID)
+			}
+			if parent == nil {
+				return nil, NewError(http.StatusBadRequest, "domain_not_registered", "register and verify your domain first")
+			}
+			if !parent.Verified {
+				return nil, NewError(http.StatusBadRequest, "domain_not_verified", "verify your most-specific registered parent domain first")
+			}
+			domain = parent.Domain // bind the agent to the verified parent identity
+			viaParent = true
 		}
-		if !dom.Verified {
-			return nil, NewError(http.StatusBadRequest, "domain_not_verified", "verify your domain first")
+	}
+	if viaParent {
+		if isReservedMailFromSubtree(subdomain, domain) {
+			return nil, NewError(http.StatusBadRequest, "reserved_domain", "the bounce namespace is reserved for managed MAIL FROM")
+		}
+		if mxErr := s.requireSubdomainMX(ctx, subdomain, domain); mxErr != nil {
+			return nil, mxErr
 		}
 	}
 
@@ -357,6 +401,41 @@ func (s *Server) handleCreateAgent(ctx context.Context, in *createAgentInput) (*
 		return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to register agent")
 	}
 	return &createAgentOutput{Body: agentViewFromIdentity(ag)}, nil
+}
+
+func isReservedMailFromSubtree(addressDomain, registeredDomain string) bool {
+	reserved := "bounce." + registeredDomain
+	return addressDomain == reserved || strings.HasSuffix(addressDomain, "."+reserved)
+}
+
+// requireSubdomainMX enforces the two-way-inbox invariant before an inherited
+// subdomain agent consumes quota or gets inserted. Looking up the exact address
+// domain covers both an explicit MX and a synthesized wildcard answer.
+func (s *Server) requireSubdomainMX(ctx context.Context, subdomain, registeredDomain string) *ErrorEnvelope {
+	relay := strings.TrimSuffix(strings.ToLower(s.deps.SMTPDomain), ".")
+	if s.deps.ResolveMX == nil || relay == "" {
+		return NewError(http.StatusInternalServerError, "internal_error", "inbound MX verification is unavailable")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	hosts, err := s.deps.ResolveMX(probeCtx, subdomain)
+	if err != nil {
+		var dnsErr *net.DNSError
+		if !errors.As(err, &dnsErr) || !dnsErr.IsNotFound {
+			return NewError(http.StatusServiceUnavailable, "inbound_mx_check_failed", "could not verify inbound MX; retry after DNS is reachable")
+		}
+		// LookupMX reports an absent RRset as a not-found error. That is a
+		// stable, actionable configuration state, not a transient resolver
+		// failure, so handle it exactly like an empty answer below.
+		hosts = nil
+	}
+	for _, h := range hosts {
+		if strings.EqualFold(strings.TrimSuffix(h, "."), relay) {
+			return nil
+		}
+	}
+	return NewError(http.StatusBadRequest, "inbound_mx_missing",
+		"publish an MX on "+subdomain+" or *."+registeredDomain+" routing to "+relay+" before creating this inbox")
 }
 
 // limitEnvelope translates a limits.LimitExceededError into a 402 envelope

@@ -11,7 +11,9 @@ package apiserver
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -105,8 +107,27 @@ func BuildDeps(p Params) httpapi.Deps {
 		ListConversations: p.Store.ListConversationsByAgent,
 		GetConversation:   p.Store.GetConversationByID,
 
-		CreateAgent:           p.Store.CreateAgent,
-		LookupDomain:          p.Store.LookupDomain,
+		CreateAgent:          p.Store.CreateAgent,
+		LookupDomain:         p.Store.LookupDomain,
+		LookupCoveringDomain: p.Store.LookupCoveringDomain,
+		// Exact-domain MX probe for the create-time two-way-inbox gate.
+		// net.Resolver honors the ctx deadline the handler sets.
+		ResolveMX: func(ctx context.Context, name string) ([]string, error) {
+			var r net.Resolver
+			mxs, err := r.LookupMX(ctx, name)
+			if err != nil {
+				var dnsErr *net.DNSError
+				if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+					return []string{}, nil
+				}
+				return nil, err
+			}
+			hosts := make([]string, len(mxs))
+			for i, m := range mxs {
+				hosts[i] = m.Host
+			}
+			return hosts, nil
+		},
 		EnforceAgentCreate:    p.Enforcer.CheckAgentCreate,
 		UpdateAgentName:       p.Store.UpdateAgentName,
 		UpdateAgentProtection: p.Store.UpdateAgentProtection,

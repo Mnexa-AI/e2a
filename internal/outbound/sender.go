@@ -138,11 +138,11 @@ func (s *Sender) SetSendingStatusLookup(l SendingStatusLookup) { s.sendingStatus
 // useOwnAddressFrom reports whether outbound for this agent may use its own
 // address as the From header. Fail-closed: every uncertain path returns false.
 func (s *Sender) useOwnAddressFrom(agent *identity.AgentIdentity) bool {
-	if s.sendingStatus == nil || agent == nil || !agent.DomainVerified || agent.Domain == "" {
+	if s.sendingStatus == nil || agent == nil || !agent.DomainVerified || agent.RegisteredDomainName() == "" {
 		return false
 	}
 	// "verified" mirrors senderidentity.StatusVerified (not imported here).
-	status, err := s.sendingStatus.GetSendingStatus(context.Background(), agent.Domain)
+	status, err := s.sendingStatus.GetSendingStatus(context.Background(), agent.RegisteredDomainName())
 	if err != nil {
 		return false
 	}
@@ -373,7 +373,7 @@ func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*compo
 	// (fail-closed: SPF passes for the relay, e2a captures bounces). Verified now
 	// requires the custom MAIL FROM to be live, so the subdomain's MX exists and
 	// bounces still reach SES's feedback handler.
-	envelopeFrom := envelopeSender(own, agent.Domain, s.fromDomain)
+	envelopeFrom := envelopeSender(own, agent.RegisteredDomainName(), s.fromDomain)
 	// Header From: the agent's OWN address once sending-verified (DKIM-aligned →
 	// DMARC passes, replies reach the agent directly); else the "… via e2a"
 	// rewrite (fail-closed default).
@@ -415,8 +415,8 @@ func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*compo
 	// edge, which is what we did before this change anyway.
 	if s.dkimLookup != nil {
 		signingDomain := s.fromDomain
-		if agent != nil && agent.DomainVerified && agent.Domain != "" {
-			signingDomain = agent.Domain
+		if agent != nil && agent.DomainVerified && agent.RegisteredDomainName() != "" {
+			signingDomain = agent.RegisteredDomainName()
 		}
 		if signed, ok := s.signMessage(message, signingDomain); ok {
 			message = signed

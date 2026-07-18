@@ -40,14 +40,14 @@ ON CONFLICT (domain) DO NOTHING;
 
 -- Agent identities
 CREATE TABLE IF NOT EXISTS agent_identities (
-    id          TEXT PRIMARY KEY,
-    domain      TEXT NOT NULL REFERENCES domains(domain) ON DELETE NO ACTION,
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name        TEXT NOT NULL DEFAULT '',
-    webhook_url TEXT NOT NULL DEFAULT '',
-    agent_mode  TEXT NOT NULL DEFAULT 'cloud' CHECK (agent_mode IN ('cloud', 'local')),
-    public      BOOLEAN NOT NULL DEFAULT false,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    id                TEXT PRIMARY KEY,
+    registered_domain TEXT NOT NULL REFERENCES domains(domain) ON DELETE NO ACTION,
+    user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name              TEXT NOT NULL DEFAULT '',
+    webhook_url       TEXT NOT NULL DEFAULT '',
+    agent_mode        TEXT NOT NULL DEFAULT 'cloud' CHECK (agent_mode IN ('cloud', 'local')),
+    public            BOOLEAN NOT NULL DEFAULT false,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (
         (agent_mode = 'local') OR
         (agent_mode = 'cloud' AND webhook_url <> '')
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS agent_identities (
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_user ON agent_identities(user_id);
-CREATE INDEX IF NOT EXISTS idx_agents_domain ON agent_identities(domain);
+CREATE INDEX IF NOT EXISTS idx_agents_registered_domain ON agent_identities(registered_domain);
 
 -- API keys (hash-only storage)
 CREATE TABLE IF NOT EXISTS api_keys (

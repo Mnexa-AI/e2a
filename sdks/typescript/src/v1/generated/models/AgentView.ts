@@ -18,10 +18,17 @@ export class AgentView {
     * When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages\' expiry clocks are paused; restore resumes them where they stopped.
     */
     'deletedAt'?: Date;
+    /**
+    * The exact domain in the agent email address.
+    */
     'domain': string;
     'domainVerified': boolean;
     'email': string;
     'name': string;
+    /**
+    * The explicitly registered domain identity that authorizes this agent. For an inherited subdomain agent, this is its verified parent domain.
+    */
+    'registeredDomain': string;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -61,6 +68,12 @@ export class AgentView {
         {
             "name": "name",
             "baseName": "name",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "registeredDomain",
+            "baseName": "registered_domain",
             "type": "string",
             "format": ""
         }    ];

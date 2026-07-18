@@ -620,7 +620,7 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 				// a plain errors.New("duplicate key value") no longer matches.
 				return nil, &pgconn.PgError{Code: "23505", Message: "duplicate key value"}
 			}
-			return &identity.AgentIdentity{ID: email, Domain: domain, Email: email, Name: name, UserID: userID}, nil
+			return &identity.AgentIdentity{ID: email, RegisteredDomain: domain, Email: email, Name: name, UserID: userID}, nil
 		},
 		EnforceAgentCreate: func(ctx context.Context, userID string) error {
 			if userID == "u_overcap" {

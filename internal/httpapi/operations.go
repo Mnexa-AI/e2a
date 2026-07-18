@@ -59,11 +59,12 @@ func (s *Server) registerInfo() {
 // field was dropped: an agent's id IS its email, so `email` is the sole identity
 // key (mirroring DomainView keyed on `domain` and Suppression on `address`).
 type AgentView struct {
-	Domain         string    `json:"domain"`
-	Email          string    `json:"email"`
-	Name           string    `json:"name"`
-	DomainVerified bool      `json:"domain_verified"`
-	CreatedAt      time.Time `json:"created_at"`
+	Domain           string    `json:"domain" doc:"The exact domain in the agent email address."`
+	RegisteredDomain string    `json:"registered_domain" doc:"The explicitly registered domain identity that authorizes this agent. For an inherited subdomain agent, this is its verified parent domain."`
+	Email            string    `json:"email"`
+	Name             string    `json:"name"`
+	DomainVerified   bool      `json:"domain_verified"`
+	CreatedAt        time.Time `json:"created_at"`
 	// DeletedAt marks an agent in the trash (soft-deleted): set when the row
 	// was moved there, omitted on live agents. Trashed agents appear only via
 	// GET /v1/agents?deleted=true and restore/permanent-delete operations; they
@@ -74,12 +75,13 @@ type AgentView struct {
 // agentViewFromIdentity maps the storage record to the public view.
 func agentViewFromIdentity(ag *identity.AgentIdentity) AgentView {
 	return AgentView{
-		Domain:         ag.Domain,
-		Email:          ag.EmailAddress(),
-		Name:           ag.Name,
-		DomainVerified: ag.DomainVerified,
-		CreatedAt:      ag.CreatedAt,
-		DeletedAt:      ag.DeletedAt,
+		Domain:           ag.ActualDomain(),
+		RegisteredDomain: ag.RegisteredDomainName(),
+		Email:            ag.EmailAddress(),
+		Name:             ag.Name,
+		DomainVerified:   ag.DomainVerified,
+		CreatedAt:        ag.CreatedAt,
+		DeletedAt:        ag.DeletedAt,
 	}
 }
 

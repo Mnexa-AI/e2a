@@ -2,10 +2,29 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"testing"
+
+	"github.com/tokencanopy/e2a/internal/identity"
 )
+
+// coveringParentDep wires the covering-parent lookup used by the subdomain
+// create tests: only acme.team.mnexa.ai resolves, to the verified parent.
+func coveringParentDep(d *Deps) {
+	d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+		if sub == "acme.team.mnexa.ai" {
+			return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+		}
+		return nil, errors.New("no covering domain")
+	}
+	d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+		return []string{"mx.e2a.dev."}, nil
+	}
+}
 
 func sendJSON(t *testing.T, method, url, bearer string, body any) (int, map[string]any) {
 	t.Helper()
@@ -148,6 +167,272 @@ func TestCreateAgentUnregisteredDomain(t *testing.T) {
 	})
 	if code != 400 || errCode(body) != "domain_not_registered" {
 		t.Fatalf("want 400 domain_not_registered, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentSubdomainCoveredByVerifiedParent: an agent on a subdomain of a
+// verified parent domain keeps its exact address domain in the public contract
+// while exposing the registered parent that drives DKIM, sending status, and
+// quota. No exact registration for the subdomain is required.
+func TestCreateAgentSubdomainCoveredByVerifiedParent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			if sub == "acme.team.mnexa.ai" {
+				return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+			}
+			return nil, errors.New("no covering domain")
+		}
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return []string{"mx.e2a.dev."}, nil
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 201 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if body["email"] != "otto@acme.team.mnexa.ai" {
+		t.Fatalf("email = %v, want the full subdomain address", body["email"])
+	}
+	if body["domain"] != "acme.team.mnexa.ai" {
+		t.Fatalf("domain must remain the exact address domain, got %v", body["domain"])
+	}
+	if body["registered_domain"] != "team.mnexa.ai" {
+		t.Fatalf("registered_domain must identify the verified parent, got %v", body["registered_domain"])
+	}
+}
+
+// TestCreateAgentSubdomainNoCoveringParent: even with the covering lookup wired,
+// a subdomain that no verified parent covers is still rejected — the ownership
+// guard is not weakened.
+func TestCreateAgentSubdomainNoCoveringParent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return nil, errors.New("no covering domain")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@uncovered.example.org",
+	})
+	if code != 400 || errCode(body) != "domain_not_registered" {
+		t.Fatalf("want 400 domain_not_registered, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentSubdomainLabelBoundaryRejected: the handler surfaces the
+// store's label-boundary rejection (evilteam.mnexa.ai is NOT a child of the
+// registered team.mnexa.ai) as domain_not_registered. The load-bearing
+// label-matching security proof lives in identity.TestLookupCoveringDomain_
+// LabelBoundaryRejection; this pins the handler mapping.
+func TestCreateAgentSubdomainLabelBoundaryRejected(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			if sub == "acme.team.mnexa.ai" {
+				return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+			}
+			// evilteam.mnexa.ai shares a string suffix but is not a label child.
+			return nil, errors.New("no covering domain")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@evilteam.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_registered" {
+		t.Fatalf("SECURITY: evilteam.mnexa.ai must be rejected, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentExactUnverifiedNotMaskedByParent pins resolution precedence
+// (trap #3): an EXACT registered-but-unverified row wins over a verified parent
+// — the parent fallback must not mask it. The user must verify the exact domain,
+// not silently inherit the parent's identity.
+func TestCreateAgentExactUnverifiedNotMaskedByParent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupDomain = func(ctx context.Context, domain, userID string) (*identity.Domain, error) {
+			if domain == "sub.mnexa.ai" {
+				return &identity.Domain{Domain: domain, Verified: false}, nil // exact row, unverified
+			}
+			return nil, errors.New("not registered")
+		}
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			// A verified parent EXISTS — precedence must still reject on the
+			// exact unverified row rather than fall through to this.
+			return &identity.Domain{Domain: "mnexa.ai", Verified: true}, nil
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@sub.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_verified" {
+		t.Fatalf("exact unverified row must yield domain_not_verified (not masked by parent), got %d %v", code, body)
+	}
+}
+
+func TestCreateAgentUnverifiedIntermediateNotMaskedByGrandparent(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return &identity.Domain{Domain: "team.mnexa.ai", Verified: false}, nil
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@acme.team.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_verified" {
+		t.Fatalf("pending intermediate must be authoritative, got %d %v", code, body)
+	}
+}
+
+// Two-way inbox invariant: a subdomain authorized by its parent is not created
+// until its exact address domain routes inbound mail to the relay.
+func TestCreateAgentSubdomainBlocksWhenNoMXCoverage(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return []string{"aspmx.someone-else.example."}, nil
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "inbound_mx_missing" {
+		t.Fatalf("want 400 inbound_mx_missing, got %d %v", code, body)
+	}
+}
+
+func TestCreateAgentSubdomainNXDOMAINIsMissingMX(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return nil, &net.DNSError{Err: "no such host", Name: name, IsNotFound: true}
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "inbound_mx_missing" {
+		t.Fatalf("want 400 inbound_mx_missing, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentSubdomainAllowsMatchingMX verifies that an explicit MX on the
+// subdomain or a wildcard synthesized by the resolver satisfies the gate. It
+// also exercises trailing-dot and case-insensitive host matching.
+func TestCreateAgentSubdomainAllowsMatchingMX(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return []string{"MX.E2A.DEV."}, nil // matches the fixture SMTPDomain mx.e2a.dev
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 201 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if _, has := body["warnings"]; has {
+		t.Fatalf("create response must remain the shared AgentView shape: %v", body)
+	}
+}
+
+func TestCreateAgentSubdomainMXLookupFailureIsRetryable(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return nil, errors.New("resolver unavailable")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 503 || errCode(body) != "inbound_mx_check_failed" {
+		t.Fatalf("want 503 inbound_mx_check_failed, got %d %v", code, body)
+	}
+}
+
+func TestCreateAgentReservedMailFromSubtreeRejected(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return &identity.Domain{Domain: "team.mnexa.ai", Verified: true}, nil
+		}
+	})
+	for _, address := range []string{
+		"bot@bounce.team.mnexa.ai",
+		"bot@tenant.bounce.team.mnexa.ai",
+	} {
+		code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{"email": address})
+		if code != 400 || errCode(body) != "reserved_domain" {
+			t.Errorf("%s: want 400 reserved_domain, got %d %v", address, code, body)
+		}
+	}
+}
+
+// TestCreateAgentExactDomainNoMXProbe: an exact-domain agent (not parent-resolved)
+// is never probed, even with a resolver wired that would report no coverage. The
+// required MX gate is scoped to inherited subdomain agents only.
+func TestCreateAgentExactDomainNoMXProbe(t *testing.T) {
+	probed := false
+	srv := testServer(t, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			probed = true
+			return nil, errors.New("no mx")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "bot@acme.com", // acme.com is an exact verified domain in the fixture
+	})
+	if code != 201 {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if probed {
+		t.Fatalf("exact-domain create must not run the subdomain MX probe")
+	}
+	if _, has := body["warnings"]; has {
+		t.Fatalf("exact-domain create must not carry warnings, got %v", body["warnings"])
+	}
+}
+
+// TestCreateAgentMalformedSubdomainRejected (QA F2/F3): malformed address
+// domains — empty, leading/trailing-dot, or consecutive-dot labels — are
+// rejected at the create boundary BEFORE covering resolution, so they can never
+// mint a junk agent under a parent. A covering fake that WOULD resolve is wired
+// to prove the malformed check short-circuits it.
+func TestCreateAgentMalformedSubdomainRejected(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		// Would cover anything if reached — the F2 guard must run first.
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return &identity.Domain{Domain: "mnexa.ai", Verified: true}, nil
+		}
+	})
+	for _, bad := range []string{
+		"x@acme..mnexa.ai", // consecutive dots → empty middle label
+		"x@.team.mnexa.ai", // leading dot → empty first label
+		"x@team.mnexa.ai.", // trailing dot (F3 normalization-fragility case)
+		"x@team..",         // multiple empty labels
+	} {
+		code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{"email": bad})
+		if code != 400 || errCode(body) != "invalid_request" {
+			t.Errorf("malformed %q: want 400 invalid_request, got %d %v", bad, code, body)
+		}
+	}
+}
+
+// TestCreateAgentCrossTenantCoveringSurfacedAsUnregistered (QA F1, handler
+// surface): when the store's covering lookup refuses the cover because a
+// different tenant owns a more-specific name (returns no-covering), the handler
+// surfaces it exactly like an uncovered domain — 400 domain_not_registered — so
+// no cross-tenant land-grab is possible via the API. (The label-boundary guard
+// itself is exercised against a real DB in identity.TestLookupCoveringDomain_
+// CrossTenantIntrusionRejected.)
+func TestCreateAgentCrossTenantCoveringSurfacedAsUnregistered(t *testing.T) {
+	srv := testServer(t, func(d *Deps) {
+		// Mirror the store's F1 rejection: no cover for the intruded name.
+		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
+			return nil, errors.New("no covering domain")
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "domain_not_registered" {
+		t.Fatalf("cross-tenant refusal must surface as domain_not_registered, got %d %v", code, body)
 	}
 }
 
