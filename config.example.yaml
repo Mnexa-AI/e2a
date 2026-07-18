@@ -112,8 +112,10 @@ sender_identity:
 
 # Operator-managed recipient-volume ramp for newly verified custom sender
 # domains. Disabled by default for self-hosts. When enabled, the schedule is
-# snapshotted on a domain's first eligible external send and advances only on
-# days where that domain actually sends; existing verified domains are exempt.
+# snapshotted on a domain's first eligible external send. A UTC day advances
+# only after provider-accepted recipient volume reaches 50% of that day's cap;
+# the higher limit starts the following UTC day. Existing verified domains are
+# persistently exempt; operator reset procedures are in docs/runbooks/sending-ramp.md.
 # This policy is visible read-only in the domain API and cannot be disabled by
 # end users. start_daily must be at least 50, the API's per-message recipient
 # maximum, so one accepted message can never be stranded permanently.
