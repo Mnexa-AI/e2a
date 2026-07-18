@@ -756,7 +756,7 @@ Authorization: Bearer e2a_...
 }
 ```
 
-**Query params** (matches the conventions of `/api/v1/agents/{email}/messages` in [web/public/openapi.yaml](web/public/openapi.yaml#L1799-L1809)):
+**Query params** (matches the conventions of `/api/v1/agents/{email}/messages` in `web/public/openapi.yaml:1799-1809`, as it existed at the time of this proposal):
 - `type` — exact event type filter. Optional.
 - `agent_id`, `conversation_id`, `message_id` — exact filters. Optional.
 - `since`, `until` — RFC3339 timestamps. Optional. (Same naming as the existing messages endpoint.)
@@ -769,7 +769,7 @@ Authorization: Bearer e2a_...
 
 **`delivery_status` block** is computed at read time by joining against `webhook_subscriber_deliveries`. Because deliveries live 90 days and events 30 days, a delivery referencing an event always outlives its parent — but a request to `/events?since=…` only returns events within the 30-day retention, so the join is always populated. The `delivery_status.purged: true` flag is **unreachable** in v1 (no scenario where deliveries are gone but the event still exists); remove the field from the response shape.
 
-**Error response shape.** Plain text body, matching the existing convention used by `http.Error(w, msg, code)` throughout [internal/agent/](internal/agent/) — see e.g. [internal/agent/api.go:2700-2710](internal/agent/api.go#L2700-L2710) and the schema declarations at [web/public/openapi.yaml:1497-1498](web/public/openapi.yaml#L1497-L1498). 4xx responses return a string body with the error message; OpenAPI declares `schema: type: string`. (Introducing a structured `Error` schema is a cross-cutting API refactor; if we want it, that's a separate proposal.)
+**Error response shape.** Plain text body, matching the existing convention used by `http.Error(w, msg, code)` throughout `internal/agent/` — see e.g. `internal/agent/api.go:2700-2710` and the schema declarations at `web/public/openapi.yaml:1497-1498` (as it existed at the time of this proposal). 4xx responses return a string body with the error message; OpenAPI declares `schema: type: string`. (Introducing a structured `Error` schema is a cross-cutting API refactor; if we want it, that's a separate proposal.)
 
 #### `GET /api/v1/events/{id}`
 
@@ -886,7 +886,7 @@ Match existing API conventions: JSON body `{"error": "..."}`, status codes:
 
 #### OpenAPI spec changes
 
-Add three paths to [web/public/openapi.yaml](web/public/openapi.yaml):
+Add three paths to `web/public/openapi.yaml` (as it existed at the time of this proposal):
 - `/api/v1/events`
 - `/api/v1/events/{id}`
 - `/api/v1/events/{id}/redeliver`
@@ -896,7 +896,7 @@ Plus a new schema `WebhookEvent` mirroring the JSON shape above. Regenerate SDK 
 
 ### 4.7 Retry extension
 
-**New backoff schedule** (replaces [internal/webhook/retry.go:11-17](internal/webhook/retry.go#L11-L17)):
+**New backoff schedule** (replaces `internal/webhook/retry.go:11-17`, as it existed at the time of this proposal):
 
 ```go
 var retryBackoffs = []time.Duration{
@@ -915,7 +915,7 @@ Total envelope: ~72h spread over 8 attempts. Max attempts on new delivery rows: 
 
 **TTL change.** `expires_at` on `webhook_subscriber_deliveries` extends from 30 days to **90 days** to accommodate the longer retry envelope plus a generous tail for customer-side debugging via `/deliveries`. The event log's 30-day retention is unaffected.
 
-**Migration of in-flight rows.** Existing rows with `max_attempts = 5` keep their cap (the schedule lookup gracefully returns "exhausted" past index 4 — see [retry.go:19-24](internal/webhook/retry.go#L19-L24)). New rows get `max_attempts = 8`. No flag-day; the worker handles both transparently.
+**Migration of in-flight rows.** Existing rows with `max_attempts = 5` keep their cap (the schedule lookup gracefully returns "exhausted" past index 4 — see `retry.go:19-24`, as it existed at the time of this proposal). New rows get `max_attempts = 8`. No flag-day; the worker handles both transparently.
 
 ```sql
 -- migrations/027_retry_envelope_extension.sql
