@@ -27,7 +27,7 @@ emails.
 - Create the agent: `mcp__e2a__create_agent` with the `support_address`
   from config (a verified domain you own), or `POST /v1/agents`.
 - Mint an **agent-scoped** API key bound to that address:
-  `POST /v1/account/api-keys` with `scope: agent`, `agent: <support_address>`.
+  `POST /v1/account/api-keys` with `scope: agent`, `agent_email: <support_address>`.
   The plaintext key is shown ONCE.
 - Add it as the repo secret `E2A_API_KEY`.
 - Run the mailbox with screening/HITL **off** — it is an intake firehose;
