@@ -709,20 +709,10 @@ func (s *Store) ClaimOrCreateDomain(ctx context.Context, domain, userID string) 
 		return nil, err
 	}
 
-	// An explicit same-account child becomes authoritative for its subtree
-	// immediately. Rebind agents that inherited from one of its ancestors, but
-	// never steal agents already bound to a more-specific registered child.
-	if _, err := tx.Exec(ctx,
-		`UPDATE agent_identities
-		    SET registered_domain = $1
-		  WHERE user_id = $2
-		    AND (split_part(id, '@', 2) = $1
-		         OR right(split_part(id, '@', 2), char_length($1) + 1) = '.' || $1)
-		    AND right($1, char_length(registered_domain) + 1) = '.' || registered_domain`,
-		domain, userID,
-	); err != nil {
-		return nil, err
-	}
+	// A pending child reserves its namespace immediately, but inherited agents
+	// remain bound to their verified ancestor so registration alone cannot take
+	// working inboxes offline. VerifyDomain atomically promotes them once the
+	// child is verified.
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -1045,14 +1035,16 @@ func (s *Store) LookupCoveringDomain(ctx context.Context, sub, userID string) (*
 	// impersonation). Reject the cover if ANY registered domain owned by another
 	// user is equal to the address domain OR strictly more specific than `best`
 	// (i.e. any name from the address domain up to, but excluding, `best`). A
-	// same-user intermediate (even unverified) does NOT block — the grandparent
-	// legitimately covers it. Ownership is checked regardless of the other user's
-	// verified state: a mere registration claims the namespace.
+	// same-user registration does not count as an intruder; when it is an
+	// intermediate, the most-specific-owned selection above already returns it
+	// and lets the caller gate on its verification state. Ownership is checked
+	// regardless of another owner's verified state: registration claims the
+	// namespace, including ownerless system rows.
 	intruders := namesMoreSpecificThan(sub, best.Domain)
 	if len(intruders) > 0 {
 		var taken bool
 		if err := s.pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM domains WHERE domain = ANY($1) AND user_id <> $2)`,
+			`SELECT EXISTS(SELECT 1 FROM domains WHERE domain = ANY($1) AND user_id IS DISTINCT FROM $2)`,
 			intruders, userID,
 		).Scan(&taken); err != nil {
 			return nil, err
@@ -1088,10 +1080,17 @@ func namesMoreSpecificThan(sub, match string) []string {
 
 // VerifyDomain marks a domain as verified, only if owned by the given user.
 func (s *Store) VerifyDomain(ctx context.Context, domain, userID string) error {
-	tag, err := s.pool.Exec(ctx,
+	domain = normalizeDomain(domain)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
 		`UPDATE domains SET verified = true, verified_at = now()
 		 WHERE domain = $1 AND user_id = $2 AND verified = false`,
-		normalizeDomain(domain), userID,
+		domain, userID,
 	)
 	if err != nil {
 		return err
@@ -1099,7 +1098,22 @@ func (s *Store) VerifyDomain(ctx context.Context, domain, userID string) error {
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("domain not found, not owned by user, or already verified")
 	}
-	return nil
+
+	// The now-verified child becomes the sending/verification identity for
+	// inherited agents in its subtree. Only bindings to a less-specific
+	// ancestor qualify; an agent already bound to a deeper child is untouched.
+	if _, err := tx.Exec(ctx,
+		`UPDATE agent_identities
+		    SET registered_domain = $1
+		  WHERE user_id = $2
+		    AND (split_part(id, '@', 2) = $1
+		         OR right(split_part(id, '@', 2), char_length($1) + 1) = '.' || $1)
+		    AND right($1, char_length(registered_domain) + 1) = '.' || registered_domain`,
+		domain, userID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // AgentCount is computed inline via a correlated subquery — one round-trip

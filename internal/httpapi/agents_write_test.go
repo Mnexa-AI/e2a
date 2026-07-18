@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"testing"
 
@@ -298,11 +299,24 @@ func TestCreateAgentSubdomainBlocksWhenNoMXCoverage(t *testing.T) {
 	}
 }
 
-// TestCreateAgentSubdomainNoWarnWhenMXCovers: when the probe finds an MX (explicit
-// on the subdomain, or a wildcard on the parent that the resolver synthesizes for
-// the queried name) routing to the relay, no warning is emitted. Also exercises
-// trailing-dot + case-insensitive host matching.
-func TestCreateAgentSubdomainNoWarnWhenMXCovers(t *testing.T) {
+func TestCreateAgentSubdomainNXDOMAINIsMissingMX(t *testing.T) {
+	srv := testServer(t, coveringParentDep, func(d *Deps) {
+		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
+			return nil, &net.DNSError{Err: "no such host", Name: name, IsNotFound: true}
+		}
+	})
+	code, body := postJSON(t, srv.URL+"/v1/agents", "good", map[string]any{
+		"email": "otto@acme.team.mnexa.ai",
+	})
+	if code != 400 || errCode(body) != "inbound_mx_missing" {
+		t.Fatalf("want 400 inbound_mx_missing, got %d %v", code, body)
+	}
+}
+
+// TestCreateAgentSubdomainAllowsMatchingMX verifies that an explicit MX on the
+// subdomain or a wildcard synthesized by the resolver satisfies the gate. It
+// also exercises trailing-dot and case-insensitive host matching.
+func TestCreateAgentSubdomainAllowsMatchingMX(t *testing.T) {
 	srv := testServer(t, coveringParentDep, func(d *Deps) {
 		d.ResolveMX = func(ctx context.Context, name string) ([]string, error) {
 			return []string{"MX.E2A.DEV."}, nil // matches the fixture SMTPDomain mx.e2a.dev
@@ -351,8 +365,8 @@ func TestCreateAgentReservedMailFromSubtreeRejected(t *testing.T) {
 }
 
 // TestCreateAgentExactDomainNoMXProbe: an exact-domain agent (not parent-resolved)
-// is never probed and never warned, even with a resolver wired that would report
-// no coverage — the advisory is scoped to subdomain agents only.
+// is never probed, even with a resolver wired that would report no coverage. The
+// required MX gate is scoped to inherited subdomain agents only.
 func TestCreateAgentExactDomainNoMXProbe(t *testing.T) {
 	probed := false
 	srv := testServer(t, func(d *Deps) {

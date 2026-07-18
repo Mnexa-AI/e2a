@@ -194,6 +194,29 @@ func TestLookupCoveringDomain_ExactNameOwnedByOtherNotCoverable(t *testing.T) {
 	}
 }
 
+func TestLookupCoveringDomain_NullOwnedNamespaceNotCoverable(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "null-guard@mnexa.ai", "Owner", "google-null-guard")
+	if _, err := store.ClaimOrCreateDomain(ctx, "mnexa.ai", user.ID); err != nil {
+		t.Fatalf("claim parent: %v", err)
+	}
+	if err := store.VerifyDomain(ctx, "mnexa.ai", user.ID); err != nil {
+		t.Fatalf("verify parent: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO domains (domain, user_id, verified, verification_token)
+		 VALUES ('system.mnexa.ai', NULL, true, 'system')`); err != nil {
+		t.Fatalf("insert system namespace: %v", err)
+	}
+
+	if _, err := store.LookupCoveringDomain(ctx, "bot.system.mnexa.ai", user.ID); err == nil {
+		t.Fatal("ownerless system namespace must block parent-domain covering")
+	}
+}
+
 // TestLookupCoveringDomain_PublicSuffixParentNotCoverable (QA test 4): a public
 // suffix (e.g. co.uk) can never act as a covering parent even if a stray row
 // existed — candidate generation drops public suffixes, so a subdomain whose

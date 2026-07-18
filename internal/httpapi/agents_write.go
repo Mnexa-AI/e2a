@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -419,7 +420,14 @@ func (s *Server) requireSubdomainMX(ctx context.Context, subdomain, registeredDo
 	defer cancel()
 	hosts, err := s.deps.ResolveMX(probeCtx, subdomain)
 	if err != nil {
-		return NewError(http.StatusServiceUnavailable, "inbound_mx_check_failed", "could not verify inbound MX; retry after DNS is reachable")
+		var dnsErr *net.DNSError
+		if !errors.As(err, &dnsErr) || !dnsErr.IsNotFound {
+			return NewError(http.StatusServiceUnavailable, "inbound_mx_check_failed", "could not verify inbound MX; retry after DNS is reachable")
+		}
+		// LookupMX reports an absent RRset as a not-found error. That is a
+		// stable, actionable configuration state, not a transient resolver
+		// failure, so handle it exactly like an empty answer below.
+		hosts = nil
 	}
 	for _, h := range hosts {
 		if strings.EqualFold(strings.TrimSuffix(h, "."), relay) {

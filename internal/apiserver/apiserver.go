@@ -11,6 +11,7 @@ package apiserver
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -115,6 +116,10 @@ func BuildDeps(p Params) httpapi.Deps {
 			var r net.Resolver
 			mxs, err := r.LookupMX(ctx, name)
 			if err != nil {
+				var dnsErr *net.DNSError
+				if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+					return []string{}, nil
+				}
 				return nil, err
 			}
 			hosts := make([]string, len(mxs))

@@ -56,7 +56,7 @@ func TestClaimOrCreateDomain_HierarchicalClaimsAreExclusiveAcrossAccounts(t *tes
 	}
 }
 
-func TestClaimOrCreateDomain_SameAccountChildPromotesInheritedAgents(t *testing.T) {
+func TestClaimOrCreateDomain_SameAccountChildPreservesInheritedAgentsUntilVerified(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -79,11 +79,22 @@ func TestClaimOrCreateDomain_SameAccountChildPromotesInheritedAgents(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.RegisteredDomain != "acme.mail.example.com" {
-		t.Fatalf("registered domain = %q, want promoted child", agent.RegisteredDomain)
+	if agent.RegisteredDomain != "mail.example.com" {
+		t.Fatalf("pending child changed registered domain to %q", agent.RegisteredDomain)
 	}
-	if agent.DomainVerified {
-		t.Fatal("new explicit child is pending verification and must become authoritative immediately")
+	if !agent.DomainVerified {
+		t.Fatal("pending child must not take an inherited agent offline")
+	}
+
+	if err := store.VerifyDomain(ctx, "acme.mail.example.com", user.ID); err != nil {
+		t.Fatalf("verify child: %v", err)
+	}
+	agent, err = store.GetAgentByID(ctx, "otto@acme.mail.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.RegisteredDomain != "acme.mail.example.com" || !agent.DomainVerified {
+		t.Fatalf("verified child did not adopt inherited agent: domain=%q verified=%v", agent.RegisteredDomain, agent.DomainVerified)
 	}
 }
 
