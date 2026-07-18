@@ -88,7 +88,10 @@ func sendingRampView(snap sendramp.Snapshot, now time.Time) SendingRampView {
 		if remaining < 0 {
 			remaining = 0
 		}
-		estimate := now.AddDate(0, 0, remaining)
+		// The final ramp-day cap remains in force through its UTC day. The
+		// domain becomes complete on the following rollover, not immediately
+		// after its first reservation on that final day.
+		estimate := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, remaining+1)
 		v.EstimatedCompletionAt = &estimate
 	}
 	return v

@@ -259,12 +259,12 @@ func main() {
 	// Outbound delivery is queue-first and at-least-once for GA. The accept-tx
 	// enqueues an outbound_send job in the same transaction as the message row;
 	// there is no submit-inline fallback.
-	var outboundRamp outboundsend.RampGate
+	outboundRamp := agent.NewOutboundRampGate(
+		sendramp.NewStore(pool),
+		sendramp.NewSchedule(cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays),
+		cfg.SendingRamp.Enabled,
+	)
 	if cfg.SendingRamp.Enabled {
-		outboundRamp = agent.NewOutboundRampGate(
-			sendramp.NewStore(pool),
-			sendramp.NewSchedule(cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays),
-		)
 		log.Printf("Outbound sending ramp enabled: %d→%d recipients over %d active days", cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays)
 	}
 	outboundJobs := outboundsend.NewJobs(

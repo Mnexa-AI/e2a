@@ -26,8 +26,9 @@ func TestSendingRampViewIsReadOnlyProgressSnapshot(t *testing.T) {
 	if view.ResetsAt == nil || !view.ResetsAt.Equal(wantReset) {
 		t.Fatalf("resets_at = %v, want %v", view.ResetsAt, wantReset)
 	}
-	if view.EstimatedCompletionAt == nil || !view.EstimatedCompletionAt.Equal(now.AddDate(0, 0, 27)) {
-		t.Fatalf("estimated_completion_at = %v, want 27 active days from now", view.EstimatedCompletionAt)
+	wantCompletion := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	if view.EstimatedCompletionAt == nil || !view.EstimatedCompletionAt.Equal(wantCompletion) {
+		t.Fatalf("estimated_completion_at = %v, want first UTC rollover after the final active ramp day", view.EstimatedCompletionAt)
 	}
 }
 

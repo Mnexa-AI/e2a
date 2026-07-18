@@ -52,6 +52,29 @@ type Store struct{ pool *pgxpool.Pool }
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
+// Exempt records that a verified custom domain sent while enforcement was
+// operator-disabled. Persisting the bypass prevents a later config enable from
+// reclassifying an established sender as cold.
+func (s *Store) Exempt(ctx context.Context, userID, domain string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE domains SET sending_ramp_status = 'exempt'
+		 WHERE domain = $1 AND user_id = $2 AND sending_status = 'verified'
+		   AND sending_ramp_status = 'inactive'`, domain, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM domains WHERE domain = $1 AND user_id = $2)`, domain, userID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("sendramp: domain owner mismatch")
+		}
+	}
+	return nil
+}
+
 func (s *Store) Snapshot(ctx context.Context, userID, domain string, now time.Time) (Snapshot, error) {
 	var snap Snapshot
 	if err := s.pool.QueryRow(ctx, `SELECT sending_ramp_status FROM domains WHERE domain = $1 AND user_id = $2`, domain, userID).Scan(&snap.Status); err != nil {

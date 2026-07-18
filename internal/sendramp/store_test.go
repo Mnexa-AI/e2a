@@ -216,6 +216,18 @@ func TestReserveConcurrentRecipientUnitsNeverExceedLimit(t *testing.T) {
 	}
 }
 
+func TestExemptPersistsAcrossLaterRampEnable(t *testing.T) {
+	store, _, userID, domain, messageID := seedRampMessage(t, "disabled-first")
+	if err := store.Exempt(context.Background(), userID, domain); err != nil {
+		t.Fatalf("Exempt: %v", err)
+	}
+	day := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	d := reserve(t, store, userID, domain, messageID, 50, day, sendramp.NewSchedule(50, 2000, 30))
+	if !d.Allowed || d.Status != sendramp.StatusExempt || d.DailyLimit != 0 {
+		t.Fatalf("later enabled reservation = %+v, want permanently exempt", d)
+	}
+}
+
 func createMessageForAgent(t *testing.T, pool *pgxpool.Pool, agentID, suffix string) string {
 	t.Helper()
 	id := "msg_ramp_" + suffix

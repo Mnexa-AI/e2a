@@ -63,16 +63,23 @@ func NewOutboundSendStore(store *identity.Store, outbox webhookpub.Outbox, usage
 type outboundRampGate struct {
 	store    *sendramp.Store
 	schedule sendramp.Schedule
+	enabled  bool
 }
 
 // NewOutboundRampGate adapts the durable sendramp store to the worker-owned
 // gate contract. The schedule is snapshotted by Store on the first eligible
 // send; config changes therefore affect only domains that have not armed yet.
-func NewOutboundRampGate(store *sendramp.Store, schedule sendramp.Schedule) outboundsend.RampGate {
-	return &outboundRampGate{store: store, schedule: schedule}
+func NewOutboundRampGate(store *sendramp.Store, schedule sendramp.Schedule, enabled bool) outboundsend.RampGate {
+	return &outboundRampGate{store: store, schedule: schedule, enabled: enabled}
 }
 
 func (g *outboundRampGate) Reserve(ctx context.Context, req outboundsend.RampRequest) (outboundsend.RampDecision, error) {
+	if !g.enabled {
+		if err := g.store.Exempt(ctx, req.UserID, req.Domain); err != nil {
+			return outboundsend.RampDecision{}, err
+		}
+		return outboundsend.RampDecision{Allowed: true}, nil
+	}
 	d, err := g.store.Reserve(ctx, sendramp.ReserveRequest{
 		MessageID: req.MessageID,
 		UserID:    req.UserID,
