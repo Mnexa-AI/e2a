@@ -68,15 +68,34 @@ type fakeDeliverer struct {
 }
 
 type fakeRampGate struct {
-	decision outboundsend.RampDecision
-	err      error
-	calls    []outboundsend.RampRequest
+	decision   outboundsend.RampDecision
+	err        error
+	calls      []outboundsend.RampRequest
+	confirmed  []string
+	released   []string
+	confirmErr error
+	releaseErr error
 }
 
 func (f *fakeRampGate) Reserve(_ context.Context, req outboundsend.RampRequest) (outboundsend.RampDecision, error) {
 	f.calls = append(f.calls, req)
 	return f.decision, f.err
 }
+
+func (f *fakeRampGate) Confirm(_ context.Context, messageID string) error {
+	f.confirmed = append(f.confirmed, messageID)
+	return f.confirmErr
+}
+
+func (f *fakeRampGate) Release(_ context.Context, messageID string) error {
+	f.released = append(f.released, messageID)
+	return f.releaseErr
+}
+
+type permanentRampError struct{ msg string }
+
+func (e permanentRampError) Error() string   { return e.msg }
+func (e permanentRampError) Permanent() bool { return true }
 
 func (f *fakeDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) outboundsend.DeliverOutcome {
 	f.calls++
@@ -265,6 +284,82 @@ func TestSendWorker_ProviderEvidencePrecedesRamp(t *testing.T) {
 	}
 	if len(gate.calls) != 0 {
 		t.Fatalf("provider evidence must settle before ramp reservation, got %+v", gate.calls)
+	}
+}
+
+func TestSendWorker_ConfirmsRampAfterMarkSent(t *testing.T) {
+	j := acceptedJob("msg_confirm")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}}
+	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "ses-confirm", SentAs: "own_address"}}
+	if err := outboundsend.NewSendWorker(st, dl, gate).Work(context.Background(), job(j.MessageID, 1)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(st.sent) != 1 || len(gate.confirmed) != 1 || gate.confirmed[0] != j.MessageID {
+		t.Fatalf("sent=%v confirmed=%v", st.sent, gate.confirmed)
+	}
+}
+
+func TestSendWorker_RepairsRampConfirmationForAlreadySentMessage(t *testing.T) {
+	j := acceptedJob("msg_repair")
+	j.Domain, j.MessageType, j.SentAs, j.Status = "new.example.com", "send", "own_address", "sent"
+	gate := &fakeRampGate{}
+	dl := &fakeDeliverer{}
+	if err := outboundsend.NewSendWorker(&fakeStore{job: j}, dl, gate).Work(context.Background(), job(j.MessageID, 2)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if dl.calls != 0 || len(gate.confirmed) != 1 {
+		t.Fatalf("deliver=%d confirmed=%v", dl.calls, gate.confirmed)
+	}
+}
+
+func TestSendWorker_ReleasesRampOnPermanentProviderFailure(t *testing.T) {
+	j := acceptedJob("msg_release")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}}
+	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("rejected"), Permanent: true}}
+	_ = outboundsend.NewSendWorker(&fakeStore{job: j}, dl, gate).Work(context.Background(), job(j.MessageID, 1))
+	if len(gate.released) != 1 || gate.released[0] != j.MessageID {
+		t.Fatalf("released=%v", gate.released)
+	}
+}
+
+func TestSendWorker_RetainsRampOnAmbiguousFailure(t *testing.T) {
+	j := acceptedJob("msg_ambiguous")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}}
+	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("connection reset")}}
+	_ = outboundsend.NewSendWorker(&fakeStore{job: j}, dl, gate).Work(context.Background(), job(j.MessageID, 1))
+	if len(gate.released) != 0 {
+		t.Fatalf("ambiguous failure released ramp: %v", gate.released)
+	}
+}
+
+func TestSendWorker_FailsPermanentRampInvariant(t *testing.T) {
+	j := acceptedJob("msg_bad_ramp")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j}
+	gate := &fakeRampGate{err: permanentRampError{"domain missing"}}
+	if err := outboundsend.NewSendWorker(st, &fakeDeliverer{}, gate).Work(context.Background(), job(j.MessageID, 1)); err == nil {
+		t.Fatal("permanent ramp invariant should terminate")
+	}
+	if len(st.failed) != 1 {
+		t.Fatalf("failed=%v", st.failed)
+	}
+}
+
+func TestSendWorker_FailsRampDeferredMessagePastHorizon(t *testing.T) {
+	j := acceptedJob("msg_ramp_timeout")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	j.AcceptedAt = time.Now().Add(-73 * time.Hour)
+	st := &fakeStore{job: j}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: false, RetryAt: time.Now().Add(time.Hour)}}
+	if err := outboundsend.NewSendWorker(st, &fakeDeliverer{}, gate).Work(context.Background(), job(j.MessageID, 1)); err == nil {
+		t.Fatal("past-horizon ramp deferral should terminate")
+	}
+	if len(st.failed) != 1 || len(gate.released) != 1 {
+		t.Fatalf("failed=%v released=%v", st.failed, gate.released)
 	}
 }
 

@@ -22,6 +22,7 @@ package outboundsend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -152,6 +153,8 @@ type RampDecision struct {
 // Implementations must make a same-message/day call idempotent.
 type RampGate interface {
 	Reserve(ctx context.Context, req RampRequest) (RampDecision, error)
+	Confirm(ctx context.Context, messageID string) error
+	Release(ctx context.Context, messageID string) error
 }
 
 // Store is the messages-store surface the worker needs. Implemented over
@@ -223,6 +226,11 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return nil // message gone (cascade/TTL) — nothing to send
 	}
 	if j.alreadyDone() {
+		if w.ramp != nil && j.rampEligible() && j.Status != string(delivery.StatusFailed) {
+			if err := w.ramp.Confirm(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("confirm sending ramp for completed message: %w", err)
+			}
+		}
 		return nil // already submitted (sent+) — idempotent re-drive
 	}
 	if j.ProviderAccepted {
@@ -230,7 +238,13 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		// earlier attempt's submit reached the provider — the crash window
 		// between SMTP accept and mark-sent. Re-submitting would duplicate the
 		// email; settle the row as sent (email.sent + metering, in the store).
-		return w.store.MarkSent(ctx, j.MessageID, j.ProviderMessageID, j.SentAs)
+		if err := w.store.MarkSent(ctx, j.MessageID, j.ProviderMessageID, j.SentAs); err != nil {
+			return err
+		}
+		if w.ramp != nil && j.rampEligible() {
+			return w.ramp.Confirm(ctx, j.MessageID)
+		}
+		return nil
 	}
 
 	// Final suppression guard before provider I/O: a suppression added AFTER
@@ -259,7 +273,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// test mail uses the relay identity and remains exempt; loopback never enters
 	// this worker. Reserve after the provider-evidence and suppression guards so
 	// neither an already-submitted nor locally refused message consumes capacity.
-	if w.ramp != nil && j.SentAs == "own_address" && j.MessageType != "test" {
+	if w.ramp != nil && j.rampEligible() {
 		decision, rerr := w.ramp.Reserve(ctx, RampRequest{
 			MessageID: j.MessageID,
 			UserID:    j.UserID,
@@ -267,6 +281,15 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 			Units:     uniqueRecipientCount(j.Recipients),
 		})
 		if rerr != nil {
+			if isPermanentRampError(rerr) {
+				w.markFailed(ctx, j.MessageID, job.Attempt, "sending_ramp_invalid: "+rerr.Error(), delivery.FailureSourceLocal)
+				return river.JobCancel(rerr)
+			}
+			if j.pastRetryHorizon() {
+				w.markFailed(ctx, j.MessageID, job.Attempt, "ramp_capacity_timeout: "+rerr.Error(), delivery.FailureSourceLocal)
+				_ = w.ramp.Release(ctx, j.MessageID)
+				return river.JobCancel(fmt.Errorf("sending ramp unavailable past %s horizon: %w", sendRetryHorizon, rerr))
+			}
 			if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
 				return fmt.Errorf("release outbound send claim after ramp-check failure: %w", err)
 			}
@@ -274,6 +297,13 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 			return river.JobSnooze(rampErrorSnoozeInterval)
 		}
 		if !decision.Allowed {
+			if j.pastRetryHorizon() {
+				w.markFailed(ctx, j.MessageID, job.Attempt, "ramp_capacity_timeout", delivery.FailureSourceLocal)
+				if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+					return fmt.Errorf("release ramp reservation after timeout: %w", err)
+				}
+				return river.JobCancel(fmt.Errorf("sending ramp deferred past %s horizon", sendRetryHorizon))
+			}
 			if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
 				return fmt.Errorf("release outbound send claim after ramp deferral: %w", err)
 			}
@@ -288,7 +318,15 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	out := w.deliverer.Deliver(ctx, j)
 	if out.Err == nil {
 		// Success — one tx (in the store): mark sent + provider id + email.sent.
-		return w.store.MarkSent(ctx, j.MessageID, out.ProviderMessageID, out.SentAs)
+		if err := w.store.MarkSent(ctx, j.MessageID, out.ProviderMessageID, out.SentAs); err != nil {
+			return err
+		}
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Confirm(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("confirm sending ramp: %w", err)
+			}
+		}
+		return nil
 	}
 
 	// Permanent failure (validation / permanent 5xx) — terminal now, no retries.
@@ -296,6 +334,11 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// correction never revives it.
 	if out.Permanent {
 		w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error(), delivery.FailureSourceProvider)
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("release ramp reservation after provider rejection: %w", err)
+			}
+		}
 		return river.JobCancel(out.Err)
 	}
 	// Provider outage (relay unreachable) — snooze WITHOUT burning an attempt so a
@@ -306,6 +349,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	if out.Outage {
 		if j.pastRetryHorizon() {
 			w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error(), delivery.FailureSourceLocal)
+			if w.ramp != nil && j.rampEligible() {
+				_ = w.ramp.Release(ctx, j.MessageID)
+			}
 			return fmt.Errorf("outbound send failed (provider outage past %s horizon): %w", sendRetryHorizon, out.Err)
 		}
 		if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
@@ -330,6 +376,15 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return fmt.Errorf("release outbound send claim after retryable failure: %w", err)
 	}
 	return fmt.Errorf("outbound send attempt %d failed: %w", job.Attempt, out.Err)
+}
+
+func (j *SendJob) rampEligible() bool {
+	return j.SentAs == "own_address" && j.MessageType != "test"
+}
+
+func isPermanentRampError(err error) bool {
+	var permanent interface{ Permanent() bool }
+	return errors.As(err, &permanent) && permanent.Permanent()
 }
 
 func uniqueRecipientCount(recipients []string) int {

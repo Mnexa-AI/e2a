@@ -64,13 +64,18 @@ type outboundRampGate struct {
 	store    *sendramp.Store
 	schedule sendramp.Schedule
 	enabled  bool
+	now      func() time.Time
 }
 
 // NewOutboundRampGate adapts the durable sendramp store to the worker-owned
 // gate contract. The schedule is snapshotted by Store on the first eligible
 // send; config changes therefore affect only domains that have not armed yet.
-func NewOutboundRampGate(store *sendramp.Store, schedule sendramp.Schedule, enabled bool) outboundsend.RampGate {
-	return &outboundRampGate{store: store, schedule: schedule, enabled: enabled}
+func NewOutboundRampGate(store *sendramp.Store, schedule sendramp.Schedule, enabled bool, clocks ...func() time.Time) outboundsend.RampGate {
+	now := time.Now
+	if len(clocks) > 0 && clocks[0] != nil {
+		now = clocks[0]
+	}
+	return &outboundRampGate{store: store, schedule: schedule, enabled: enabled, now: now}
 }
 
 func (g *outboundRampGate) Reserve(ctx context.Context, req outboundsend.RampRequest) (outboundsend.RampDecision, error) {
@@ -85,10 +90,18 @@ func (g *outboundRampGate) Reserve(ctx context.Context, req outboundsend.RampReq
 		UserID:    req.UserID,
 		Domain:    req.Domain,
 		Units:     req.Units,
-		Day:       time.Now().UTC(),
+		Day:       g.now().UTC(),
 		Schedule:  g.schedule,
 	})
 	return outboundsend.RampDecision{Allowed: d.Allowed, RetryAt: d.RetryAt}, err
+}
+
+func (g *outboundRampGate) Confirm(ctx context.Context, messageID string) error {
+	return g.store.Confirm(ctx, messageID)
+}
+
+func (g *outboundRampGate) Release(ctx context.Context, messageID string) error {
+	return g.store.Release(ctx, messageID)
 }
 
 func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, jobID int64) (*outboundsend.SendJob, error) {
