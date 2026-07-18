@@ -122,7 +122,7 @@ func TestCountAgentsByUser_CountsSubdomainAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LookupCoveringDomain: %v", err)
 	}
-	// Create the subdomain agent bound to the parent domain (what the handler does).
+	// Create the subdomain agent authorized by the registered parent.
 	sub, err := idStore.CreateAgent(ctx, "otto@acme.team.mnexa.ai", parent.Domain, "", "", "", user.ID)
 	if err != nil {
 		t.Fatalf("CreateAgent subdomain: %v", err)
@@ -130,8 +130,11 @@ func TestCountAgentsByUser_CountsSubdomainAgent(t *testing.T) {
 	if sub.EmailAddress() != "otto@acme.team.mnexa.ai" {
 		t.Fatalf("agent address = %q, want the full subdomain", sub.EmailAddress())
 	}
-	if sub.Domain != "team.mnexa.ai" {
-		t.Fatalf("agent bound domain = %q, want parent team.mnexa.ai", sub.Domain)
+	if sub.Domain != "acme.team.mnexa.ai" {
+		t.Fatalf("agent exact domain = %q, want acme.team.mnexa.ai", sub.Domain)
+	}
+	if sub.RegisteredDomain != "team.mnexa.ai" {
+		t.Fatalf("agent registered domain = %q, want parent team.mnexa.ai", sub.RegisteredDomain)
 	}
 	if !sub.DomainVerified {
 		t.Fatalf("subdomain agent must inherit the parent's verified state")

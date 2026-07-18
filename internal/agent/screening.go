@@ -57,14 +57,9 @@ func recipientGate(agent *identity.AgentIdentity, req outbound.SendRequest) (fla
 			}
 		}
 	case identity.OutboundPolicyDomain:
-		// NOTE (subdomain agents): agent.Domain is the agent's BOUND domain,
-		// which for a subdomain agent is its VERIFIED PARENT (e.g. an agent
-		// otto@acme.team.mnexa.ai is bound to team.mnexa.ai — see the create
-		// path's covering-parent resolution). So under the `domain` policy such
-		// an agent may send to any @team.mnexa.ai recipient but NOT to its own
-		// @acme.team.mnexa.ai subdomain, since domainOf(recipient) is the literal
-		// subdomain. This is intentional (the trust anchor is the verified parent)
-		// and documented so it is not a silent surprise; behavior is unchanged.
+		// Address semantics are exact: an inherited subdomain agent compares
+		// recipients with the domain in its own email, not the registered parent
+		// used for DKIM and sending state.
 		for _, r := range allRecipients(req) {
 			if !strings.EqualFold(domainOf(r), agent.Domain) {
 				return true, r

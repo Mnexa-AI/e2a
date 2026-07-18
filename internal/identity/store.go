@@ -97,14 +97,15 @@ type AgentIdentity struct {
 	// EmailAddress() returns it). It is never serialized: every API surface
 	// keys an agent on `email`, and the #436 rename dropped the redundant
 	// `id` from the public contract. Kept as a field for internal use only.
-	ID             string    `json:"-"`
-	Domain         string    `json:"domain"`
-	Email          string    `json:"email"`
-	Name           string    `json:"name"`
-	DomainVerified bool      `json:"domain_verified"`
-	Public         bool      `json:"public"`
-	CreatedAt      time.Time `json:"created_at"`
-	UserID         string    `json:"user_id"`
+	ID               string    `json:"-"`
+	Domain           string    `json:"domain"`
+	RegisteredDomain string    `json:"registered_domain"`
+	Email            string    `json:"email"`
+	Name             string    `json:"name"`
+	DomainVerified   bool      `json:"domain_verified"`
+	Public           bool      `json:"public"`
+	CreatedAt        time.Time `json:"created_at"`
+	UserID           string    `json:"user_id"`
 	// HITL review-queue mechanism. The producer policies hitl_enabled/hitl_mode
 	// were retired (Slice 5b/5c, columns dropped in migration 043) — outbound_policy
 	// + outbound_scan own holds now. These two knobs govern how the review queue
@@ -261,6 +262,10 @@ func ValidateHITLConfig(ttlSeconds int, expirationAction string) error {
 // populateEmail sets the Email field from the agent ID (which is the full email).
 func (a *AgentIdentity) populateEmail() {
 	a.Email = a.ID
+	a.Domain = a.ActualDomain()
+	if a.RegisteredDomain == "" {
+		a.RegisteredDomain = a.Domain
+	}
 }
 
 // IsSharedDomain returns true if the agent's domain matches the configured
@@ -268,12 +273,27 @@ func (a *AgentIdentity) populateEmail() {
 // sharedDomain is empty, the deployment has slug registration disabled
 // and no agent can be on the shared domain.
 func (a *AgentIdentity) IsSharedDomain(sharedDomain string) bool {
-	return sharedDomain != "" && a.Domain == sharedDomain
+	return sharedDomain != "" && a.ActualDomain() == sharedDomain
 }
 
-// ActualDomain returns the DNS domain for the agent.
+// ActualDomain returns the exact domain present in the agent's email address.
+// It may differ from RegisteredDomain for an inherited subdomain agent.
 func (a *AgentIdentity) ActualDomain() string {
+	if i := strings.LastIndexByte(a.ID, '@'); i >= 0 && i+1 < len(a.ID) {
+		return a.ID[i+1:]
+	}
 	return a.Domain
+}
+
+// RegisteredDomainName returns the explicitly registered domain identity that
+// authorizes this agent. It is the DNS/DKIM/sending-state and lifecycle parent.
+// The fallback preserves callers that construct exact-domain identities in
+// memory without populating RegisteredDomain.
+func (a *AgentIdentity) RegisteredDomainName() string {
+	if a.RegisteredDomain != "" {
+		return a.RegisteredDomain
+	}
+	return a.ActualDomain()
 }
 
 // EmailAddress returns the agent's email address (always the ID).
@@ -1058,7 +1078,7 @@ func (s *Store) ListDomainsByUser(ctx context.Context, userID string, limit int,
 	        COALESCE(d.dkim_selector, ''), COALESCE(d.dkim_public_key, ''),
 	        d.sending_status, COALESCE(d.sending_error, ''), d.sending_dns_records, d.sending_last_checked_at,
 	        COALESCE(d.sending_dkim_status, ''), COALESCE(d.sending_mail_from_status, ''),
-	        (SELECT count(*) FROM agent_identities a WHERE a.domain = d.domain AND a.user_id = d.user_id) AS agent_count
+	        (SELECT count(*) FROM agent_identities a WHERE a.registered_domain = d.domain AND a.user_id = d.user_id) AS agent_count
 	 FROM domains d
 	 WHERE d.user_id = $1`
 	args := []interface{}{userID}
@@ -1189,7 +1209,7 @@ func (s *Store) GetAgentByIDAnyState(ctx context.Context, id string) (*AgentIden
 }
 
 func (s *Store) getAgentByID(ctx context.Context, id string, includeDeleted bool) (*AgentIdentity, error) {
-	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at,
+	q := `SELECT a.id, a.registered_domain, a.user_id, a.name, a.public, a.created_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action, a.suppress_notifications,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
@@ -1201,13 +1221,13 @@ func (s *Store) getAgentByID(ctx context.Context, id string, includeDeleted bool
 		        a.deleted_at,
 		        d.verified as domain_verified
 		 FROM agent_identities a
-		 JOIN domains d ON a.domain = d.domain
+		 JOIN domains d ON a.registered_domain = d.domain
 		 WHERE a.id = $1`
 	if !includeDeleted {
 		q += ` AND a.deleted_at IS NULL`
 	}
 	a := &AgentIdentity{}
-	err := s.pool.QueryRow(ctx, q, id).Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
+	err := s.pool.QueryRow(ctx, q, id).Scan(&a.ID, &a.RegisteredDomain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt,
 		&a.HITLTTLSeconds, &a.HITLExpirationAction, &a.SuppressNotifications,
 		&a.InboundPolicy, &a.InboundAllowlist,
 		&a.InboundPolicyAction,
@@ -1268,8 +1288,8 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 		return nil, err
 	}
 	a := &AgentIdentity{
-		ID:                   agentEmail,
-		Domain:               normalizeDomain(domain),
+		ID:                   NormalizeEmail(agentEmail),
+		RegisteredDomain:     normalizeDomain(domain),
 		Name:                 name,
 		Public:               true,
 		CreatedAt:            time.Now(),
@@ -1288,14 +1308,14 @@ func createAgent(ctx context.Context, exec agentExecutor, agentEmail, domain, na
 	// round-trip, and no post-commit window (a separate SELECT after the INSERT
 	// auto-commits on the pool path would, if it errored transiently, surface a
 	// 500 even though the agent row is already committed — a retry then 409s).
-	// The FK on agent_identities.domain guarantees the domains row exists and is
+	// The FK on agent_identities.registered_domain guarantees the domains row exists and is
 	// visible here, so the subquery always resolves to a non-NULL bool. Works
 	// identically on the pool and inside a caller-owned tx.
 	if err := exec.QueryRow(ctx,
-		`INSERT INTO agent_identities (id, domain, user_id, name, public, created_at)
+		`INSERT INTO agent_identities (id, registered_domain, user_id, name, public, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING (SELECT verified FROM domains WHERE domain = $2)`,
-		a.ID, a.Domain, a.UserID, a.Name, a.Public, a.CreatedAt,
+		a.ID, a.RegisteredDomain, a.UserID, a.Name, a.Public, a.CreatedAt,
 	).Scan(&a.DomainVerified); err != nil {
 		return nil, err
 	}
@@ -1439,7 +1459,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 	// true) the stats are skipped entirely below: the trash view renders
 	// identity fields only, and five correlated probes per trashed agent
 	// against the prod-sized messages table would be pure waste.
-	q := `SELECT a.id, a.domain, a.user_id, a.name, a.public, a.created_at, a.deleted_at,
+	q := `SELECT a.id, a.registered_domain, a.user_id, a.name, a.public, a.created_at, a.deleted_at,
 		        a.hitl_ttl_seconds, a.hitl_expiration_action, a.suppress_notifications,
 		        COALESCE(a.inbound_policy, 'open'), a.inbound_allowlist,
 		        a.inbound_policy_action,
@@ -1478,7 +1498,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 	}
 	q += `
 		 FROM agent_identities a
-		 JOIN domains d ON a.domain = d.domain
+		 JOIN domains d ON a.registered_domain = d.domain
 		 WHERE a.user_id = $1`
 	if deleted {
 		q += ` AND a.deleted_at IS NOT NULL`
@@ -1506,7 +1526,7 @@ func (s *Store) listAgentsByUser(ctx context.Context, userID string, limit int, 
 	for rows.Next() {
 		var a AgentIdentity
 		var lastDeliveryAt *time.Time
-		if err := rows.Scan(&a.ID, &a.Domain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt, &a.DeletedAt,
+		if err := rows.Scan(&a.ID, &a.RegisteredDomain, &a.UserID, &a.Name, &a.Public, &a.CreatedAt, &a.DeletedAt,
 			&a.HITLTTLSeconds, &a.HITLExpirationAction, &a.SuppressNotifications,
 			&a.InboundPolicy, &a.InboundAllowlist,
 			&a.InboundPolicyAction,

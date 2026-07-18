@@ -12,9 +12,13 @@ import (
 type fakeSendingStatus struct {
 	status string
 	err    error
+	domain *string
 }
 
 func (f fakeSendingStatus) GetSendingStatus(ctx context.Context, domain string) (string, error) {
+	if f.domain != nil {
+		*f.domain = domain
+	}
 	return f.status, f.err
 }
 
@@ -61,7 +65,7 @@ func TestUseOwnAddressFrom_FailClosed(t *testing.T) {
 		{
 			"empty domain",
 			fakeSendingStatus{status: "verified"},
-			&identity.AgentIdentity{ID: "bot@acme.com", Domain: "", DomainVerified: true},
+			&identity.AgentIdentity{ID: "", Domain: "", DomainVerified: true},
 			false,
 		},
 		{"nil agent", fakeSendingStatus{status: "verified"}, nil, false},
@@ -76,5 +80,24 @@ func TestUseOwnAddressFrom_FailClosed(t *testing.T) {
 				t.Errorf("useOwnAddressFrom = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestUseOwnAddressFrom_SubdomainUsesRegisteredParentStatus(t *testing.T) {
+	var lookedUp string
+	s := NewSender(nil, "send.e2a.dev")
+	s.SetSendingStatusLookup(fakeSendingStatus{status: "verified", domain: &lookedUp})
+	agent := &identity.AgentIdentity{
+		ID:               "otto@acme.team.mnexa.ai",
+		Domain:           "acme.team.mnexa.ai",
+		RegisteredDomain: "team.mnexa.ai",
+		DomainVerified:   true,
+	}
+
+	if !s.useOwnAddressFrom(agent) {
+		t.Fatal("verified registered parent should authorize own-address sending")
+	}
+	if lookedUp != "team.mnexa.ai" {
+		t.Fatalf("sending status looked up %q, want registered parent team.mnexa.ai", lookedUp)
 	}
 }

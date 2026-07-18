@@ -168,9 +168,9 @@ func TestCreateAgentUnregisteredDomain(t *testing.T) {
 }
 
 // TestCreateAgentSubdomainCoveredByVerifiedParent: an agent on a subdomain of a
-// verified parent domain is created and BOUND to the parent domain (which drives
-// DKIM signing, sending status, and quota), while keeping its full subdomain
-// address. No exact registration for the subdomain is required.
+// verified parent domain keeps its exact address domain in the public contract
+// while exposing the registered parent that drives DKIM, sending status, and
+// quota. No exact registration for the subdomain is required.
 func TestCreateAgentSubdomainCoveredByVerifiedParent(t *testing.T) {
 	srv := testServer(t, func(d *Deps) {
 		d.LookupCoveringDomain = func(ctx context.Context, sub, userID string) (*identity.Domain, error) {
@@ -189,10 +189,11 @@ func TestCreateAgentSubdomainCoveredByVerifiedParent(t *testing.T) {
 	if body["email"] != "otto@acme.team.mnexa.ai" {
 		t.Fatalf("email = %v, want the full subdomain address", body["email"])
 	}
-	// The load-bearing assertion: the agent is stored under the PARENT domain
-	// so the FK, quota JOIN, DKIM signer, and sending-status lookup all resolve.
-	if body["domain"] != "team.mnexa.ai" {
-		t.Fatalf("subdomain agent must bind to verified parent domain, got %v", body["domain"])
+	if body["domain"] != "acme.team.mnexa.ai" {
+		t.Fatalf("domain must remain the exact address domain, got %v", body["domain"])
+	}
+	if body["registered_domain"] != "team.mnexa.ai" {
+		t.Fatalf("registered_domain must identify the verified parent, got %v", body["registered_domain"])
 	}
 }
 

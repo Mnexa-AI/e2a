@@ -189,6 +189,8 @@ components:
           type: integer
         public:
           type: boolean
+        registered_domain:
+          type: string
         suppress_notifications:
           type: boolean
         ttl_seconds:
@@ -201,6 +203,7 @@ components:
           type: string
       required:
         - domain
+        - registered_domain
         - email
         - name
         - domain_verified
@@ -238,6 +241,7 @@ components:
           format: date-time
           type: string
         domain:
+          description: The exact domain in the agent email address.
           type: string
         domain_verified:
           type: boolean
@@ -245,8 +249,12 @@ components:
           type: string
         name:
           type: string
+        registered_domain:
+          description: The explicitly registered domain identity that authorizes this agent. For an inherited subdomain agent, this is its verified parent domain.
+          type: string
       required:
         - domain
+        - registered_domain
         - email
         - name
         - domain_verified
@@ -541,12 +549,16 @@ components:
           format: date-time
           type: string
         domain:
+          description: The exact domain in the agent email address.
           type: string
         domain_verified:
           type: boolean
         email:
           type: string
         name:
+          type: string
+        registered_domain:
+          description: The explicitly registered domain identity that authorizes this agent. For an inherited subdomain agent, this is its verified parent domain.
           type: string
         warnings:
           description: "Non-fatal advisories about this newly created agent. Present only when the create surfaced a caveat worth acting on. Currently: a subdomain agent created under a verified PARENT domain whose inbound MX coverage — an MX on the subdomain, or a wildcard MX on the parent, pointing at the e2a relay — could not be confirmed, so the inbox will not receive mail until that record is published. Advisory only (best-effort DNS check; RFC 4592 wildcard shadowing makes detection imperfect); creation still succeeds and send-only agents can ignore it. Open set; tolerate unknown entries."
@@ -557,6 +569,7 @@ components:
             - "null"
       required:
         - domain
+        - registered_domain
         - email
         - name
         - domain_verified

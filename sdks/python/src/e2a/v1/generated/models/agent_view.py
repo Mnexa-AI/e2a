@@ -29,12 +29,13 @@ class AgentView(BaseModel):
     """ # noqa: E501
     created_at: datetime
     deleted_at: Optional[datetime] = Field(default=None, description="When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages' expiry clocks are paused; restore resumes them where they stopped.")
-    domain: StrictStr
+    domain: StrictStr = Field(description="The exact domain in the agent email address.")
     domain_verified: StrictBool
     email: StrictStr
     name: StrictStr
+    registered_domain: StrictStr = Field(description="The explicitly registered domain identity that authorizes this agent. For an inherited subdomain agent, this is its verified parent domain.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["created_at", "deleted_at", "domain", "domain_verified", "email", "name"]
+    __properties: ClassVar[List[str]] = ["created_at", "deleted_at", "domain", "domain_verified", "email", "name", "registered_domain"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -99,7 +100,8 @@ class AgentView(BaseModel):
             "domain": obj.get("domain"),
             "domain_verified": obj.get("domain_verified"),
             "email": obj.get("email"),
-            "name": obj.get("name")
+            "name": obj.get("name"),
+            "registered_domain": obj.get("registered_domain")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

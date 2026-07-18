@@ -29,13 +29,14 @@ class CreateAgentBody(BaseModel):
     """ # noqa: E501
     created_at: datetime
     deleted_at: Optional[datetime] = Field(default=None, description="When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages' expiry clocks are paused; restore resumes them where they stopped.")
-    domain: StrictStr
+    domain: StrictStr = Field(description="The exact domain in the agent email address.")
     domain_verified: StrictBool
     email: StrictStr
     name: StrictStr
+    registered_domain: StrictStr = Field(description="The explicitly registered domain identity that authorizes this agent. For an inherited subdomain agent, this is its verified parent domain.")
     warnings: Optional[List[StrictStr]] = Field(default=None, description="Non-fatal advisories about this newly created agent. Present only when the create surfaced a caveat worth acting on. Currently: a subdomain agent created under a verified PARENT domain whose inbound MX coverage — an MX on the subdomain, or a wildcard MX on the parent, pointing at the e2a relay — could not be confirmed, so the inbox will not receive mail until that record is published. Advisory only (best-effort DNS check; RFC 4592 wildcard shadowing makes detection imperfect); creation still succeeds and send-only agents can ignore it. Open set; tolerate unknown entries.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["created_at", "deleted_at", "domain", "domain_verified", "email", "name", "warnings"]
+    __properties: ClassVar[List[str]] = ["created_at", "deleted_at", "domain", "domain_verified", "email", "name", "registered_domain", "warnings"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -106,6 +107,7 @@ class CreateAgentBody(BaseModel):
             "domain_verified": obj.get("domain_verified"),
             "email": obj.get("email"),
             "name": obj.get("name"),
+            "registered_domain": obj.get("registered_domain"),
             "warnings": obj.get("warnings")
         })
         # store additional fields in additional_properties

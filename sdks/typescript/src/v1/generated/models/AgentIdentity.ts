@@ -39,6 +39,7 @@ export class AgentIdentity {
     'outboundScanSensitivity': string;
     'pendingCount': number;
     '_public': boolean;
+    'registeredDomain': string;
     'suppressNotifications': boolean;
     'ttlSeconds': number;
     'userId': string;
@@ -206,6 +207,12 @@ export class AgentIdentity {
             "name": "_public",
             "baseName": "public",
             "type": "boolean",
+            "format": ""
+        },
+        {
+            "name": "registeredDomain",
+            "baseName": "registered_domain",
+            "type": "string",
             "format": ""
         },
         {

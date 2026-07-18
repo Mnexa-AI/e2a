@@ -18,10 +18,17 @@ export class CreateAgentBody {
     * When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages\' expiry clocks are paused; restore resumes them where they stopped.
     */
     'deletedAt'?: Date;
+    /**
+    * The exact domain in the agent email address.
+    */
     'domain': string;
     'domainVerified': boolean;
     'email': string;
     'name': string;
+    /**
+    * The explicitly registered domain identity that authorizes this agent. For an inherited subdomain agent, this is its verified parent domain.
+    */
+    'registeredDomain': string;
     /**
     * Non-fatal advisories about this newly created agent. Present only when the create surfaced a caveat worth acting on. Currently: a subdomain agent created under a verified PARENT domain whose inbound MX coverage — an MX on the subdomain, or a wildcard MX on the parent, pointing at the e2a relay — could not be confirmed, so the inbox will not receive mail until that record is published. Advisory only (best-effort DNS check; RFC 4592 wildcard shadowing makes detection imperfect); creation still succeeds and send-only agents can ignore it. Open set; tolerate unknown entries.
     */
@@ -65,6 +72,12 @@ export class CreateAgentBody {
         {
             "name": "name",
             "baseName": "name",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "registeredDomain",
+            "baseName": "registered_domain",
             "type": "string",
             "format": ""
         },
