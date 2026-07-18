@@ -34,6 +34,16 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" 
 find "$OUT" -name '*.ts' -print0 | xargs -0 perl -i -ne \
   'print unless /^\s*import\s+["'"'"']whatwg-fetch["'"'"'];\s*$/'
 
+# OpenAPI Generator imports every schema into its API wrapper variants and
+# imports HttpFile into standalone models even when those symbols are unused.
+# Normalize the files introduced by the sending-ramp schema so static analysis
+# and the generated-code freshness gate agree on the committed output.
+python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
+  HttpFile "$OUT/models/SendingRampView.ts" \
+  SendingRampView "$OUT/types/PromiseAPI.ts" \
+  SendingRampView "$OUT/types/ObjectParamAPI.ts" \
+  SendingRampView "$OUT/types/ObservableAPI.ts"
+
 # The upstream template emits a whitespace-only JSDoc line in standalone
 # component models. Normalize the newly published docs-only envelope so the
 # repository's `git diff --check` release gate remains clean and reproducible.

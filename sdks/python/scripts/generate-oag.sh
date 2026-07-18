@@ -43,6 +43,12 @@ rm -rf "$TMP"
 # deployed client). Matches the TypeScript SDK's passthrough behavior.
 python3 "$ROOT/sdks/python/scripts/strip-enum-validators.py" "$DEST"
 
+# OpenAPI Generator imports re into standalone models even when they have no
+# regex-backed validators. Keep the sending-ramp model free of that unused
+# import without making a hand edit that regeneration would undo.
+python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
+  re "$DEST/models/sending_ramp_view.py"
+
 # OpenAPI Generator leaves multiple terminal newlines on standalone component
 # models. Keep the dedicated push envelope deterministic for diff hygiene.
 perl -0pi -e 's/\n+\z/\n/' "$DEST/models/event_envelope.py"
