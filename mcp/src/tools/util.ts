@@ -37,25 +37,31 @@ function snakeCaseKey(key: string): string {
 /**
  * Convert SDK response models back to the REST-style names used by MCP.
  *
- * SDK models are plain objects whose generated property names are ergonomic
- * camelCase. MCP is a separate public boundary and deliberately follows the
- * REST contract's snake_case vocabulary. Recurse through arrays/nested view
- * objects without touching Dates or other class instances. Already-snake_case
- * keys (including reserved-word-safe `from_`) are preserved verbatim.
+ * SDK model property names are ergonomic camelCase. MCP is a separate public
+ * boundary and deliberately follows the REST contract's snake_case vocabulary.
+ * Recurse through arrays/nested view objects without touching Dates or
+ * primitives. Already-snake_case keys (including reserved-word-safe `from_`)
+ * are preserved verbatim.
+ *
+ * IMPORTANT: the generated SDK's ObjectSerializer.deserialize returns CLASS
+ * INSTANCES (`new typeMap[type]()`), not plain object literals, so the
+ * conversion must NOT be gated on `prototype === Object.prototype` — that
+ * guard silently passed every SDK model through unconverted, leaking camelCase
+ * keys from ~48 of 50 tools (the pre-GA e2e sweep's Bug 2). Any non-null,
+ * non-Array, non-Date object is treated as a convertible record; its own
+ * enumerable properties are renamed recursively (this matches the McpOutput
+ * type above, which already maps every object shape except Date/arrays).
  */
 export function toMcpOutput<T>(value: T): McpOutput<T> {
   if (Array.isArray(value)) {
     return value.map((item) => toMcpOutput(item)) as McpOutput<T>;
   }
-  if (value !== null && typeof value === "object") {
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype === Object.prototype || prototype === null) {
-      const out: Record<string, unknown> = {};
-      for (const [key, item] of Object.entries(value)) {
-        out[snakeCaseKey(key)] = toMcpOutput(item);
-      }
-      return out as McpOutput<T>;
+  if (value !== null && typeof value === "object" && !(value instanceof Date)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[snakeCaseKey(key)] = toMcpOutput(item);
     }
+    return out as McpOutput<T>;
   }
   return value as McpOutput<T>;
 }
