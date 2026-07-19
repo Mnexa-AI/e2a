@@ -28,6 +28,15 @@ export type DashboardAgent = {
 // fans out over the account's agents and tags each row with the
 // owning agent's address (`agent_email`) — needed to drive the
 // agent-scoped approve/reject/detail endpoints.
+export type HoldReason = {
+  type: "gate" | "scan" | "send" | "unknown" | string;
+  code: string;
+  summary: string;
+  category?: string;
+  detail?: string;
+  confidence?: number | null;
+};
+
 export type PendingMessageSummary = {
   id: string;
   // Owning agent's email address. In `/v1` this is how detail/approve/
@@ -48,14 +57,9 @@ export type PendingMessageSummary = {
   bcc?: string[];
   status: string;
   created_at: string;
-  // Coded screening verdict that held this message for review — one of
-  // sender_gate | recipient_gate | inbound_scan | outbound_scan | outbound_send.
-  // Populated for every hold (both directions, gate and scan); the review row
-  // renders a reader-friendly label from it. Open set — tolerate unknown values.
-  review_reason?: string;
-  // Aggregate content-scan score (0..1) behind a scan hold; absent for gate-only
-  // holds. Rendered as a confidence next to a scan reason.
-  scan_score?: number | null;
+  // Product-facing explanation from the review API. Render summary directly;
+  // code is an open machine-readable value for automation.
+  hold_reason?: HoldReason;
 };
 
 export type PendingAttachment = {

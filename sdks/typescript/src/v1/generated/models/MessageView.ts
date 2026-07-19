@@ -12,6 +12,7 @@
 
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
+import { HoldReasonView } from '../models/HoldReasonView.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { HttpFile } from '../http/http.js';
@@ -41,6 +42,7 @@ export class MessageView {
     'flagReason'?: string;
     'flagged'?: boolean;
     'from_': string;
+    'holdReason'?: HoldReasonView;
     'id': string;
     'labels': Array<string>;
     'parsed'?: MessageParsedView;
@@ -54,17 +56,9 @@ export class MessageView {
     */
     'replyTo': Array<string>;
     /**
-    * Coded reason this message was held for review (review surface only). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send.
-    */
-    'reviewReason'?: string;
-    /**
     * Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field.
     */
     'reviewStatus'?: string;
-    /**
-    * Aggregate content-scan score (0..1) that drove a scan hold (review surface only). Omitted for gate-only holds.
-    */
-    'scanScore'?: number;
     /**
     * From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay.
     */
@@ -174,6 +168,12 @@ export class MessageView {
             "format": ""
         },
         {
+            "name": "holdReason",
+            "baseName": "hold_reason",
+            "type": "HoldReasonView",
+            "format": ""
+        },
+        {
             "name": "id",
             "baseName": "id",
             "type": "string",
@@ -210,22 +210,10 @@ export class MessageView {
             "format": ""
         },
         {
-            "name": "reviewReason",
-            "baseName": "review_reason",
-            "type": "string",
-            "format": ""
-        },
-        {
             "name": "reviewStatus",
             "baseName": "review_status",
             "type": "string",
             "format": ""
-        },
-        {
-            "name": "scanScore",
-            "baseName": "scan_score",
-            "type": "number",
-            "format": "double"
         },
         {
             "name": "sentAs",

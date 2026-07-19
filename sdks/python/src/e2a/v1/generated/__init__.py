@@ -85,6 +85,7 @@ __all__ = [
     "EventView",
     "FieldError",
     "ForwardRequest",
+    "HoldReasonView",
     "LimitExceededDetails",
     "LimitExceededEnvelope",
     "LimitExceededErrorBody",
@@ -238,6 +239,7 @@ from e2a.v1.generated.models.event_envelope import EventEnvelope as EventEnvelop
 from e2a.v1.generated.models.event_view import EventView as EventView
 from e2a.v1.generated.models.field_error import FieldError as FieldError
 from e2a.v1.generated.models.forward_request import ForwardRequest as ForwardRequest
+from e2a.v1.generated.models.hold_reason_view import HoldReasonView as HoldReasonView
 from e2a.v1.generated.models.limit_exceeded_details import LimitExceededDetails as LimitExceededDetails
 from e2a.v1.generated.models.limit_exceeded_envelope import LimitExceededEnvelope as LimitExceededEnvelope
 from e2a.v1.generated.models.limit_exceeded_error_body import LimitExceededErrorBody as LimitExceededErrorBody

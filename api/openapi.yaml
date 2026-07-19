@@ -1702,6 +1702,33 @@ components:
         - to
         - text
       type: object
+    HoldReasonView:
+      additionalProperties: true
+      properties:
+        category:
+          description: Top screening category when a scan hold has detail enrichment.
+          type: string
+        code:
+          description: Stable machine-readable hold code. Open set; tolerate unknown values.
+          type: string
+        confidence:
+          description: Screening confidence from 0 through 1 when available. Intended for expanded technical detail, not the queue summary.
+          format: double
+          type: number
+        detail:
+          description: Validated plain-language detector rationale when available.
+          type: string
+        summary:
+          description: Plain-language explanation suitable for showing directly to a reviewer.
+          type: string
+        type:
+          description: "Producer that caused the hold. Open set; tolerate unknown values. Known values: gate, scan, send, unknown."
+          type: string
+      required:
+        - type
+        - code
+        - summary
+      type: object
     LimitExceededDetails:
       additionalProperties: true
       properties:
@@ -2088,6 +2115,8 @@ components:
           type: boolean
         from:
           type: string
+        hold_reason:
+          $ref: "#/components/schemas/HoldReasonView"
         id:
           type: string
         labels:
@@ -2109,16 +2138,9 @@ components:
           items:
             type: string
           type: array
-        review_reason:
-          description: "Coded reason this message was held for review (review surface only). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send."
-          type: string
         review_status:
           description: "Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field."
           type: string
-        scan_score:
-          description: Aggregate content-scan score (0..1) that drove a scan hold (review surface only). Omitted for gate-only holds.
-          format: double
-          type: number
         sent_as:
           description: "From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."
           type: string
@@ -2783,19 +2805,15 @@ components:
           type: boolean
         from:
           type: string
+        hold_reason:
+          $ref: "#/components/schemas/HoldReasonView"
+          description: Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
         id:
           description: The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.
-          type: string
-        review_reason:
-          description: "Coded reason this message was held for review. Populated for every hold (both directions, gate and scan). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send."
           type: string
         review_status:
           description: Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).
           type: string
-        scan_score:
-          description: Aggregate content-scan score (0..1) that drove a scan hold. Omitted for gate-only holds.
-          format: double
-          type: number
         subject:
           type: string
         to:

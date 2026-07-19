@@ -10,6 +10,7 @@
  * Do not edit the class manually.
  */
 
+import { HoldReasonView } from '../models/HoldReasonView.js';
 import { HttpFile } from '../http/http.js';
 
 export class ReviewView {
@@ -24,21 +25,17 @@ export class ReviewView {
     'flagged'?: boolean;
     'from_': string;
     /**
+    * Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
+    */
+    'holdReason'?: HoldReasonView;
+    /**
     * The review\'s id. This is the SAME value as the held message\'s id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.
     */
     'id': string;
     /**
-    * Coded reason this message was held for review. Populated for every hold (both directions, gate and scan). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send.
-    */
-    'reviewReason'?: string;
-    /**
     * Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).
     */
     'reviewStatus': string;
-    /**
-    * Aggregate content-scan score (0..1) that drove a scan hold. Omitted for gate-only holds.
-    */
-    'scanScore'?: number;
     'subject': string;
     'to': Array<string>;
 
@@ -90,14 +87,14 @@ export class ReviewView {
             "format": ""
         },
         {
-            "name": "id",
-            "baseName": "id",
-            "type": "string",
+            "name": "holdReason",
+            "baseName": "hold_reason",
+            "type": "HoldReasonView",
             "format": ""
         },
         {
-            "name": "reviewReason",
-            "baseName": "review_reason",
+            "name": "id",
+            "baseName": "id",
             "type": "string",
             "format": ""
         },
@@ -106,12 +103,6 @@ export class ReviewView {
             "baseName": "review_status",
             "type": "string",
             "format": ""
-        },
-        {
-            "name": "scanScore",
-            "baseName": "scan_score",
-            "type": "number",
-            "format": "double"
         },
         {
             "name": "subject",

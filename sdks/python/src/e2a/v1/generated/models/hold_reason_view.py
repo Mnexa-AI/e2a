@@ -17,31 +17,23 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.hold_reason_view import HoldReasonView
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ReviewView(BaseModel):
+class HoldReasonView(BaseModel):
     """
-    ReviewView
+    HoldReasonView
     """ # noqa: E501
-    agent_email: StrictStr = Field(description="The inbox (agent address) the held message belongs to.")
-    conversation_id: Optional[StrictStr] = None
-    created_at: datetime
-    direction: StrictStr
-    flag_reason: Optional[StrictStr] = None
-    flagged: Optional[StrictBool] = None
-    from_: StrictStr = Field(alias="from")
-    hold_reason: Optional[HoldReasonView] = Field(default=None, description="Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.")
-    id: StrictStr = Field(description="The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.")
-    review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")
-    subject: StrictStr
-    to: List[StrictStr]
+    category: Optional[StrictStr] = Field(default=None, description="Top screening category when a scan hold has detail enrichment.")
+    code: StrictStr = Field(description="Stable machine-readable hold code. Open set; tolerate unknown values.")
+    confidence: Optional[Union[StrictFloat, StrictInt]] = Field(default=None, description="Screening confidence from 0 through 1 when available. Intended for expanded technical detail, not the queue summary.")
+    detail: Optional[StrictStr] = Field(default=None, description="Validated plain-language detector rationale when available.")
+    summary: StrictStr = Field(description="Plain-language explanation suitable for showing directly to a reviewer.")
+    type: StrictStr = Field(description="Producer that caused the hold. Open set; tolerate unknown values. Known values: gate, scan, send, unknown.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "review_status", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["category", "code", "confidence", "detail", "summary", "type"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -61,7 +53,7 @@ class ReviewView(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ReviewView from a JSON string"""
+        """Create an instance of HoldReasonView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -84,9 +76,6 @@ class ReviewView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of hold_reason
-        if self.hold_reason:
-            _dict['hold_reason'] = self.hold_reason.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -96,7 +85,7 @@ class ReviewView(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ReviewView from a dict"""
+        """Create an instance of HoldReasonView from a dict"""
         if obj is None:
             return None
 
@@ -104,18 +93,12 @@ class ReviewView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_email": obj.get("agent_email"),
-            "conversation_id": obj.get("conversation_id"),
-            "created_at": obj.get("created_at"),
-            "direction": obj.get("direction"),
-            "flag_reason": obj.get("flag_reason"),
-            "flagged": obj.get("flagged"),
-            "from": obj.get("from"),
-            "hold_reason": HoldReasonView.from_dict(obj["hold_reason"]) if obj.get("hold_reason") is not None else None,
-            "id": obj.get("id"),
-            "review_status": obj.get("review_status"),
-            "subject": obj.get("subject"),
-            "to": obj.get("to")
+            "category": obj.get("category"),
+            "code": obj.get("code"),
+            "confidence": obj.get("confidence"),
+            "detail": obj.get("detail"),
+            "summary": obj.get("summary"),
+            "type": obj.get("type")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

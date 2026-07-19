@@ -18,10 +18,11 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional, Union
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
 from e2a.v1.generated.models.auth_verdict import AuthVerdict
+from e2a.v1.generated.models.hold_reason_view import HoldReasonView
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
 from typing import Optional, Set
@@ -46,15 +47,14 @@ class MessageView(BaseModel):
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
     from_: StrictStr = Field(alias="from")
+    hold_reason: Optional[HoldReasonView] = None
     id: StrictStr
     labels: List[StrictStr]
     parsed: Optional[MessageParsedView] = None
     raw_message: Optional[StrictStr] = Field(description="Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.")
     read_status: StrictStr
     reply_to: List[StrictStr] = Field(description="The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).")
-    review_reason: Optional[StrictStr] = Field(default=None, description="Coded reason this message was held for review (review surface only). Open set; tolerate unknown values. Known values: sender_gate, recipient_gate, inbound_scan, outbound_scan, outbound_send.")
     review_status: Optional[StrictStr] = Field(default=None, description="Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field.")
-    scan_score: Optional[Union[StrictFloat, StrictInt]] = Field(default=None, description="Aggregate content-scan score (0..1) that drove a scan hold (review surface only). Omitted for gate-only holds.")
     sent_as: Optional[StrictStr] = Field(default=None, description="From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay.")
     size_bytes: Optional[StrictInt] = Field(default=None, description="RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from attachments[].size_bytes, which is one attachment's DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes).")
     subject: StrictStr
@@ -62,7 +62,7 @@ class MessageView(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "id", "labels", "parsed", "raw_message", "read_status", "reply_to", "review_reason", "review_status", "scan_score", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "labels", "parsed", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -118,6 +118,9 @@ class MessageView(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of body
         if self.body:
             _dict['body'] = self.body.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of hold_reason
+        if self.hold_reason:
+            _dict['hold_reason'] = self.hold_reason.to_dict()
         # override the default output from pydantic by calling `to_dict()` of parsed
         if self.parsed:
             _dict['parsed'] = self.parsed.to_dict()
@@ -158,15 +161,14 @@ class MessageView(BaseModel):
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
             "from": obj.get("from"),
+            "hold_reason": HoldReasonView.from_dict(obj["hold_reason"]) if obj.get("hold_reason") is not None else None,
             "id": obj.get("id"),
             "labels": obj.get("labels"),
             "parsed": MessageParsedView.from_dict(obj["parsed"]) if obj.get("parsed") is not None else None,
             "raw_message": obj.get("raw_message"),
             "read_status": obj.get("read_status"),
             "reply_to": obj.get("reply_to"),
-            "review_reason": obj.get("review_reason"),
             "review_status": obj.get("review_status"),
-            "scan_score": obj.get("scan_score"),
             "sent_as": obj.get("sent_as"),
             "size_bytes": obj.get("size_bytes"),
             "subject": obj.get("subject"),

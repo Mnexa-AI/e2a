@@ -27,7 +27,7 @@ import type {
 } from "../../../components/types";
 import { Chip, Dot } from "@e2a/ui";
 import { diffApproveEdits, joinCSV } from "./edits";
-import { reviewReasonLabel } from "./reviewReason";
+import { holdReasonSummary } from "./reviewReason";
 
 function formatQueuedAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -83,10 +83,7 @@ export function PendingRow({
   const agentEmail = summary.agent_email;
   const id = summary.id;
   // "Why held" line, computed once (pure; stable within a render).
-  const reasonLabel = reviewReasonLabel(
-    summary.review_reason,
-    summary.scan_score,
-  );
+  const reasonLabel = holdReasonSummary(summary.hold_reason);
   // Inbound holds are screened *incoming* messages: approve = release to
   // the inbox, reject = block. They aren't editable drafts, so the editor
   // and "& send" wording are outbound-only.

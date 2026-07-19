@@ -46,6 +46,7 @@ export * from '../models/EventEnvelope.js';
 export * from '../models/EventView.js';
 export * from '../models/FieldError.js';
 export * from '../models/ForwardRequest.js';
+export * from '../models/HoldReasonView.js';
 export * from '../models/LimitExceededDetails.js';
 export * from '../models/LimitExceededEnvelope.js';
 export * from '../models/LimitExceededErrorBody.js';
@@ -174,6 +175,7 @@ import { EventEnvelope } from '../models/EventEnvelope.js';
 import { EventView } from '../models/EventView.js';
 import { FieldError } from '../models/FieldError.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { HoldReasonView } from '../models/HoldReasonView.js';
 import { LimitExceededDetails } from '../models/LimitExceededDetails.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { LimitExceededErrorBody, LimitExceededErrorBodyCodeEnum      } from '../models/LimitExceededErrorBody.js';
@@ -183,7 +185,7 @@ import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView        , MessageSummaryViewDirectionEnum                 } from '../models/MessageSummaryView.js';
-import { MessageView           , MessageViewDirectionEnum                     } from '../models/MessageView.js';
+import { MessageView           , MessageViewDirectionEnum                    } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
@@ -221,7 +223,7 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { RenderedTemplateView } from '../models/RenderedTemplateView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { RetryAfterDetails } from '../models/RetryAfterDetails.js';
-import { ReviewView   , ReviewViewDirectionEnum            } from '../models/ReviewView.js';
+import { ReviewView   , ReviewViewDirectionEnum           } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
@@ -332,6 +334,7 @@ let typeMap: {[index: string]: any} = {
     "EventView": EventView,
     "FieldError": FieldError,
     "ForwardRequest": ForwardRequest,
+    "HoldReasonView": HoldReasonView,
     "LimitExceededDetails": LimitExceededDetails,
     "LimitExceededEnvelope": LimitExceededEnvelope,
     "LimitExceededErrorBody": LimitExceededErrorBody,
