@@ -152,7 +152,7 @@ func TestReviews_DetailIncludesProtection(t *testing.T) {
 				return &identity.Message{
 					ID: "held1", AgentID: "support@acme.dev", Direction: "inbound",
 					Sender: "spam@evil.biz", Recipient: "support@acme.dev",
-					Subject: "held", Status: "pending_review",
+					Subject: "held", Status: "pending_review", ReviewReason: identity.ReviewReasonInboundScan,
 					RawMessage: []byte("From: spam@evil.biz\r\n\r\nbad"),
 					CreatedAt:  time.Unix(1700000200, 0).UTC(),
 				}, nil
@@ -166,7 +166,7 @@ func TestReviews_DetailIncludesProtection(t *testing.T) {
 			return []identity.ProtectionEvent{{
 				Source: "scan", Action: "review", Detector: "gemini",
 				Categories: json.RawMessage(`[{"name":"prompt-injection","score":0.92}]`),
-				Raw:        json.RawMessage(`[{"flagged":true,"provider":{"native_verdict":"instructs the agent to wire funds"}}]`),
+				Raw:        json.RawMessage(`[{"status":"ok","flagged":true,"provider":{"native_verdict":"instructs the agent to wire funds"}}]`),
 			}}, nil
 		},
 	}))
@@ -190,5 +190,9 @@ func TestReviews_DetailIncludesProtection(t *testing.T) {
 	}
 	if c, _ := cats[0].(map[string]any); c["name"] != "prompt-injection" {
 		t.Errorf("category = %v", cats[0])
+	}
+	reason, _ := body["hold_reason"].(map[string]any)
+	if reason["category"] != "prompt-injection" || reason["detail"] != "instructs the agent to wire funds" || reason["confidence"] != 0.92 {
+		t.Errorf("enriched hold_reason = %v", reason)
 	}
 }

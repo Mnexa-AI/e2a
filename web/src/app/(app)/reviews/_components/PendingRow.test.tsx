@@ -51,6 +51,46 @@ function stage(overrides: Record<string, unknown> = {}) {
 }
 
 describe("PendingRow", () => {
+  it("shows a gate hold explanation in the collapsed row", () => {
+    const gate = {
+      ...summary,
+      hold_reason: {
+        type: "gate",
+        code: "sender_gate",
+        summary: "This sender isn't allowed by the inbox policy.",
+      },
+    };
+    render(<PendingRow summary={gate} expanded={false} onToggle={() => {}} onResolved={() => {}} />);
+    expect(screen.getByText("This sender isn't allowed by the inbox policy.")).toBeInTheDocument();
+  });
+
+  it("shows scan rationale on expansion and confidence only after disclosure", async () => {
+    const user = userEvent.setup();
+    const scan = {
+      ...summary,
+      hold_reason: {
+        type: "scan",
+        code: "outbound_scan",
+        summary: "Content screening found a potential risk.",
+      },
+    };
+    stage({
+      hold_reason: {
+        ...scan.hold_reason,
+        category: "prompt_injection_direct",
+        detail: "It asks the agent to ignore its instructions and wire funds.",
+        confidence: 0.92,
+      },
+      protection: [{ source: "scan", detector: "gemini" }],
+    });
+    render(<PendingRow summary={scan} expanded onToggle={() => {}} onResolved={() => {}} />);
+    expect(await screen.findByText(/ignore its instructions and wire funds/)).toBeInTheDocument();
+    expect(screen.queryByText("confidence 0.92")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Screening details/ }));
+    expect(screen.getByText("confidence 0.92")).toBeInTheDocument();
+    expect(screen.getByText("detector gemini")).toBeInTheDocument();
+  });
+
   it("annotates direction: outbound shows inbox → recipient + Outbound", () => {
     stage();
     render(<PendingRow summary={summary} expanded={false} onToggle={() => {}} onResolved={() => {}} />);

@@ -27,7 +27,7 @@ import type {
 } from "../../../components/types";
 import { Chip, Dot } from "@e2a/ui";
 import { diffApproveEdits, joinCSV } from "./edits";
-import { holdReasonSummary } from "./reviewReason";
+import { categoryLabel, holdReasonSummary } from "./reviewReason";
 
 function formatQueuedAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -111,6 +111,7 @@ export function PendingRow({
 
   const [editing, setEditing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showScreeningDetails, setShowScreeningDetails] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
 
   const [subject, setSubject] = useState("");
@@ -133,6 +134,7 @@ export function PendingRow({
       setEditing(false);
       setRejectOpen(false);
       setShowDetails(false);
+      setShowScreeningDetails(false);
       setActionError("");
     }
   }, [expanded]);
@@ -177,10 +179,17 @@ export function PendingRow({
 
   const hue = hueFor(agentEmail);
   const notPending = !!msg && msg.status !== "pending_review";
-  // Rich "why held" for the expanded panel: the scan detector's top category +
-  // rationale (falls back to null → the coarse collapsed label stays the source
-  // of truth). Only present once the lazy detail (msg.protection) has loaded.
-  const protection = protectionHeadline(msg?.protection);
+  const holdReason = msg?.hold_reason ?? summary.hold_reason;
+  const scanFinding = msg?.protection?.find((finding) => finding.source === "scan");
+  const confidence = holdReason?.confidence;
+  const hasValidConfidence =
+    typeof confidence === "number" &&
+    Number.isFinite(confidence) &&
+    confidence >= 0 &&
+    confidence <= 1;
+  const hasScreeningDetails =
+    holdReason?.type === "scan" &&
+    (hasValidConfidence || !!holdReason.category || !!scanFinding?.detector);
 
   return (
     <div
@@ -236,9 +245,7 @@ export function PendingRow({
               </>
             )}
           </span>
-          {/* Why this message is held — the coded screening verdict rendered as
-              a reader-friendly line (+ scan confidence when present). Omitted
-              when the queue row carries no reason. */}
+          {/* The API-provided explanation is always visible when present. */}
           {reasonLabel && (
             <span
               className="flex items-center gap-1 text-[11px] mt-0.5 truncate"
@@ -304,26 +311,46 @@ export function PendingRow({
                 </p>
               )}
 
-              {/* Why held — the detector's threat category + rationale. Shown
-                  when the scan breakdown is available; gate-only holds have no
-                  scan detail and rely on the coarse collapsed-row label. */}
-              {protection && (
+              {holdReason && (
                 <div
-                  className="text-[12px] px-4 py-2 flex items-baseline gap-1.5"
+                  className="text-[12px] px-4 py-3"
                   style={{
                     background: "var(--warn-bg)",
                     color: "var(--warn-strong)",
                   }}
                 >
-                  <span aria-hidden>⚑</span>
-                  <span>
-                    <strong>{protection.category}</strong>
-                    {protection.summary ? <> — {protection.summary}</> : null}
-                    {typeof protection.score === "number" &&
-                    Number.isFinite(protection.score)
-                      ? ` (${protection.score.toFixed(2)})`
-                      : null}
-                  </span>
+                  <p className="font-semibold">Why this message was held</p>
+                  <p className="mt-0.5">
+                    {holdReason.category ? (
+                      <strong>{categoryLabel(holdReason.category)} — </strong>
+                    ) : null}
+                    {holdReason.detail || holdReason.summary}
+                  </p>
+                  {hasScreeningDetails && (
+                    <div className="mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowScreeningDetails((shown) => !shown)}
+                        className="font-mono text-[11px] cursor-pointer hover:underline"
+                        aria-expanded={showScreeningDetails}
+                      >
+                        Screening details {showScreeningDetails ? "▴" : "▾"}
+                      </button>
+                      {showScreeningDetails && (
+                        <div className="font-mono text-[11px] mt-1 grid gap-0.5">
+                          {holdReason.category && (
+                            <span>category {holdReason.category}</span>
+                          )}
+                          {scanFinding?.detector && (
+                            <span>detector {scanFinding.detector}</span>
+                          )}
+                          {hasValidConfidence && (
+                            <span>confidence {confidence.toFixed(2)}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

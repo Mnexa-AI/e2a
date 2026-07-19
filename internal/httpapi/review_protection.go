@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"encoding/json"
+	"math"
+	"strings"
 
 	"github.com/tokencanopy/e2a/internal/identity"
 )
 
 // ProtectionFindingView is one screening producer's verdict on a held message —
-// the review-detail breakdown behind the coded review_reason. A scan finding
+// the review-detail breakdown behind hold_reason. A scan finding
 // (source=scan) carries the content-detector's categories + one-line rationale;
 // a gate finding (source=scan's counterpart, source=gate) carries only its
 // source + action today (the address that tripped the policy is intentionally
@@ -43,7 +45,7 @@ func protectionFindings(events []identity.ProtectionEvent) []ProtectionFindingVi
 			Source:   e.Source,
 			Action:   e.Action,
 			Detector: e.Detector,
-			Score:    e.Score,
+			Score:    validConfidence(e.Score),
 		}
 		if len(e.Categories) > 0 {
 			var cats []struct {
@@ -52,6 +54,9 @@ func protectionFindings(events []identity.ProtectionEvent) []ProtectionFindingVi
 			}
 			if json.Unmarshal(e.Categories, &cats) == nil {
 				for _, c := range cats {
+					if strings.TrimSpace(c.Name) == "" || !validConfidenceValue(c.Score) {
+						continue
+					}
 					v.Categories = append(v.Categories, ThreatCategoryView{Name: c.Name, Score: c.Score})
 				}
 			}
@@ -62,9 +67,53 @@ func protectionFindings(events []identity.ProtectionEvent) []ProtectionFindingVi
 	return out
 }
 
+// enrichHoldReason adds scan evidence only when the stored primary reason says
+// a scan caused the hold. A secondary scan event must never replace a gate or
+// outbound-send explanation.
+func enrichHoldReason(reason *HoldReasonView, events []identity.ProtectionEvent) *HoldReasonView {
+	if reason == nil || (reason.Code != identity.ReviewReasonInboundScan && reason.Code != identity.ReviewReasonOutboundScan) {
+		return reason
+	}
+	findings := protectionFindings(events)
+	for _, finding := range findings {
+		if finding.Source != "scan" {
+			continue
+		}
+		if finding.Summary != "" {
+			reason.Detail = finding.Summary
+		}
+		var top *ThreatCategoryView
+		for i := range finding.Categories {
+			if top == nil || finding.Categories[i].Score > top.Score {
+				top = &finding.Categories[i]
+			}
+		}
+		if top != nil {
+			reason.Category = top.Name
+			reason.Confidence = validConfidence(&top.Score)
+		} else {
+			reason.Confidence = validConfidence(finding.Score)
+		}
+		return reason
+	}
+	return reason
+}
+
+func validConfidence(score *float64) *float64 {
+	if score == nil || !validConfidenceValue(*score) {
+		return nil
+	}
+	value := *score
+	return &value
+}
+
+func validConfidenceValue(score float64) bool {
+	return !math.IsNaN(score) && !math.IsInf(score, 0) && score >= 0 && score <= 1
+}
+
 // rationaleFromRaw extracts the detector's short rationale from the per-detector
-// `raw` breakdown (a JSON array of piguard results). It prefers the detector
-// that actually flagged the message; otherwise the first non-empty verdict. The
+// `raw` breakdown (a JSON array of piguard results). Only a successful detector
+// that actually flagged the message may supply public rationale. The
 // decode struct is intentionally minimal (not the full piguard.Result) so the
 // API layer stays decoupled from the detector internals and tolerant of shape
 // drift — any parse failure yields an empty summary, never an error.
@@ -73,7 +122,8 @@ func rationaleFromRaw(raw json.RawMessage) string {
 		return ""
 	}
 	var results []struct {
-		Flagged  bool `json:"flagged"`
+		Status   string `json:"status"`
+		Flagged  bool   `json:"flagged"`
 		Provider struct {
 			NativeVerdict string `json:"native_verdict"`
 		} `json:"provider"`
@@ -81,17 +131,10 @@ func rationaleFromRaw(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &results) != nil {
 		return ""
 	}
-	fallback := ""
 	for _, r := range results {
-		if r.Provider.NativeVerdict == "" {
-			continue
-		}
-		if r.Flagged {
-			return r.Provider.NativeVerdict
-		}
-		if fallback == "" {
-			fallback = r.Provider.NativeVerdict
+		if r.Status == "ok" && r.Flagged {
+			return strings.TrimSpace(r.Provider.NativeVerdict)
 		}
 	}
-	return fallback
+	return ""
 }

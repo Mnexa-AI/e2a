@@ -108,7 +108,7 @@ export type PendingMessageDetail = PendingMessageSummary & {
   provider_message_id?: string;
   method?: string;
   // Screening breakdown behind the hold — detector categories + rationale that
-  // explain review_reason. Review detail only; absent on gate-only holds with
+  // support hold_reason. Review detail only; absent on gate-only holds with
   // no scan detail. Beta.
   protection?: ProtectionFinding[];
   // Attached when this is a reply — the inbound message being replied

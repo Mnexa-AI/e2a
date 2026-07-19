@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -14,8 +15,8 @@ func f64p(v float64) *float64 { return &v }
 // two halves of "prompt-injection: instructs the agent to wire funds".
 func TestProtectionFindings_ScanCategoriesAndRationale(t *testing.T) {
 	raw := json.RawMessage(`[
-		{"flagged":false,"provider":{"native_verdict":"looks benign"}},
-		{"flagged":true,"provider":{"native_verdict":"instructs the agent to wire funds"}}
+		{"status":"ok","flagged":false,"provider":{"native_verdict":"looks benign"}},
+		{"status":"ok","flagged":true,"provider":{"native_verdict":"instructs the agent to wire funds"}}
 	]`)
 	events := []identity.ProtectionEvent{{
 		Source:     "scan",
@@ -67,14 +68,46 @@ func TestRationaleFromRaw(t *testing.T) {
 		want string
 	}{
 		{"empty", "", ""},
-		{"no flagged → first non-empty", `[{"flagged":false,"provider":{"native_verdict":"first"}},{"flagged":false,"provider":{"native_verdict":"second"}}]`, "first"},
-		{"flagged wins over earlier non-flagged", `[{"flagged":false,"provider":{"native_verdict":"benign"}},{"flagged":true,"provider":{"native_verdict":"the real threat"}}]`, "the real threat"},
-		{"all empty verdicts", `[{"flagged":true,"provider":{}}]`, ""},
+		{"unflagged verdict is not public rationale", `[{"status":"ok","flagged":false,"provider":{"native_verdict":"provider output"}}]`, ""},
+		{"successful flagged verdict", `[{"status":"ok","flagged":false,"provider":{"native_verdict":"benign"}},{"status":"ok","flagged":true,"provider":{"native_verdict":"the real threat"}}]`, "the real threat"},
+		{"failed flagged verdict is not public rationale", `[{"status":"error","flagged":true,"provider":{"native_verdict":"raw provider failure"}}]`, ""},
+		{"missing status is not eligible", `[{"flagged":true,"provider":{"native_verdict":"legacy raw output"}}]`, ""},
+		{"all empty verdicts", `[{"status":"ok","flagged":true,"provider":{}}]`, ""},
 		{"malformed json → empty, no panic", `{not json`, ""},
 	}
 	for _, c := range cases {
 		if got := rationaleFromRaw(json.RawMessage(c.raw)); got != c.want {
 			t.Errorf("%s: rationaleFromRaw = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestEnrichHoldReason_UsesPrimaryReasonAndValidScanEvidence(t *testing.T) {
+	events := []identity.ProtectionEvent{
+		{Source: "gate", Action: "review"},
+		{
+			Source: "scan", Score: f64p(0.7),
+			Categories: json.RawMessage(`[{"name":"jailbreak","score":0.4},{"name":"prompt_injection_direct","score":0.92}]`),
+			Raw:        json.RawMessage(`[{"status":"ok","flagged":true,"provider":{"native_verdict":"It asks the agent to ignore its instructions and wire funds."}}]`),
+		},
+	}
+
+	scan := enrichHoldReason(baseHoldReason(identity.ReviewReasonInboundScan), events)
+	if scan.Category != "prompt_injection_direct" || scan.Detail == "" || scan.Confidence == nil || *scan.Confidence != 0.92 {
+		t.Fatalf("scan enrichment = %#v", scan)
+	}
+
+	gate := enrichHoldReason(baseHoldReason(identity.ReviewReasonSenderGate), events)
+	if gate.Type != "gate" || gate.Category != "" || gate.Detail != "" || gate.Confidence != nil {
+		t.Fatalf("secondary scan replaced gate reason: %#v", gate)
+	}
+}
+
+func TestEnrichHoldReason_DropsInvalidConfidence(t *testing.T) {
+	for _, score := range []float64{-0.1, 1.1, math.NaN(), math.Inf(1)} {
+		reason := enrichHoldReason(baseHoldReason(identity.ReviewReasonOutboundScan), []identity.ProtectionEvent{{Source: "scan", Score: &score}})
+		if reason.Confidence != nil {
+			t.Errorf("score %v produced confidence %v", score, *reason.Confidence)
 		}
 	}
 }
