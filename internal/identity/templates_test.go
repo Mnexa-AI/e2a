@@ -301,6 +301,37 @@ func TestUpdateTemplate_PartialFields(t *testing.T) {
 	}
 }
 
+func TestUpdateTemplate_UpdatedAtStrictlyIncreases(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID := templateTestUser(t, store, "tmpl-upd-monotonic")
+	tp, err := store.CreateTemplate(ctx, userID, identity.TemplateCreate{Name: "Old", Subject: "Old subject", Body: "Old body"})
+	if err != nil {
+		t.Fatalf("CreateTemplate: %v", err)
+	}
+
+	// Simulate the database clock moving behind the timestamp already stored
+	// on the row. This is the same ordering hazard as creating with the Go
+	// process clock and updating with the PostgreSQL clock.
+	var previous time.Time
+	if err := pool.QueryRow(ctx,
+		`UPDATE templates SET updated_at = now() + interval '1 hour' WHERE id = $1 RETURNING updated_at`,
+		tp.ID,
+	).Scan(&previous); err != nil {
+		t.Fatalf("seed future updated_at: %v", err)
+	}
+
+	newName := "New"
+	got, err := store.UpdateTemplate(ctx, tp.ID, userID, identity.TemplateUpdate{Name: &newName})
+	if err != nil {
+		t.Fatalf("UpdateTemplate: %v", err)
+	}
+	if !got.UpdatedAt.After(previous) {
+		t.Errorf("updated_at not strictly increased: was %v now %v", previous, got.UpdatedAt)
+	}
+}
+
 func TestUpdateTemplate_ClearAliasAndHTML(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

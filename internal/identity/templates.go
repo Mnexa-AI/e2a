@@ -100,7 +100,6 @@ func (s *Store) CreateTemplate(ctx context.Context, userID string, in TemplateCr
 		return nil, ErrTemplateLimitReached
 	}
 
-	now := time.Now()
 	tp := &Template{
 		ID:                 generateTemplateID(),
 		UserID:             userID,
@@ -111,15 +110,14 @@ func (s *Store) CreateTemplate(ctx context.Context, userID string, in TemplateCr
 		HTMLBody:           in.HTMLBody,
 		FromStarterAlias:   in.FromStarterAlias,
 		FromStarterVersion: in.FromStarterVersion,
-		CreatedAt:          now,
-		UpdatedAt:          now,
 	}
-	if _, err := s.pool.Exec(ctx,
-		`INSERT INTO templates (id, user_id, name, alias, subject, body, html_body, from_starter_alias, from_starter_version, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+	if err := s.pool.QueryRow(ctx,
+		`INSERT INTO templates (id, user_id, name, alias, subject, body, html_body, from_starter_alias, from_starter_version)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 RETURNING created_at, updated_at`,
 		tp.ID, tp.UserID, tp.Name, nullIfEmpty(tp.Alias), tp.Subject, tp.Body, nullIfEmpty(tp.HTMLBody),
-		nullIfEmpty(tp.FromStarterAlias), nullIfEmpty(tp.FromStarterVersion), tp.CreatedAt, tp.UpdatedAt,
-	); err != nil {
+		nullIfEmpty(tp.FromStarterAlias), nullIfEmpty(tp.FromStarterVersion),
+	).Scan(&tp.CreatedAt, &tp.UpdatedAt); err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrTemplateAliasTaken
 		}
@@ -293,7 +291,7 @@ func (s *Store) UpdateTemplate(ctx context.Context, templateID, userID string, u
 		// No-op PATCH. Return the current row.
 		return s.GetTemplateByID(ctx, templateID, userID)
 	}
-	sets = append(sets, "updated_at = now()")
+	sets = append(sets, "updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')")
 
 	query := fmt.Sprintf(
 		`UPDATE templates SET %s WHERE id = $1 AND user_id = $2 RETURNING id`,
