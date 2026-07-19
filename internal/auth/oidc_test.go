@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,16 @@ import (
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
+)
+
+// testOIDCDiscoveryInitial/MaxBackoff shorten the background discovery retry
+// loop for tests that deliberately start against an unreachable issuer:
+// production defaults (1s initial, 60s cap) would make those tests slow.
+const (
+	testOIDCDiscoveryInitialBackoff = 10 * time.Millisecond
+	testOIDCDiscoveryMaxBackoff     = 50 * time.Millisecond
+	testOIDCReadyPollTimeout        = 2 * time.Second
+	testOIDCReadyPollInterval       = 5 * time.Millisecond
 )
 
 const (
@@ -89,14 +100,40 @@ func setupOIDC(t *testing.T) *oidcFixture {
 		RedirectURL:  testOIDCRedirectURL,
 		UserIDClaim:  testOIDCUserIDClaim,
 	}
-	fx.oidc, err = auth.NewOIDCAuth(context.Background(), cfg, fx.store, false, "http://app.example.com")
+	fx.oidc, err = auth.NewOIDCAuth(context.Background(), cfg, fx.store, false, "http://app.example.com",
+		auth.WithOIDCDiscoveryBackoff(testOIDCDiscoveryInitialBackoff, testOIDCDiscoveryMaxBackoff))
 	if err != nil {
 		t.Fatalf("NewOIDCAuth: %v", err)
 	}
 	if fx.oidc == nil {
 		t.Fatal("NewOIDCAuth returned nil for enabled config")
 	}
+	// Discovery now runs in a background goroutine (see NewOIDCAuth); the
+	// issuer here is reachable immediately, so this should resolve on the
+	// very first attempt, but we still bound-poll rather than assume a
+	// synchronous completion.
+	waitOIDCReady(t, fx.oidc)
 	return fx
+}
+
+// waitOIDCReady bound-polls oa until background issuer discovery has
+// completed (HandleLogin stops returning 503), or fails the test. It has no
+// visibility into oa's internal readiness state -- by design, that's
+// unexported -- so it probes the same way a real client would.
+func waitOIDCReady(t *testing.T, oa *auth.OIDCAuth) {
+	t.Helper()
+	deadline := time.Now().Add(testOIDCReadyPollTimeout)
+	for {
+		w := httptest.NewRecorder()
+		oa.HandleLogin(w, httptest.NewRequest(http.MethodGet, "/api/auth/oidc/login", nil))
+		if w.Code != http.StatusServiceUnavailable {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("OIDC discovery did not become ready within %s", testOIDCReadyPollTimeout)
+		}
+		time.Sleep(testOIDCReadyPollInterval)
+	}
 }
 
 func (fx *oidcFixture) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
@@ -242,18 +279,162 @@ func TestNewOIDCAuthDisabledReturnsNil(t *testing.T) {
 	}
 }
 
-func TestNewOIDCAuthDiscoveryFailure(t *testing.T) {
+// TestNewOIDCAuthConstructsWithUnreachableIssuer covers target behavior 1+2:
+// boot never blocks or fails on discovery, and the handler fails closed
+// (503) on both routes until discovery succeeds in the background.
+func TestNewOIDCAuthConstructsWithUnreachableIssuer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 
-	_, err := auth.NewOIDCAuth(context.Background(), config.OIDCConfig{
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	oidcAuth, err := auth.NewOIDCAuth(ctx, config.OIDCConfig{
 		Enabled: true, IssuerURL: server.URL, ClientID: "client", ClientSecret: "secret",
 		RedirectURL: testOIDCRedirectURL, UserIDClaim: testOIDCUserIDClaim,
-	}, nil, false, "")
-	if err == nil {
-		t.Fatal("enabled OIDC must fail when provider discovery fails")
+	}, nil, false, "",
+		auth.WithOIDCDiscoveryBackoff(testOIDCDiscoveryInitialBackoff, testOIDCDiscoveryMaxBackoff))
+	if err != nil {
+		t.Fatalf("NewOIDCAuth must not fail synchronously when the issuer is unreachable: %v", err)
+	}
+	if oidcAuth == nil {
+		t.Fatal("enabled OIDC must return a non-nil handler even before discovery completes")
+	}
+
+	loginW := httptest.NewRecorder()
+	oidcAuth.HandleLogin(loginW, httptest.NewRequest(http.MethodGet, "/api/auth/oidc/login", nil))
+	if loginW.Code != http.StatusServiceUnavailable {
+		t.Fatalf("HandleLogin status = %d, want 503 while discovery is unreachable", loginW.Code)
+	}
+
+	callbackW := httptest.NewRecorder()
+	oidcAuth.HandleCallback(callbackW, httptest.NewRequest(http.MethodGet, "/api/auth/oidc/callback?code=x&state=y", nil))
+	if callbackW.Code != http.StatusServiceUnavailable {
+		t.Fatalf("HandleCallback status = %d, want 503 while discovery is unreachable", callbackW.Code)
+	}
+}
+
+// TestOIDCBecomesReadyAfterDiscoverySucceeds covers target behavior 3: once
+// the issuer becomes reachable, the background retry loop discovers it and
+// the handler transitions from failing closed to serving the normal flow,
+// with no restart or reconstruction required.
+func TestOIDCBecomesReadyAfterDiscoverySucceeds(t *testing.T) {
+	fx := &oidcFixture{store: identity.NewStore(testutil.TestDB(t))}
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+	fx.privateKey = privateKey
+	fx.signingKey = privateKey
+	fx.keyID = "oidc-retry-test-key"
+	fx.tokenAudience = testOIDCClientID
+	fx.tokenExpiry = time.Now().Add(5 * time.Minute)
+	fx.includeIDToken = true
+	fx.includeUserID = true
+	// Zero value of the `any` field is nil, not "" -- signIDToken's
+	// `value == ""` fallback to fx.userID only fires when this is
+	// explicitly the empty string (mirrors setupOIDC's fixture init).
+	fx.userIDClaimValue = ""
+
+	var discoverable atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		if !discoverable.Load() {
+			http.Error(w, "issuer not yet available", http.StatusServiceUnavailable)
+			return
+		}
+		fx.handleDiscovery(w, r)
+	})
+	mux.HandleFunc("/authorize", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "authorization is exercised as a redirect only", http.StatusNotImplemented)
+	})
+	mux.HandleFunc("/token", fx.handleToken)
+	mux.HandleFunc("/jwks", fx.handleJWKS)
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	fx.server = server
+	fx.tokenIssuer = server.URL
+
+	cfg := config.OIDCConfig{
+		Enabled: true, IssuerURL: server.URL, ClientID: testOIDCClientID,
+		ClientSecret: testOIDCClientSecret, RedirectURL: testOIDCRedirectURL,
+		UserIDClaim: testOIDCUserIDClaim,
+	}
+	oidcAuth, err := auth.NewOIDCAuth(context.Background(), cfg, fx.store, false, "http://app.example.com",
+		auth.WithOIDCDiscoveryBackoff(testOIDCDiscoveryInitialBackoff, testOIDCDiscoveryMaxBackoff))
+	if err != nil {
+		t.Fatalf("NewOIDCAuth: %v", err)
+	}
+	fx.oidc = oidcAuth
+
+	// The issuer is deliberately unreachable at construction: the handler
+	// must be unready and fail closed rather than partially serve.
+	w := httptest.NewRecorder()
+	oidcAuth.HandleLogin(w, httptest.NewRequest(http.MethodGet, "/api/auth/oidc/login", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("HandleLogin status = %d, want 503 before discovery succeeds", w.Code)
+	}
+
+	// Now let discovery succeed and wait (bounded) for the background retry
+	// loop to pick it up.
+	discoverable.Store(true)
+	waitOIDCReady(t, oidcAuth)
+
+	user, err := fx.store.CreateOrGetUser(context.Background(), "retry@example.com", "Retry", "google-sub-retry")
+	if err != nil {
+		t.Fatalf("CreateOrGetUser: %v", err)
+	}
+	fx.userID = user.ID
+
+	tx := beginOIDCLogin(t, fx)
+	callbackW := httptest.NewRecorder()
+	fx.oidc.HandleCallback(callbackW, callbackRequest(tx, "code=valid-code&state="+url.QueryEscape(tx.state)))
+	if callbackW.Code != http.StatusFound {
+		t.Fatalf("callback status = %d, want 302; body=%s", callbackW.Code, callbackW.Body.String())
+	}
+	session := findCookie(callbackW.Result().Cookies(), auth.SessionCookieName)
+	if session == nil || session.Value == "" {
+		t.Fatal("expected non-empty e2a session cookie once ready")
+	}
+}
+
+// TestOIDCDiscoveryGoroutineExitsOnContextCancel covers target behavior 1's
+// lifecycle requirement: the retry goroutine must stop (not leak) when the
+// ctx passed to NewOIDCAuth is cancelled, e.g. on server shutdown.
+func TestOIDCDiscoveryGoroutineExitsOnContextCancel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	_, err := auth.NewOIDCAuth(ctx, config.OIDCConfig{
+		Enabled: true, IssuerURL: server.URL, ClientID: "client", ClientSecret: "secret",
+		RedirectURL: testOIDCRedirectURL, UserIDClaim: testOIDCUserIDClaim,
+	}, nil, false, "",
+		auth.WithOIDCDiscoveryBackoff(testOIDCDiscoveryInitialBackoff, testOIDCDiscoveryMaxBackoff),
+		auth.WithOIDCDiscoveryDone(done),
+	)
+	if err != nil {
+		t.Fatalf("NewOIDCAuth: %v", err)
+	}
+
+	select {
+	case <-done:
+		t.Fatal("discovery goroutine exited before ctx was cancelled")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("discovery goroutine did not exit within 2s of ctx cancellation")
 	}
 }
 
@@ -483,10 +664,12 @@ func TestOIDCLoginUsesSecureCookiesInProduction(t *testing.T) {
 		ClientSecret: testOIDCClientSecret, RedirectURL: testOIDCRedirectURL,
 		UserIDClaim: testOIDCUserIDClaim,
 	}
-	oidcAuth, err := auth.NewOIDCAuth(context.Background(), cfg, fx.store, true, "https://app.example.com")
+	oidcAuth, err := auth.NewOIDCAuth(context.Background(), cfg, fx.store, true, "https://app.example.com",
+		auth.WithOIDCDiscoveryBackoff(testOIDCDiscoveryInitialBackoff, testOIDCDiscoveryMaxBackoff))
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitOIDCReady(t, oidcAuth)
 	w := httptest.NewRecorder()
 	oidcAuth.HandleLogin(w, httptest.NewRequest(http.MethodGet, "/api/auth/oidc/login", nil))
 	for _, cookie := range w.Result().Cookies() {
