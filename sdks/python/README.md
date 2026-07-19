@@ -84,7 +84,7 @@ with E2AClient() as client:
     for m in client.messages.list(address, read_status="unread"):
         email = client.messages.get(address, m.id)
         print(email.subject)
-        client.messages.reply(address, m.id, {"body": "Got it!"})
+        client.messages.reply(address, m.id, {"text": "Got it!"})
 ```
 
 The sync client must not be used from async code — any call made while an
@@ -106,7 +106,7 @@ async def main():
         async for m in client.messages.list(address, read_status="unread"):
             email = await client.messages.get(address, m.id)
             print(email.subject)
-            await client.messages.reply(address, m.id, {"body": "Got it!"})
+            await client.messages.reply(address, m.id, {"text": "Got it!"})
 
 asyncio.run(main())
 ```
@@ -117,8 +117,8 @@ asyncio.run(main())
 await client.messages.send(address, {
     "to": ["alice@example.com"],
     "subject": "Hello",
-    "body": "Hi from my agent!",
-    "html_body": "<p>Hi!</p>",
+    "text": "Hi from my agent!",
+    "html": "<p>Hi!</p>",
 })
 ```
 
@@ -288,7 +288,7 @@ you want to thread.
 await client.messages.send(address, {
     "to": ["alice@example.com"],
     "subject": "Hello",
-    "body": "Hi from my agent!",
+    "text": "Hi from my agent!",
     "conversation_id": "thread-42",
 })
 

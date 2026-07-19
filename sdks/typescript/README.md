@@ -9,7 +9,7 @@ npm install @e2a/sdk
 ```
 
 The SDK major version tracks the SDK package's own breaking changes and is
-independent of the API version path (`/v1`): SDK 4.x targets the e2a v1 API.
+independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
 
 ## Upgrading to 4.0
 
@@ -47,8 +47,8 @@ retries + idempotency, and auto-pagination.
 - const { messages } = await client.getMessages({ status: "unread" });
 - const email = await client.getMessage(messages[0].messageId);
 - await email.reply("Thanks!");
-+ const messages = await client.messages.list(address, { status: "unread" }).toArray({ limit: 50 });
-+ await client.messages.reply(address, messages[0].messageId, { body: "Thanks!" });
++ const messages = await client.messages.list(address, { readStatus: "unread" }).toArray({ limit: 50 });
++ await client.messages.reply(address, messages[0].id, { text: "Thanks!" });
 ```
 
 ## Quick Start
@@ -64,10 +64,10 @@ const address = "my-agent@agents.e2a.dev";
 
 ```typescript
 // List endpoints return an AutoPager: iterate, or collect with a required limit.
-for await (const m of client.messages.list(address, { status: "unread" })) {
-  const email = await client.messages.get(address, m.messageId);
-  console.log(email.subject, email.body?.text);
-  await client.messages.reply(address, m.messageId, { body: "Got it!" });
+for await (const m of client.messages.list(address, { readStatus: "unread" })) {
+  const email = await client.messages.get(address, m.id);
+  console.log(email.subject, email.parsed?.text);
+  await client.messages.reply(address, m.id, { text: "Got it!" });
 }
 ```
 
@@ -77,8 +77,8 @@ for await (const m of client.messages.list(address, { status: "unread" })) {
 await client.messages.send(address, {
   to: ["alice@example.com"],
   subject: "Hello",
-  body: "Hi from my agent!",
-  htmlBody: "<p>Hi!</p>",
+  text: "Hi from my agent!",
+  html: "<p>Hi!</p>",
   cc: ["carol@example.com"],
 });
 ```

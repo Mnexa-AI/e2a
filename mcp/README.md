@@ -55,13 +55,13 @@ Using [`langchain-mcp-adapters`](https://github.com/langchain-ai/langchain-mcp-a
 ```python
 import os
 
+from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
 
 client = MultiServerMCPClient({
     "e2a": {
-        "transport": "streamable_http",
-        "url": "https://api.e2a.dev/mcp",
+        "transport": "http",
+        "url": os.getenv("E2A_MCP_URL", "https://api.e2a.dev/mcp"),
         "headers": {
             "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
         },
@@ -69,7 +69,11 @@ client = MultiServerMCPClient({
 })
 
 tools = await client.get_tools()
-agent = create_react_agent("anthropic:claude-sonnet-4-6", tools)
+agent = create_agent(
+    "anthropic:claude-sonnet-4-6",
+    tools=tools,
+    system_prompt="Reply with reply_to_message; pending_review is accepted, so do not retry it.",
+)
 ```
 
 ### OpenAI Agents SDK (Python)
@@ -83,11 +87,14 @@ from agents.mcp import MCPServerStreamableHttp
 async with MCPServerStreamableHttp(
     name="e2a",
     params={
-        "url": "https://api.e2a.dev/mcp",
+        "url": os.getenv("E2A_MCP_URL", "https://api.e2a.dev/mcp"),
         "headers": {
             "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
         },
+        "timeout": 30,
     },
+    cache_tools_list=True,
+    max_retry_attempts=3,
 ) as e2a:
     agent = Agent(name="e2a_agent", mcp_servers=[e2a])
     result = await Runner.run(agent, "Reply to the latest unread email politely.")
