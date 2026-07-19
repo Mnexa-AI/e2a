@@ -13,6 +13,36 @@ pip install e2a          # add the [ws] extra for client.listen(): pip install "
 The SDK major version tracks the SDK package's own breaking changes and is
 independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
 
+## Upgrading to 5.2
+
+The reserved-word wire field `from` is now uniformly exposed as `from_`
+(PEP 8 trailing underscore) on generated models (was the generator-mangled
+`var_from`). Affected models: `Message`, `MessageView`, `MessageSummaryView`,
+`ReviewView`, `EmailReceivedData`, `EmailSentData`, `EmailFailedData`, plus
+the `list_messages` sender filter parameter. The hand-written layer's
+`messages.list(from_=...)` already used `from_`, so the SDK now teaches
+exactly one spelling. The wire JSON is unchanged — requests and responses
+still carry `from` (pydantic alias). The webhook/WS `data` payload
+TypedDicts are wire-true dicts and keep the literal `"from"` key (access as
+`data["from"]`). Migrate: `message.var_from` → `message.from_`.
+
+## Upgrading to 5.1
+
+Every `.delete(...)` now returns a typed deletion object instead of `None`.
+The API's seven delete endpoints all return `200 OK` with
+`{"deleted": true, <identity key>}` instead of the previous mix of
+`204 No Content` and `200`. New return types: `agents.delete` →
+`DeleteAgentResult`, `domains.delete` → `DeleteDomainResult`,
+`webhooks.delete` → `DeleteWebhookResult`, `templates.delete` →
+`DeleteTemplateResult`, `account.api_keys.delete` → `DeleteApiKeyResult`,
+`account.suppressions.delete` → `DeleteSuppressionResult`;
+`account.delete()` still returns `DeleteUserDataResult`, which now also
+carries `deleted: true`. `deleted` is always `True` — a failed delete raises
+a typed error. Applies identically to the sync `E2AClient` facade. Callers
+that ignored the old `None` return need no changes. Older SDK versions
+expecting `204` are incompatible with servers running this contract —
+upgrade together.
+
 ## Upgrading to 5.0
 
 5.0 renames the async client and introduces a synchronous client under the
