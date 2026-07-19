@@ -287,8 +287,8 @@ func TestCmdValidate_Failures(t *testing.T) {
 	}
 
 	// DB reachable + migrations recorded, but the probe identity is absent.
-	// RunMigrations populates schema_migrations (testutil applies DDL only) so
-	// cmdValidate's migrations-applied check passes and reaches the identity check.
+	// Re-running the production migration path verifies it is idempotent before
+	// cmdValidate's migrations-applied check reaches the identity check.
 	pool := testutil.TestDB(t)
 	if err := identity.RunMigrations(ctx, pool, migrations.FS, identity.ModeAuto); err != nil {
 		t.Fatalf("record migrations: %v", err)

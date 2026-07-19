@@ -191,13 +191,10 @@ func TestRunMigrations_VerifyModeRefusesToApply(t *testing.T) {
 	}
 }
 
-// TestRunMigrations_SkipModeIsNoop ensures skip mode does nothing —
-// not even creating the schema_migrations table on a fresh DB.
+// TestRunMigrations_SkipModeIsNoop ensures skip mode does not apply pending SQL.
 func TestRunMigrations_SkipModeIsNoop(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.TestDB(t)
-	// The testutil's own migration runner doesn't create schema_migrations
-	// so this is genuinely "did skip touch the DB at all" for that table.
 
 	fsys := stubFS(map[string]string{
 		"any.sql": "CREATE TABLE IF NOT EXISTS migrate_test_skip (id TEXT);",
