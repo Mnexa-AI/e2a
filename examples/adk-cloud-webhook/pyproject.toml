@@ -10,8 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 dependencies = [
-  # google-adk 2.0 is in pre-release as of writing and may reorganize imports.
-  # Pin to the 1.x line until 2.0 ships and the code is verified against it.
+  # Keep this webhook tutorial on the verified ADK 1.x API. The separate MCP
+  # quick start under mcp/examples/adk targets the current ADK 2.x line.
   "google-adk>=1.31,<2",
   "e2a>=5,<6",
   "fastapi>=0.115",
@@ -20,5 +20,5 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent", "webhook"]
-only-include = ["agent.py", "webhook.py"]
+packages = ["agent", "webhook", "delivery_state"]
+only-include = ["agent.py", "webhook.py", "delivery_state.py"]
