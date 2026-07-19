@@ -162,6 +162,9 @@ func TestSendWorker_SuppressionAddedDuringRampReservePreventsProviderIO(t *testi
 	api, store, outbox, _ := setupAsyncAPI(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "suppduringramp")
+	if err := store.SetSendingStatus(ctx, ag.RegisteredDomain, "verified", "verified", "verified", "", nil); err != nil {
+		t.Fatalf("SetSendingStatus: %v", err)
+	}
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
 		To: []string{"late@external.test"}, Subject: "ramp race", Body: "x",
 	}, "send", "", nil, nil)
