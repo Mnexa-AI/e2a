@@ -63,6 +63,9 @@ export class SendEmailRequest {
     * Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
     */
     'to': Array<string>;
+    /**
+    * Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable.
+    */
     'unsubscribe'?: UnsubscribeOptions;
 
     static readonly discriminator: string | undefined = undefined;

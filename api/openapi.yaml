@@ -267,6 +267,7 @@ components:
         - source
         - created_at
       type: object
+      x-stability-level: beta
     AgentView:
       additionalProperties: true
       properties:
@@ -601,6 +602,7 @@ components:
       required:
         - address
       type: object
+      x-stability-level: beta
     CreateTemplateRequest:
       additionalProperties: false
       properties:
@@ -1754,6 +1756,8 @@ components:
           type: array
         unsubscribe:
           $ref: "#/components/schemas/UnsubscribeOptions"
+          description: "Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."
+          x-stability-level: beta
       required:
         - to
         - text
@@ -2295,6 +2299,7 @@ components:
         - items
         - next_cursor
       type: object
+      x-stability-level: beta
     PageAgentView:
       additionalProperties: true
       properties:
@@ -2878,6 +2883,8 @@ components:
           type: string
         unsubscribe:
           $ref: "#/components/schemas/UnsubscribeOptions"
+          description: "Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."
+          x-stability-level: beta
       required:
         - text
       type: object
@@ -3012,6 +3019,8 @@ components:
           type: array
         unsubscribe:
           $ref: "#/components/schemas/UnsubscribeOptions"
+          description: "Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."
+          x-stability-level: beta
       required:
         - to
       type: object
@@ -3342,14 +3351,17 @@ components:
       type: object
     UnsubscribeOptions:
       additionalProperties: false
+      description: "Beta: per-message opt-in to e2a-managed unsubscribe handling. This schema may change before it is declared stable."
       properties:
         mode:
+          description: "Beta: managed requests e2a-hosted unsubscribe handling. This option may change before it is declared stable."
           enum:
             - managed
           type: string
       required:
         - mode
       type: object
+      x-stability-level: beta
     UpdateAgentRequest:
       additionalProperties: false
       properties:
@@ -5354,7 +5366,7 @@ paths:
         - agents
   /v1/agents/{email}/suppressions:
     get:
-      description: Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only.
+      description: "Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable."
       operationId: listAgentSuppressions
       parameters:
         - in: path
@@ -5401,11 +5413,12 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: List an agent's suppressed recipients
+      summary: List an agent's suppressed recipients (beta)
       tags:
         - agents
+      x-stability-level: beta
     post:
-      description: Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only.
+      description: "Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable."
       operationId: createAgentSuppression
       parameters:
         - in: path
@@ -5440,12 +5453,13 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: Suppress a recipient for an agent
+      summary: Suppress a recipient for an agent (beta)
       tags:
         - agents
+      x-stability-level: beta
   /v1/agents/{email}/suppressions/{address}:
     delete:
-      description: Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only.
+      description: "Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable."
       operationId: deleteAgentSuppression
       parameters:
         - in: path
@@ -5489,9 +5503,10 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: Remove an agent recipient suppression
+      summary: Remove an agent recipient suppression (beta)
       tags:
         - agents
+      x-stability-level: beta
   /v1/agents/{email}/test:
     post:
       description: "Send a platform-originated test email (From: the platform noreply identity) to the agent's own address over the real external SMTP route, to confirm inbound delivery end to end. Returns 202: status=accepted (the message is durably persisted and queued; message_id is the GET-able e2a message id, and the terminal outcome arrives via GET /v1/messages/{id} or the email.sent / email.failed webhook events — provider_message_id appears only after provider submission) or status=pending_review when held for review. Always branch on body.status."

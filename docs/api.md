@@ -194,11 +194,14 @@ every `/v1` operation not listed here is covered by the GA freeze.
 
 | operationId | Method and path | Surface |
 | --- | --- | --- |
+| `createAgentSuppression` | `POST /v1/agents/{email}/suppressions` | Agent suppressions |
 | `createTemplate` | `POST /v1/templates` | Templates |
+| `deleteAgentSuppression` | `DELETE /v1/agents/{email}/suppressions/{address}` | Agent suppressions |
 | `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
 | `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
 | `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
 | `getTemplate` | `GET /v1/templates/{id}` | Templates |
+| `listAgentSuppressions` | `GET /v1/agents/{email}/suppressions` | Agent suppressions |
 | `listStarterTemplates` | `GET /v1/starter-templates` | Starter templates |
 | `listTemplates` | `GET /v1/templates` | Templates |
 | `putAgentProtection` | `PUT /v1/agents/{email}/protection` | Protection config |
@@ -222,8 +225,9 @@ every `/v1` operation not listed here is covered by the GA freeze.
 - **Beta surfaces are marked `x-stability-level: beta`** in the spec
   for automated compatibility tools
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
-  send) and `(beta)` in prose — today: templates, starter templates, and the agent
-  protection config. They are **exempt from the
+  send) and `(beta)` in prose — today: templates, starter templates, the agent
+  protection config, agent-scoped suppression management, and managed
+  unsubscribe (including its raw confirmation flow). They are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
@@ -406,13 +410,14 @@ single message.
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
 
-**Managed unsubscribe.** Send, reply, and forward accept the optional strict
+**Managed unsubscribe (beta).** Send, reply, and forward accept the optional strict
 object `"unsubscribe":{"mode":"managed"}`. Omission means only that e2a does
 not add its managed unsubscribe mechanism; it does not classify the message as
 transactional. Managed mode requires exactly one normalized envelope recipient
 across To, CC, and BCC. e2a owns the opaque token, adds a visible footer and the
 `List-Unsubscribe` / `List-Unsubscribe-Post` headers before DKIM signing, and
-hosts `GET|POST /u/{token}`. GET is scanner-safe confirmation only and never
+hosts the beta raw confirmation flow at `GET|POST /u/{token}`. GET is
+scanner-safe confirmation only and never
 changes state; the RFC 8058 one-click POST body is
 `List-Unsubscribe=One-Click`. The application never stores or constructs the
 token.
@@ -511,7 +516,10 @@ own **per-webhook signing secret** that signs the payloads sent to it.
 - `GET /v1/webhooks/{id}/deliveries` — the per-webhook delivery log (debug view).
 - `POST /v1/webhooks/{id}/test` — fire a one-off synthetic delivery.
 
-`agent.suppression_added` is a beta event emitted once when a new exact-agent
+Agent-scoped suppression management is beta. The authenticated list, create,
+and delete operations and their request/response schemas may change before
+they are declared stable. `agent.suppression_added` is a beta event emitted
+once when a new exact-agent
 block is created. Its current payload is
 `{agent_email, address, source}`, where `source` is `unsubscribe` or `manual`.
 Consumers must tolerate additive or other beta payload changes. The existing

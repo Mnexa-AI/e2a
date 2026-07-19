@@ -38,6 +38,9 @@ export class ReplyRequest {
     */
     'replyTo'?: string;
     'text': string;
+    /**
+    * Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable.
+    */
     'unsubscribe'?: UnsubscribeOptions;
 
     static readonly discriminator: string | undefined = undefined;

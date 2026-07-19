@@ -78,8 +78,8 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only.
-     * Suppress a recipient for an agent
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
      * @param email
      * @param createAgentSuppressionRequest
      */
@@ -191,8 +191,8 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only.
-     * Remove an agent recipient suppression
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
      * @param email
      * @param address
      * @param confirm Must be the literal DELETE — this action is irreversible.
@@ -325,8 +325,8 @@ export class AgentsApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only.
-     * List an agent\'s suppressed recipients
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
      * @param email
      * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
      * @param limit Maximum number of items to return (1-100).

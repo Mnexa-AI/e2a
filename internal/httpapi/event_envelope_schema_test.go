@@ -103,6 +103,12 @@ func TestEventEnvelopePublishesBetaAgentSuppressionPayload(t *testing.T) {
 	if got := schema["x-stability-level"]; got != "beta" {
 		t.Fatalf("AgentSuppressionAddedData stability = %v, want beta", got)
 	}
+	if got := schema["x-stability"]; got != nil {
+		t.Fatalf("AgentSuppressionAddedData must use only the canonical stability marker, got x-stability=%v", got)
+	}
+	if stable := doc.Components.Schemas["DomainSuppressionAddedData"]; stable["x-stability-level"] != nil || stable["x-stability"] != nil {
+		t.Fatalf("DomainSuppressionAddedData must remain stable and unmarked, got %#v", stable)
+	}
 	props := schema["properties"].(map[string]any)
 	for _, name := range []string{"agent_email", "address", "source"} {
 		if _, ok := props[name]; !ok {

@@ -245,14 +245,15 @@ type SendEmailRequest struct {
 	ConversationID string                `json:"conversation_id,omitempty" maxLength:"200" doc:"Caller-assigned conversation (thread) id. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF."`
 	ReplyTo        string                `json:"reply_to,omitempty" maxLength:"320" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). At most 320 characters (display name + address combined). Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
-	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty"`
+	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty" doc:"Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."`
 }
 
-// UnsubscribeOptions is presence-aware because omission is the compatibility
-// path: it means only that e2a-managed unsubscribe was not requested. It does
-// not classify the message as transactional.
+// UnsubscribeOptions is the beta per-message opt-in to e2a-managed unsubscribe
+// handling. It is presence-aware because omission is the compatibility path:
+// it means only that managed unsubscribe was not requested and does not
+// classify the message as transactional. This type may change before stable.
 type UnsubscribeOptions struct {
-	Mode    string `json:"mode" enum:"managed"`
+	Mode    string `json:"mode" enum:"managed" doc:"Beta: managed requests e2a-hosted unsubscribe handling. This option may change before it is declared stable."`
 	Present bool   `json:"-"`
 }
 
@@ -474,7 +475,7 @@ type ReplyRequest struct {
 	ConversationID string                `json:"conversation_id,omitempty" maxLength:"200" doc:"Caller-assigned conversation (thread) id override. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF."`
 	ReplyTo        string                `json:"reply_to,omitempty" maxLength:"320" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. At most 320 characters (display name + address combined). Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
-	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty"`
+	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty" doc:"Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."`
 }
 
 type replyInput struct {
@@ -659,7 +660,7 @@ type ForwardRequest struct {
 	ConversationID string                `json:"conversation_id,omitempty" maxLength:"200" doc:"Caller-assigned conversation (thread) id override. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF."`
 	ReplyTo        string                `json:"reply_to,omitempty" maxLength:"320" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. At most 320 characters (display name + address combined). Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
-	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty"`
+	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty" doc:"Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."`
 }
 
 type forwardInput struct {

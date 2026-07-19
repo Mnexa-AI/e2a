@@ -12,7 +12,13 @@
 
 import { HttpFile } from '../http/http.js';
 
+/**
+* Beta: per-message opt-in to e2a-managed unsubscribe handling. This schema may change before it is declared stable.
+*/
 export class UnsubscribeOptions {
+    /**
+    * Beta: managed requests e2a-hosted unsubscribe handling. This option may change before it is declared stable.
+    */
     'mode': UnsubscribeOptionsModeEnum;
 
     static readonly discriminator: string | undefined = undefined;

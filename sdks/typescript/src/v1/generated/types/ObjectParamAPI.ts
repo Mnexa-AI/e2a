@@ -623,8 +623,8 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only.
-     * Suppress a recipient for an agent
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
      * @param param the request object
      */
     public createAgentSuppressionWithHttpInfo(param: AgentsApiCreateAgentSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<AgentSuppressionView>> {
@@ -632,8 +632,8 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only.
-     * Suppress a recipient for an agent
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
      * @param param the request object
      */
     public createAgentSuppression(param: AgentsApiCreateAgentSuppressionRequest, options?: ConfigurationOptions): Promise<AgentSuppressionView> {
@@ -659,8 +659,8 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only.
-     * Remove an agent recipient suppression
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
      * @param param the request object
      */
     public deleteAgentSuppressionWithHttpInfo(param: AgentsApiDeleteAgentSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteSuppressionResult>> {
@@ -668,8 +668,8 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only.
-     * Remove an agent recipient suppression
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
      * @param param the request object
      */
     public deleteAgentSuppression(param: AgentsApiDeleteAgentSuppressionRequest, options?: ConfigurationOptions): Promise<DeleteSuppressionResult> {
@@ -713,8 +713,8 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only.
-     * List an agent\'s suppressed recipients
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
      * @param param the request object
      */
     public listAgentSuppressionsWithHttpInfo(param: AgentsApiListAgentSuppressionsRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageAgentSuppressionView>> {
@@ -722,8 +722,8 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only.
-     * List an agent\'s suppressed recipients
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
      * @param param the request object
      */
     public listAgentSuppressions(param: AgentsApiListAgentSuppressionsRequest, options?: ConfigurationOptions): Promise<PageAgentSuppressionView> {

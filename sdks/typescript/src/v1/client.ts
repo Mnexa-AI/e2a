@@ -115,7 +115,8 @@ export interface RequestOptions {
   idempotencyKey?: string;
 }
 
-/** Per-message opt-in to e2a-managed unsubscribe handling. */
+/** Beta per-message opt-in to e2a-managed unsubscribe handling. This API and
+ * its raw GET|POST /u/{token} confirmation flow may change before stable. */
 export interface ManagedUnsubscribeOptions {
   mode: "managed";
 }
@@ -293,18 +294,18 @@ class AgentsResource {
   test(email: string): Promise<SendResultView> {
     return call(() => this.api.testAgent(email));
   }
-  /** List recipient blocks scoped to this exact sending agent. */
+  /** Beta: list recipient blocks scoped to this exact sending agent. */
   listSuppressions(email: string, params: { limit?: number } = {}): AutoPager<AgentSuppressionView> {
     return new AutoPager(async (cursor) => {
       const page = await call(() => this.api.listAgentSuppressions(email, cursor, params.limit));
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-  /** Idempotently add a manual recipient block for this exact agent. */
+  /** Beta: idempotently add a manual recipient block for this exact agent. */
   createSuppression(email: string, body: CreateAgentSuppressionRequest): Promise<AgentSuppressionView> {
     return call(() => this.api.createAgentSuppression(email, body));
   }
-  /** Remove only this exact agent-recipient block. */
+  /** Beta: remove only this exact agent-recipient block. */
   deleteSuppression(email: string, address: string): Promise<DeleteSuppressionResult> {
     return call(() => this.api.deleteAgentSuppression(email, address, "DELETE"));
   }

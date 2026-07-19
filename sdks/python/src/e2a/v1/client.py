@@ -324,6 +324,9 @@ def _page(items: Optional[Sequence[T]], next_cursor: Optional[str] = None) -> Pa
 
 
 class AgentsResource:
+    """Agent administration. Exact-agent suppression management is beta and
+    may change before it is declared stable."""
+
     def __init__(self, api: AgentsApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
@@ -388,7 +391,7 @@ class AgentsResource:
     def list_suppressions(
         self, email: str, *, limit: Optional[int] = None
     ) -> AutoPager[AgentSuppressionView]:
-        """List recipient blocks scoped to this exact sending agent."""
+        """Beta: list recipient blocks scoped to this exact sending agent."""
         async def fetch(cursor: Optional[str]) -> Page:
             resp = await self._c._read(
                 lambda h: self._api.list_agent_suppressions(
@@ -400,7 +403,7 @@ class AgentsResource:
         return AutoPager(fetch)
 
     async def create_suppression(self, email: str, body: Body) -> AgentSuppressionView:
-        """Idempotently add a manual recipient block for this exact agent."""
+        """Beta: idempotently add a manual recipient block for this exact agent."""
         req = _coerce(CreateAgentSuppressionRequest, body)
         return await self._c._write_idempotent(
             lambda h: self._api.create_agent_suppression(email, req, _headers=h)
@@ -409,7 +412,7 @@ class AgentsResource:
     async def delete_suppression(
         self, email: str, address: str
     ) -> DeleteSuppressionResult:
-        """Remove only this exact agent-recipient block."""
+        """Beta: remove only this exact agent-recipient block."""
         return await self._c._write_idempotent(
             lambda h: self._api.delete_agent_suppression(
                 email, address, confirm="DELETE", _headers=h
@@ -418,6 +421,10 @@ class AgentsResource:
 
 
 class MessagesResource:
+    """Message operations. The managed-unsubscribe option and its raw
+    ``GET|POST /u/{token}`` confirmation flow are beta and may change before
+    they are declared stable."""
+
     def __init__(self, api: MessagesApi, client: AsyncE2AClient) -> None:
         self._api = api
         self._c = client
@@ -486,6 +493,7 @@ class MessagesResource:
     async def send(
         self, email: str, body: Body, *, idempotency_key: Optional[str] = None
     ) -> SendResultView:
+        """Send a message. The optional managed-unsubscribe field is beta."""
         req = _coerce(SendEmailRequest, body)
         return await self._c._write_keyed(
             lambda h: self._api.send_message(email, req, _headers=h), idempotency_key
@@ -494,6 +502,7 @@ class MessagesResource:
     async def reply(
         self, email: str, message_id: str, body: Body, *, idempotency_key: Optional[str] = None
     ) -> SendResultView:
+        """Reply to a message. The optional managed-unsubscribe field is beta."""
         req = _coerce(ReplyRequest, body)
         return await self._c._write_keyed(
             lambda h: self._api.reply_to_message(email, message_id, req, _headers=h),
@@ -503,6 +512,7 @@ class MessagesResource:
     async def forward(
         self, email: str, message_id: str, body: Body, *, idempotency_key: Optional[str] = None
     ) -> SendResultView:
+        """Forward a message. The optional managed-unsubscribe field is beta."""
         req = _coerce(ForwardRequest, body)
         return await self._c._write_keyed(
             lambda h: self._api.forward_message(email, message_id, req, _headers=h),

@@ -91,9 +91,11 @@ double-send. Supply a stable key to also survive a process restart:
 await client.messages.send(address, body, { idempotencyKey: deriveFromEvent(evt) });
 ```
 
-### Managed unsubscribe
+### Managed unsubscribe (beta)
 
-Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe:
+Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe.
+This capability, the agent-scoped suppression management methods, and the raw
+`GET|POST /u/{token}` confirmation flow are beta and may change before stable:
 
 ```typescript
 await client.messages.send("sender@example.com", {

@@ -133,9 +133,11 @@ await client.messages.send(address, body, idempotency_key=derive_from(event))
 Request bodies accept a plain `dict` (shown above) or the generated model
 (`from e2a.v1 import SendEmailRequest`).
 
-### Managed unsubscribe
+### Managed unsubscribe (beta)
 
-Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe:
+Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe.
+This capability, the agent-scoped suppression management methods, and the raw
+`GET|POST /u/{token}` confirmation flow are beta and may change before stable:
 
 ```python
 await client.messages.send("sender@example.com", {

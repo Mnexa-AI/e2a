@@ -17,16 +17,16 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
 class UnsubscribeOptions(BaseModel):
     """
-    UnsubscribeOptions
+    Beta: per-message opt-in to e2a-managed unsubscribe handling. This schema may change before it is declared stable.
     """ # noqa: E501
-    mode: StrictStr
+    mode: StrictStr = Field(description="Beta: managed requests e2a-hosted unsubscribe handling. This option may change before it is declared stable.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["mode"]
 

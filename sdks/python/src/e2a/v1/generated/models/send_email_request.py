@@ -41,7 +41,7 @@ class SendEmailRequest(BaseModel):
     template_id: Optional[StrictStr] = Field(default=None, description="Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.")
     text: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = Field(default=None, description="Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).")
     to: List[Annotated[str, Field(strict=True, max_length=320)]] = Field(description="Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.")
-    unsubscribe: Optional[UnsubscribeOptions] = None
+    unsubscribe: Optional[UnsubscribeOptions] = Field(default=None, description="Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_to", "subject", "template_alias", "template_data", "template_id", "text", "to", "unsubscribe"]
 

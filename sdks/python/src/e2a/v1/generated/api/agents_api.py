@@ -348,9 +348,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> AgentSuppressionView:
-        """Suppress a recipient for an agent
+        """Suppress a recipient for an agent (beta)
 
-        Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only.
+        Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -419,9 +419,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> ApiResponse[AgentSuppressionView]:
-        """Suppress a recipient for an agent
+        """Suppress a recipient for an agent (beta)
 
-        Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only.
+        Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -490,9 +490,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> RESTResponseType:
-        """Suppress a recipient for an agent
+        """Suppress a recipient for an agent (beta)
 
-        Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only.
+        Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -933,9 +933,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> DeleteSuppressionResult:
-        """Remove an agent recipient suppression
+        """Remove an agent recipient suppression (beta)
 
-        Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only.
+        Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -1008,9 +1008,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> ApiResponse[DeleteSuppressionResult]:
-        """Remove an agent recipient suppression
+        """Remove an agent recipient suppression (beta)
 
-        Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only.
+        Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -1083,9 +1083,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> RESTResponseType:
-        """Remove an agent recipient suppression
+        """Remove an agent recipient suppression (beta)
 
-        Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only.
+        Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -1748,9 +1748,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> PageAgentSuppressionView:
-        """List an agent's suppressed recipients
+        """List an agent's suppressed recipients (beta)
 
-        Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only.
+        Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -1823,9 +1823,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> ApiResponse[PageAgentSuppressionView]:
-        """List an agent's suppressed recipients
+        """List an agent's suppressed recipients (beta)
 
-        Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only.
+        Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -1898,9 +1898,9 @@ class AgentsApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> RESTResponseType:
-        """List an agent's suppressed recipients
+        """List an agent's suppressed recipients (beta)
 
-        Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only.
+        Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
 
         :param email: (required)
         :type email: str

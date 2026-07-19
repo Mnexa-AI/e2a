@@ -37,7 +37,7 @@ class ReplyRequest(BaseModel):
     reply_all: Optional[StrictBool] = None
     reply_to: Optional[Annotated[str, Field(strict=True, max_length=320)]] = Field(default=None, description="Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. At most 320 characters (display name + address combined). Defaults to the sending agent's own address.")
     text: Annotated[str, Field(strict=True, max_length=1048576)]
-    unsubscribe: Optional[UnsubscribeOptions] = None
+    unsubscribe: Optional[UnsubscribeOptions] = Field(default=None, description="Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_all", "reply_to", "text", "unsubscribe"]
 
