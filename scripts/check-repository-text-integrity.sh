@@ -18,6 +18,7 @@ node -e '
   }
 ' package-lock.json web/package-lock.json
 
+node scripts/sync-agent-docs.mjs --check
 node scripts/check-sdk-example-contracts.mjs
 python3 -m unittest discover -s examples/adk-cloud-webhook -p 'test_*.py'
 python3 -m unittest discover -s mcp/examples -p 'test_*.py'
