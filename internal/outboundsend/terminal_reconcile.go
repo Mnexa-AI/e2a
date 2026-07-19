@@ -131,6 +131,57 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 	if processed > 0 {
 		log.Printf("[outbound-terminal-reconcile] processed %d candidates", processed)
 	}
+	return w.resolveTerminalRampReservations(ctx)
+}
+
+// resolveTerminalRampReservations is the durable safety net for the narrow
+// window where a worker commits a terminal message outcome, then cannot settle
+// its sending-ramp reservation. That worker returns an error and normally fixes
+// the reservation on its next (unclaimable-message) retry, but its last River
+// attempt can be discarded before another retry. The sweep also revisits a
+// released reservation when authoritative provider feedback later corrects a
+// locally inferred failure. The reservation table's state/updated_at index
+// makes this bounded sweep cheap; Resolve derives confirm versus release from
+// the message's durable delivery status.
+func (w *TerminalReconcileWorker) resolveTerminalRampReservations(ctx context.Context) error {
+	if w.ramp == nil {
+		return nil
+	}
+	rows, err := w.pool.Query(ctx,
+		`SELECT r.message_id
+		   FROM sending_ramp_reservations r
+		   JOIN messages m ON m.id = r.message_id
+		  WHERE (r.state = 'reserved'
+		         AND m.delivery_status IN ('sent', 'failed', 'deferred', 'delivered', 'bounced', 'complained'))
+		     OR (r.state = 'released'
+		         AND m.delivery_status IN ('sent', 'deferred', 'delivered', 'bounced', 'complained'))
+		  ORDER BY r.updated_at ASC, r.message_id ASC
+		  LIMIT $1`,
+		jobs.DefaultReconcileBatch,
+	)
+	if err != nil {
+		return err
+	}
+	messageIDs := make([]string, 0)
+	for rows.Next() {
+		var messageID string
+		if err := rows.Scan(&messageID); err != nil {
+			rows.Close()
+			return err
+		}
+		messageIDs = append(messageIDs, messageID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, messageID := range messageIDs {
+		if err := w.ramp.Resolve(ctx, messageID); err != nil {
+			return fmt.Errorf("resolve terminal sending ramp for %s: %w", messageID, err)
+		}
+	}
 	return nil
 }
 

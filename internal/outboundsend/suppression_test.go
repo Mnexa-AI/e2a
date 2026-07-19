@@ -83,7 +83,7 @@ func TestSendWorker_SuppressionCheckErrorFailsClosed(t *testing.T) {
 	}
 }
 
-func TestSendWorker_SuppressionCheckErrorAfterRampReleasesReservation(t *testing.T) {
+func TestSendWorker_SuppressionCheckErrorAfterRampPreservesReservation(t *testing.T) {
 	j := acceptedJob("msg_1")
 	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
 	st := &fakeStore{job: j, suppressedErr: errors.New("suppression store down")}
@@ -93,8 +93,8 @@ func TestSendWorker_SuppressionCheckErrorAfterRampReleasesReservation(t *testing
 	if err := w.Work(context.Background(), job("msg_1", 1)); err == nil {
 		t.Fatal("suppression-store error must retry")
 	}
-	if len(gate.released) != 1 || gate.released[0] != "msg_1" {
-		t.Fatalf("ramp releases = %v, want [msg_1]", gate.released)
+	if len(gate.released) != 0 {
+		t.Fatalf("ramp releases = %v, want none so same-day retry stays idempotent", gate.released)
 	}
 	if len(st.released) != 1 || st.released[0] != "msg_1" {
 		t.Fatalf("claim releases = %v, want [msg_1]", st.released)
@@ -119,24 +119,6 @@ func TestSendWorker_SuppressionCheckErrorKeepsRampReservationWhenClaimReleaseFai
 	}
 	if len(gate.released) != 0 {
 		t.Fatalf("ramp releases = %v, want none while claim remains held", gate.released)
-	}
-}
-
-func TestSendWorker_SuppressionCheckErrorRetainsRampReleaseFailureAfterClaimReleased(t *testing.T) {
-	lookupErr := errors.New("suppression store down")
-	rampErr := errors.New("ramp release down")
-	j := acceptedJob("msg_1")
-	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
-	st := &fakeStore{job: j, suppressedErr: lookupErr}
-	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}, releaseErr: rampErr}
-	w := outboundsend.NewSendWorker(st, trippingDeliverer{t}, gate)
-
-	err := w.Work(context.Background(), job("msg_1", 1))
-	if !errors.Is(err, lookupErr) || !errors.Is(err, rampErr) {
-		t.Fatalf("error = %v, want joined lookup and ramp-release causes", err)
-	}
-	if len(st.released) != 1 || len(gate.released) != 1 {
-		t.Fatalf("claim/ramp releases = %v/%v, want one each", st.released, gate.released)
 	}
 }
 

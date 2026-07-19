@@ -356,6 +356,82 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	}
 }
 
+func TestTerminalReconcileWorker_ResolvesReservedRampForTerminalMessage(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	adapter := agent.NewOutboundSendStore(store,
+		webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)), usage.NewNoopUsageTracker())
+	f := newTerminalFixture(t, pool, store, adapter)
+	messageID := f.seed(t, "terminal-ramp-cleanup", "accepted", "cancelled", false)
+
+	ctx := context.Background()
+	var userID string
+	if err := pool.QueryRow(ctx, `SELECT user_id FROM agent_identities WHERE id=$1`, f.agentID).Scan(&userID); err != nil {
+		t.Fatalf("read agent owner: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages SET delivery_status='failed' WHERE id=$1`, messageID); err != nil {
+		t.Fatalf("make message terminal: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO domain_send_counters (user_id, domain, day, reserved_count, confirmed_count, daily_limit)
+		 VALUES ($1, 'example.com', current_date, 1, 0, 50)`, userID); err != nil {
+		t.Fatalf("seed ramp counter: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO sending_ramp_reservations (message_id, day, user_id, domain, units)
+		 VALUES ($1, current_date, $2, 'example.com', 1)`, messageID, userID); err != nil {
+		t.Fatalf("seed reserved ramp: %v", err)
+	}
+
+	gate := &fakeRampGate{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
+	if err := worker.Work(ctx, &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(gate.resolved) != 1 || gate.resolved[0] != messageID {
+		t.Fatalf("ramp resolutions = %v, want [%s]", gate.resolved, messageID)
+	}
+}
+
+func TestTerminalReconcileWorker_ResolvesReleasedRampAfterProviderCorrection(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	adapter := agent.NewOutboundSendStore(store,
+		webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)), usage.NewNoopUsageTracker())
+	f := newTerminalFixture(t, pool, store, adapter)
+	messageID := f.seed(t, "released-ramp-provider-correction", "accepted", "cancelled", false)
+
+	ctx := context.Background()
+	var userID string
+	if err := pool.QueryRow(ctx, `SELECT user_id FROM agent_identities WHERE id=$1`, f.agentID).Scan(&userID); err != nil {
+		t.Fatalf("read agent owner: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages SET delivery_status='delivered' WHERE id=$1`, messageID); err != nil {
+		t.Fatalf("apply provider correction: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO domain_send_counters (user_id, domain, day, reserved_count, confirmed_count, daily_limit)
+		 VALUES ($1, 'example.com', current_date, 0, 0, 50)`, userID); err != nil {
+		t.Fatalf("seed ramp counter: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO sending_ramp_reservations (message_id, day, user_id, domain, units, state)
+		 VALUES ($1, current_date, $2, 'example.com', 1, 'released')`, messageID, userID); err != nil {
+		t.Fatalf("seed released ramp: %v", err)
+	}
+
+	gate := &fakeRampGate{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
+	if err := worker.Work(ctx, &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(gate.resolved) != 1 || gate.resolved[0] != messageID {
+		t.Fatalf("ramp resolutions = %v, want [%s]", gate.resolved, messageID)
+	}
+}
+
 // TestTerminalReconcileWorker_GraceWindowHoldsFreshTerminalJobs pins the §3.1
 // grace behavior: a row whose job just reached a terminal state is NOT failed
 // while provider evidence may still be arriving; it is failed once the job has

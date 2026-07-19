@@ -18,6 +18,9 @@ type fakeStore struct {
 	loadErr     error
 	markSentErr error
 	releaseErr  error
+	// terminalAfterFailure mirrors the production store: once MarkFailed commits,
+	// a retry can no longer claim the terminal message and ClaimSend returns nil.
+	terminalAfterFailure bool
 	// suppressed / suppressedErr drive the pre-provider suppression guard.
 	suppressed    []string
 	suppressedErr error
@@ -40,6 +43,9 @@ type failedCall struct {
 }
 
 func (f *fakeStore) ClaimSend(_ context.Context, _ string, _ int64) (*outboundsend.SendJob, error) {
+	if f.terminalAfterFailure && len(f.failed) > 0 {
+		return nil, f.loadErr
+	}
 	return f.job, f.loadErr
 }
 func (f *fakeStore) MarkSent(_ context.Context, id, provider, sentAs string) error {
@@ -399,6 +405,34 @@ func TestSendWorker_RetryableFailureReleaseErrorRetries(t *testing.T) {
 	}
 	if len(st.released) != 1 {
 		t.Fatalf("release calls = %v, want one", st.released)
+	}
+}
+
+func TestSendWorker_TerminalRampReleaseFailureResolvesOnRetry(t *testing.T) {
+	j := acceptedJob("msg_1")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j, terminalAfterFailure: true}
+	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("provider rejected message"), Permanent: true}}
+	gate := &fakeRampGate{
+		decision:   outboundsend.RampDecision{Allowed: true},
+		releaseErr: errors.New("ramp database unavailable"),
+	}
+	w := outboundsend.NewSendWorker(st, dl, gate)
+
+	if err := w.Work(context.Background(), job(j.MessageID, 1)); err == nil || !errors.Is(err, gate.releaseErr) {
+		t.Fatalf("first Work error = %v, want ramp release failure", err)
+	}
+	if len(st.failed) != 1 || len(gate.released) != 1 {
+		t.Fatalf("first Work failed/released = %v/%v, want one each", st.failed, gate.released)
+	}
+
+	// MarkFailed made the message terminal, so the retry cannot claim it. The
+	// worker must still settle the orphaned reservation from the durable outcome.
+	if err := w.Work(context.Background(), job(j.MessageID, 2)); err != nil {
+		t.Fatalf("retry Work: %v", err)
+	}
+	if len(gate.resolved) != 1 || gate.resolved[0] != j.MessageID {
+		t.Fatalf("resolved reservations = %v, want [%s]", gate.resolved, j.MessageID)
 	}
 }
 

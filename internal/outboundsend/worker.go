@@ -226,7 +226,16 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return err // DB error — retryable
 	}
 	if j == nil {
-		return nil // message gone (cascade/TTL) — nothing to send
+		// A previous terminal attempt may have committed the durable message
+		// outcome before ramp cleanup failed. Terminal rows cannot be claimed on
+		// retry, so resolve any reservation from that durable outcome here. Resolve
+		// is also safe for deleted, non-ramped, and missing messages.
+		if w.ramp != nil {
+			if err := w.ramp.Resolve(ctx, job.Args.MessageID); err != nil {
+				return fmt.Errorf("resolve sending ramp for unclaimable message: %w", err)
+			}
+		}
+		return nil // message gone or already terminal — nothing to provider-submit
 	}
 	if j.alreadyDone() {
 		if w.ramp != nil && j.rampEligible() {
@@ -254,7 +263,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// test mail uses the relay identity and remains exempt; loopback never enters
 	// this worker. Reserve after the provider-evidence guard. The final suppression
 	// check deliberately follows an allowed reservation, closing the policy window
-	// while Reserve waits on shared capacity.
+	// while Reserve waits on shared capacity. Retryable work after Reserve keeps
+	// that reservation: same-message/day Reserve is idempotent, while a released
+	// reservation is terminal and cannot be re-reserved.
 	if w.ramp != nil && j.rampEligible() {
 		decision, rerr := w.ramp.Reserve(ctx, RampRequest{
 			MessageID: j.MessageID,
@@ -300,7 +311,8 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// Final suppression guard immediately before provider I/O: a suppression
 	// added after acceptance or while an allowed ramp reservation was in flight
 	// must still prevent delivery. A match is terminal; a store error fails
-	// closed, releasing the side-effect-free claim before its ramp reservation.
+	// closed, releasing the side-effect-free claim while preserving an allowed
+	// ramp reservation for the idempotent River retry.
 	suppressed, serr := w.store.SuppressedRecipients(ctx, j.UserID, j.AgentID, j.Recipients)
 	if serr != nil {
 		if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
@@ -309,12 +321,6 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 			// then a retry could reserve the same message a second time.
 			return fmt.Errorf("suppression check and claim cleanup before outbound send: %w",
 				errors.Join(serr, fmt.Errorf("release outbound send claim: %w", err)))
-		}
-		if w.ramp != nil && j.rampEligible() {
-			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
-				return fmt.Errorf("suppression check and ramp cleanup before outbound send: %w",
-					errors.Join(serr, fmt.Errorf("release ramp reservation: %w", err)))
-			}
 		}
 		return fmt.Errorf("suppression check before outbound send: %w", serr)
 	}
