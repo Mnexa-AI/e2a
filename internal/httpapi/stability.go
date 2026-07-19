@@ -217,6 +217,28 @@ func (s *Server) applyEvolutionStance() {
 
 	// Field-level markers on otherwise-stable schemas.
 	//
+	// Review detail reuses MessageView, which is also returned by stable agent
+	// message operations. Mark both review-only fields and their component trees
+	// explicitly so the stable parent schemas and operations stay stable.
+	for _, schema := range []string{"MessageView", "ReviewView"} {
+		markProperty(schemas, schema, "hold_reason", extStabilityLevel, stabilityBeta)
+	}
+	markProperty(schemas, "MessageView", "protection", extStabilityLevel, stabilityBeta)
+	// The policy flag verdict remains visible on stable message reads because
+	// flag outcomes are delivered rather than held. Keep only these properties
+	// beta so their contract can evolve without degrading the parent schemas.
+	for _, schema := range []string{"MessageView", "MessageSummaryView", "ReviewView"} {
+		for _, property := range []string{"flagged", "flag_reason"} {
+			markProperty(schemas, schema, property, extStabilityLevel, stabilityBeta)
+		}
+	}
+	for _, schema := range []string{"HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
+		markSchema(schemas, schema, extStabilityLevel, stabilityBeta)
+	}
+	// ErrorBody.code is a stable open discriminator; only the outbound
+	// gate-policy value remains experimental.
+	markProperty(schemas, "ErrorBody", "code", extExperimentalValues, []string{"blocked_by_policy"})
+	//
 	// The template hooks on send are beta (templates are beta) even though
 	// sendMessage itself is stable.
 	for _, prop := range []string{"template_alias", "template_id", "template_data"} {

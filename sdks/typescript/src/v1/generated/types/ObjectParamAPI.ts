@@ -1847,8 +1847,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. The final merged recipient set (to, cc, and bcc, including reviewer overrides) is also re-checked against the account suppression list: any suppressed recipient returns 422 recipient_suppressed and the hold stays pending_review — remove the suppression (DELETE /v1/account/suppressions/{address}) and approve again.
-     * Approve a held message
+     * Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. The final merged recipient set (to, cc, and bcc, including reviewer overrides) is also re-checked against the account suppression list: any suppressed recipient returns 422 recipient_suppressed and the hold stays pending_review — remove the suppression (DELETE /v1/account/suppressions/{address}) and approve again. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * Approve a held message (beta)
      * @param param the request object
      */
     public approveReviewWithHttpInfo(param: ReviewsApiApproveReviewRequest, options?: ConfigurationOptions): Promise<HttpInfo<SendResultView>> {
@@ -1856,8 +1856,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. The final merged recipient set (to, cc, and bcc, including reviewer overrides) is also re-checked against the account suppression list: any suppressed recipient returns 422 recipient_suppressed and the hold stays pending_review — remove the suppression (DELETE /v1/account/suppressions/{address}) and approve again.
-     * Approve a held message
+     * Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. The final merged recipient set (to, cc, and bcc, including reviewer overrides) is also re-checked against the account suppression list: any suppressed recipient returns 422 recipient_suppressed and the hold stays pending_review — remove the suppression (DELETE /v1/account/suppressions/{address}) and approve again. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * Approve a held message (beta)
      * @param param the request object
      */
     public approveReview(param: ReviewsApiApproveReviewRequest, options?: ConfigurationOptions): Promise<SendResultView> {
@@ -1865,8 +1865,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
-     * Get a held message (full detail)
+     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * Get a held message (full detail, beta)
      * @param param the request object
      */
     public getReviewWithHttpInfo(param: ReviewsApiGetReviewRequest, options?: ConfigurationOptions): Promise<HttpInfo<MessageView>> {
@@ -1874,8 +1874,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
-     * Get a held message (full detail)
+     * Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * Get a held message (full detail, beta)
      * @param param the request object
      */
     public getReview(param: ReviewsApiGetReviewRequest, options?: ConfigurationOptions): Promise<MessageView> {
@@ -1883,8 +1883,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
-     * List messages awaiting review
+     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * List messages awaiting review (beta)
      * @param param the request object
      */
     public listReviewsWithHttpInfo(param: ReviewsApiListReviewsRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<PageReviewView>> {
@@ -1892,8 +1892,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds.
-     * List messages awaiting review
+     * The review queue: every message held in pending_review across the account\'s inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * List messages awaiting review (beta)
      * @param param the request object
      */
     public listReviews(param: ReviewsApiListReviewsRequest = {}, options?: ConfigurationOptions): Promise<PageReviewView> {
@@ -1901,8 +1901,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
-     * Reject a held message
+     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * Reject a held message (beta)
      * @param param the request object
      */
     public rejectReviewWithHttpInfo(param: ReviewsApiRejectReviewRequest, options?: ConfigurationOptions): Promise<HttpInfo<RejectResultView>> {
@@ -1910,8 +1910,8 @@ export class ObjectReviewsApi {
     }
 
     /**
-     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
-     * Reject a held message
+     * Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable.
+     * Reject a held message (beta)
      * @param param the request object
      */
     public rejectReview(param: ReviewsApiRejectReviewRequest, options?: ConfigurationOptions): Promise<RejectResultView> {

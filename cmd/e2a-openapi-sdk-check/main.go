@@ -27,7 +27,14 @@ func main() {
 		os.Exit(1)
 	}
 	defer revision.Close()
-	if err := openapicompat.CheckStableSDKSurface(base, revision); err != nil {
+	// Product explicitly reclassified the gate/scan review boundary as beta.
+	// This exact component set mirrors api/oasdiff-ignore-errors.txt; every
+	// other stable SDK schema remains protected by the default freeze.
+	allowedSchemaDemotions := []string{
+		"ApproveRequest", "HoldReasonView", "PageReviewView", "ProtectionFindingView",
+		"RejectRequest", "RejectResultView", "ReviewView", "ThreatCategoryView",
+	}
+	if err := openapicompat.CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision, allowedSchemaDemotions); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

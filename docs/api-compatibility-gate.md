@@ -133,3 +133,15 @@ GA onward, run it against the most recent GA tag in addition to the normal
 pull-request comparison. Stable `/v1` findings are not silently ignored: an
 intentional breaking change requires a new major API path. Beta changes should
 remain marked beta until they are ready to join the stable contract.
+
+`api/oasdiff-ignore-errors.txt` contains one reviewed correction for the
+gate/scan review surface. It covers the four review operations, `hold_reason`,
+the review-detail `protection` evidence that PRs #389–#390 merged before their
+intended beta markers were applied, and the eight exact projections of the
+retained beta `flagged` / `flag_reason` fields. The rules name every affected
+method, path, and property; the SDK check independently permits only the exact
+review-only component schemas. This is not a general exception mechanism—
+fixture tests continue to reject all other stable-to-beta changes.
+
+`api/oasdiff-ignore-warnings.txt` is intentionally empty apart from comments;
+there are no reviewed stable response-property removal exceptions.

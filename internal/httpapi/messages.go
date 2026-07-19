@@ -69,9 +69,10 @@ type MessageView struct {
 	// SentAs is the From identity actually used at relay accept time.
 	// Outbound-only; omitted on inbound messages.
 	SentAs string `json:"sent_as,omitempty" doc:"From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."`
-	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
-	// Slice 7): true when the agent's inbound_policy gate flagged this message
-	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
+	// Flagged + FlagReason carry the beta inbound ingestion verdict: true when
+	// the agent's inbound-policy gate flagged this message on arrival while still
+	// delivering it. Polling agents need this signal because no review item is
+	// created for the flag action.
 	Flagged    bool   `json:"flagged,omitempty"`
 	FlagReason string `json:"flag_reason,omitempty"`
 	// HoldReason is populated only by GET /v1/reviews/{id}. The shared
@@ -272,9 +273,9 @@ type MessageSummaryView struct {
 	DeliveryStatus string `json:"delivery_status,omitempty" doc:"Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)"`
 	DeliveryDetail string `json:"delivery_detail,omitempty"`
 	SentAs         string `json:"sent_as,omitempty" doc:"From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."`
-	// Flagged + FlagReason are the inbound ingestion verdict (migration 033 /
-	// Slice 7). Surfaced in list views so flagged mail is visible without a
-	// per-message drill-down. Inbound-relevant; omitted on unflagged rows.
+	// Flagged + FlagReason are the beta inbound ingestion verdict. They remain in
+	// list projections so polling agents can identify delivered flag outcomes
+	// without a per-message drill-down.
 	Flagged    bool   `json:"flagged,omitempty"`
 	FlagReason string `json:"flag_reason,omitempty"`
 	// SizeBytes is the RAW MIME byte length of the whole stored message —

@@ -1,0 +1,2 @@
+# No reviewed warning exceptions. Keep this file present because the pinned
+# compatibility command always passes it to oasdiff.

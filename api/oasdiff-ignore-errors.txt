@@ -1,0 +1,31 @@
+# Reviewed lifecycle reclassification for the gate/scan review resource. The
+# four review operations plus the flag verdict fields were emitted stable in
+# v1.0.10; hold_reason and the detail protection evidence then landed through
+# PRs #389–#390. Product has explicitly classified this boundary as beta. Keep
+# every rule fully qualified: the gate must continue rejecting all other
+# stability downgrades.
+POST /v1/reviews/{id}/approve endpoint stability level decreased from `stable` to `beta`
+GET /v1/reviews/{id} endpoint stability level decreased from `stable` to `beta`
+GET /v1/reviews endpoint stability level decreased from `stable` to `beta`
+POST /v1/reviews/{id}/reject endpoint stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages/{id} response property `hold_reason` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages/{id} response property `protection` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages/{id} response property `protection/items/` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages/{id} response property `protection/items/categories/items/` stability level decreased from `stable` to `beta`
+POST /v1/agents/{email}/messages/{id}/restore response property `hold_reason` stability level decreased from `stable` to `beta`
+POST /v1/agents/{email}/messages/{id}/restore response property `protection` stability level decreased from `stable` to `beta`
+POST /v1/agents/{email}/messages/{id}/restore response property `protection/items/` stability level decreased from `stable` to `beta`
+POST /v1/agents/{email}/messages/{id}/restore response property `protection/items/categories/items/` stability level decreased from `stable` to `beta`
+GET /v1/reviews response property `items/items/hold_reason` stability level decreased from `stable` to `beta`
+GET /v1/reviews/{id} response property `hold_reason` stability level decreased from `stable` to `beta`
+GET /v1/reviews/{id} response property `protection` stability level decreased from `stable` to `beta`
+GET /v1/reviews/{id} response property `protection/items/` stability level decreased from `stable` to `beta`
+GET /v1/reviews/{id} response property `protection/items/categories/items/` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/conversations/{id} response property `messages/items/flag_reason` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/conversations/{id} response property `messages/items/flagged` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages response property `items/items/flag_reason` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages response property `items/items/flagged` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages/{id} response property `flag_reason` stability level decreased from `stable` to `beta`
+GET /v1/agents/{email}/messages/{id} response property `flagged` stability level decreased from `stable` to `beta`
+POST /v1/agents/{email}/messages/{id}/restore response property `flag_reason` stability level decreased from `stable` to `beta`
+POST /v1/agents/{email}/messages/{id}/restore response property `flagged` stability level decreased from `stable` to `beta`

@@ -333,6 +333,7 @@ components:
             type: string
           type: array
       type: object
+      x-stability-level: beta
     Attachment:
       additionalProperties: false
       properties:
@@ -1310,7 +1311,7 @@ components:
       additionalProperties: true
       properties:
         code:
-          description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Exact current vocabulary (machine-checked): unauthorized, forbidden, blocked_by_policy, invalid_request, invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty, recipient_suppressed, not_found, attachment_not_found, template_not_found, starter_template_not_found, gone, conflict, agent_taken, domain_taken, alias_taken, address_in_trash, message_held, message_not_pending, message_not_yet_delivered, not_in_trash, send_in_progress, webhook_disabled, webhook_cooldown, domain_not_registered, domain_has_agents, domain_not_verified, inbound_mx_missing, limit_exceeded, rate_limited, template_limit_reached, webhook_limit_reached, idempotency_in_flight, idempotency_key_reuse, payload_too_large, attachment_too_large, not_implemented, events_log_disabled, limits_unavailable, inbound_mx_check_failed, internal_error, method_not_allowed, unsupported_media_type, error. Grouped semantics: auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), message_not_yet_delivered (409, retry after the source outbound message is sent), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send), inbound_mx_missing (400). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503), inbound_mx_check_failed (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."
+          description: "Machine-branchable error code — the stable discriminator clients switch on. Open set: treat it as a string and tolerate unknown values, since new codes may be added over time (branch on the ones you handle, fall back to the HTTP status otherwise). Exact current vocabulary (machine-checked): unauthorized, forbidden, blocked_by_policy, invalid_request, invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope, reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty, recipient_suppressed, not_found, attachment_not_found, template_not_found, starter_template_not_found, gone, conflict, agent_taken, domain_taken, alias_taken, address_in_trash, message_held, message_not_pending, message_not_yet_delivered, not_in_trash, send_in_progress, webhook_disabled, webhook_cooldown, domain_not_registered, domain_has_agents, domain_not_verified, inbound_mx_missing, limit_exceeded, rate_limited, template_limit_reached, webhook_limit_reached, idempotency_in_flight, idempotency_key_reuse, payload_too_large, attachment_too_large, not_implemented, events_log_disabled, limits_unavailable, inbound_mx_check_failed, internal_error, method_not_allowed, unsupported_media_type, error. Grouped semantics: auth: unauthorized (401), forbidden (403), blocked_by_policy (403, outbound policy gate; experimental). Validation: invalid_request is the single canonical code for input-validation failures whether they arrive as 400 (malformed) or 422 (semantically invalid); field/resource-specific invalid_* refinements (invalid_cursor, invalid_filter, invalid_domain, invalid_slug, invalid_recipient, invalid_attachment, invalid_template, invalid_event_type, invalid_webhook_url, invalid_expires_at, invalid_scope), reserved_domain, too_many_recipients, template_render_failed, template_rendered_empty (all 400); recipient_suppressed (422). Not found: not_found (404) plus the *_not_found family (attachment_not_found, template_not_found, starter_template_not_found); gone (410, past retention). Conflict/state: conflict (409, generic), the *_taken family — the requested identifier is already claimed — (agent_taken, domain_taken, alias_taken, all 409), address_in_trash (409), message_held (409), message_not_pending (409), message_not_yet_delivered (409, retry after the source outbound message is sent), not_in_trash (409), send_in_progress (409), webhook_disabled (409), webhook_cooldown (409), domain_not_registered (400), domain_has_agents (400), domain_not_verified (400 on create-agent, 403 on send), inbound_mx_missing (400). Capacity: limit_exceeded (402, plan quota — see LimitExceededDetails), rate_limited (429, request rate — see RateLimitedDetails), template_limit_reached and webhook_limit_reached (400, fixed per-account caps). Idempotency: idempotency_in_flight (409, wait then retry the byte-identical request), idempotency_key_reuse (422, caller bug — do not retry as-is). Size: payload_too_large (413, request body), attachment_too_large (413, inline fetch over the cap — use download_url). Availability: not_implemented (501, feature not available on this deployment), events_log_disabled (501), limits_unavailable (503), inbound_mx_check_failed (503). Server/fallback: internal_error (5xx), method_not_allowed (405), unsupported_media_type (415), and the generic code error for any otherwise-unmapped status."
           type: string
           x-e2a-error-contracts:
             address_in_trash:
@@ -1606,6 +1607,8 @@ components:
               retryable: false
               statuses:
                 - 400
+          x-experimental-values:
+            - blocked_by_policy
         details:
           additionalProperties: true
           description: Optional structured context, polymorphic by code. Treat it as an open object keyed off code; unknown codes and fields must be preserved.
@@ -1799,6 +1802,7 @@ components:
         - code
         - summary
       type: object
+      x-stability-level: beta
     LimitExceededDetails:
       additionalProperties: true
       properties:
@@ -2090,8 +2094,10 @@ components:
           type: string
         flag_reason:
           type: string
+          x-stability-level: beta
         flagged:
           type: boolean
+          x-stability-level: beta
         from:
           type: string
         id:
@@ -2181,12 +2187,15 @@ components:
           type: string
         flag_reason:
           type: string
+          x-stability-level: beta
         flagged:
           type: boolean
+          x-stability-level: beta
         from:
           type: string
         hold_reason:
           $ref: "#/components/schemas/HoldReasonView"
+          x-stability-level: beta
         id:
           type: string
         labels:
@@ -2202,6 +2211,7 @@ components:
           type:
             - array
             - "null"
+          x-stability-level: beta
         raw_message:
           contentEncoding: base64
           description: Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.
@@ -2400,6 +2410,7 @@ components:
         - items
         - next_cursor
       type: object
+      x-stability-level: beta
     PageStarterTemplateView:
       additionalProperties: true
       properties:
@@ -2622,6 +2633,7 @@ components:
       required:
         - source
       type: object
+      x-stability-level: beta
     ProtectionGateRequest:
       additionalProperties: false
       properties:
@@ -2828,6 +2840,7 @@ components:
           maxLength: 2000
           type: string
       type: object
+      x-stability-level: beta
     RejectResultView:
       additionalProperties: true
       properties:
@@ -2841,6 +2854,7 @@ components:
         - status
         - message_id
       type: object
+      x-stability-level: beta
     RenderedTemplateView:
       additionalProperties: true
       properties:
@@ -2927,13 +2941,16 @@ components:
           type: string
         flag_reason:
           type: string
+          x-stability-level: beta
         flagged:
           type: boolean
+          x-stability-level: beta
         from:
           type: string
         hold_reason:
           $ref: "#/components/schemas/HoldReasonView"
           description: Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
+          x-stability-level: beta
         id:
           description: The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.
           type: string
@@ -2956,6 +2973,7 @@ components:
         - review_status
         - created_at
       type: object
+      x-stability-level: beta
     RotateSecretResponse:
       additionalProperties: true
       properties:
@@ -3342,6 +3360,7 @@ components:
       required:
         - name
       type: object
+      x-stability-level: beta
     TooManyRecipientsDetails:
       additionalProperties: true
       properties:
@@ -5967,7 +5986,7 @@ paths:
         - meta
   /v1/reviews:
     get:
-      description: "The review queue: every message held in pending_review across the account's inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds."
+      description: "The review queue: every message held in pending_review across the account's inboxes — outbound drafts awaiting send approval AND inbound messages held by a screening gate. Account-scoped credentials only; agents cannot see (or resolve) holds. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable."
       operationId: listReviews
       parameters:
         - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
@@ -6009,12 +6028,13 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: List messages awaiting review
+      summary: List messages awaiting review (beta)
       tags:
         - reviews
+      x-stability-level: beta
   /v1/reviews/{id}:
     get:
-      description: Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only.
+      description: "Full detail of one held message — body + recipients (and, for inbound, the screening/auth context) — for a reviewer to make a decision. Account-scoped only. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable."
       operationId: getReview
       parameters:
         - in: path
@@ -6043,12 +6063,13 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: Get a held message (full detail)
+      summary: Get a held message (full detail, beta)
       tags:
         - reviews
+      x-stability-level: beta
   /v1/reviews/{id}/approve:
     post:
-      description: "Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. The final merged recipient set (to, cc, and bcc, including reviewer overrides) is also re-checked against the account suppression list: any suppressed recipient returns 422 recipient_suppressed and the hold stays pending_review — remove the suppression (DELETE /v1/account/suppressions/{address}) and approve again."
+      description: "Approve a hold. Branches on direction: an outbound draft is durably queued for asynchronous delivery (honoring Idempotency-Key + optional reviewer overrides); an inbound hold is released to the inbox. Returns 202 with status=accepted for queued outbound delivery and 200 for an inbound release or local self-send loopback. Account-scoped only — an agent cannot approve its own hold. Approving an outbound draft applies the same per-agent send-rate limit as a direct send: 429 rate_limited when the agent is over its throughput limit (back off Retry-After seconds and retry). The merged outbound draft after applying reviewer overrides is subject to the same composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. The final merged recipient set (to, cc, and bcc, including reviewer overrides) is also re-checked against the account suppression list: any suppressed recipient returns 422 recipient_suppressed and the hold stays pending_review — remove the suppression (DELETE /v1/account/suppressions/{address}) and approve again. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable."
       operationId: approveReview
       parameters:
         - in: path
@@ -6145,12 +6166,13 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: Approve a held message
+      summary: Approve a held message (beta)
       tags:
         - reviews
+      x-stability-level: beta
   /v1/reviews/{id}/reject:
     post:
-      description: Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only.
+      description: "Reject a hold. An outbound draft is discarded (never sent); an inbound hold is dropped (never reaches the agent; payload retained hidden for forensics). Account-scoped only. Beta: the unified gate/scan review resource is unstable — its shape may change before it is declared stable."
       operationId: rejectReview
       parameters:
         - in: path
@@ -6185,9 +6207,10 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: Reject a held message
+      summary: Reject a held message (beta)
       tags:
         - reviews
+      x-stability-level: beta
   /v1/starter-templates:
     get:
       description: "List the pre-built starter templates shipped with the deployment, sorted by alias. Returns catalog metadata only; fetch one by alias for the full body sources, or copy one into your library with from_starter on POST /v1/templates. Beta: templates are unstable — their shape may change before they are declared stable."

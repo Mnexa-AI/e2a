@@ -13,17 +13,21 @@ import (
 )
 
 var betaOperationIDs = []string{
+	"approveReview",
 	"createAgentSuppression",
 	"createTemplate",
 	"deleteAgentSuppression",
 	"deleteTemplate",
 	"getAgentProtection",
+	"getReview",
 	"getStarterTemplate",
 	"getTemplate",
 	"listAgentSuppressions",
+	"listReviews",
 	"listStarterTemplates",
 	"listTemplates",
 	"putAgentProtection",
+	"rejectReview",
 	"updateTemplate",
 	"validateTemplate",
 }
@@ -306,7 +310,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 		return sc[extension]
 	}
-	for _, name := range []string{"AgentSuppressionView", "CreateAgentSuppressionRequest", "PageAgentSuppressionView", "UnsubscribeOptions", "TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest"} {
+	for _, name := range []string{"AgentSuppressionView", "CreateAgentSuppressionRequest", "PageAgentSuppressionView", "UnsubscribeOptions", "TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s must not carry duplicate x-stability alias, got %v", name, got)
 		}
@@ -333,6 +337,40 @@ func TestSpecBetaMarkers(t *testing.T) {
 		if p == nil || p["x-stability-level"] != "beta" {
 			t.Errorf("SendEmailRequest.%s must carry canonical x-stability-level: beta", f)
 		}
+	}
+
+	// Review detail reuses stable MessageView, so its optional technical
+	// evidence needs a field-level marker as well as beta nested components.
+	messageProps := schemaProps(t, doc, "MessageView")
+	protection, _ := messageProps["protection"].(map[string]any)
+	if protection == nil || protection["x-stability-level"] != "beta" {
+		t.Error("MessageView.protection must carry canonical x-stability-level: beta")
+	}
+	for _, schema := range []string{"MessageView", "ReviewView"} {
+		holdReason, _ := schemaProps(t, doc, schema)["hold_reason"].(map[string]any)
+		if holdReason == nil || holdReason["x-stability-level"] != "beta" {
+			t.Errorf("%s.hold_reason must carry canonical x-stability-level: beta", schema)
+		}
+	}
+
+	// A delivered flag verdict remains visible to polling agents, but the two
+	// fields are beta while their shape and vocabulary evolve.
+	for _, schema := range []string{"MessageView", "MessageSummaryView", "ReviewView"} {
+		props := schemaProps(t, doc, schema)
+		for _, field := range []string{"flagged", "flag_reason"} {
+			property, _ := props[field].(map[string]any)
+			if property == nil || property["x-stability-level"] != "beta" {
+				t.Errorf("%s.%s must carry canonical x-stability-level: beta", schema, field)
+			}
+		}
+	}
+
+	// The error discriminator remains stable; only the gate-policy value is
+	// experimental.
+	errorCode, _ := schemaProps(t, doc, "ErrorBody")["code"].(map[string]any)
+	rawErrorValues, _ := errorCode["x-experimental-values"].([]any)
+	if len(rawErrorValues) != 1 || rawErrorValues[0] != "blocked_by_policy" {
+		t.Errorf("ErrorBody.code x-experimental-values = %v, want [blocked_by_policy]", rawErrorValues)
 	}
 
 	// Managed unsubscribe is a beta opt-in nested inside otherwise-stable

@@ -107,7 +107,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | **Auth / policy** | | |
 | `unauthorized` | 401 | Missing or invalid credentials (REST and the WebSocket handshake). |
 | `forbidden` | 403 | Authenticated but not allowed (key scope, cross-tenant access). |
-| `blocked_by_policy` | 403 | The outbound message was blocked by the agent's outbound policy gate. |
+| `blocked_by_policy` | 403 | **Experimental.** The outbound message was blocked by the agent's outbound policy gate. |
 | **Validation** | | |
 | `invalid_request` | 400 / 422 | The canonical input-validation code — malformed (400) or semantically invalid (422). `error.details` carries the per-field list. |
 | `invalid_cursor` | 400 | Bad pagination cursor — drop it and re-fetch from the start. |
@@ -194,17 +194,21 @@ every `/v1` operation not listed here is covered by the GA freeze.
 
 | operationId | Method and path | Surface |
 | --- | --- | --- |
+| `approveReview` | `POST /v1/reviews/{id}/approve` | Reviews |
 | `createAgentSuppression` | `POST /v1/agents/{email}/suppressions` | Agent suppressions |
 | `createTemplate` | `POST /v1/templates` | Templates |
 | `deleteAgentSuppression` | `DELETE /v1/agents/{email}/suppressions/{address}` | Agent suppressions |
 | `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
 | `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
+| `getReview` | `GET /v1/reviews/{id}` | Reviews |
 | `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
 | `getTemplate` | `GET /v1/templates/{id}` | Templates |
 | `listAgentSuppressions` | `GET /v1/agents/{email}/suppressions` | Agent suppressions |
+| `listReviews` | `GET /v1/reviews` | Reviews |
 | `listStarterTemplates` | `GET /v1/starter-templates` | Starter templates |
 | `listTemplates` | `GET /v1/templates` | Templates |
 | `putAgentProtection` | `PUT /v1/agents/{email}/protection` | Protection config |
+| `rejectReview` | `POST /v1/reviews/{id}/reject` | Reviews |
 | `updateTemplate` | `PATCH /v1/templates/{id}` | Templates |
 | `validateTemplate` | `POST /v1/templates/validate` | Templates |
 
@@ -225,16 +229,19 @@ every `/v1` operation not listed here is covered by the GA freeze.
 - **Beta surfaces are marked `x-stability-level: beta`** in the spec
   for automated compatibility tools
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
-  send) and `(beta)` in prose — today: templates, starter templates, the agent
-  protection config, agent-scoped suppression management, and managed
-  unsubscribe (including its raw confirmation flow). They are **exempt from the
+  send, `hold_reason`, the review-detail `protection` evidence, and the
+  `flagged` / `flag_reason` verdict) and `(beta)` in prose — today: templates,
+  starter templates, reviews, the agent protection config, agent-scoped
+  suppression management, and managed unsubscribe (including its raw
+  confirmation flow). They are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
   `email.review_requested`, `email.review_approved`, `email.review_rejected`),
   the field carries `x-experimental-values` listing exactly those values —
   their payloads may still change; all other event types are stable. Anything
-  not marked experimental is stable surface. One deliberate schema-level use
+  not marked experimental is stable surface. The stable `ErrorBody.code`
+  discriminator similarly marks only `blocked_by_policy` experimental. One deliberate schema-level use
   of the beta marker under a **stable** operation: the account export's
   interior record schemas (`GET /v1/account/export`) are beta-marked because
   they are versioned by the export's stable `schema_version` envelope field
@@ -493,12 +500,20 @@ Threads derived from `messages.conversation_id`.
 - `GET …/conversations/{id}` — one thread with participants, labels, and member
   messages.
 
-### Reviews (`/v1/reviews`)
+### Reviews (`/v1/reviews`) (beta)
 
 The unified review queue: every message held in `pending_review` across the
 account's inboxes — outbound drafts awaiting send approval **and** inbound
 messages held by a screening gate. **Account-scoped credentials only**; an agent
 cannot see or resolve its own holds (self-approval would defeat the gate).
+The unified review resource is beta and may change before it is declared stable.
+The product-facing `hold_reason` explanation and the optional technical
+`protection` evidence on detail responses are beta and may change before they
+are declared stable.
+The `flagged` and `flag_reason` projections remain available on review,
+message-detail, message-list, and conversation responses so polling agents can
+identify delivered policy-flag outcomes. These fields are beta and may change
+before they are declared stable.
 
 - `GET /v1/reviews`, `GET /v1/reviews/{id}` — list the queue / full detail of one
   held message.
