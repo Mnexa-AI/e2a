@@ -218,10 +218,13 @@ func (s *Server) applyEvolutionStance() {
 	// Field-level markers on otherwise-stable schemas.
 	//
 	// Review detail reuses MessageView, which is also returned by stable agent
-	// message operations. Keep the product-facing hold_reason stable, but mark
-	// the optional technical evidence field and its component tree beta.
+	// message operations. Mark both review-only fields and their component trees
+	// explicitly so the stable parent schemas and operations stay stable.
+	for _, schema := range []string{"MessageView", "ReviewView"} {
+		markProperty(schemas, schema, "hold_reason", extStabilityLevel, stabilityBeta)
+	}
 	markProperty(schemas, "MessageView", "protection", extStabilityLevel, stabilityBeta)
-	for _, schema := range []string{"ProtectionFindingView", "ThreatCategoryView"} {
+	for _, schema := range []string{"HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
 		markSchema(schemas, schema, extStabilityLevel, stabilityBeta)
 	}
 	//

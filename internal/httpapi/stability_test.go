@@ -292,7 +292,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 		return sc[extension]
 	}
-	for _, name := range []string{"TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ProtectionFindingView", "ThreatCategoryView"} {
+	for _, name := range []string{"TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s must not carry duplicate x-stability alias, got %v", name, got)
 		}
@@ -327,6 +327,12 @@ func TestSpecBetaMarkers(t *testing.T) {
 	protection, _ := messageProps["protection"].(map[string]any)
 	if protection == nil || protection["x-stability-level"] != "beta" {
 		t.Error("MessageView.protection must carry canonical x-stability-level: beta")
+	}
+	for _, schema := range []string{"MessageView", "ReviewView"} {
+		holdReason, _ := schemaProps(t, doc, schema)["hold_reason"].(map[string]any)
+		if holdReason == nil || holdReason["x-stability-level"] != "beta" {
+			t.Errorf("%s.hold_reason must carry canonical x-stability-level: beta", schema)
+		}
 	}
 
 	// Value-level: the screening + review-hold event types, everywhere event

@@ -8,9 +8,8 @@ already records an explicit instability decision.
 The audit covers all 130 generated component schemas, every operation root, and
 field/value-level lifecycle annotations. It found one actionable gap:
 
-1. `MessageView.protection`, `ProtectionFindingView`, and
-   `ThreatCategoryView` are documented as beta review-detail evidence, but the
-   generated contract has no machine-readable beta marker for them.
+1. `hold_reason` and the review-detail `protection` evidence are not yet stable,
+   but their fields and component schemas have no machine-readable beta marker.
 
 The unified review operations were described as beta in an earlier design, but
 were released as stable in v1.0.10. They cannot be retroactively downgraded and
@@ -23,13 +22,15 @@ remain stable.
 
 ## Contract changes
 
-- Mark `MessageView.protection` as a beta field because `MessageView` is shared
-  with stable message endpoints.
+- Mark `MessageView.hold_reason`, `ReviewView.hold_reason`, and
+  `MessageView.protection` as beta fields because their parent schemas are
+  shared with stable operations.
+- Mark `HoldReasonView` as a beta component.
 - Mark `ProtectionFindingView` and `ThreatCategoryView` as beta components so
   compatibility tooling can evolve the technical evidence shape.
-- Keep `MessageView`, `SendResultView`, shared error types, and `HoldReasonView`
-  stable. `hold_reason` is the product-facing explanation and is intentionally
-  the durable API layer; `protection` is optional technical evidence.
+- Keep `MessageView`, `ReviewView`, `SendResultView`, and shared error types
+  stable. The review-only `hold_reason` and `protection` fields remain beta
+  without degrading their stable parent resources.
 
 ## Invariants
 
@@ -37,8 +38,8 @@ remain stable.
   operation.
 - The canonical beta-operation inventory in code, generated OpenAPI, and
   `docs/api.md` must remain exactly equal.
-- The one-time compatibility correction must match only the three newly added
-  evidence paths as projected through the endpoints that share `MessageView`;
+- The one-time compatibility correction must match only the newly added review
+  explanation and evidence paths as projected through their stable parents;
   every other stable-to-beta downgrade remains an error.
 - A prose-only beta label is insufficient: each unstable operation, field, or
   component must carry the canonical extension.

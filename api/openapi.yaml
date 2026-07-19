@@ -1729,6 +1729,7 @@ components:
         - code
         - summary
       type: object
+      x-stability-level: beta
     LimitExceededDetails:
       additionalProperties: true
       properties:
@@ -2117,6 +2118,7 @@ components:
           type: string
         hold_reason:
           $ref: "#/components/schemas/HoldReasonView"
+          x-stability-level: beta
         id:
           type: string
         labels:
@@ -2846,6 +2848,7 @@ components:
         hold_reason:
           $ref: "#/components/schemas/HoldReasonView"
           description: Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
+          x-stability-level: beta
         id:
           description: The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.
           type: string

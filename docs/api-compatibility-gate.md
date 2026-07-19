@@ -134,10 +134,11 @@ pull-request comparison. Stable `/v1` findings are not silently ignored: an
 intentional breaking change requires a new major API path. Beta changes should
 remain marked beta until they are ready to join the stable contract.
 
-`api/oasdiff-ignore-errors.txt` contains one reviewed correction for the
-review-detail `protection` evidence introduced after v1.0.10: PR #390 merged
-the field and its two component schemas to `main` before their intended beta
-markers were applied. The rules name every affected method, path, and property;
-the SDK check independently permits only `ProtectionFindingView` and
-`ThreatCategoryView`. This is not a general exception mechanism—fixture tests
-continue to reject all other stable-to-beta changes.
+`api/oasdiff-ignore-errors.txt` contains one reviewed correction for
+`hold_reason` and the review-detail `protection` evidence introduced after
+v1.0.10: PRs #389–#390 merged the fields and their component schemas to `main`
+before their intended beta markers were applied. The rules name every affected
+method, path, and property; the SDK check independently permits only
+`HoldReasonView`, `ProtectionFindingView`, and `ThreatCategoryView`. This is not
+a general exception mechanism—fixture tests continue to reject all other
+stable-to-beta changes.

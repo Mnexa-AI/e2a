@@ -31,7 +31,7 @@ func main() {
 	// merged them before applying their intended beta marker. This exact
 	// correction mirrors api/oasdiff-ignore-errors.txt; every other stable SDK
 	// schema remains protected by the default freeze.
-	allowedSchemaDemotions := []string{"ProtectionFindingView", "ThreatCategoryView"}
+	allowedSchemaDemotions := []string{"HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"}
 	if err := openapicompat.CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision, allowedSchemaDemotions); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

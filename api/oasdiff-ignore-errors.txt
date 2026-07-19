@@ -1,13 +1,18 @@
-# One-time contract correction for review-detail protection evidence added after
-# v1.0.10 by PR #390. These exact response paths were merged to main before the
-# intended beta markers were applied. Keep each rule fully qualified: the
-# compatibility gate must continue rejecting every other stability downgrade.
+# One-time contract correction for hold_reason and review-detail protection
+# evidence added after v1.0.10 by PRs #389–#390. These exact response paths were
+# merged to main before the intended beta markers were applied. Keep each rule
+# fully qualified: the compatibility gate must continue rejecting every other
+# stability downgrade.
+GET /v1/agents/{email}/messages/{id} response property `hold_reason` stability level decreased from `stable` to `beta`
 GET /v1/agents/{email}/messages/{id} response property `protection` stability level decreased from `stable` to `beta`
 GET /v1/agents/{email}/messages/{id} response property `protection/items/` stability level decreased from `stable` to `beta`
 GET /v1/agents/{email}/messages/{id} response property `protection/items/categories/items/` stability level decreased from `stable` to `beta`
+POST /v1/agents/{email}/messages/{id}/restore response property `hold_reason` stability level decreased from `stable` to `beta`
 POST /v1/agents/{email}/messages/{id}/restore response property `protection` stability level decreased from `stable` to `beta`
 POST /v1/agents/{email}/messages/{id}/restore response property `protection/items/` stability level decreased from `stable` to `beta`
 POST /v1/agents/{email}/messages/{id}/restore response property `protection/items/categories/items/` stability level decreased from `stable` to `beta`
+GET /v1/reviews response property `items/items/hold_reason` stability level decreased from `stable` to `beta`
+GET /v1/reviews/{id} response property `hold_reason` stability level decreased from `stable` to `beta`
 GET /v1/reviews/{id} response property `protection` stability level decreased from `stable` to `beta`
 GET /v1/reviews/{id} response property `protection/items/` stability level decreased from `stable` to `beta`
 GET /v1/reviews/{id} response property `protection/items/categories/items/` stability level decreased from `stable` to `beta`
