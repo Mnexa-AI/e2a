@@ -72,6 +72,8 @@ for e in client.events.list(type="email.received", limit=20):
 
 The review-hold + screening events (`email.flagged`, `email.blocked`, `email.review_requested`, `email.review_approved`, `email.review_rejected`) are **beta** — their payloads may change before they are declared stable.
 
+One `email.blocked` asymmetry to know: an **outbound** gate-block refuses the send outright, so no message row exists — its `data.message_id` is a stable rowless soft-ref (`msgblk_…`), the event's top-level `message_id` is absent, and `GET /v1/events?message_id=…` cannot match it (filter by `type` + `agent_email`, or by `conversation_id`, instead). **Inbound** blocks are accept-then-quarantine, reference a real message, and filter normally.
+
 ## Envelope and typed payloads
 
 Webhook deliveries and WebSocket frames use the canonical OpenAPI

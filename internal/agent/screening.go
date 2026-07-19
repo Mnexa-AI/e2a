@@ -297,13 +297,14 @@ func (a *API) auditRowless(ctx context.Context, agent *identity.AgentIdentity, m
 }
 
 // emitBlockedOutbound fires the fire-and-forget email.blocked event for an outbound
-// send refused by screening (applied action = block). messageID is the stable
-// soft-ref (blockAuditID) since no message row is persisted, so the deterministic id
-// keeps retries idempotent. reason_source mirrors the protection_events vocabulary
+// send refused by screening (applied action = block). softRef is the stable
+// rowless soft-ref (blockAuditID) — NOT a messages-row id; no message row is
+// persisted for a block. The deterministic id keeps retries idempotent.
+// reason_source mirrors the protection_events vocabulary
 // (recipient_gate / outbound_scan).
-func (a *API) buildBlockedOutboundEvent(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) webhookpub.Event {
+func (a *API) buildBlockedOutboundEvent(agent *identity.AgentIdentity, softRef string, req outbound.SendRequest, v outboundVerdict) webhookpub.Event {
 	e := webhookpub.NewEvent(webhookpub.EventEmailBlocked, agent.UserID, map[string]interface{}{
-		"message_id":    messageID,
+		"message_id":    softRef,
 		"agent_email":   agent.EmailAddress(),
 		"direction":     "outbound",
 		"to":            req.To,
@@ -319,14 +320,16 @@ func (a *API) buildBlockedOutboundEvent(agent *identity.AgentIdentity, messageID
 	// messages(id), and a blocked send persists no message row — writing the
 	// msgblk_ soft-ref there fails the FK and rolls back the whole event (the
 	// column is for real rows only; consumers already see NULL there after
-	// ON DELETE SET NULL). The soft-ref still travels in data.message_id and
-	// still keys the deterministic event id, so retried blocks dedupe.
-	e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailBlocked)
+	// ON DELETE SET NULL, and the fan-out copies the column into
+	// webhook_subscriber_deliveries.message_id, which carries the same FK).
+	// The soft-ref still travels in data.message_id and still keys the
+	// deterministic event id, so retried blocks dedupe.
+	e.ID = webhookpub.DeterministicEventID(softRef, webhookpub.EventEmailBlocked)
 	return e
 }
 
-func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID string, req outbound.SendRequest, v outboundVerdict) {
-	e := a.buildBlockedOutboundEvent(agent, messageID, req, v)
+func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, softRef string, req outbound.SendRequest, v outboundVerdict) {
+	e := a.buildBlockedOutboundEvent(agent, softRef, req, v)
 	// Durable emit via the (unconditional) outbox. An outbound block is rowless,
 	// so the event is written in its own transaction; the deterministic id dedupes
 	// a retried block through ON CONFLICT (id) DO NOTHING. Every event now flows

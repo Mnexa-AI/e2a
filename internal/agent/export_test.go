@@ -55,5 +55,7 @@ func MarkSideEffectCommittedForTest(w http.ResponseWriter) {
 func BuildBlockedOutboundEventForTest(agent *identity.AgentIdentity, req outbound.SendRequest, reviewReason, reason string) (webhookpub.Event, string) {
 	softRef := blockAuditID(agent.ID, req)
 	v := outboundVerdict{Applied: "block", ReviewReason: reviewReason, Reason: reason}
+	// Receiver deliberately zero: the builder must stay stateless (pure over
+	// its arguments) — if it ever reads API fields this seam nil-panics.
 	return (&API{}).buildBlockedOutboundEvent(agent, softRef, req, v), softRef
 }

@@ -308,9 +308,6 @@ func TestEmitBlockedOutbound(t *testing.T) {
 	if ev.UserID != "u_1" || ev.AgentID != agent.ID || ev.MessageID != "" {
 		t.Errorf("routing keys = (user=%q agent=%q msg=%q), want msg unset", ev.UserID, ev.AgentID, ev.MessageID)
 	}
-	if got := ev.Data.(map[string]interface{})["message_id"]; got != softRef {
-		t.Errorf("data.message_id = %v, want soft-ref %q", got, softRef)
-	}
 	// Deterministic id keeps a retried block idempotent.
 	if want := webhookpub.DeterministicEventID(softRef, webhookpub.EventEmailBlocked); ev.ID != want {
 		t.Errorf("ID = %q, want deterministic %q", ev.ID, want)
@@ -318,6 +315,9 @@ func TestEmitBlockedOutbound(t *testing.T) {
 	data, ok := ev.Data.(map[string]interface{})
 	if !ok {
 		t.Fatalf("Data is not a map: %T", ev.Data)
+	}
+	if data["message_id"] != softRef {
+		t.Errorf("data.message_id = %v, want soft-ref %q", data["message_id"], softRef)
 	}
 	if data["direction"] != "outbound" {
 		t.Errorf("direction = %v, want outbound", data["direction"])

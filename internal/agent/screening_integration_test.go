@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -53,7 +54,7 @@ func TestEmitBlockedOutbound_Integration_SurvivesMessageIDFK(t *testing.T) {
 		   FROM webhook_events WHERE id = $1 AND type = $2`,
 		e.ID, webhookpub.EventEmailBlocked,
 	).Scan(&colMessageID, &dataMessageID)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("email.blocked event %s not in webhook_events — dropped", e.ID)
 	}
 	if err != nil {
