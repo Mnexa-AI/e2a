@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/agent"
+	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/outbound"
 )
 
@@ -15,7 +16,10 @@ type recordingIssuer struct {
 	calls     int
 	recipient string
 	err       error
+	readyErr  error
 }
+
+func (i *recordingIssuer) Ready() error { return i.readyErr }
 
 func (i *recordingIssuer) Issue(_ context.Context, _, _, recipient string) (string, error) {
 	i.calls++
@@ -72,6 +76,100 @@ func TestDeliverOutboundManagedUnsubscribeIssuerFailureDoesNotAccept(t *testing.
 	}
 	if count != 0 {
 		t.Fatalf("issuer failure accepted %d messages", count)
+	}
+}
+
+func TestDeliverOutboundReviewManagedUnsubscribeRequiresReadyIssuerBeforeHold(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		issuer agent.ManagedUnsubscribeIssuer
+	}{
+		{name: "missing"},
+		{name: "invalid", issuer: &recordingIssuer{readyErr: errors.New("invalid configuration")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, store, _, _ := setupAsyncAPI(t)
+			ctx := context.Background()
+			user, ag := selfAgent(t, store, "managedreviewfail"+tc.name)
+			ag.OutboundPolicy = identity.OutboundPolicyAllowlist
+			ag.OutboundPolicyAction = "review"
+			ag.OutboundScan = identity.ScanOff
+			api.SetManagedUnsubscribeIssuer(tc.issuer)
+
+			_, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+				To: []string{"outside@example.net"}, Subject: "must not hold " + tc.name, Body: "body",
+				Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+			}, "send", "", nil, nil)
+			if oerr == nil || oerr.Status != 500 || oerr.Code != "internal_error" {
+				t.Fatalf("error=%+v", oerr)
+			}
+			var pending, tokens int
+			if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+				if err := tx.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject=$2`, ag.ID, "must not hold "+tc.name).Scan(&pending); err != nil {
+					return err
+				}
+				return tx.QueryRow(ctx, `SELECT count(*) FROM agent_unsubscribe_tokens WHERE agent_id=$1`, ag.ID).Scan(&tokens)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if pending != 0 || tokens != 0 {
+				t.Fatalf("pending=%d tokens=%d, want no persistence", pending, tokens)
+			}
+		})
+	}
+}
+
+func TestDeliverOutboundReviewManagedUnsubscribeHoldsWithoutMinting(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedreviewready")
+	ag.OutboundPolicy = identity.OutboundPolicyAllowlist
+	ag.OutboundPolicyAction = "review"
+	ag.OutboundScan = identity.ScanOff
+	issuer := &recordingIssuer{}
+	api.SetManagedUnsubscribeIssuer(issuer)
+
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"outside@example.net"}, Subject: "hold without token", Body: "body",
+		Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr != nil || res == nil || !res.Held {
+		t.Fatalf("result=%+v error=%+v", res, oerr)
+	}
+	var tokens int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM agent_unsubscribe_tokens WHERE agent_id=$1`, ag.ID).Scan(&tokens)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if issuer.calls != 0 || tokens != 0 {
+		t.Fatalf("issuer calls=%d tokens=%d, want deferred mint", issuer.calls, tokens)
+	}
+}
+
+func TestDeliverOutboundManagedUnsubscribeRejectsPostFooterComposedSize(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedpostcap")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+	subject := "s"
+	body := strings.Repeat("x", outbound.MaxComposedMessageBytes-len(subject))
+
+	_, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"outside@example.net"}, Subject: subject, Body: body,
+		Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr == nil || oerr.Status != 413 || oerr.Code != "payload_too_large" {
+		t.Fatalf("error=%+v, want 413 payload_too_large", oerr)
+	}
+	var count int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject=$2`, ag.ID, subject).Scan(&count)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("accepted %d over-cap messages", count)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/mail"
 	"reflect"
@@ -277,67 +276,77 @@ func (o *UnsubscribeOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// outboundUnsubscribeBadRequest preserves the feature's stable 400 contract
-// while keeping the published schema strict. Huma normally reports schema
-// failures as 422 before handlers run; this route-local preflight recognizes
-// only the managed-unsubscribe field and lets every other request retain the
-// existing global validation behavior.
-func outboundUnsubscribeBadRequest(next http.Handler) http.Handler {
+// outboundUnsubscribeValidationStatus preserves the feature's canonical 400
+// contract without touching the request body. Huma performs its normal bounded
+// decode and strict schema validation first; this response-only adapter changes
+// 422 to 400 only when every structured validation error belongs to the
+// unsubscribe field. All other validation responses pass through unchanged.
+func outboundUnsubscribeValidationStatus(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !isOutboundMessageWritePath(r.URL.Path) || r.Body == nil {
+		if r.Method != http.MethodPost || !isOutboundMessageWritePath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		originalBody := r.Body
-		if r.ContentLength > maxOutboundBytes {
-			_ = originalBody.Close()
-			writeOutboundRequestBodyTooLarge(w, r, r.ContentLength)
-			return
+		buffered := &unsubscribeValidationWriter{ResponseWriter: w}
+		next.ServeHTTP(buffered, r)
+		status := buffered.status
+		if status == 0 {
+			status = http.StatusOK
 		}
-		body, err := io.ReadAll(io.LimitReader(originalBody, int64(maxOutboundBytes)+1))
-		if err != nil {
-			_ = originalBody.Close()
-			writeRawEnvelope(w, r, NewError(http.StatusBadRequest, "invalid_request", "failed to read request body"))
-			return
+		if status == http.StatusUnprocessableEntity && isUnsubscribeOnlyValidation(buffered.body.Bytes()) {
+			status = http.StatusBadRequest
 		}
-		if len(body) > maxOutboundBytes {
-			_ = originalBody.Close()
-			writeOutboundRequestBodyTooLarge(w, r, int64(len(body)))
-			return
-		}
-		// Keep the original closer attached to the byte-identical replay so the
-		// server still closes the transport body after Huma consumes it.
-		r.Body = struct {
-			io.Reader
-			io.Closer
-		}{Reader: bytes.NewReader(body), Closer: originalBody}
-		var object map[string]json.RawMessage
-		if json.Unmarshal(body, &object) != nil {
-			next.ServeHTTP(w, r)
-			return
-		}
-		raw, present := object["unsubscribe"]
-		if !present {
-			next.ServeHTTP(w, r)
-			return
-		}
-		var options UnsubscribeOptions
-		if err := json.Unmarshal(raw, &options); err != nil {
-			writeRawEnvelope(w, r, NewError(http.StatusBadRequest, "invalid_request", err.Error()))
-			return
-		}
-		next.ServeHTTP(w, r)
+		w.WriteHeader(status)
+		_, _ = w.Write(buffered.body.Bytes())
 	})
 }
 
-func writeOutboundRequestBodyTooLarge(w http.ResponseWriter, r *http.Request, actualBytes int64) {
-	writeRawEnvelope(w, r, NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
-		fmt.Sprintf("request body exceeds the %d byte limit", maxOutboundBytes)).
-		WithDetails(PayloadTooLargeDetails{
-			Scope:       "request_body",
-			ActualBytes: actualBytes,
-			MaxBytes:    maxOutboundBytes,
-		}))
+type unsubscribeValidationWriter struct {
+	http.ResponseWriter
+	status int
+	body   bytes.Buffer
+}
+
+func (w *unsubscribeValidationWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *unsubscribeValidationWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(body)
+}
+
+func (w *unsubscribeValidationWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func isUnsubscribeOnlyValidation(body []byte) bool {
+	var envelope struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				Fields []FieldError `json:"fields"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) != nil || envelope.Error.Code != "invalid_request" || len(envelope.Error.Details.Fields) == 0 {
+		return false
+	}
+	for _, field := range envelope.Error.Details.Fields {
+		if strings.HasPrefix(field.Location, "body.unsubscribe") {
+			continue
+		}
+		// UnsubscribeOptions' custom null-object validation is emitted at the
+		// enclosing body location by Huma's decoder, but remains structured and
+		// uniquely identified by its field-specific message.
+		if field.Location == "body" && strings.HasPrefix(field.Message, "unsubscribe must be an object") {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func isOutboundMessageWritePath(path string) bool {

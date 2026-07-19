@@ -90,3 +90,42 @@ func TestComposeManagedUnsubscribeRequiresOneRecipientAndURL(t *testing.T) {
 		}
 	}
 }
+
+func TestComposeManagedUnsubscribeRejectsTextWhenFooterCrossesComposedCap(t *testing.T) {
+	agent := &identity.AgentIdentity{ID: "bot@example.com", Email: "bot@example.com"}
+	subject := "s"
+	body := strings.Repeat("x", MaxComposedMessageBytes-len(subject))
+	req := SendRequest{
+		To: []string{"user@example.net"}, Subject: subject, Body: body,
+		Unsubscribe: &UnsubscribeOptions{Mode: "managed", URL: "https://api.example/u/token"},
+	}
+	if before := ComposedSize(req.Subject, req.Body, req.HTMLBody, req.Attachments); before != MaxComposedMessageBytes {
+		t.Fatalf("pre-footer size=%d, want %d", before, MaxComposedMessageBytes)
+	}
+	if _, err := NewSender(nil, "send.e2a.dev").ComposeForAccept(agent, req); !IsComposedSizeError(err) {
+		t.Fatalf("error=%T %v, want composed-size error", err, err)
+	}
+}
+
+func TestComposeManagedUnsubscribeRejectsMultipartWhenFootersCrossComposedCap(t *testing.T) {
+	agent := &identity.AgentIdentity{ID: "bot@example.com", Email: "bot@example.com"}
+	req := SendRequest{
+		To: []string{"user@example.net"}, Subject: "s", Body: "x",
+		HTMLBody:    strings.Repeat("h", MaxComposedMessageBytes-3),
+		Unsubscribe: &UnsubscribeOptions{Mode: "managed", URL: "https://api.example/u/token"},
+	}
+	if before := ComposedSize(req.Subject, req.Body, req.HTMLBody, req.Attachments); before >= MaxComposedMessageBytes {
+		t.Fatalf("pre-footer size=%d, want below %d", before, MaxComposedMessageBytes)
+	}
+	if _, err := NewSender(nil, "send.e2a.dev").ComposeForAccept(agent, req); !IsComposedSizeError(err) {
+		t.Fatalf("error=%T %v, want composed-size error", err, err)
+	}
+}
+
+func TestComposeUnmanagedAtComposedCapRemainsAccepted(t *testing.T) {
+	agent := &identity.AgentIdentity{ID: "bot@example.com", Email: "bot@example.com"}
+	req := SendRequest{To: []string{"user@example.net"}, Subject: "s", Body: strings.Repeat("x", MaxComposedMessageBytes-1)}
+	if _, err := NewSender(nil, "send.e2a.dev").ComposeForAccept(agent, req); err != nil {
+		t.Fatalf("unmanaged message at cap rejected: %v", err)
+	}
+}

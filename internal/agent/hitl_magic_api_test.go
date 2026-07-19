@@ -109,6 +109,38 @@ func TestMagicApproveManagedUnsubscribeMintsOnApprovalAndPersistsMIME(t *testing
 	}
 }
 
+func TestMagicApproveManagedUnsubscribeRejectsWhenFooterCrossesCap(t *testing.T) {
+	server, store, signer, _ := setupMagicLinkAPI(t)
+	ctx := context.Background()
+	a, _ := prepareHITLAgent(t, store, "magic-managed-cap")
+	subject := "s"
+	body := strings.Repeat("x", outbound.MaxComposedMessageBytes-len(subject))
+	msg, err := store.CreatePendingOutboundMessageManaged(ctx, a.ID,
+		[]string{"final@example.net"}, nil, nil, subject, body, "", nil,
+		"send", "", "", "", 3600, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var status, deliveryStatus string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT status, COALESCE(delivery_status, '') FROM messages WHERE id=$1`, msg.ID).Scan(&status, &deliveryStatus)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusPendingReview || deliveryStatus == "accepted" {
+		t.Fatalf("status=%q delivery_status=%q", status, deliveryStatus)
+	}
+}
+
 // prepareHITLAgent creates a verified agent with HITL enabled. Returns
 // agent + userID.
 func prepareHITLAgent(t *testing.T, store *identity.Store, slug string) (*identity.AgentIdentity, string) {

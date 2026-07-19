@@ -241,6 +241,7 @@ type API struct {
 // ManagedUnsubscribeIssuer is deliberately narrow: it receives only the final
 // canonical recipient and returns a stored, absolute public capability URL.
 type ManagedUnsubscribeIssuer interface {
+	Ready() error
 	Issue(ctx context.Context, userID, agentID, recipient string) (string, error)
 }
 
@@ -257,11 +258,15 @@ func prepareManagedUnsubscribe(ctx context.Context, issuer ManagedUnsubscribeIss
 	if len(recipients) != 1 {
 		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: "managed unsubscribe requires exactly one recipient"}
 	}
-	if !mint {
-		return nil
-	}
 	if issuer == nil {
 		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}
+	}
+	if err := issuer.Ready(); err != nil {
+		log.Printf("[api] managed unsubscribe issuer unavailable: agent=%s error=%v", agent.ID, err)
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}
+	}
+	if !mint {
+		return nil
 	}
 	link, err := issuer.Issue(ctx, userID, agent.ID, recipients[0])
 	if err != nil {
@@ -1300,6 +1305,9 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	}
 	comp, cerr := a.sender.ComposeForAccept(agent, req)
 	if cerr != nil {
+		if sizeErr := composedSizeOutboundError(cerr); sizeErr != nil {
+			return nil, sizeErr
+		}
 		if outbound.IsValidationError(cerr) {
 			return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: cerr.Error()}
 		}
@@ -1427,6 +1435,9 @@ func (a *API) acceptPlatformSend(ctx context.Context, agent *identity.AgentIdent
 	}
 	comp, cerr := a.sender.ComposePlatformForAccept(req)
 	if cerr != nil {
+		if sizeErr := composedSizeOutboundError(cerr); sizeErr != nil {
+			return nil, sizeErr
+		}
 		if outbound.IsValidationError(cerr) {
 			return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: cerr.Error()}
 		}

@@ -249,6 +249,9 @@ func (a *API) approveOutboundAsyncComposed(ctx context.Context, agent *identity.
 // approveAsyncError maps an approveOutboundAsync failure to an OutboundError,
 // matching the sync approve path's status codes.
 func approveAsyncError(agentID, messageID string, err error) *OutboundError {
+	if sizeErr := composedSizeOutboundError(err); sizeErr != nil {
+		return sizeErr
+	}
 	switch {
 	case errors.Is(err, identity.ErrNotPendingApproval):
 		return &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
@@ -261,6 +264,23 @@ func approveAsyncError(agentID, messageID string, err error) *OutboundError {
 		}
 		log.Printf("[api] approve-accept failed: agent=%s msg=%s err=%v", agentID, messageID, err)
 		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "send failed"}
+	}
+}
+
+func composedSizeOutboundError(err error) *OutboundError {
+	var sizeErr *outbound.ComposedSizeError
+	if !errors.As(err, &sizeErr) {
+		return nil
+	}
+	return &OutboundError{
+		Status: http.StatusRequestEntityTooLarge,
+		Code:   "payload_too_large",
+		Msg:    sizeErr.Error(),
+		Details: map[string]any{
+			"scope":        "composed_message",
+			"actual_bytes": sizeErr.ActualBytes,
+			"max_bytes":    sizeErr.MaxBytes,
+		},
 	}
 }
 

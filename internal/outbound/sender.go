@@ -346,6 +346,9 @@ func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*compo
 		}
 		req.Body, req.HTMLBody = appendUnsubscribeFooter(req.Body, req.HTMLBody, agent.EmailAddress(), req.Unsubscribe.URL)
 	}
+	if total := ComposedSize(req.Subject, req.Body, req.HTMLBody, req.Attachments); total > MaxComposedMessageBytes {
+		return nil, &ComposedSizeError{ActualBytes: total, MaxBytes: MaxComposedMessageBytes}
+	}
 
 	// Compose headers
 	displayName := agent.Name

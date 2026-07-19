@@ -20,6 +20,16 @@ type Issuer struct {
 	store  TokenStore
 }
 
+// Ready validates the issuer's immutable wiring without deriving or storing a
+// recipient token. Callers use it before persisting a review hold, while Issue
+// remains deferred until the final recipient set is approved.
+func (i *Issuer) Ready() error {
+	if i == nil || i.secret == "" || i.base == nil || i.base.Scheme == "" || i.base.Host == "" || i.store == nil {
+		return errors.New("managed unsubscribe issuer is not configured")
+	}
+	return nil
+}
+
 func NewIssuer(secret, apiURL string, production bool, store TokenStore) (*Issuer, error) {
 	if secret == "" {
 		return nil, errors.New("unsubscribe signing secret is required")
@@ -40,6 +50,9 @@ func NewIssuer(secret, apiURL string, production bool, store TokenStore) (*Issue
 }
 
 func (i *Issuer) Issue(ctx context.Context, userID, agentID, recipient string) (string, error) {
+	if err := i.Ready(); err != nil {
+		return "", err
+	}
 	token, err := Derive(i.secret, userID, agentID, recipient)
 	if err != nil {
 		return "", err

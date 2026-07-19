@@ -287,6 +287,9 @@ func writeMagicApproveError(w http.ResponseWriter, messageID string, err error) 
 	case errors.Is(err, identity.ErrNotPendingApproval):
 		writeMagicMessage(w, http.StatusConflict, "Already resolved",
 			"This message has already been approved, rejected, or expired.")
+	case outbound.IsComposedSizeError(err):
+		writeMagicMessage(w, http.StatusRequestEntityTooLarge, "Cannot send",
+			"The composed message is too large. Trim it and approve again from the dashboard.")
 	default:
 		var ve *outbound.ValidationError
 		if errors.As(err, &ve) {

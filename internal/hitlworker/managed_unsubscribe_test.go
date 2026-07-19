@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/outbound"
 )
 
 type ttlUnsubscribeIssuer struct {
@@ -41,5 +42,32 @@ func TestWorkerAutoApproveManagedUnsubscribeMintsAtFinalization(t *testing.T) {
 	}
 	if status != identity.MessageStatusReviewExpiredApproved || !strings.Contains(string(raw), "List-Unsubscribe: <https://api.example/u/u1_ttl>") {
 		t.Fatalf("status=%s raw=%s", status, raw)
+	}
+}
+
+func TestWorkerAutoApproveManagedUnsubscribeRejectsWhenFooterCrossesCap(t *testing.T) {
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+	ag := prepareAgent(t, store, "ttl-managed-cap", identity.HITLExpirationApprove)
+	w.SetManagedUnsubscribeIssuer(&ttlUnsubscribeIssuer{})
+	subject := "s"
+	body := strings.Repeat("x", outbound.MaxComposedMessageBytes-len(subject))
+	msg, err := store.CreatePendingOutboundMessageManaged(ctx, ag.ID,
+		[]string{"final@example.net"}, nil, nil, subject, body, "", nil,
+		"send", "", "", "", 60, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backdateExpiry(t, pool, msg.ID)
+	w.RunOnce(ctx)
+	var status, deliveryStatus string
+	if err := pool.QueryRow(ctx, `SELECT status, COALESCE(delivery_status, '') FROM messages WHERE id=$1`, msg.ID).Scan(&status, &deliveryStatus); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusReviewExpiredRejected || deliveryStatus == "accepted" {
+		t.Fatalf("status=%q delivery_status=%q", status, deliveryStatus)
+	}
+	if got := smtpDone(); len(got) != 0 {
+		t.Fatalf("sent %d over-cap messages", len(got))
 	}
 }

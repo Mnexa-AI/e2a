@@ -15,6 +15,8 @@ type fakeUnsubscribeIssuer struct {
 	err       error
 }
 
+func (f *fakeUnsubscribeIssuer) Ready() error { return nil }
+
 func (f *fakeUnsubscribeIssuer) Issue(_ context.Context, _, _, recipient string) (string, error) {
 	f.calls++
 	f.recipient = recipient
