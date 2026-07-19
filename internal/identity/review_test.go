@@ -2,7 +2,6 @@ package identity_test
 
 import (
 	"context"
-	"math"
 	"testing"
 	"time"
 
@@ -333,10 +332,9 @@ func TestInboundReview_RejectDeliveredMessageIsNoop(t *testing.T) {
 }
 
 // TestListReviews_SurfacesHoldReason is the review-queue reason contract: the
-// coded review_reason (populated for EVERY hold path) and scan_score (scan holds
-// only) come back on both the list and the detail — the fields the web review
-// tab renders as "why held". flag_reason alone misses scan/outbound holds, so
-// the queue must expose review_reason; this pins that it does.
+// coded review_reason (populated for EVERY hold path) comes back on both the
+// list and detail. scan_score remains internal screening persistence; public
+// confidence comes from validated protection events on the detail endpoint.
 func TestListReviews_SurfacesHoldReason(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -344,11 +342,10 @@ func TestListReviews_SurfacesHoldReason(t *testing.T) {
 	userID, agentID := seedReviewAgent(t, store, ctx, "reason.example.com")
 
 	exp := time.Now().Add(time.Hour)
-	score := 0.87
-	// A scan-driven hold: review_reason=inbound_scan WITH an aggregate scan score.
+	// A scan-driven hold.
 	scanID := createInbound(t, store, ctx, agentID, "evil@x.com", "scan-held", identity.InboundScreening{
 		Status: identity.MessageStatusPendingReview, ScanAction: "review",
-		ReviewReason: identity.ReviewReasonInboundScan, ScanScore: &score, ApprovalExpiresAt: &exp,
+		ReviewReason: identity.ReviewReasonInboundScan, ApprovalExpiresAt: &exp,
 	})
 	// A gate-driven hold: review_reason=sender_gate, no scan ran (nil score) —
 	// the case flag_reason would cover but scan holds would not.
@@ -366,19 +363,12 @@ func TestListReviews_SurfacesHoldReason(t *testing.T) {
 		byID[it.ID] = it
 	}
 
-	// scan_score is a Postgres REAL (single precision), so assert within tolerance.
-	const tol = 1e-4
 	scan, ok := byID[scanID]
 	if !ok {
 		t.Fatalf("scan hold %s missing from review queue", scanID)
 	}
 	if scan.ReviewReason != identity.ReviewReasonInboundScan {
 		t.Errorf("scan hold review_reason = %q, want %q", scan.ReviewReason, identity.ReviewReasonInboundScan)
-	}
-	if scan.ScanScore == nil {
-		t.Errorf("scan hold scan_score = nil, want ~%v", score)
-	} else if math.Abs(*scan.ScanScore-score) > tol {
-		t.Errorf("scan hold scan_score = %v, want ~%v", *scan.ScanScore, score)
 	}
 
 	gate, ok := byID[gateID]
@@ -388,21 +378,12 @@ func TestListReviews_SurfacesHoldReason(t *testing.T) {
 	if gate.ReviewReason != identity.ReviewReasonSenderGate {
 		t.Errorf("gate hold review_reason = %q, want %q", gate.ReviewReason, identity.ReviewReasonSenderGate)
 	}
-	if gate.ScanScore != nil {
-		t.Errorf("gate-only hold scan_score = %v, want nil (no scan ran)", *gate.ScanScore)
-	}
-
-	// The detail surface (GET /v1/reviews/{id}) carries the same reason + score.
+	// The detail surface (GET /v1/reviews/{id}) carries the same reason.
 	detail, err := store.GetReviewWithContent(ctx, userID, scanID)
 	if err != nil {
 		t.Fatalf("GetReviewWithContent: %v", err)
 	}
 	if detail.ReviewReason != identity.ReviewReasonInboundScan {
 		t.Errorf("detail review_reason = %q, want %q", detail.ReviewReason, identity.ReviewReasonInboundScan)
-	}
-	if detail.ScanScore == nil {
-		t.Errorf("detail scan_score = nil, want ~%v", score)
-	} else if math.Abs(*detail.ScanScore-score) > tol {
-		t.Errorf("detail scan_score = %v, want ~%v", *detail.ScanScore, score)
 	}
 }
