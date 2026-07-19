@@ -17,11 +17,16 @@ test("renders the blurb and prompt verbatim", () => {
   expect(screen.getByText(AGENT_PROMPTS.templates.prompt)).toBeInTheDocument();
 });
 
-test("every prompt anchors on a published e2a.dev doc, not a GitHub path", () => {
-  for (const { prompt } of Object.values(AGENT_PROMPTS)) {
-    expect(prompt).toMatch(/https:\/\/e2a\.dev\/(templates|e2a)\.md/);
-    expect(prompt).not.toContain("github.com");
-  }
+test("uses concise page-specific MCP prompts", () => {
+  expect(AGENT_PROMPTS.inboxes.prompt).toBe(
+    "Help me set up an e2a inbox using https://api.e2a.dev/mcp",
+  );
+  expect(AGENT_PROMPTS.domains.prompt).toBe(
+    "Help me connect a custom domain to e2a using https://api.e2a.dev/mcp",
+  );
+  expect(AGENT_PROMPTS.templates.prompt).toBe(
+    "Help me set up e2a email templates using https://api.e2a.dev/mcp",
+  );
 });
 
 test("copy button writes the card's prompt to the clipboard and flips its label", async () => {
