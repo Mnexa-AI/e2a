@@ -198,3 +198,4 @@ class MessageView(BaseModel):
 
         return _obj
 
+

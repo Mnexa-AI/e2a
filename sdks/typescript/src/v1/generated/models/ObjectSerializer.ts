@@ -187,7 +187,7 @@ import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView        , MessageSummaryViewDirectionEnum                 } from '../models/MessageSummaryView.js';
-import { MessageView           , MessageViewDirectionEnum                    } from '../models/MessageView.js';
+import { MessageView           , MessageViewDirectionEnum                     } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
