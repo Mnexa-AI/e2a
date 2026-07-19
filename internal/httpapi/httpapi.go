@@ -273,7 +273,13 @@ type Deps struct {
 	AddAgentSuppression    func(ctx context.Context, userID, agentID, address, reason, source string, onAdded identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error)
 	ListAgentSuppressions  func(ctx context.Context, userID, agentID string, limit int, afterCreatedAt time.Time, afterAddress string) ([]identity.AgentSuppression, error)
 	RemoveAgentSuppression func(ctx context.Context, userID, agentID, address string) (bool, error)
-	DeleteUserData         func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
+	// Public managed-unsubscribe capabilities. Resolve accepts only a token hash;
+	// the write capability accepts only the exact scope returned by that lookup,
+	// so the unauthenticated route cannot choose an account, agent, or recipient.
+	ResolveUnsubscribeToken           func(ctx context.Context, tokenHash []byte) (*identity.UnsubscribeScope, error)
+	AddAgentSuppressionFromTokenScope func(ctx context.Context, scope identity.UnsubscribeScope, onAdded identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error)
+	AgentSuppressionAddedHook         identity.AgentSuppressionTxHook
+	DeleteUserData                    func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
 
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.
@@ -482,6 +488,10 @@ func New(deps Deps) *Server {
 	if deps.AttachmentStore != nil {
 		root.Get("/v1/agents/{email}/messages/{id}/attachments/{index}/download", s.handleAttachmentDownload)
 	}
+
+	// Managed unsubscribe is a bearer-capability route, not an authenticated
+	// /v1 management operation. GET is deliberately read-only for link scanners.
+	root.Handle("/u/{token}", http.HandlerFunc(s.handlePublicUnsubscribe))
 
 	root.NotFound(s.routeNotFound)
 	root.MethodNotAllowed(s.routeMethodNotAllowed)

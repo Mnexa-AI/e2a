@@ -82,6 +82,11 @@ type Params struct {
 	// Wired from *webhookdelivery.Jobs.EnqueueDelivery in the binary. Optional —
 	// nil in minimal test setups with no River client.
 	EnqueueDelivery func(ctx context.Context, deliveryID string) error
+
+	// AgentSuppressionAddedHook writes the beta suppression event in the same
+	// transaction as a newly inserted token-authorized consent row. Optional
+	// until the event slice is wired by the caller.
+	AgentSuppressionAddedHook identity.AgentSuppressionTxHook
 }
 
 // SenderIdentityEnqueuer is the slice of *senderidentity.Manager apiserver
@@ -99,7 +104,7 @@ func BuildDeps(p Params) httpapi.Deps {
 	if p.Pool != nil {
 		rampSnapshot = sendramp.NewStore(p.Pool).Snapshot
 	}
-	return httpapi.Deps{
+	deps := httpapi.Deps{
 		Authenticator:          p.API.AuthenticateUser,
 		PrincipalAuthenticator: p.API.AuthenticatePrincipal,
 		AuthChallenge:          p.API.WWWAuthenticateChallenge,
@@ -249,6 +254,10 @@ func BuildDeps(p Params) httpapi.Deps {
 		WSHandle:     p.WSHandle,
 		Legacy:       p.Legacy,
 	}
+	deps.ResolveUnsubscribeToken = p.Store.ResolveUnsubscribeToken
+	deps.AddAgentSuppressionFromTokenScope = p.Store.AddAgentSuppressionFromTokenScope
+	deps.AgentSuppressionAddedHook = p.AgentSuppressionAddedHook
+	return deps
 }
 
 // deleteDomainFunc wires DELETE /domains. With SES configured the domain-row
