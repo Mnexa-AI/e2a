@@ -47,7 +47,7 @@ func TestAgentSuppressionDuplicateNormalizesAndCallsHookOnce(t *testing.T) {
 		return nil
 	}
 
-	first, added, err := store.AddAgentSuppression(ctx, u.ID, a.ID, " Recipient@Example.COM ", "asked", "unsubscribe", hook)
+	first, added, err := store.AddAgentSuppression(ctx, u.ID, " SUPP-DUPLICATE@AGENTS.E2A.DEV ", " Recipient@Example.COM ", "asked", "unsubscribe", hook)
 	if err != nil || !added {
 		t.Fatalf("first AddAgentSuppression = (%+v, %v, %v), want added", first, added, err)
 	}
@@ -60,6 +60,52 @@ func TestAgentSuppressionDuplicateNormalizesAndCallsHookOnce(t *testing.T) {
 	}
 	if second.Address != first.Address || second.Reason != first.Reason || second.Source != first.Source {
 		t.Errorf("duplicate returned %+v, want original %+v", second, first)
+	}
+}
+
+func TestAgentSuppressionRejectsAgentNotLiveAndOwnedByUser(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	owner, ownedAgent := suppressionUserAndAgent(t, store, "supp-owned")
+	other, otherAgent := suppressionUserAndAgent(t, store, "supp-foreign")
+
+	var hookCalls atomic.Int32
+	hook := func(context.Context, pgx.Tx, identity.AgentSuppression) error {
+		hookCalls.Add(1)
+		return nil
+	}
+	for _, tc := range []struct {
+		name    string
+		userID  string
+		agentID string
+	}{
+		{name: "foreign", userID: owner.ID, agentID: " SUPP-FOREIGN@AGENTS.E2A.DEV "},
+		{name: "nonexistent", userID: owner.ID, agentID: "missing@agents.e2a.dev"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, added, err := store.AddAgentSuppression(ctx, tc.userID, tc.agentID, tc.name+"@example.com", "", "manual", hook)
+			if !errors.Is(err, identity.ErrAgentNotFound) || added {
+				t.Fatalf("AddAgentSuppression = added %v, error %v; want false, ErrAgentNotFound", added, err)
+			}
+		})
+	}
+
+	if err := store.SoftDeleteAgent(ctx, ownedAgent.ID, owner.ID); err != nil {
+		t.Fatalf("SoftDeleteAgent: %v", err)
+	}
+	_, added, err := store.AddAgentSuppression(ctx, owner.ID, ownedAgent.ID, "trashed@example.com", "", "manual", hook)
+	if !errors.Is(err, identity.ErrAgentNotFound) || added {
+		t.Fatalf("AddAgentSuppression(trashed) = added %v, error %v; want false, ErrAgentNotFound", added, err)
+	}
+	if hookCalls.Load() != 0 {
+		t.Fatalf("hook called %d times for rejected agents", hookCalls.Load())
+	}
+
+	// Keep the foreign fixture live so the rejection specifically proves
+	// ownership, rather than merely nonexistence.
+	if got, err := store.GetAgentByID(ctx, otherAgent.ID); err != nil || got.UserID != other.ID {
+		t.Fatalf("foreign fixture is not live: %+v, %v", got, err)
 	}
 }
 
@@ -111,7 +157,7 @@ func TestAgentSuppressionTenantAgentIsolationAndEffectiveDedup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := store.EffectiveSuppressions(ctx, u1.ID, a1.ID, []string{
+	got, err := store.EffectiveSuppressions(ctx, u1.ID, " SUPP-SCOPE-ONE@AGENTS.E2A.DEV ", []string{
 		" SHARED@EXAMPLE.COM ", "account@example.com", "agent-b@example.com", "tenant-two@example.com",
 	})
 	if err != nil {
@@ -127,7 +173,7 @@ func TestAgentSuppressionTenantAgentIsolationAndEffectiveDedup(t *testing.T) {
 		}
 	}
 
-	rows, err := store.ListAgentSuppressions(ctx, u1.ID, a1.ID, 10, identity.AgentSuppression{}.CreatedAt, "")
+	rows, err := store.ListAgentSuppressions(ctx, u1.ID, " SUPP-SCOPE-ONE@AGENTS.E2A.DEV ", 10, identity.AgentSuppression{}.CreatedAt, "")
 	if err != nil || len(rows) != 1 || rows[0].Address != "shared@example.com" {
 		t.Fatalf("scoped ListAgentSuppressions = %+v, %v", rows, err)
 	}
@@ -160,7 +206,7 @@ func TestAgentSuppressionKeysetDeletionAndAgentRecreationPersistence(t *testing.
 		t.Fatalf("pagination repeated/skipped rows: pages=%+v / %+v", page1, page2)
 	}
 
-	removed, err := store.RemoveAgentSuppression(ctx, u.ID, a.ID, " A@EXAMPLE.COM ")
+	removed, err := store.RemoveAgentSuppression(ctx, u.ID, " SUPP-PAGE@AGENTS.E2A.DEV ", " A@EXAMPLE.COM ")
 	if err != nil || !removed {
 		t.Fatalf("RemoveAgentSuppression = %v, %v", removed, err)
 	}
@@ -195,7 +241,7 @@ func TestUnsubscribeTokenHashLookupIdempotenceAndConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- store.PutUnsubscribeToken(ctx, hash, u.ID, a.ID, " Recipient@Example.COM ")
+			errCh <- store.PutUnsubscribeToken(ctx, hash, u.ID, " UNSUBSCRIBE-TOKEN@AGENTS.E2A.DEV ", " Recipient@Example.COM ")
 		}()
 	}
 	wg.Wait()
@@ -221,5 +267,35 @@ func TestUnsubscribeTokenHashLookupIdempotenceAndConcurrency(t *testing.T) {
 	unknown, err := store.ResolveUnsubscribeToken(ctx, bytes.Repeat([]byte{0x6b}, 32))
 	if err != nil || unknown != nil {
 		t.Fatalf("unknown ResolveUnsubscribeToken = %+v, %v; want nil, nil", unknown, err)
+	}
+}
+
+func TestAgentSuppressionFromTokenScopeSurvivesHardDeletedAgent(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	u, a := suppressionUserAndAgent(t, store, "unsubscribe-deleted-agent")
+	hash := bytes.Repeat([]byte{0x7c}, 32)
+	if err := store.PutUnsubscribeToken(ctx, hash, u.ID, " UNSUBSCRIBE-DELETED-AGENT@AGENTS.E2A.DEV ", " Person@Example.COM "); err != nil {
+		t.Fatal(err)
+	}
+	scope, err := store.ResolveUnsubscribeToken(ctx, hash)
+	if err != nil || scope == nil {
+		t.Fatalf("ResolveUnsubscribeToken = %+v, %v", scope, err)
+	}
+	if _, err := store.DeleteAgent(ctx, a.ID, u.ID); err != nil {
+		t.Fatalf("DeleteAgent: %v", err)
+	}
+
+	sp, added, err := store.AddAgentSuppressionFromTokenScope(ctx, *scope, nil)
+	if err != nil || !added {
+		t.Fatalf("AddAgentSuppressionFromTokenScope = %+v, %v, %v; want added", sp, added, err)
+	}
+	if sp.AgentEmail != a.ID || sp.Address != "person@example.com" || sp.Source != "unsubscribe" {
+		t.Fatalf("token-authorized suppression = %+v", sp)
+	}
+	effective, err := store.EffectiveSuppressions(ctx, u.ID, a.ID, []string{"person@example.com"})
+	if err != nil || len(effective) != 1 || effective[0] != "person@example.com" {
+		t.Fatalf("EffectiveSuppressions after deleted-agent token = %v, %v", effective, err)
 	}
 }

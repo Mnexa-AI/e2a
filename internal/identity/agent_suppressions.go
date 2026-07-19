@@ -32,13 +32,40 @@ type UnsubscribeScope struct {
 
 // AddAgentSuppression idempotently adds an agent-scoped recipient block.
 func (s *Store) AddAgentSuppression(ctx context.Context, userID, agentID, address, reason, source string, onAdded AgentSuppressionTxHook) (sp AgentSuppression, added bool, err error) {
+	return s.addAgentSuppression(ctx, userID, agentID, address, reason, source, true, onAdded)
+}
+
+// AddAgentSuppressionFromTokenScope records consent from an already resolved
+// bearer-token scope. Unlike AddAgentSuppression, it intentionally does not
+// require a live agent: a token issued while the agent existed remains valid
+// after hard deletion. Callers must obtain scope from ResolveUnsubscribeToken;
+// source and reason are fixed so this bypass cannot masquerade as a manual row.
+func (s *Store) AddAgentSuppressionFromTokenScope(ctx context.Context, scope UnsubscribeScope, onAdded AgentSuppressionTxHook) (AgentSuppression, bool, error) {
+	return s.addAgentSuppression(ctx, scope.UserID, scope.AgentID, scope.Address, "", "unsubscribe", false, onAdded)
+}
+
+func (s *Store) addAgentSuppression(ctx context.Context, userID, agentID, address, reason, source string, requireLiveOwnership bool, onAdded AgentSuppressionTxHook) (sp AgentSuppression, added bool, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return sp, false, err
 	}
 	defer tx.Rollback(ctx)
 
+	agentID = NormalizeEmail(agentID)
 	address = NormalizeEmail(address)
+	if requireLiveOwnership {
+		var ownsLiveAgent bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM agent_identities
+				 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+			)`, agentID, userID).Scan(&ownsLiveAgent); err != nil {
+			return AgentSuppression{}, false, err
+		}
+		if !ownsLiveAgent {
+			return AgentSuppression{}, false, ErrAgentNotFound
+		}
+	}
 	err = tx.QueryRow(ctx,
 		`INSERT INTO agent_suppressions (id, user_id, agent_id, address, reason, source)
 		 VALUES ($1, $2, $3, $4, $5, $6)
@@ -75,6 +102,7 @@ func (s *Store) AddAgentSuppression(ctx context.Context, userID, agentID, addres
 // ListAgentSuppressions returns one newest-first keyset page for an exact
 // account and agent.
 func (s *Store) ListAgentSuppressions(ctx context.Context, userID, agentID string, limit int, after time.Time, afterAddress string) ([]AgentSuppression, error) {
+	agentID = NormalizeEmail(agentID)
 	if limit <= 0 {
 		limit = 50
 	}
@@ -108,7 +136,7 @@ func (s *Store) ListAgentSuppressions(ctx context.Context, userID, agentID strin
 func (s *Store) RemoveAgentSuppression(ctx context.Context, userID, agentID, address string) (bool, error) {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM agent_suppressions WHERE user_id = $1 AND agent_id = $2 AND address = $3`,
-		userID, agentID, NormalizeEmail(address))
+		userID, NormalizeEmail(agentID), NormalizeEmail(address))
 	if err != nil {
 		return false, err
 	}
@@ -131,7 +159,7 @@ func (s *Store) EffectiveSuppressions(ctx context.Context, userID, agentID strin
 		 UNION
 		 SELECT address FROM agent_suppressions
 		  WHERE user_id = $1 AND agent_id = $3 AND address = ANY($2)`,
-		userID, normalized, agentID)
+		userID, normalized, NormalizeEmail(agentID))
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +181,7 @@ func (s *Store) PutUnsubscribeToken(ctx context.Context, tokenHash []byte, userI
 		`INSERT INTO agent_unsubscribe_tokens (id, user_id, agent_id, address, token_hash)
 		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (token_hash) DO NOTHING`,
-		"aut_"+generateID(), userID, agentID, NormalizeEmail(address), tokenHash)
+		"aut_"+generateID(), userID, NormalizeEmail(agentID), NormalizeEmail(address), tokenHash)
 	return err
 }
 
