@@ -1,11 +1,7 @@
 // Pending queue contract: the page must subscribe to the shared
 // `pendingMessagesKey` SWR cache so a single fetch is shared with
 // the Sidebar badge (usePendingCount). In /v1 the queue is aggregated
-// client-side from GET /v1/agents + per-agent outbound message lists,
-// keeping rows whose `review_status === "pending_review"`. NOTE: on the
-// real wire (MessageSummaryView) the pending state is in `review_status`,
-// and `status` is the (empty) delivery rollup — filtering on `status`
-// would surface nothing.
+// from the account-scoped GET /v1/reviews endpoint.
 
 import {
   render,
@@ -30,7 +26,7 @@ const AGENT_EMAIL = "ag_1@agents.e2a.dev";
 // A ReviewView row from GET /v1/reviews (the account-scoped review queue).
 const SAMPLE_ROW = {
   id: "msg_1",
-  agent: AGENT_EMAIL,
+  agent_email: AGENT_EMAIL,
   direction: "outbound",
   from: AGENT_EMAIL,
   to: ["alice@example.com"],
