@@ -4,7 +4,7 @@ End-to-end demos showing how to wire the e2a MCP surface into popular agent fram
 
 | Framework | Path | LLM | Example |
 | --- | --- | --- | --- |
-| LangChain (LangGraph ReAct) | [langchain/](./langchain/) | Anthropic Claude | `agent.py` |
+| LangChain | [langchain/](./langchain/) | Anthropic Claude | `agent.py` |
 | CrewAI | [crewai/](./crewai/) | Anthropic Claude | `agent.py` |
 | Google ADK | [adk/](./adk/) | Google Gemini | `agent.py` |
 | OpenAI Agents SDK | [openai-agents/](./openai-agents/) | OpenAI GPT | `agent.py` |
