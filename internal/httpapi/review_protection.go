@@ -69,7 +69,8 @@ func protectionFindings(events []identity.ProtectionEvent) []ProtectionFindingVi
 
 // enrichHoldReason adds scan evidence only when the stored primary reason says
 // a scan caused the hold. A secondary scan event must never replace a gate or
-// outbound-send explanation.
+// outbound-send explanation. events follows ListProtectionEventsByMessage's
+// newest-first contract, so the first scan finding is the latest verdict.
 func enrichHoldReason(reason *HoldReasonView, events []identity.ProtectionEvent) *HoldReasonView {
 	if reason == nil || (reason.Code != identity.ReviewReasonInboundScan && reason.Code != identity.ReviewReasonOutboundScan) {
 		return reason

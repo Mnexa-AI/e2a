@@ -112,6 +112,24 @@ func TestEnrichHoldReason_DropsInvalidConfidence(t *testing.T) {
 	}
 }
 
+func TestEnrichHoldReason_UsesNewestScanFinding(t *testing.T) {
+	events := []identity.ProtectionEvent{
+		{
+			Source:     "scan",
+			Categories: json.RawMessage(`[{"name":"newest_category","score":0.8}]`),
+		},
+		{
+			Source:     "scan",
+			Categories: json.RawMessage(`[{"name":"older_category","score":0.99}]`),
+		},
+	}
+
+	reason := enrichHoldReason(baseHoldReason(identity.ReviewReasonInboundScan), events)
+	if reason.Category != "newest_category" || reason.Confidence == nil || *reason.Confidence != 0.8 {
+		t.Fatalf("enrichment did not use newest scan finding: %#v", reason)
+	}
+}
+
 // Malformed categories JSON must not panic or error — it yields no categories.
 func TestProtectionFindings_MalformedCategoriesIsSafe(t *testing.T) {
 	got := protectionFindings([]identity.ProtectionEvent{{
