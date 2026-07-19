@@ -50,3 +50,55 @@ func TestTruncateAll_CleansInboundIntakeWithoutExclusiveTableLock(t *testing.T) 
 		t.Fatalf("inbound_intake rows after cleanup = %d, want 0", after)
 	}
 }
+
+func TestRunMigrations_RepeatedPreparationUsesTrackerWithoutConsumingAttributeSlots(t *testing.T) {
+	pool := TestDB(t)
+	ctx := context.Background()
+
+	var before int
+	if err := pool.QueryRow(ctx, `
+		SELECT max(attnum)
+		FROM pg_attribute
+		WHERE attrelid = 'public.agent_identities'::regclass
+		  AND attnum > 0
+	`).Scan(&before); err != nil {
+		t.Fatalf("read agent_identities max attnum before replay: %v", err)
+	}
+
+	if err := runMigrations(ctx, pool); err != nil {
+		t.Fatalf("repeat migrations: %v", err)
+	}
+
+	var after int
+	if err := pool.QueryRow(ctx, `
+		SELECT max(attnum)
+		FROM pg_attribute
+		WHERE attrelid = 'public.agent_identities'::regclass
+		  AND attnum > 0
+	`).Scan(&after); err != nil {
+		t.Fatalf("read agent_identities max attnum after replay: %v", err)
+	}
+
+	var hasTracker bool
+	if err := pool.QueryRow(ctx,
+		`SELECT to_regclass('public.schema_migrations') IS NOT NULL`,
+	).Scan(&hasTracker); err != nil {
+		t.Fatalf("check schema_migrations tracker: %v", err)
+	}
+
+	if after != before || !hasTracker {
+		t.Fatalf("repeated migration preparation: max attnum %d -> %d, schema_migrations exists=%v; want unchanged attnum and tracker", before, after, hasTracker)
+	}
+
+	var tracked int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM schema_migrations
+		WHERE filename IN ('003_hitl.sql', '036_hitl_mode.sql', '043_drop_hitl_columns.sql')
+	`).Scan(&tracked); err != nil {
+		t.Fatalf("count tracked HITL migrations: %v", err)
+	}
+	if tracked != 3 {
+		t.Fatalf("tracked HITL migrations = %d, want 3", tracked)
+	}
+}
