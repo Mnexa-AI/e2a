@@ -25,6 +25,7 @@ from e2a.v1.errors import (
 from e2a.v1.webhook_signature import WebhookEvent
 from e2a.v1.generated.models import (
     AgentView,
+    AgentSuppressionView,
     APIKeyView,
     AttachmentView,
     ConversationSummaryView,
@@ -43,6 +44,8 @@ from e2a.v1.generated.models import (
     TemplateView,
     WebhookDeliveryView,
     WebhookView,
+    SendEmailRequest,
+    UnsubscribeOptions,
 )
 
 BASE = "http://test.local"
@@ -54,6 +57,16 @@ def test_validation_field_location_is_required():
 
     field = FieldError(location="", message="invalid")
     assert field.location == ""
+
+
+def test_managed_unsubscribe_model_construction():
+    request = SendEmailRequest(
+        to=["recipient@example.net"],
+        subject="Update",
+        text="Hello",
+        unsubscribe=UnsubscribeOptions(mode="managed"),
+    )
+    assert request.to_dict()["unsubscribe"] == {"mode": "managed"}
 
 
 def test_error_body_requires_request_id_and_accepts_future_details():
@@ -357,6 +370,37 @@ async def test_create_agent_posts_body(httpx_mock):
     req = httpx_mock.get_requests()[-1]
     assert req.method == "POST"
     assert str(req.url).endswith("/v1/agents")
+
+
+@pytest.mark.anyio
+async def test_agent_suppression_management_methods(httpx_mock):
+    row = _valid(
+        AgentSuppressionView,
+        agent_email="sender@example.com",
+        address="recipient@example.net",
+        source="manual",
+    )
+    httpx_mock.add_response(json={"items": [row], "next_cursor": None})
+    httpx_mock.add_response(json=row)
+    httpx_mock.add_response(json={"deleted": True, "address": "recipient@example.net"})
+
+    async with _client() as c:
+        listed = await c.agents.list_suppressions("sender@example.com").to_list(limit=10)
+        created = await c.agents.create_suppression(
+            "sender@example.com", {"address": "recipient@example.net"}
+        )
+        deleted = await c.agents.delete_suppression(
+            "sender@example.com", "recipient@example.net"
+        )
+
+    assert listed[0].address == "recipient@example.net"
+    assert created.agent_email == "sender@example.com"
+    assert deleted.deleted is True
+    requests = httpx_mock.get_requests()
+    assert requests[0].method == "GET"
+    assert requests[1].method == "POST"
+    assert requests[2].method == "DELETE"
+    assert "confirm=DELETE" in str(requests[2].url)
 
 
 @pytest.mark.anyio

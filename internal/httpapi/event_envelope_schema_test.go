@@ -83,6 +83,44 @@ func TestEventEnvelopeIsOpenAndMapped(t *testing.T) {
 	}
 }
 
+func TestEventEnvelopePublishesBetaAgentSuppressionPayload(t *testing.T) {
+	raw, err := json.Marshal(New(Deps{}).API.OpenAPI())
+	if err != nil {
+		t.Fatalf("render OpenAPI: %v", err)
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse OpenAPI: %v", err)
+	}
+	schema, ok := doc.Components.Schemas["AgentSuppressionAddedData"]
+	if !ok {
+		t.Fatal("AgentSuppressionAddedData component is missing")
+	}
+	if got := schema["x-stability-level"]; got != "beta" {
+		t.Fatalf("AgentSuppressionAddedData stability = %v, want beta", got)
+	}
+	props := schema["properties"].(map[string]any)
+	for _, name := range []string{"agent_email", "address", "source"} {
+		if _, ok := props[name]; !ok {
+			t.Errorf("AgentSuppressionAddedData.%s is missing", name)
+		}
+	}
+
+	envelope := doc.Components.Schemas["EventEnvelope"]
+	data := envelope["properties"].(map[string]any)["data"].(map[string]any)
+	mapping, ok := data["x-e2a-beta-event-data-schemas"].(map[string]any)
+	if !ok {
+		t.Fatalf("beta event mapping = %#v", data["x-e2a-beta-event-data-schemas"])
+	}
+	if got := mapping["agent.suppression_added"]; got != "#/components/schemas/AgentSuppressionAddedData" {
+		t.Errorf("agent.suppression_added mapping = %v", got)
+	}
+}
+
 func TestStandaloneSchemaRefsResolveInRenderedDocument(t *testing.T) {
 	raw, err := json.Marshal(New(Deps{}).API.OpenAPI())
 	if err != nil {
@@ -111,6 +149,7 @@ func TestStandaloneSchemaRefsResolveInRenderedDocument(t *testing.T) {
 	for _, event := range eventpayload.StableEvents {
 		want[event.SchemaName] = "#/components/schemas/" + event.SchemaName
 	}
+	want["AgentSuppressionAddedData"] = "#/components/schemas/AgentSuppressionAddedData"
 	for _, entry := range errorCodeCatalog {
 		if entry.DetailsSchema != "" {
 			want[entry.DetailsSchema] = "#/components/schemas/" + entry.DetailsSchema

@@ -11,6 +11,7 @@
  */
 
 import { Attachment } from '../models/Attachment.js';
+import { UnsubscribeOptions } from '../models/UnsubscribeOptions.js';
 import { HttpFile } from '../http/http.js';
 
 export class ReplyRequest {
@@ -37,6 +38,7 @@ export class ReplyRequest {
     */
     'replyTo'?: string;
     'text': string;
+    'unsubscribe'?: UnsubscribeOptions;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -89,6 +91,12 @@ export class ReplyRequest {
             "name": "text",
             "baseName": "text",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "unsubscribe",
+            "baseName": "unsubscribe",
+            "type": "UnsubscribeOptions",
             "format": ""
         }    ];
 

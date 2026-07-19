@@ -37,9 +37,9 @@ type EventEnvelope struct {
 // docs/events.md) references the schemas DESCRIPTIVELY — there is
 // intentionally no oneOf/discriminator on the envelope.
 //
-// Beta events (email.flagged, email.blocked, email.review_requested,
-// email.review_approved, email.review_rejected) have no schema here — their
-// payloads are explicitly open/unstable.
+// Beta events are generally open/unstable. AgentSuppressionAddedData is the
+// one documented beta payload: publishing its current shape improves generated
+// SDK discoverability while x-stability-level keeps it outside the GA freeze.
 func (s *Server) registerEventPayloadSchemas() {
 	registry := s.API.OpenAPI().Components.Schemas
 	names := make([]string, 0, len(eventpayload.StableEvents))
@@ -70,6 +70,17 @@ func (s *Server) registerEventPayloadSchemas() {
 		openResponseComponent(registry, name, seen)
 	}
 
+	betaSchema := registry.Schema(reflect.TypeOf(eventpayload.AgentSuppressionAddedData{}), true, "AgentSuppressionAddedData")
+	if betaSchema == nil || betaSchema.Ref != "#/components/schemas/AgentSuppressionAddedData" {
+		panic(fmt.Sprintf("event payload schema AgentSuppressionAddedData registered under an unexpected ref: %+v", betaSchema))
+	}
+	openResponseComponent(registry, "AgentSuppressionAddedData", seen)
+	betaComponent := registry.Map()["AgentSuppressionAddedData"]
+	if betaComponent.Extensions == nil {
+		betaComponent.Extensions = map[string]any{}
+	}
+	betaComponent.Extensions["x-stability-level"] = "beta"
+
 	envelope := registry.Schema(reflect.TypeOf(EventEnvelope{}), true, "EventEnvelope")
 	if envelope == nil || envelope.Ref != "#/components/schemas/EventEnvelope" {
 		panic(fmt.Sprintf("event envelope registered under an unexpected ref: %+v", envelope))
@@ -92,6 +103,9 @@ func (s *Server) registerEventPayloadSchemas() {
 		mapping[event.Type] = "#/components/schemas/" + event.SchemaName
 	}
 	data.Extensions["x-e2a-event-data-schemas"] = mapping
+	data.Extensions["x-e2a-beta-event-data-schemas"] = map[string]any{
+		"agent.suppression_added": "#/components/schemas/AgentSuppressionAddedData",
+	}
 }
 
 // registerStandaloneSchemaExports anchors public component schemas that are
@@ -115,6 +129,9 @@ func (s *Server) registerStandaloneSchemaExports() {
 		exported[event.SchemaName] = map[string]any{
 			"$ref": "#/components/schemas/" + event.SchemaName,
 		}
+	}
+	exported["AgentSuppressionAddedData"] = map[string]any{
+		"$ref": "#/components/schemas/AgentSuppressionAddedData",
 	}
 	for _, entry := range errorCodeCatalog {
 		if entry.DetailsSchema != "" {

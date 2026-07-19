@@ -21,6 +21,8 @@ models/APIKeyView.ts
 models/AccountUserView.ts
 models/AccountView.ts
 models/AgentIdentity.ts
+models/AgentSuppressionAddedData.ts
+models/AgentSuppressionView.ts
 models/AgentView.ts
 models/ApproveRequest.ts
 models/Attachment.ts
@@ -33,6 +35,7 @@ models/ConversationSummaryView.ts
 models/CreateAPIKeyRequest.ts
 models/CreateAPIKeyResponse.ts
 models/CreateAgentRequest.ts
+models/CreateAgentSuppressionRequest.ts
 models/CreateTemplateRequest.ts
 models/CreateWebhookRequest.ts
 models/CreateWebhookResponse.ts
@@ -78,6 +81,7 @@ models/MessageView.ts
 models/OAuthConnectionEntry.ts
 models/ObjectSerializer.ts
 models/PageAPIKeyView.ts
+models/PageAgentSuppressionView.ts
 models/PageAgentView.ts
 models/PageConversationSummaryView.ts
 models/PageDomainView.ts
@@ -131,6 +135,7 @@ models/TestWebhookRequest.ts
 models/TestWebhookResponse.ts
 models/ThreatCategoryView.ts
 models/TooManyRecipientsDetails.ts
+models/UnsubscribeOptions.ts
 models/UpdateAgentRequest.ts
 models/UpdateMessageRequest.ts
 models/UpdateMessageResultView.ts

@@ -28,11 +28,12 @@ class SuppressionExportEntry(BaseModel):
     SuppressionExportEntry
     """ # noqa: E501
     address: StrictStr
+    agent_email: Optional[StrictStr] = None
     created_at: datetime
     reason: Optional[StrictStr] = None
     source: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["address", "created_at", "reason", "source"]
+    __properties: ClassVar[List[str]] = ["address", "agent_email", "created_at", "reason", "source"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -93,6 +94,7 @@ class SuppressionExportEntry(BaseModel):
 
         _obj = cls.model_validate({
             "address": obj.get("address"),
+            "agent_email": obj.get("agent_email"),
             "created_at": obj.get("created_at"),
             "reason": obj.get("reason"),
             "source": obj.get("source")

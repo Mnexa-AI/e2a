@@ -11,6 +11,7 @@
  */
 
 import { Attachment } from '../models/Attachment.js';
+import { UnsubscribeOptions } from '../models/UnsubscribeOptions.js';
 import { HttpFile } from '../http/http.js';
 
 export class SendEmailRequest {
@@ -62,6 +63,7 @@ export class SendEmailRequest {
     * Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.
     */
     'to': Array<string>;
+    'unsubscribe'?: UnsubscribeOptions;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -138,6 +140,12 @@ export class SendEmailRequest {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "unsubscribe",
+            "baseName": "unsubscribe",
+            "type": "UnsubscribeOptions",
             "format": ""
         }    ];
 

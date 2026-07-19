@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from e2a.v1.generated.models.attachment import Attachment
+from e2a.v1.generated.models.unsubscribe_options import UnsubscribeOptions
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -40,8 +41,9 @@ class SendEmailRequest(BaseModel):
     template_id: Optional[StrictStr] = Field(default=None, description="Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.")
     text: Optional[Annotated[str, Field(strict=True, max_length=1048576)]] = Field(default=None, description="Literal plain-text body. Required unless a template reference is used (mutually exclusive with template_id/template_alias).")
     to: List[Annotated[str, Field(strict=True, max_length=320)]] = Field(description="Primary recipients. The message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.")
+    unsubscribe: Optional[UnsubscribeOptions] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_to", "subject", "template_alias", "template_data", "template_id", "text", "to"]
+    __properties: ClassVar[List[str]] = ["attachments", "bcc", "cc", "conversation_id", "html", "reply_to", "subject", "template_alias", "template_data", "template_id", "text", "to", "unsubscribe"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -91,6 +93,9 @@ class SendEmailRequest(BaseModel):
                 if _item_attachments:
                     _items.append(_item_attachments.to_dict())
             _dict['attachments'] = _items
+        # override the default output from pydantic by calling `to_dict()` of unsubscribe
+        if self.unsubscribe:
+            _dict['unsubscribe'] = self.unsubscribe.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -119,7 +124,8 @@ class SendEmailRequest(BaseModel):
             "template_data": obj.get("template_data"),
             "template_id": obj.get("template_id"),
             "text": obj.get("text"),
-            "to": obj.get("to")
+            "to": obj.get("to"),
+            "unsubscribe": UnsubscribeOptions.from_dict(obj["unsubscribe"]) if obj.get("unsubscribe") is not None else None
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

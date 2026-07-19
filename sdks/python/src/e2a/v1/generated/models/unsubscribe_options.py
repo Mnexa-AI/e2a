@@ -17,29 +17,18 @@ import pprint
 import re  # noqa: F401
 import json
 
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.webhook_filters_view import WebhookFiltersView
+from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
-class CreateWebhookResponse(BaseModel):
+class UnsubscribeOptions(BaseModel):
     """
-    CreateWebhookResponse
+    UnsubscribeOptions
     """ # noqa: E501
-    auto_disabled_at: Optional[datetime] = None
-    created_at: datetime
-    description: StrictStr
-    enabled: StrictBool
-    events: List[StrictStr] = Field(description="The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added, agent.suppression_added. Beta: the screening, review-hold, and agent.suppression_added events are unstable — their payload may change before they are declared stable.")
-    filters: WebhookFiltersView
-    id: StrictStr
-    last_delivered_at: Optional[datetime] = None
-    signing_secret: StrictStr
-    url: StrictStr
+    mode: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["auto_disabled_at", "created_at", "description", "enabled", "events", "filters", "id", "last_delivered_at", "signing_secret", "url"]
+    __properties: ClassVar[List[str]] = ["mode"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -59,7 +48,7 @@ class CreateWebhookResponse(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of CreateWebhookResponse from a JSON string"""
+        """Create an instance of UnsubscribeOptions from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,9 +71,6 @@ class CreateWebhookResponse(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of filters
-        if self.filters:
-            _dict['filters'] = self.filters.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -94,7 +80,7 @@ class CreateWebhookResponse(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of CreateWebhookResponse from a dict"""
+        """Create an instance of UnsubscribeOptions from a dict"""
         if obj is None:
             return None
 
@@ -102,16 +88,7 @@ class CreateWebhookResponse(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "auto_disabled_at": obj.get("auto_disabled_at"),
-            "created_at": obj.get("created_at"),
-            "description": obj.get("description"),
-            "enabled": obj.get("enabled"),
-            "events": obj.get("events"),
-            "filters": WebhookFiltersView.from_dict(obj["filters"]) if obj.get("filters") is not None else None,
-            "id": obj.get("id"),
-            "last_delivered_at": obj.get("last_delivered_at"),
-            "signing_secret": obj.get("signing_secret"),
-            "url": obj.get("url")
+            "mode": obj.get("mode")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():
@@ -119,5 +96,3 @@ class CreateWebhookResponse(BaseModel):
                 _obj.additional_properties[_key] = obj.get(_key)
 
         return _obj
-
-

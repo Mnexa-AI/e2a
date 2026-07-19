@@ -221,6 +221,36 @@ describe("E2AClient", () => {
     expect(restored.email).toBe("bot@test.dev");
   });
 
+  it("agents exposes exact-agent suppression list/create/delete", async () => {
+    const row = {
+      agent_email: "sender@example.com",
+      address: "recipient@example.net",
+      source: "manual",
+      created_at: "2026-07-18T00:00:00Z",
+    };
+    globalThis.fetch = mockFetch(200, { items: [row], next_cursor: null });
+    const listed = await client.agents
+      .listSuppressions("sender@example.com")
+      .toArray({ limit: 10 });
+    expect(listed[0].address).toBe("recipient@example.net");
+
+    globalThis.fetch = mockFetch(200, row);
+    const created = await client.agents.createSuppression("sender@example.com", {
+      address: "recipient@example.net",
+    });
+    expect(lastCall().init.method).toBe("POST");
+    expect(created.agentEmail).toBe("sender@example.com");
+
+    globalThis.fetch = mockFetch(200, { deleted: true, address: "recipient@example.net" });
+    const deleted = await client.agents.deleteSuppression(
+      "sender@example.com",
+      "recipient@example.net",
+    );
+    expect(lastCall().init.method).toBe("DELETE");
+    expect(lastCall().url).toContain("confirm=DELETE");
+    expect(deleted.deleted).toBe(true);
+  });
+
   // ── Messages: idempotency + pagination ──────────────────────────
 
   it("messages.send mints an Idempotency-Key for the POST", async () => {
@@ -230,6 +260,17 @@ describe("E2AClient", () => {
     expect(init.method).toBe("POST");
     expect(url).toContain("/v1/agents/bot%40test.dev/messages");
     expect(headers["Idempotency-Key"]).toBeTruthy();
+  });
+
+  it("messages.send serializes the managed unsubscribe literal", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_managed", status: "sent" });
+    await client.messages.send("sender@example.com", {
+      to: ["recipient@example.net"],
+      subject: "Update",
+      text: "Hello",
+      unsubscribe: { mode: "managed" },
+    });
+    expect(JSON.parse(lastCall().init.body as string).unsubscribe).toEqual({ mode: "managed" });
   });
 
   it("messages.send uses a caller-supplied idempotency key", async () => {

@@ -31,11 +31,13 @@ from .generated.api_client import ApiClient
 from .generated.configuration import Configuration
 from .generated.models import (
     AgentView,
+    AgentSuppressionView,
     APIKeyView,
     ApproveRequest,
     ConversationDetailView,
     ConversationSummaryView,
     CreateAgentRequest,
+    CreateAgentSuppressionRequest,
     CreateAPIKeyRequest,
     CreateAPIKeyResponse,
     CreateWebhookRequest,
@@ -382,6 +384,37 @@ class AgentsResource:
 
     async def test(self, email: str) -> SendResultView:
         return await self._c._write_unsafe(lambda h: self._api.test_agent(email, _headers=h))
+
+    def list_suppressions(
+        self, email: str, *, limit: Optional[int] = None
+    ) -> AutoPager[AgentSuppressionView]:
+        """List recipient blocks scoped to this exact sending agent."""
+        async def fetch(cursor: Optional[str]) -> Page:
+            resp = await self._c._read(
+                lambda h: self._api.list_agent_suppressions(
+                    email, cursor=cursor, limit=limit, _headers=h
+                )
+            )
+            return _page(resp.items, resp.next_cursor)
+
+        return AutoPager(fetch)
+
+    async def create_suppression(self, email: str, body: Body) -> AgentSuppressionView:
+        """Idempotently add a manual recipient block for this exact agent."""
+        req = _coerce(CreateAgentSuppressionRequest, body)
+        return await self._c._write_idempotent(
+            lambda h: self._api.create_agent_suppression(email, req, _headers=h)
+        )
+
+    async def delete_suppression(
+        self, email: str, address: str
+    ) -> DeleteSuppressionResult:
+        """Remove only this exact agent-recipient block."""
+        return await self._c._write_idempotent(
+            lambda h: self._api.delete_agent_suppression(
+                email, address, confirm="DELETE", _headers=h
+            )
+        )
 
 
 class MessagesResource:
