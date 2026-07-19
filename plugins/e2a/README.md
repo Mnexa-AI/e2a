@@ -52,6 +52,7 @@ plugins/e2a/
 ├── .cursor-plugin/plugin.json   # Cursor manifest
 ├── .mcp.json                    # the hosted MCP server (single source of truth)
 ├── assets/icon.svg
+├── docs/                        # canonical agent docs mirrored at e2a.dev/*.md
 ├── skills/e2a/SKILL.md          # the "operate-well" skill (surfaces as /e2a)
 ├── skills/agentify/SKILL.md     # deploy the autonomous-repo feedback loop (/agentify)
 ├── skills/tether/SKILL.md       # email handoff for long-running sessions (/tether)
@@ -86,6 +87,13 @@ validates every manifest parses, that the version is identical across all
 Claude/Codex/Cursor manifests, that marketplace `source` paths resolve, and that
 each `SKILL.md` satisfies Claude Code's frontmatter constraints. A change that
 wouldn't load fails CI.
+
+Agent-facing Markdown is authored in `docs/`. Run
+`node ../../scripts/sync-agent-docs.mjs` from this directory (or
+`node scripts/sync-agent-docs.mjs` from the repository root) to refresh its
+committed `web/public/` mirrors. The repository-integrity CI job runs the same
+script with `--check` and fails if a hosted mirror drifts from its canonical
+source.
 
 When bumping the plugin version, update `.claude-plugin/plugin.json` (the source
 of truth) **and** the other manifests + marketplace metadata to match — the
