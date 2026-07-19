@@ -46,6 +46,8 @@ import (
 // for provider fan-in while still bounding anonymous token lookup work.
 const unsubscribeRequestsPerMinute = 600
 
+var feedbackEmailTimeout = 10 * time.Second
+
 // writeJSON encodes payload as the response body. Logs encoding errors
 // rather than swallowing them — an Encode failure usually means the
 // client closed the connection mid-response or the payload contains a
@@ -1565,7 +1567,8 @@ func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	// Channel 1: GitHub issue. Credential resolution (GitHub App preferred,
 	// PAT fallback) lives in feedback_github.go.
 	issueURL := ""
-	ghClient, ghErr := feedbackGitHubClient(r.Context())
+	ghCtx, cancelGitHub := context.WithTimeout(r.Context(), feedbackGitHubTimeout)
+	ghClient, ghErr := feedbackGitHubClient(ghCtx)
 	switch {
 	case ghErr != nil:
 		attempted++
@@ -1580,7 +1583,7 @@ func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		if len(parts) != 2 {
 			log.Printf("feedback: invalid GITHUB_FEEDBACK_REPO: %s", ghRepo)
 		} else {
-			issue, _, err := ghClient.Issues.Create(r.Context(), parts[0], parts[1], &github.IssueRequest{
+			issue, _, err := ghClient.Issues.Create(ghCtx, parts[0], parts[1], &github.IssueRequest{
 				Title:  github.Ptr(title),
 				Body:   github.Ptr(body),
 				Labels: &[]string{label},
@@ -1593,6 +1596,7 @@ func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	cancelGitHub()
 
 	// Channel 2: notification email via the platform relay (hitlnotify-style
 	// compose + direct submit; the durable outbound pipeline requires an agent
@@ -1613,7 +1617,10 @@ func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 				ghNote = "GitHub issue: creation FAILED (see server logs)"
 			}
 		}
-		if err := a.sendFeedbackEmail(title, req.Category, req.Message, req.Email, ghNote, notifyTo, notifyCC); err != nil {
+		emailCtx, cancelEmail := context.WithTimeout(r.Context(), feedbackEmailTimeout)
+		err := a.sendFeedbackEmail(emailCtx, title, req.Category, req.Message, req.Email, ghNote, notifyTo, notifyCC)
+		cancelEmail()
+		if err != nil {
 			log.Printf("feedback: notify email failed: %v", err)
 		} else {
 			delivered++
@@ -1641,7 +1648,7 @@ func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 // Reply-To carries the submitter's address when given, so replying to the
 // notification reaches them directly; compose-layer header sanitization
 // neutralizes any CR/LF in that user-controlled value.
-func (a *API) sendFeedbackEmail(title, category, message, submitterEmail, ghNote string, to, cc []string) error {
+func (a *API) sendFeedbackEmail(ctx context.Context, title, category, message, submitterEmail, ghNote string, to, cc []string) error {
 	if a.smtpRelay == nil || !a.smtpRelay.Configured() || a.fromDomain == "" {
 		return fmt.Errorf("outbound SMTP relay not configured")
 	}
@@ -1670,7 +1677,7 @@ func (a *API) sendFeedbackEmail(title, category, message, submitterEmail, ghNote
 
 	// Send (not SendOnce) — no job queue owns retries for this path, so the
 	// relay's own transient-4xx backoff is the only retry envelope.
-	if _, err := a.smtpRelay.Send(from, rcpts, raw); err != nil {
+	if _, err := a.smtpRelay.SendWithContext(ctx, from, rcpts, raw); err != nil {
 		return fmt.Errorf("smtp send: %w", err)
 	}
 	return nil

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -19,9 +20,12 @@ import (
 	"github.com/google/go-github/v72/github"
 )
 
-// githubAPIBaseURL is the GitHub REST root used for the App installation-token
-// exchange. A var (not const) so tests can point it at an httptest server.
-var githubAPIBaseURL = "https://api.github.com"
+// These are vars so tests can point the client at an httptest server and use a
+// short deadline without slowing the package suite.
+var (
+	githubAPIBaseURL      = "https://api.github.com"
+	feedbackGitHubTimeout = 10 * time.Second
+)
 
 // feedbackGitHubClient resolves the GitHub credential for the feedback →
 // issue channel, in precedence order:
@@ -46,16 +50,26 @@ func feedbackGitHubClient(ctx context.Context) (*github.Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("github app auth: %w", err)
 		}
-		return github.NewClient(nil).WithAuthToken(tok), nil
+		return newFeedbackGitHubClient(tok)
 	}
 	if appID != "" || instID != "" || privKey != "" {
 		log.Printf("feedback: GITHUB_FEEDBACK_APP_* partially set (need APP_ID, APP_INSTALLATION_ID, APP_PRIVATE_KEY) — falling back to GITHUB_FEEDBACK_TOKEN")
 	}
 
 	if pat := os.Getenv("GITHUB_FEEDBACK_TOKEN"); pat != "" {
-		return github.NewClient(nil).WithAuthToken(pat), nil
+		return newFeedbackGitHubClient(pat)
 	}
 	return nil, nil
+}
+
+func newFeedbackGitHubClient(token string) (*github.Client, error) {
+	client := github.NewClient(&http.Client{Timeout: feedbackGitHubTimeout})
+	baseURL, err := url.Parse(strings.TrimRight(githubAPIBaseURL, "/") + "/")
+	if err != nil {
+		return nil, fmt.Errorf("github api base url: %w", err)
+	}
+	client.BaseURL = baseURL
+	return client.WithAuthToken(token), nil
 }
 
 // exchangeInstallationToken signs a short-lived RS256 app JWT and exchanges it
@@ -92,7 +106,7 @@ func exchangeInstallationToken(ctx context.Context, appID, installationID, privK
 	req.Header.Set("Authorization", "Bearer "+appJWT)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: feedbackGitHubTimeout}).Do(req)
 	if err != nil {
 		return "", fmt.Errorf("token exchange: %w", err)
 	}
