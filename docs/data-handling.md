@@ -16,7 +16,7 @@ For vulnerability reporting and the security model, see [SECURITY.md](../SECURIT
 | Agent-scoped recipient suppressions | Postgres `agent_suppressions` | Until the account is deleted. They intentionally survive agent trash, permanent deletion, and recreation so recipient consent remains effective for the same sending address. |
 | Managed-unsubscribe capability mappings (agent + recipient addresses and token hash; never the bearer token) | Postgres `agent_unsubscribe_tokens` | Until the account is deleted. Links in previously delivered mail remain valid, including after an agent is deleted. |
 | API keys | Postgres `api_keys`, **hash only** (hex-encoded SHA-256 of the plaintext) | Until revoked or the user is deleted; plaintext exists only in the create response and is never persisted |
-| OAuth sessions | Postgres `user_sessions` | 30 days; cleanup worker removes expired rows hourly |
+| OAuth sessions | Postgres `user_sessions` | 7 days; cleanup worker removes expired rows hourly |
 | Usage events / summaries (only when `E2A_USAGE_TRACKING=true`) | Postgres `usage_events`, `usage_summaries` | Indefinite by default — operator can purge or override |
 | Per-webhook signing secret (`whsec_…`) | Postgres, **plaintext** | Until the webhook is deleted. Returned once at creation; rotate via `POST /v1/webhooks/{id}/rotate-secret` (the previous secret stays valid for a 24h grace window). |
 | Deployment-wide HMAC signing secret (operator key) | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment. The **sole** signer for the relay's `X-E2A-Auth-*` headers and HITL approval / magic-link tokens. SDKs verify inbound deliveries with `E2A_WEBHOOK_SECRET` (the per-webhook `whsec_`), not this. |
