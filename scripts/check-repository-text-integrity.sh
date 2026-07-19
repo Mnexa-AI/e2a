@@ -18,4 +18,6 @@ node -e '
   }
 ' package-lock.json web/package-lock.json
 
+node scripts/sync-agent-docs.mjs --check
+
 echo "repository text integrity checks passed"
