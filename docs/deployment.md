@@ -33,6 +33,13 @@ Copy `config.example.yaml` to `config.yaml` and fill in values, or set the envir
 
 `env: production` in [config.example.yaml](../config.example.yaml) enforces TLS for SMTP and HTTPS for webhook URLs. Leave it as `development` for local work.
 
+Non-secret request-rate tuning lives in `config.yaml`. The
+`rate_limits.poll_per_minute` setting controls the per-user budget shared by
+authenticated message, conversation, and webhook reads across all agent
+clients and dashboard sessions for that account. It defaults to 240 requests
+per minute and, like the other in-memory rate limits, applies independently to
+each server process.
+
 ### Shared-domain setup
 
 If you set `E2A_SHARED_DOMAIN` (or `shared_domain` in `config.yaml`) so users can register agents with just a slug — `alice@agents.yourcompany.com` — there are two parts to it: DNS you set up once, and a database row the server takes care of for you.

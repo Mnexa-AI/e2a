@@ -23,6 +23,17 @@ func New(window time.Duration, max int) *Limiter {
 	return l
 }
 
+// SetMax updates the request budget without replacing the limiter, preserving
+// its cleanup goroutine and any existing per-key window state.
+func (l *Limiter) SetMax(max int) {
+	if max <= 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.max = max
+}
+
 // Allow returns true if the key has not exceeded the rate limit.
 // If allowed, the attempt is recorded.
 func (l *Limiter) Allow(key string) bool {

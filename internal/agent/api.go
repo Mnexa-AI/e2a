@@ -521,10 +521,10 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		publicURL:    publicURL,
 		// Default the API/issuer URL to the web URL; SetAPIURL overrides it
 		// for split web/API-host deployments.
-		apiURL:           publicURL,
-		production:       production,
-		sendLimit:        ratelimit.New(1*time.Minute, 60),                           // 60 sends per agent per minute
-		regLimit:         ratelimit.New(1*time.Hour, 200),                            // 200 registrations per IP per hour
+		apiURL:     publicURL,
+		production: production,
+		sendLimit:  ratelimit.New(1*time.Minute, 60), // 60 sends per agent per minute
+		regLimit:   ratelimit.New(1*time.Hour, 200),  // 200 registrations per IP per hour
 		// The poll bucket is keyed per USER and shared by every reader the
 		// account runs — each agent's polling loop plus the dashboard, whose
 		// thread view fetches message bodies individually. 60/min starved
@@ -538,15 +538,14 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 	}
 }
 
-// SetPollRateLimit replaces the per-user poll limiter with a fresh bucket of
-// perMinute requests per minute (config: rate_limits.poll_per_minute). Values
-// <= 0 are ignored and keep the built-in default. Call during startup wiring,
-// before the API serves traffic — the limiter swap is not synchronized.
+// SetPollRateLimit sets the per-user poll budget to perMinute requests per
+// minute (config: rate_limits.poll_per_minute). Values <= 0 are ignored and
+// keep the built-in default.
 func (a *API) SetPollRateLimit(perMinute int) {
 	if perMinute <= 0 {
 		return
 	}
-	a.pollLimit = ratelimit.New(1*time.Minute, perMinute)
+	a.pollLimit.SetMax(perMinute)
 }
 
 // buildAgentScreenEngine constructs the piguard screening engine for outbound agent

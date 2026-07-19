@@ -24,6 +24,17 @@ func TestAllow(t *testing.T) {
 	}
 }
 
+func TestSetMaxIgnoresNonPositiveValues(t *testing.T) {
+	l := New(time.Minute, 3)
+
+	l.SetMax(0)
+
+	ok, _, limit, _, _ := l.AllowSnapshot("key")
+	if !ok || limit != 3 {
+		t.Fatalf("snapshot after SetMax(0) = ok=%v limit=%d, want ok=true limit=3", ok, limit)
+	}
+}
+
 func TestWindowExpiry(t *testing.T) {
 	l := New(50*time.Millisecond, 2)
 
