@@ -140,3 +140,45 @@ jobs:
             images+="${tag}@${DIGEST} "
           done
           cosign sign --yes ${images}
+
+  # Every v* tag must surface as a *published* GitHub Release. Downstream
+  # automation keys off the Release object, not the git tag: the hosted-ops
+  # release poller discovers new versions via `gh release list`, and
+  # publish-cli.yml triggers on `release: published`. v1.0.9, v1.0.10, and
+  # v1.0.10-hotfix.1 existed only as bare tags, so neither ever fired.
+  # Runs after the image builds so a Release never advertises a version
+  # whose images aren't pullable yet. Idempotent: an already-published
+  # Release is left untouched; a hand-created draft is published in place.
+  #
+  # KNOWN LIMIT: a Release created with the workflow's GITHUB_TOKEN does
+  # NOT fire other workflows' `release: published` triggers (GitHub's
+  # recursion guard) — so this closes the poller gap (`gh release list`
+  # sees the Release regardless of author) but publish-cli.yml still won't
+  # auto-fire off it; run it via workflow_dispatch, or publish the release
+  # by hand as before. No regression: a bare tag fired nothing either.
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ensure a published release exists for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' > is_draft.txt 2>/dev/null; then
+            if [ "$(cat is_draft.txt)" = "true" ]; then
+              echo "Draft release exists for $TAG — publishing it."
+              gh release edit "$TAG" --draft=false
+            else
+              echo "Release $TAG already published — nothing to do."
+            fi
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          fi
