@@ -42,7 +42,7 @@
     "react-dom": "^19.0.0",
     "storybook": "^10.5.0",
     "tsup": "^8.3.5",
-    "typescript": "^5.7.2",
+    "typescript": "^7.0.2",
     "vite": "^8.1.4"
   }
 }

@@ -52,7 +52,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/ws": "^8.18.1",
-    "typescript": "^7.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "yaml": "^2.9.0"
   }
