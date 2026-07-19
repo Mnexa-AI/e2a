@@ -454,3 +454,43 @@ func TestTrashRetentionDefaultOverrideAndValidation(t *testing.T) {
 		t.Error("Load should reject a negative trash.retention_days")
 	}
 }
+
+func TestLoadConfigRateLimitsDefault(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(`
+database:
+  url: "postgres://test:test@localhost/test"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if got := cfg.RateLimits.PollPerMinute; got != 240 {
+		t.Errorf("default RateLimits.PollPerMinute = %d, want 240", got)
+	}
+}
+
+func TestLoadConfigRateLimitsOverride(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(`
+database:
+  url: "postgres://test:test@localhost/test"
+rate_limits:
+  poll_per_minute: 600
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if got := cfg.RateLimits.PollPerMinute; got != 600 {
+		t.Errorf("RateLimits.PollPerMinute = %d, want 600", got)
+	}
+}

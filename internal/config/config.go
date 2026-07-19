@@ -49,6 +49,7 @@ type Config struct {
 	DeliveryFeedback DeliveryFeedbackConfig `yaml:"delivery_feedback"`
 	SendingRamp      SendingRampConfig      `yaml:"sending_ramp"`
 	Limits           LimitsConfig           `yaml:"limits"`
+	RateLimits       RateLimitsConfig       `yaml:"rate_limits"`
 	Trash            TrashConfig            `yaml:"trash"`
 	Env              string                 `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
@@ -264,6 +265,19 @@ type LimitsConfig struct {
 	BillingHookURL string `yaml:"billing_hook_url"`
 }
 
+// RateLimitsConfig tunes server-side request rate limits. A zero value
+// means "use the built-in default", so configs that omit the section
+// keep current behavior.
+type RateLimitsConfig struct {
+	// PollPerMinute is the shared per-user budget for the authenticated
+	// read (polling) endpoints: list/get messages, conversations, and
+	// webhooks. The bucket is keyed per USER and shared by every reader
+	// the account runs — each agent's polling loop plus the dashboard,
+	// whose thread view fetches message bodies individually. Size it for
+	// the whole account, not a single client. Default 240.
+	PollPerMinute int `yaml:"poll_per_minute"`
+}
+
 // TrashConfig tunes the soft-delete (trash) subsystem.
 type TrashConfig struct {
 	// RetentionDays is how many days a soft-deleted resource (agent inbox
@@ -308,8 +322,9 @@ func Load(path string) (*Config, error) {
 			TargetDaily: 2000,
 			RampDays:    30,
 		},
-		Trash: TrashConfig{RetentionDays: 30},
-		Env:   "development",
+		RateLimits: RateLimitsConfig{PollPerMinute: 240},
+		Trash:      TrashConfig{RetentionDays: 30},
+		Env:        "development",
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
