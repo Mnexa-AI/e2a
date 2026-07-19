@@ -76,6 +76,7 @@ type SendJob struct {
 	// UserID is the owning account — the tenant scope for the pre-provider
 	// suppression guard (suppressions are per-account).
 	UserID       string
+	AgentID      string // exact sending agent for agent-scoped consent checks
 	Domain       string // exact registered sender domain
 	MessageType  string // send|reply|test; platform tests are ramp-exempt
 	Status       string // messages.delivery_status
@@ -184,9 +185,9 @@ type Store interface {
 	// outcome after the provider-evidence grace window (or settles the row as
 	// sent when evidence arrives first).
 	DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string) error
-	// SuppressedRecipients returns the subset of recipients on the owning
-	// account's suppression list — the last-line guard before provider I/O.
-	SuppressedRecipients(ctx context.Context, userID string, recipients []string) ([]string, error)
+	// SuppressedRecipients returns the effective account-wide + exact-agent
+	// subset — the last-line guard before provider I/O.
+	SuppressedRecipients(ctx context.Context, userID, agentID string, recipients []string) ([]string, error)
 }
 
 // SendWorker submits an accepted message and records the terminal outcome. Mirrors
@@ -255,9 +256,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// in one tx (MarkFailed) WITHOUT calling the provider. A store error fails
 	// CLOSED: release the side-effect-free claim and let River retry, because
 	// silently sending would break the published "addresses e2a will refuse to
-	// send to" contract (GET /v1/account/suppressions). The check is scoped to
-	// the message's owning account (SendJob.UserID).
-	suppressed, serr := w.store.SuppressedRecipients(ctx, j.UserID, j.Recipients)
+	// send to" contract. The check is scoped to the message's owning account
+	// and exact sending agent.
+	suppressed, serr := w.store.SuppressedRecipients(ctx, j.UserID, j.AgentID, j.Recipients)
 	if serr != nil {
 		if rerr := w.store.ReleaseSend(ctx, j.MessageID, job.ID); rerr != nil {
 			return fmt.Errorf("release outbound send claim after suppression-check failure: %w", rerr)

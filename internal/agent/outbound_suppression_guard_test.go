@@ -30,6 +30,25 @@ func (d *countingDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) 
 	return d.out
 }
 
+func TestDeliverOutbound_AgentSuppressionBlocksSendReplyAndForward(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "agentacceptscope")
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "blocked@external.test", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, messageType := range []string{"send", "reply", "forward"} {
+		t.Run(messageType, func(t *testing.T) {
+			res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+				To: []string{"blocked@external.test"}, Subject: messageType, Body: "x",
+			}, messageType, "", nil, nil)
+			if res != nil || oerr == nil || oerr.Code != "recipient_suppressed" {
+				t.Fatalf("result/error = %+v/%+v, want recipient_suppressed", res, oerr)
+			}
+		})
+	}
+}
+
 func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) {
 	api, store, outbox, _ := setupAsyncAPI(t)
 	ctx := context.Background()
@@ -48,8 +67,8 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 
 	// Suppression lands between accept and the worker run (e.g. a bounce or a
 	// manual add) — case-varied to exercise normalization.
-	if _, err := store.AddSuppression(ctx, user.ID, "Victim@External.TEST", "complaint", "complaint", ""); err != nil {
-		t.Fatalf("AddSuppression: %v", err)
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "Victim@External.TEST", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatalf("AddAgentSuppression: %v", err)
 	}
 
 	deliverer := &countingDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "must-not-happen"}}
@@ -82,5 +101,27 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 	}
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 0 {
 		t.Errorf("email.sent events = %d, want 0", n)
+	}
+
+	// A sibling agent under the same account remains allowed for the same
+	// recipient; the exact message.agent_id must reach the worker guard.
+	domain := ag.RegisteredDomain
+	sibling, err := store.CreateAgent(ctx, "sibling@"+domain, domain, "", "", "local", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent(sibling): %v", err)
+	}
+	siblingResult, siblingErr := api.DeliverOutbound(ctx, user, sibling, outbound.SendRequest{
+		To: []string{"victim@external.test"}, Subject: "sibling allowed", Body: "x",
+	}, "send", "", nil, nil)
+	if siblingErr != nil {
+		t.Fatalf("sibling DeliverOutbound: %+v", siblingErr)
+	}
+	allowedDeliverer := &countingDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "ses-sibling", SentAs: "own_address"}}
+	allowedWorker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), allowedDeliverer)
+	if err := allowedWorker.Work(ctx, workerJob(siblingResult.MessageID, 1)); err != nil {
+		t.Fatalf("sibling worker: %v", err)
+	}
+	if allowedDeliverer.calls != 1 {
+		t.Fatalf("sibling provider calls = %d, want 1", allowedDeliverer.calls)
 	}
 }

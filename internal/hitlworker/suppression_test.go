@@ -35,9 +35,9 @@ func TestWorkerAutoApproveAsync_SuppressedRecipientAutoRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Suppressed AFTER the hold was created, with different case — the check
-	// must normalize and match against the owning account's list.
-	if _, err := store.AddSuppression(ctx, agent.UserID, "BOB@External.Test", "hard bounce", "bounce", ""); err != nil {
-		t.Fatalf("AddSuppression: %v", err)
+	// must normalize and match against the exact sending agent's list.
+	if _, _, err := store.AddAgentSuppression(ctx, agent.UserID, agent.ID, "BOB@External.Test", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatalf("AddAgentSuppression: %v", err)
 	}
 	backdateExpiry(t, pool, msg.ID)
 

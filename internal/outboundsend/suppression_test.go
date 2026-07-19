@@ -50,6 +50,9 @@ func TestSendWorker_SuppressedRecipientFailsTerminallyWithoutProviderIO(t *testi
 	if st.suppressionUserID != st.job.UserID {
 		t.Errorf("suppression check scoped to %q, want the job's owning account %q", st.suppressionUserID, st.job.UserID)
 	}
+	if st.suppressionAgentID != st.job.AgentID {
+		t.Errorf("suppression check agent = %q, want %q", st.suppressionAgentID, st.job.AgentID)
+	}
 	if len(gate.released) != 1 || gate.released[0] != "msg_1" {
 		t.Errorf("ramp releases = %v, want [msg_1]", gate.released)
 	}

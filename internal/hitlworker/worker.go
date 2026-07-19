@@ -244,8 +244,8 @@ func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIden
 		return true
 	}
 	// Suppression enforcement on TTL auto-approval: never submit to an address
-	// on the OWNING account's suppression list (the store normalizes both
-	// sides, so case differences still match). The check runs on the final
+	// in the owning account-wide or exact-agent suppression scope (the store
+	// normalizes both sides, so case differences still match). The check runs on the final
 	// stored To/CC/BCC set, before the self-send branch, mirroring the
 	// accept-time and human-approve checks. A match resolves the expired hold
 	// through the existing rejected/expired lifecycle (review_expired_rejected
@@ -257,7 +257,7 @@ func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIden
 	recipients = append(recipients, req.To...)
 	recipients = append(recipients, req.CC...)
 	recipients = append(recipients, req.BCC...)
-	suppressed, err := w.store.SuppressedAddresses(ctx, agent.UserID, recipients)
+	suppressed, err := w.store.EffectiveSuppressions(ctx, agent.UserID, agent.ID, recipients)
 	if err != nil {
 		log.Printf("[hitl-worker] auto-approve %s: suppression check: %v (leaving pending for next sweep)", c.MessageID, err)
 		return true

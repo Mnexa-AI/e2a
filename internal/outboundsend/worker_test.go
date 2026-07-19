@@ -27,7 +27,8 @@ type fakeStore struct {
 	deferred []failedCall
 	released []string
 	// suppressionUserID records the tenant the guard was scoped to.
-	suppressionUserID string
+	suppressionUserID  string
+	suppressionAgentID string
 }
 
 type sentCall struct{ id, provider, sentAs string }
@@ -57,8 +58,9 @@ func (f *fakeStore) ReleaseSend(_ context.Context, id string, _ int64) error {
 	f.released = append(f.released, id)
 	return f.releaseErr
 }
-func (f *fakeStore) SuppressedRecipients(_ context.Context, userID string, _ []string) ([]string, error) {
+func (f *fakeStore) SuppressedRecipients(_ context.Context, userID, agentID string, _ []string) ([]string, error) {
 	f.suppressionUserID = userID
+	f.suppressionAgentID = agentID
 	return f.suppressed, f.suppressedErr
 }
 
@@ -116,7 +118,7 @@ func job(id string, attempt int) *river.Job[outboundsend.OutboundSendArgs] {
 }
 
 func acceptedJob(id string) *outboundsend.SendJob {
-	return &outboundsend.SendJob{MessageID: id, UserID: "user_owner", Status: "accepted", EnvelopeFrom: "a@x.com", Recipients: []string{"b@y.com"}, RawMessage: []byte("raw")}
+	return &outboundsend.SendJob{MessageID: id, UserID: "user_owner", AgentID: "sender@agents.test", Status: "accepted", EnvelopeFrom: "a@x.com", Recipients: []string{"b@y.com"}, RawMessage: []byte("raw")}
 }
 
 func TestSendWorker_Success(t *testing.T) {

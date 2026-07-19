@@ -221,8 +221,8 @@ func TestSendTestCore_SuppressedTargetNotAccepted(t *testing.T) {
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "testsuppr")
 
-	if _, err := store.AddSuppression(ctx, user.ID, ag.EmailAddress(), "hard_bounce", "manual", ""); err != nil {
-		t.Fatalf("AddSuppression: %v", err)
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, ag.EmailAddress(), "opted out", "unsubscribe", nil); err != nil {
+		t.Fatalf("AddAgentSuppression: %v", err)
 	}
 
 	res, oerr := api.SendTestCore(ctx, ag)

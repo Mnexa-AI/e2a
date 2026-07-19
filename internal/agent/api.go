@@ -1135,13 +1135,13 @@ func (e *OutboundError) Error() string { return e.Msg }
 // suppressionLister is the narrow store surface the suppression checks read —
 // an interface so the check core is unit-testable without Postgres.
 type suppressionLister interface {
-	SuppressedAddresses(ctx context.Context, userID string, addrs []string) ([]string, error)
+	EffectiveSuppressions(ctx context.Context, userID, agentID string, addrs []string) ([]string, error)
 }
 
 // checkSuppressionCore rejects a send when any recipient of the request's
-// FULL To/CC/BCC set is on the owning account's suppression list (decision 9;
-// the store normalizes both sides, so case/whitespace differences still
-// match). Returns a structured recipient_suppressed 422.
+// FULL To/CC/BCC set is in the effective union of the owning account's global
+// list and the exact sending agent's list. The store normalizes both sides, so
+// case/whitespace differences still match. Returns recipient_suppressed 422.
 //
 // failClosed selects the store-error posture:
 //   - false (accept-time direct send): fail OPEN — a suppression-DB hiccup
@@ -1153,7 +1153,7 @@ type suppressionLister interface {
 //     sending on a store error would break the public "addresses e2a will
 //     refuse to send to" contract (GET /v1/account/suppressions). The hold
 //     stays pending_review.
-func checkSuppressionCore(ctx context.Context, store suppressionLister, userID string, req outbound.SendRequest, failClosed bool) *OutboundError {
+func checkSuppressionCore(ctx context.Context, store suppressionLister, userID, agentID string, req outbound.SendRequest, failClosed bool) *OutboundError {
 	addrs := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
 	addrs = append(addrs, req.To...)
 	addrs = append(addrs, req.CC...)
@@ -1161,7 +1161,7 @@ func checkSuppressionCore(ctx context.Context, store suppressionLister, userID s
 	if len(addrs) == 0 {
 		return nil
 	}
-	suppressed, err := store.SuppressedAddresses(ctx, userID, addrs)
+	suppressed, err := store.EffectiveSuppressions(ctx, userID, agentID, addrs)
 	if err != nil {
 		if failClosed {
 			log.Printf("[api] suppression check failed (refusing approval): %v", err)
@@ -1179,14 +1179,14 @@ func checkSuppressionCore(ctx context.Context, store suppressionLister, userID s
 
 // checkSuppression is the accept-time (direct send) check: fail-open on a
 // store error (see checkSuppressionCore for the rationale + backstop).
-func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.SendRequest) *OutboundError {
-	return checkSuppressionCore(ctx, a.store, userID, req, false)
+func (a *API) checkSuppression(ctx context.Context, userID, agentID string, req outbound.SendRequest) *OutboundError {
+	return checkSuppressionCore(ctx, a.store, userID, agentID, req, false)
 }
 
 // checkSuppressionStrict is the approval-time check (human approve + magic
 // link): fail-closed on a store error, leaving the hold pending_review.
-func (a *API) checkSuppressionStrict(ctx context.Context, userID string, req outbound.SendRequest) *OutboundError {
-	return checkSuppressionCore(ctx, a.store, userID, req, true)
+func (a *API) checkSuppressionStrict(ctx context.Context, userID, agentID string, req outbound.SendRequest) *OutboundError {
+	return checkSuppressionCore(ctx, a.store, userID, agentID, req, true)
 }
 
 // DeliverOutbound is the shared send/reply/forward delivery tail, HTTP-free:
@@ -1227,7 +1227,7 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	// recipient is on this tenant's suppression list. Enforced fresh on every
 	// attempt and NOT cached under the idempotency key (it's a clearable state,
 	// released like every other error).
-	if supErr := a.checkSuppression(ctx, user.ID, req); supErr != nil {
+	if supErr := a.checkSuppression(ctx, user.ID, agent.ID, req); supErr != nil {
 		return nil, supErr
 	}
 
@@ -1374,7 +1374,7 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 
 	// Suppression enforcement — the same recipient gate DeliverOutbound runs
 	// (decision 9): a suppressed agent address must never be submitted.
-	if supErr := a.checkSuppression(ctx, agent.UserID, testReq); supErr != nil {
+	if supErr := a.checkSuppression(ctx, agent.UserID, agent.ID, testReq); supErr != nil {
 		return nil, supErr
 	}
 

@@ -516,7 +516,7 @@ func (s failingTerminalStore) MarkSent(context.Context, string, string, string) 
 func (s failingTerminalStore) MarkFailed(context.Context, string, int, string, delivery.FailureSource) error {
 	return s.err
 }
-func (s failingTerminalStore) SuppressedRecipients(context.Context, string, []string) ([]string, error) {
+func (s failingTerminalStore) SuppressedRecipients(context.Context, string, string, []string) ([]string, error) {
 	return nil, nil
 }
 func (s failingTerminalStore) DeferTerminalFailure(context.Context, string, int64, string) error {

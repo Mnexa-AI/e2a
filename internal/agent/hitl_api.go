@@ -130,7 +130,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	// same semantics as send's accept-time 422 — and the identical approve
 	// succeeds once the suppression is removed. Fails CLOSED on a store error
 	// (retryable 500, hold untouched) — see checkSuppressionCore.
-	if supErr := a.checkSuppressionStrict(ctx, agent.UserID, mergedReq); supErr != nil {
+	if supErr := a.checkSuppressionStrict(ctx, agent.UserID, agent.ID, mergedReq); supErr != nil {
 		return nil, supErr
 	}
 	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, agent.UserID, agent, &mergedReq, true); uerr != nil {

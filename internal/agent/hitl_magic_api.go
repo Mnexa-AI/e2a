@@ -222,7 +222,7 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 		writeMagicMessage(w, http.StatusBadRequest, "Cannot send", "The held message is invalid.")
 		return
 	}
-	if supErr := a.checkSuppressionStrict(r.Context(), userID, sendReq); supErr != nil {
+	if supErr := a.checkSuppressionStrict(r.Context(), userID, agent.ID, sendReq); supErr != nil {
 		writeMagicMessage(w, supErr.Status, "Cannot send", html.EscapeString(supErr.Msg))
 		return
 	}
