@@ -240,14 +240,20 @@ npm install -g @e2a/cli
 e2a login
 ```
 
-The CLI is a thin developer convenience — it covers only what the other surfaces
-don't do ergonomically. Drive agents (read/send/reply/list/labels) over the **MCP
-tools** or the **SDKs**; manage domains/agents/webhooks/keys/HITL in the **web
-dashboard**.
+The CLI covers both scripting (send/reply/messages/whoami, with a stable
+exit-code contract) and account management (agents, keys, protection). Drive
+agents interactively over the **MCP tools** or the **SDKs** instead; manage
+domains/webhooks in the **web dashboard**.
 
 | Command | Description |
 |---------|-------------|
 | `e2a login` | Open a browser login and save your API key + default agent to `~/.e2a/config.json` |
+| `e2a whoami` | Show the key identity: user, scope, bound agent, plan |
+| `e2a agents list\|create\|get` | Manage inboxes (requires an account-scoped key) |
+| `e2a keys create\|list\|delete` | Mint, list, and revoke API keys (requires an account-scoped key) |
+| `e2a protection get\|set` | Show or update an agent's HITL screening/review config |
+| `e2a send` / `e2a reply` | Send an email as the agent, or reply in-thread |
+| `e2a messages list\|get` | List or fetch messages for an agent |
 | `e2a listen --agent <email>` | Stream inbound email for an agent over WebSocket (real-time; `--json` for raw, `--forward <url>` to bridge to a local HTTP handler) |
 | `e2a config [list\|get\|set]` | View or update the local config |
 

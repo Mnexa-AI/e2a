@@ -231,9 +231,9 @@ web dashboard. The PR template checklists them.
   `v1/ws.ts`; webhook signature verification in `v1/webhook-signature.ts`.
 - **Python SDK** (`sdks/python/`): src layout, async-native (httpx), sync +
   async high-level clients over the generated base; PEP 561 `py.typed`.
-- **CLI** (`cli/`): commands login, listen, config, whoami, send, reply,
-  messages; config in `~/.e2a/config.json`; `listen --forward` proxies
-  WebSocket messages to a local HTTP endpoint. **Exit codes
+- **CLI** (`cli/`): commands login, whoami, agents, keys, protection, send,
+  reply, messages, listen, config; config in `~/.e2a/config.json`; `listen
+  --forward` proxies WebSocket messages to a local HTTP endpoint. **Exit codes
   (`cli/src/exit.ts`) are a frozen contract** — 0 ok, 1 transient, 2 usage,
   3 held-for-review, 4 auth, 5 permanent request error, 6 timeout,
   7 send-outcome. Add new codes, never renumber.
