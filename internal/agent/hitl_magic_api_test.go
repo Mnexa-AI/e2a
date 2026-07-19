@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/approvaltoken"
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/testutil"
+	"github.com/tokencanopy/e2a/internal/unsubscribe"
 	"github.com/tokencanopy/e2a/internal/usage"
 )
 
@@ -40,6 +42,11 @@ func setupMagicLinkAPI(t *testing.T) (
 	noopUsage := usage.NewNoopUsageTracker()
 	api := agent.NewAPI(store, sender, smtpRelay, nil, noopUsage, "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
 	api.SetOutboundEnqueuer(&fakeOutboundEnqueuer{jobID: 999})
+	issuer, err := unsubscribe.NewIssuer(magicLinkSecret, "https://api.example.test", false, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.SetManagedUnsubscribeIssuer(issuer)
 	signer := approvaltoken.NewSigner(magicLinkSecret)
 	api.SetApprovalSigner(signer)
 	router := mux.NewRouter()
@@ -47,6 +54,59 @@ func setupMagicLinkAPI(t *testing.T) (
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 	return server, store, signer, smtpDone
+}
+
+func TestMagicApproveManagedUnsubscribeMintsOnApprovalAndPersistsMIME(t *testing.T) {
+	server, store, signer, _ := setupMagicLinkAPI(t)
+	ctx := context.Background()
+	a, userID := prepareHITLAgent(t, store, "magic-managed")
+	msg, err := store.CreatePendingOutboundMessageManaged(ctx, a.ID,
+		[]string{"FINAL@Example.net"}, nil, nil,
+		"Managed", "plain body", "<p>html body</p>", nil,
+		"send", "", "", "", 3600, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM agent_unsubscribe_tokens WHERE user_id=$1`, userID).Scan(&before)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if before != 0 {
+		t.Fatalf("tokens before approval=%d", before)
+	}
+
+	tok, err := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := postForm(t, server.URL+"/v1/approve", map[string]string{"t": tok})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	_ = resp.Body.Close()
+
+	var recipient string
+	var raw []byte
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT address FROM agent_unsubscribe_tokens WHERE user_id=$1 AND agent_id=$2`, userID, a.ID).Scan(&recipient); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT raw_message FROM messages WHERE id=$1`, msg.ID).Scan(&raw)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if recipient != "final@example.net" {
+		t.Fatalf("bound recipient=%q", recipient)
+	}
+	text := string(raw)
+	if strings.Count(text, "List-Unsubscribe: <https://api.example.test/u/") != 1 || strings.Count(text, "List-Unsubscribe-Post: List-Unsubscribe=One-Click") != 1 {
+		t.Fatalf("unsubscribe headers missing/duplicated:\n%s", text)
+	}
+	if !strings.Contains(text, "Unsubscribe from emails sent by "+a.ID) || !strings.Contains(text, `href="https://api.example.test/u/`) {
+		t.Fatalf("visible managed footer missing:\n%s", text)
+	}
 }
 
 // prepareHITLAgent creates a verified agent with HITL enabled. Returns

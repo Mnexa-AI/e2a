@@ -30,12 +30,29 @@ func TestUnsubscribeOptionsJSON(t *testing.T) {
 		`{"unsubscribe":{"mode":"managed","extra":true}}`,
 	} {
 		var req SendEmailRequest
-		if err := json.Unmarshal([]byte(raw), &req); err != nil {
-			t.Fatalf("decode %s: %v", raw, err)
+		if err := json.Unmarshal([]byte(raw), &req); err == nil {
+			t.Errorf("decode %s succeeded, want rejection", raw)
 		}
-		if env := validateUnsubscribeOptions(req.Unsubscribe); env == nil || env.GetStatus() != 400 {
-			t.Errorf("%s env=%v, want 400", raw, env)
-		}
+	}
+}
+
+func TestUnsubscribeOptionsLiveSchemaIsStrict(t *testing.T) {
+	schema := New(Deps{}).API.OpenAPI().Components.Schemas.Map()["UnsubscribeOptions"]
+	if schema == nil {
+		t.Fatal("UnsubscribeOptions schema missing")
+	}
+	if schema.Type != "object" || schema.Nullable {
+		t.Fatalf("type=%q nullable=%v", schema.Type, schema.Nullable)
+	}
+	if schema.AdditionalProperties != false {
+		t.Fatalf("additionalProperties=%v, want false", schema.AdditionalProperties)
+	}
+	if len(schema.Required) != 1 || schema.Required[0] != "mode" {
+		t.Fatalf("required=%v", schema.Required)
+	}
+	mode := schema.Properties["mode"]
+	if mode == nil || len(mode.Enum) != 1 || mode.Enum[0] != "managed" {
+		t.Fatalf("mode schema=%+v", mode)
 	}
 }
 

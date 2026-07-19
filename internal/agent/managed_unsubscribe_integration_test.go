@@ -118,3 +118,44 @@ func TestHITLManagedUnsubscribePersistsIntentThenMintsOnApproval(t *testing.T) {
 		t.Fatalf("raw=%s", raw)
 	}
 }
+
+func TestManagedUnsubscribeAcceptedRawForRenderedTemplateAndForwardAttachment(t *testing.T) {
+	for _, tc := range []struct {
+		name, msgType string
+		req           outbound.SendRequest
+		want          string
+	}{
+		{
+			name: "rendered_template", msgType: "send",
+			req:  outbound.SendRequest{To: []string{"template@example.net"}, Subject: "Welcome Ada", Body: "Hello Ada", HTMLBody: "<p>Hello Ada</p>"},
+			want: "Hello Ada",
+		},
+		{
+			name: "forward_attachment", msgType: "forward",
+			req:  outbound.SendRequest{To: []string{"forward@example.net"}, Subject: "Fwd: report", Body: "Forwarded report", HTMLBody: "<p>Forwarded report</p>", Attachments: []outbound.Attachment{{Filename: "report.txt", ContentType: "text/plain", Data: "cmVwb3J0"}}},
+			want: `filename="report.txt"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, store, _, _ := setupAsyncAPI(t)
+			ctx := context.Background()
+			user, ag := selfAgent(t, store, "managed-"+tc.name)
+			api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+			tc.req.Unsubscribe = &outbound.UnsubscribeOptions{Mode: "managed"}
+			res, oerr := api.DeliverOutbound(ctx, user, ag, tc.req, tc.msgType, "", nil, nil)
+			if oerr != nil {
+				t.Fatal(oerr)
+			}
+			var raw []byte
+			if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+				return tx.QueryRow(ctx, `SELECT raw_message FROM messages WHERE id=$1`, res.MessageID).Scan(&raw)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			text := string(raw)
+			if strings.Count(text, "List-Unsubscribe: <https://api.example/u/u1_stable>") != 1 || strings.Count(text, "List-Unsubscribe-Post: List-Unsubscribe=One-Click") != 1 || !strings.Contains(text, "Unsubscribe from emails sent by "+ag.ID) || !strings.Contains(text, tc.want) {
+				t.Fatalf("accepted %s MIME incomplete:\n%s", tc.name, text)
+			}
+		})
+	}
+}

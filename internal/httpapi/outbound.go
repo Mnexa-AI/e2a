@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/mail"
 	"reflect"
@@ -252,26 +253,14 @@ type SendEmailRequest struct {
 // path: it means only that e2a-managed unsubscribe was not requested. It does
 // not classify the message as transactional.
 type UnsubscribeOptions struct {
-	Mode    string `json:"mode,omitempty"`
+	Mode    string `json:"mode" enum:"managed"`
 	Present bool   `json:"-"`
-	invalid string
-}
-
-// TransformSchema defers this nested object's strictness to UnmarshalJSON so
-// every invalid unsubscribe shape gets the feature's stable 400 response
-// instead of Huma's generic schema-level 422.
-func (UnsubscribeOptions) TransformSchema(_ huma.Registry, s *huma.Schema) *huma.Schema {
-	s.Required = nil
-	s.AdditionalProperties = true
-	s.Nullable = true
-	return s
 }
 
 func (o *UnsubscribeOptions) UnmarshalJSON(data []byte) error {
 	o.Present = true
 	if string(data) == "null" {
-		o.invalid = "unsubscribe must be an object"
-		return nil
+		return fmt.Errorf("unsubscribe must be an object")
 	}
 	var wire struct {
 		Mode string `json:"mode"`
@@ -279,22 +268,57 @@ func (o *UnsubscribeOptions) UnmarshalJSON(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&wire); err != nil {
-		o.invalid = "invalid unsubscribe object"
-		return nil
+		return fmt.Errorf("invalid unsubscribe object: %w", err)
 	}
 	if wire.Mode != "managed" {
-		o.invalid = "unsubscribe.mode must be managed"
-		return nil
+		return fmt.Errorf("unsubscribe.mode must be managed")
 	}
 	o.Mode = wire.Mode
 	return nil
 }
 
-func validateUnsubscribeOptions(o UnsubscribeOptions) *ErrorEnvelope {
-	if o.Present && o.invalid != "" {
-		return NewError(http.StatusBadRequest, "invalid_request", o.invalid)
+// outboundUnsubscribeBadRequest preserves the feature's stable 400 contract
+// while keeping the published schema strict. Huma normally reports schema
+// failures as 422 before handlers run; this route-local preflight recognizes
+// only the managed-unsubscribe field and lets every other request retain the
+// existing global validation behavior.
+func outboundUnsubscribeBadRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !isOutboundMessageWritePath(r.URL.Path) || r.Body == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var object map[string]json.RawMessage
+		if json.Unmarshal(body, &object) != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		raw, present := object["unsubscribe"]
+		if !present {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var options UnsubscribeOptions
+		if err := json.Unmarshal(raw, &options); err != nil {
+			writeRawEnvelope(w, r, NewError(http.StatusBadRequest, "invalid_request", err.Error()))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isOutboundMessageWritePath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 4 && parts[0] == "v1" && parts[1] == "agents" && parts[3] == "messages" {
+		return true
 	}
-	return nil
+	return len(parts) == 6 && parts[0] == "v1" && parts[1] == "agents" && parts[3] == "messages" && (parts[5] == "reply" || parts[5] == "forward")
 }
 
 type createMessageInput struct {
@@ -501,9 +525,6 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 		return nil, err
 	}
 	b := in.Body
-	if env := validateUnsubscribeOptions(b.Unsubscribe); env != nil {
-		return nil, env
-	}
 	if b.Body == "" {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "text is required")
 	}
@@ -620,9 +641,6 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 		return nil, err
 	}
 	b := in.Body
-	if env := validateUnsubscribeOptions(b.Unsubscribe); env != nil {
-		return nil, env
-	}
 	if len(b.To) == 0 && len(b.CC) == 0 {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "at least one recipient in to or cc is required")
 	}
@@ -992,9 +1010,6 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 		return nil, uerr
 	}
 	b := in.Body
-	if env := validateUnsubscribeOptions(b.Unsubscribe); env != nil {
-		return nil, env
-	}
 	// The deterministic template-shape checks (mutual exclusions) depend only
 	// on the request bytes, so they stay in the prologue. Resolution +
 	// rendering consult the mutable templates table and therefore run inside
