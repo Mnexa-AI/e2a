@@ -14,6 +14,7 @@ import (
 const (
 	tokenPrefix  = "u1_"
 	tokenPurpose = "e2a:unsubscribe:u1"
+	tokenLength  = len(tokenPrefix) + 43 // unpadded base64url SHA-256 digest
 )
 
 // Derive returns a deterministic opaque token bound to one user, sending
@@ -49,6 +50,16 @@ func Derive(secret, userID, agentID, recipient string) (string, error) {
 func Hash(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	return sum[:]
+}
+
+// ValidToken reports whether token has the public wire format emitted by
+// Derive. It validates shape only; authority still requires resolving Hash.
+func ValidToken(token string) bool {
+	if len(token) != tokenLength || !strings.HasPrefix(token, tokenPrefix) {
+		return false
+	}
+	_, err := base64.RawURLEncoding.DecodeString(token[len(tokenPrefix):])
+	return err == nil
 }
 
 type byteWriter interface {

@@ -357,8 +357,7 @@ func main() {
 	// first tick (RunOnStart:false ⇒ first sweep at +60s).
 	managedUnsubscribeIssuer, managedUnsubscribeErr := unsubscribe.NewIssuer(cfg.Signing.HMACSecret, cfg.HTTP.APIURL, cfg.IsProduction(), store)
 	if managedUnsubscribeErr != nil {
-		log.Printf("[unsubscribe] managed sends disabled: %v", managedUnsubscribeErr)
-		managedUnsubscribeIssuer = nil
+		log.Fatalf("Managed unsubscribe issuer configuration is invalid: %v", managedUnsubscribeErr)
 	}
 	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
 	hitlWorker.SetManagedUnsubscribeIssuer(managedUnsubscribeIssuer)

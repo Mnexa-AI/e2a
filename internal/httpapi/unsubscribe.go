@@ -1,14 +1,15 @@
 package httpapi
 
 import (
+	"errors"
 	"html/template"
 	"io"
 	"log"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -50,7 +51,7 @@ func (s *Server) handlePublicUnsubscribe(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	token := chi.URLParam(r, "token")
-	if !validPublicUnsubscribeToken(token) || s.deps.ResolveUnsubscribeToken == nil {
+	if !unsubscribe.ValidToken(token) || s.deps.ResolveUnsubscribeToken == nil {
 		writePublicUnsubscribeError(w, http.StatusNotFound)
 		return
 	}
@@ -111,37 +112,66 @@ func setPublicUnsubscribeHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
 
-func validPublicUnsubscribeToken(token string) bool {
-	// u1_ plus an unpadded base64url SHA-256 digest (43 characters).
-	if len(token) != 46 || !strings.HasPrefix(token, "u1_") {
-		return false
-	}
-	for _, c := range token[3:] {
-		if !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') && c != '-' && c != '_' {
-			return false
-		}
-	}
-	return true
-}
-
 func parsePublicUnsubscribePOST(w http.ResponseWriter, r *http.Request) (rfc bool, ok bool) {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/x-www-form-urlencoded" {
-		return false, false
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, publicUnsubscribeMaxBody)
-	body, err := io.ReadAll(r.Body)
+	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
 		return false, false
 	}
-	if string(body) == rfc8058OneClickBody {
+	r.Body = http.MaxBytesReader(w, r.Body, publicUnsubscribeMaxBody)
+	var values url.Values
+	switch mediaType {
+	case "application/x-www-form-urlencoded":
+		body, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			return false, false
+		}
+		if string(body) == rfc8058OneClickBody {
+			return true, true
+		}
+		values, err = url.ParseQuery(string(body))
+	case "multipart/form-data":
+		boundary := params["boundary"]
+		if boundary == "" {
+			return false, false
+		}
+		values, err = readPublicUnsubscribeMultipart(multipart.NewReader(r.Body, boundary))
+	default:
+		return false, false
+	}
+	if err != nil {
+		return false, false
+	}
+	if len(values) == 1 && len(values["List-Unsubscribe"]) == 1 && values.Get("List-Unsubscribe") == "One-Click" {
 		return true, true
 	}
-	values, err := url.ParseQuery(string(body))
-	if err != nil || len(values) != 1 || len(values["confirm"]) != 1 || values.Get("confirm") != "unsubscribe" {
+	if len(values) != 1 || len(values["confirm"]) != 1 || values.Get("confirm") != "unsubscribe" {
 		return false, false
 	}
 	return false, true
+}
+
+func readPublicUnsubscribeMultipart(reader *multipart.Reader) (url.Values, error) {
+	values := make(url.Values)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return values, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		name := part.FormName()
+		if name == "" || part.FileName() != "" {
+			_ = part.Close()
+			return nil, errors.New("invalid multipart unsubscribe field")
+		}
+		value, err := io.ReadAll(part)
+		_ = part.Close()
+		if err != nil {
+			return nil, err
+		}
+		values[name] = append(values[name], string(value))
+	}
 }
 
 func writePublicUnsubscribeError(w http.ResponseWriter, status int) {

@@ -2,6 +2,7 @@ package hitlworker_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,11 +13,15 @@ import (
 type ttlUnsubscribeIssuer struct {
 	calls     int
 	recipient string
+	err       error
 }
 
 func (i *ttlUnsubscribeIssuer) Issue(_ context.Context, _, _, recipient string) (string, error) {
 	i.calls++
 	i.recipient = recipient
+	if i.err != nil {
+		return "", i.err
+	}
 	return "https://api.example/u/u1_ttl", nil
 }
 
@@ -69,5 +74,41 @@ func TestWorkerAutoApproveManagedUnsubscribeRejectsWhenFooterCrossesCap(t *testi
 	}
 	if got := smtpDone(); len(got) != 0 {
 		t.Fatalf("sent %d over-cap messages", len(got))
+	}
+}
+
+func TestWorkerAutoApproveManagedUnsubscribeLeavesPendingWithoutIssuer(t *testing.T) {
+	testTTLManagedUnsubscribeIssuerFailure(t, nil)
+}
+
+func TestWorkerAutoApproveManagedUnsubscribeLeavesPendingOnIssueError(t *testing.T) {
+	testTTLManagedUnsubscribeIssuerFailure(t, &ttlUnsubscribeIssuer{err: errors.New("token store unavailable")})
+}
+
+func testTTLManagedUnsubscribeIssuerFailure(t *testing.T, issuer *ttlUnsubscribeIssuer) {
+	t.Helper()
+	w, store, pool, smtpDone := setupWorker(t)
+	ctx := context.Background()
+	ag := prepareAgent(t, store, "ttl-managed-issuer-failure", identity.HITLExpirationApprove)
+	if issuer != nil {
+		w.SetManagedUnsubscribeIssuer(issuer)
+	}
+	msg, err := store.CreatePendingOutboundMessageManaged(ctx, ag.ID,
+		[]string{"final@example.net"}, nil, nil, "managed ttl", "body", "", nil,
+		"send", "", "", "", 60, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backdateExpiry(t, pool, msg.ID)
+	w.RunOnce(ctx)
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM messages WHERE id=$1`, msg.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusPendingReview {
+		t.Fatalf("status=%q, want pending_review", status)
+	}
+	if got := smtpDone(); len(got) != 0 {
+		t.Fatalf("sent %d messages despite unavailable issuer", len(got))
 	}
 }

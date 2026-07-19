@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/mail"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/dkim"
@@ -206,6 +207,44 @@ func TestCrossFieldDedupe(t *testing.T) {
 // per-test struct definitions.
 type fakeDKIMLookup struct {
 	get func(ctx context.Context, domain string) (string, []byte, error)
+}
+
+func TestComposeManagedUnsubscribeHeadersAreDKIMSigned(t *testing.T) {
+	keypair, err := dkim.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := &fakeDKIMLookup{get: func(_ context.Context, domain string) (string, []byte, error) {
+		if domain != "example.com" {
+			t.Fatalf("DKIM lookup domain = %q, want example.com", domain)
+		}
+		return keypair.Selector, keypair.PrivateKeyDER, nil
+	}}
+	sender := NewSenderWithDKIM(nil, "example.com", lookup)
+	agent := &identity.AgentIdentity{ID: "bot@example.com", Domain: "example.com"}
+	composed, err := sender.ComposeForAccept(agent, SendRequest{
+		To:      []string{"recipient@example.net"},
+		Subject: "managed",
+		Body:    "body",
+		Unsubscribe: &UnsubscribeOptions{
+			Mode: "managed",
+			URL:  "https://api.example.com/u/u1_token",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := mail.ReadMessage(bytes.NewReader(composed.Raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := message.Header.Get("List-Unsubscribe"); got != "<https://api.example.com/u/u1_token>" {
+		t.Fatalf("List-Unsubscribe = %q", got)
+	}
+	signature := strings.ToLower(message.Header.Get("DKIM-Signature"))
+	if !strings.Contains(signature, "list-unsubscribe:list-unsubscribe-post") {
+		t.Fatalf("managed headers were not present before signing; DKIM h= %q", signature)
+	}
 }
 
 func (f *fakeDKIMLookup) GetDKIMKeyInternal(ctx context.Context, domain string) (string, []byte, error) {

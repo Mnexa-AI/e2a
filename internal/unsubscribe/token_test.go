@@ -111,6 +111,31 @@ func TestHashReturnsSHA256LookupKey(t *testing.T) {
 	}
 }
 
+func TestValidToken(t *testing.T) {
+	valid, err := Derive("secret", "user_123", "otto@example.com", "person@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name  string
+		token string
+		want  bool
+	}{
+		{name: "derived token", token: valid, want: true},
+		{name: "wrong prefix", token: "x1_" + valid[3:]},
+		{name: "padded digest", token: valid + "="},
+		{name: "invalid base64url", token: valid[:len(valid)-1] + "."},
+		{name: "short digest", token: valid[:len(valid)-1]},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ValidToken(tt.token); got != tt.want {
+				t.Fatalf("ValidToken(%q) = %t, want %t", tt.token, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeriveRejectsEmptyRequiredInputs(t *testing.T) {
 	tests := []struct {
 		name      string

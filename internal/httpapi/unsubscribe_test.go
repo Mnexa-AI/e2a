@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -182,6 +184,61 @@ func TestPublicUnsubscribeRFC8058POSTReturnsEmptySuccess(t *testing.T) {
 	}
 	if fixture.hookCalls.Load() != 1 {
 		t.Fatalf("event hooks = %d, want 1", fixture.hookCalls.Load())
+	}
+}
+
+func TestPublicUnsubscribeRFC8058POSTAcceptsCharsetParameter(t *testing.T) {
+	srv, fixture := newPublicUnsubscribeServer(t, nil)
+	resp, body := doPublicUnsubscribe(t, srv.Client(), http.MethodPost, srv.URL+"/u/"+publicUnsubscribeToken, "application/x-www-form-urlencoded; charset=UTF-8", rfc8058OneClickBody)
+	if resp.StatusCode != http.StatusOK || body != "" {
+		t.Fatalf("RFC POST with charset = %d %q, want empty 200", resp.StatusCode, body)
+	}
+	if fixture.hookCalls.Load() != 1 {
+		t.Fatalf("event hooks = %d, want 1", fixture.hookCalls.Load())
+	}
+}
+
+func TestPublicUnsubscribeRFC8058POSTAcceptsMultipart(t *testing.T) {
+	srv, fixture := newPublicUnsubscribeServer(t, nil)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("List-Unsubscribe", "One-Click"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resp, responseBody := doPublicUnsubscribe(t, srv.Client(), http.MethodPost, srv.URL+"/u/"+publicUnsubscribeToken, mw.FormDataContentType(), body.String())
+	if resp.StatusCode != http.StatusOK || responseBody != "" {
+		t.Fatalf("multipart RFC POST = %d %q, want empty 200", resp.StatusCode, responseBody)
+	}
+	if fixture.hookCalls.Load() != 1 {
+		t.Fatalf("event hooks = %d, want 1", fixture.hookCalls.Load())
+	}
+}
+
+func TestPublicUnsubscribePOSTRejectsBodyOverLimit(t *testing.T) {
+	srv, fixture := newPublicUnsubscribeServer(t, nil)
+	const boundary = "unsubscribe-size-limit"
+	// This is an otherwise-valid one-field RFC 8058 multipart request. Its
+	// ignored extension header is deliberately large so removing MaxBytesReader
+	// would make the request succeed, while the 1 KiB cap must reject it.
+	body := "--" + boundary + "\r\n" +
+		"Content-Disposition: form-data; name=\"List-Unsubscribe\"\r\n" +
+		"X-Padding: " + strings.Repeat("x", publicUnsubscribeMaxBody) + "\r\n\r\n" +
+		"One-Click\r\n--" + boundary + "--\r\n"
+	values, err := readPublicUnsubscribeMultipart(multipart.NewReader(strings.NewReader(body), boundary))
+	if err != nil || values.Get("List-Unsubscribe") != "One-Click" {
+		t.Fatalf("unbounded control request is not valid RFC 8058 input: values=%v err=%v", values, err)
+	}
+	resp, _ := doPublicUnsubscribe(t, srv.Client(), http.MethodPost, srv.URL+"/u/"+publicUnsubscribeToken, "multipart/form-data; boundary="+boundary, body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("oversized POST = %d, want 400", resp.StatusCode)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if fixture.addCalls != 0 || len(fixture.rows) != 0 {
+		t.Fatalf("oversized POST mutated state: calls=%d rows=%d", fixture.addCalls, len(fixture.rows))
 	}
 }
 
