@@ -7,6 +7,8 @@ import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
+import { AgentSuppressionAddedData } from '../models/AgentSuppressionAddedData.js';
+import { AgentSuppressionView } from '../models/AgentSuppressionView.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
@@ -19,6 +21,7 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateAgentSuppressionRequest } from '../models/CreateAgentSuppressionRequest.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
@@ -63,6 +66,7 @@ import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
+import { PageAgentSuppressionView } from '../models/PageAgentSuppressionView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -115,6 +119,7 @@ import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { ThreatCategoryView } from '../models/ThreatCategoryView.js';
 import { TooManyRecipientsDetails } from '../models/TooManyRecipientsDetails.js';
+import { UnsubscribeOptions } from '../models/UnsubscribeOptions.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
@@ -137,7 +142,7 @@ import { AccountApiRequestFactory, AccountApiResponseProcessor} from "../apis/Ac
 
 export interface AccountApiCreateApiKeyRequest {
     /**
-     * 
+     *
      * @type CreateAPIKeyRequest
      * @memberof AccountApicreateApiKey
      */
@@ -163,7 +168,7 @@ export interface AccountApiDeleteAccountRequest {
 
 export interface AccountApiDeleteApiKeyRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof AccountApideleteApiKey
@@ -180,7 +185,7 @@ export interface AccountApiDeleteApiKeyRequest {
 
 export interface AccountApiDeleteSuppressionRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof AccountApideleteSuppression
@@ -397,16 +402,32 @@ import { AgentsApiRequestFactory, AgentsApiResponseProcessor} from "../apis/Agen
 
 export interface AgentsApiCreateAgentRequest {
     /**
-     * 
+     *
      * @type CreateAgentRequest
      * @memberof AgentsApicreateAgent
      */
     createAgentRequest: CreateAgentRequest
 }
 
+export interface AgentsApiCreateAgentSuppressionRequest {
+    /**
+     *
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApicreateAgentSuppression
+     */
+    email: string
+    /**
+     *
+     * @type CreateAgentSuppressionRequest
+     * @memberof AgentsApicreateAgentSuppression
+     */
+    createAgentSuppressionRequest: CreateAgentSuppressionRequest
+}
+
 export interface AgentsApiDeleteAgentRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof AgentsApideleteAgent
@@ -428,6 +449,30 @@ export interface AgentsApiDeleteAgentRequest {
     permanent?: boolean
 }
 
+export interface AgentsApiDeleteAgentSuppressionRequest {
+    /**
+     *
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApideleteAgentSuppression
+     */
+    email: string
+    /**
+     *
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApideleteAgentSuppression
+     */
+    address: string
+    /**
+     * Must be the literal DELETE — this action is irreversible.
+     * Defaults to: undefined
+     * @type &#39;DELETE&#39;
+     * @memberof AgentsApideleteAgentSuppression
+     */
+    confirm: 'DELETE'
+}
+
 export interface AgentsApiGetAgentRequest {
     /**
      * The agent\&#39;s full email address, e.g. support@acme.com.
@@ -446,6 +491,32 @@ export interface AgentsApiGetAgentProtectionRequest {
      * @memberof AgentsApigetAgentProtection
      */
     email: string
+}
+
+export interface AgentsApiListAgentSuppressionsRequest {
+    /**
+     *
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApilistAgentSuppressions
+     */
+    email: string
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AgentsApilistAgentSuppressions
+     */
+    cursor?: string
+    /**
+     * Maximum number of items to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 100
+     * @type number
+     * @memberof AgentsApilistAgentSuppressions
+     */
+    limit?: number
 }
 
 export interface AgentsApiListAgentsRequest {
@@ -483,7 +554,7 @@ export interface AgentsApiPutAgentProtectionRequest {
      */
     email: string
     /**
-     * 
+     *
      * @type ProtectionConfigRequest
      * @memberof AgentsApiputAgentProtection
      */
@@ -512,14 +583,14 @@ export interface AgentsApiTestAgentRequest {
 
 export interface AgentsApiUpdateAgentRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof AgentsApiupdateAgent
      */
     email: string
     /**
-     * 
+     *
      * @type UpdateAgentRequest
      * @memberof AgentsApiupdateAgent
      */
@@ -552,6 +623,24 @@ export class ObjectAgentsApi {
     }
 
     /**
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
+     * @param param the request object
+     */
+    public createAgentSuppressionWithHttpInfo(param: AgentsApiCreateAgentSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<AgentSuppressionView>> {
+        return this.api.createAgentSuppressionWithHttpInfo(param.email, param.createAgentSuppressionRequest,  options).toPromise();
+    }
+
+    /**
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
+     * @param param the request object
+     */
+    public createAgentSuppression(param: AgentsApiCreateAgentSuppressionRequest, options?: ConfigurationOptions): Promise<AgentSuppressionView> {
+        return this.api.createAgentSuppression(param.email, param.createAgentSuppressionRequest,  options).toPromise();
+    }
+
+    /**
      * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages\' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param param the request object
@@ -567,6 +656,24 @@ export class ObjectAgentsApi {
      */
     public deleteAgent(param: AgentsApiDeleteAgentRequest, options?: ConfigurationOptions): Promise<DeleteAgentResult> {
         return this.api.deleteAgent(param.email, param.confirm, param.permanent,  options).toPromise();
+    }
+
+    /**
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
+     * @param param the request object
+     */
+    public deleteAgentSuppressionWithHttpInfo(param: AgentsApiDeleteAgentSuppressionRequest, options?: ConfigurationOptions): Promise<HttpInfo<DeleteSuppressionResult>> {
+        return this.api.deleteAgentSuppressionWithHttpInfo(param.email, param.address, param.confirm,  options).toPromise();
+    }
+
+    /**
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
+     * @param param the request object
+     */
+    public deleteAgentSuppression(param: AgentsApiDeleteAgentSuppressionRequest, options?: ConfigurationOptions): Promise<DeleteSuppressionResult> {
+        return this.api.deleteAgentSuppression(param.email, param.address, param.confirm,  options).toPromise();
     }
 
     /**
@@ -603,6 +710,24 @@ export class ObjectAgentsApi {
      */
     public getAgentProtection(param: AgentsApiGetAgentProtectionRequest, options?: ConfigurationOptions): Promise<ProtectionConfigView> {
         return this.api.getAgentProtection(param.email,  options).toPromise();
+    }
+
+    /**
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
+     * @param param the request object
+     */
+    public listAgentSuppressionsWithHttpInfo(param: AgentsApiListAgentSuppressionsRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageAgentSuppressionView>> {
+        return this.api.listAgentSuppressionsWithHttpInfo(param.email, param.cursor, param.limit,  options).toPromise();
+    }
+
+    /**
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
+     * @param param the request object
+     */
+    public listAgentSuppressions(param: AgentsApiListAgentSuppressionsRequest, options?: ConfigurationOptions): Promise<PageAgentSuppressionView> {
+        return this.api.listAgentSuppressions(param.email, param.cursor, param.limit,  options).toPromise();
     }
 
     /**
@@ -702,14 +827,14 @@ import { ConversationsApiRequestFactory, ConversationsApiResponseProcessor} from
 
 export interface ConversationsApiGetConversationRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof ConversationsApigetConversation
      */
     email: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof ConversationsApigetConversation
@@ -719,7 +844,7 @@ export interface ConversationsApiGetConversationRequest {
 
 export interface ConversationsApiListConversationsRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof ConversationsApilistConversations
@@ -747,7 +872,7 @@ export interface ConversationsApiListConversationsRequest {
      */
     cursor?: string
     /**
-     * 
+     *
      * Minimum: 1
      * Maximum: 100
      * Defaults to: 100
@@ -807,7 +932,7 @@ import { DomainsApiRequestFactory, DomainsApiResponseProcessor} from "../apis/Do
 
 export interface DomainsApiDeleteDomainRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof DomainsApideleteDomain
@@ -824,7 +949,7 @@ export interface DomainsApiDeleteDomainRequest {
 
 export interface DomainsApiGetDomainRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof DomainsApigetDomain
@@ -853,7 +978,7 @@ export interface DomainsApiListDomainsRequest {
 
 export interface DomainsApiRegisterDomainRequest {
     /**
-     * 
+     *
      * @type RegisterDomainRequest
      * @memberof DomainsApiregisterDomain
      */
@@ -862,7 +987,7 @@ export interface DomainsApiRegisterDomainRequest {
 
 export interface DomainsApiVerifyDomainRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof DomainsApiverifyDomain
@@ -970,7 +1095,7 @@ import { EventsApiRequestFactory, EventsApiResponseProcessor} from "../apis/Even
 
 export interface EventsApiGetEventRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof EventsApigetEvent
@@ -980,28 +1105,28 @@ export interface EventsApiGetEventRequest {
 
 export interface EventsApiListEventsRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof EventsApilistEvents
      */
     type?: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof EventsApilistEvents
      */
     agentEmail?: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof EventsApilistEvents
      */
     conversationId?: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof EventsApilistEvents
@@ -1022,14 +1147,14 @@ export interface EventsApiListEventsRequest {
      */
     until?: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof EventsApilistEvents
      */
     cursor?: string
     /**
-     * 
+     *
      * Minimum: 1
      * Maximum: 100
      * Defaults to: 100
@@ -1041,14 +1166,14 @@ export interface EventsApiListEventsRequest {
 
 export interface EventsApiRedeliverEventRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof EventsApiredeliverEvent
      */
     id: string
     /**
-     * 
+     *
      * @type RedeliverEventRequest
      * @memberof EventsApiredeliverEvent
      */
@@ -1152,21 +1277,21 @@ export interface MessagesApiDeleteMessageRequest {
 
 export interface MessagesApiForwardMessageRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApiforwardMessage
      */
     email: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApiforwardMessage
      */
     id: string
     /**
-     * 
+     *
      * @type ForwardRequest
      * @memberof MessagesApiforwardMessage
      */
@@ -1189,21 +1314,21 @@ export interface MessagesApiForwardMessageRequest {
 
 export interface MessagesApiGetAttachmentRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApigetAttachment
      */
     email: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApigetAttachment
      */
     id: string
     /**
-     * 
+     *
      * Minimum: 0
      * Defaults to: undefined
      * @type number
@@ -1238,7 +1363,7 @@ export interface MessagesApiGetMessageRequest {
 
 export interface MessagesApiListMessagesRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApilistMessages
@@ -1280,7 +1405,7 @@ export interface MessagesApiListMessagesRequest {
      */
     subjectContains?: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApilistMessages
@@ -1308,14 +1433,14 @@ export interface MessagesApiListMessagesRequest {
      */
     until?: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApilistMessages
      */
     cursor?: string
     /**
-     * 
+     *
      * Minimum: 1
      * Maximum: 100
      * Defaults to: 100
@@ -1334,21 +1459,21 @@ export interface MessagesApiListMessagesRequest {
 
 export interface MessagesApiReplyToMessageRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApireplyToMessage
      */
     email: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApireplyToMessage
      */
     id: string
     /**
-     * 
+     *
      * @type ReplyRequest
      * @memberof MessagesApireplyToMessage
      */
@@ -1388,14 +1513,14 @@ export interface MessagesApiRestoreMessageRequest {
 
 export interface MessagesApiSendMessageRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApisendMessage
      */
     email: string
     /**
-     * 
+     *
      * @type SendEmailRequest
      * @memberof MessagesApisendMessage
      */
@@ -1418,21 +1543,21 @@ export interface MessagesApiSendMessageRequest {
 
 export interface MessagesApiUpdateMessageRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApiupdateMessage
      */
     email: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApiupdateMessage
      */
     id: string
     /**
-     * 
+     *
      * @type UpdateMessageRequest
      * @memberof MessagesApiupdateMessage
      */
@@ -1648,14 +1773,14 @@ import { ReviewsApiRequestFactory, ReviewsApiResponseProcessor} from "../apis/Re
 
 export interface ReviewsApiApproveReviewRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof ReviewsApiapproveReview
      */
     id: string
     /**
-     * 
+     *
      * @type ApproveRequest
      * @memberof ReviewsApiapproveReview
      */
@@ -1671,7 +1796,7 @@ export interface ReviewsApiApproveReviewRequest {
 
 export interface ReviewsApiGetReviewRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof ReviewsApigetReview
@@ -1700,14 +1825,14 @@ export interface ReviewsApiListReviewsRequest {
 
 export interface ReviewsApiRejectReviewRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof ReviewsApirejectReview
      */
     id: string
     /**
-     * 
+     *
      * @type RejectRequest
      * @memberof ReviewsApirejectReview
      */
@@ -1800,7 +1925,7 @@ import { TemplatesApiRequestFactory, TemplatesApiResponseProcessor} from "../api
 
 export interface TemplatesApiCreateTemplateRequest {
     /**
-     * 
+     *
      * @type CreateTemplateRequest
      * @memberof TemplatesApicreateTemplate
      */
@@ -1809,7 +1934,7 @@ export interface TemplatesApiCreateTemplateRequest {
 
 export interface TemplatesApiDeleteTemplateRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof TemplatesApideleteTemplate
@@ -1836,7 +1961,7 @@ export interface TemplatesApiGetStarterTemplateRequest {
 
 export interface TemplatesApiGetTemplateRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof TemplatesApigetTemplate
@@ -1884,14 +2009,14 @@ export interface TemplatesApiListTemplatesRequest {
 
 export interface TemplatesApiUpdateTemplateRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof TemplatesApiupdateTemplate
      */
     id: string
     /**
-     * 
+     *
      * @type UpdateTemplateRequest
      * @memberof TemplatesApiupdateTemplate
      */
@@ -1900,7 +2025,7 @@ export interface TemplatesApiUpdateTemplateRequest {
 
 export interface TemplatesApiValidateTemplateRequest {
     /**
-     * 
+     *
      * @type ValidateTemplateRequest
      * @memberof TemplatesApivalidateTemplate
      */
@@ -2065,7 +2190,7 @@ import { WebhooksApiRequestFactory, WebhooksApiResponseProcessor} from "../apis/
 
 export interface WebhooksApiCreateWebhookRequest {
     /**
-     * 
+     *
      * @type CreateWebhookRequest
      * @memberof WebhooksApicreateWebhook
      */
@@ -2081,7 +2206,7 @@ export interface WebhooksApiCreateWebhookRequest {
 
 export interface WebhooksApiDeleteWebhookRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof WebhooksApideleteWebhook
@@ -2098,7 +2223,7 @@ export interface WebhooksApiDeleteWebhookRequest {
 
 export interface WebhooksApiGetWebhookRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof WebhooksApigetWebhook
@@ -2108,14 +2233,14 @@ export interface WebhooksApiGetWebhookRequest {
 
 export interface WebhooksApiListWebhookDeliveriesRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof WebhooksApilistWebhookDeliveries
      */
     id: string
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type &#39;pending&#39; | &#39;delivered&#39; | &#39;failed&#39;
      * @memberof WebhooksApilistWebhookDeliveries
@@ -2129,7 +2254,7 @@ export interface WebhooksApiListWebhookDeliveriesRequest {
      */
     cursor?: string
     /**
-     * 
+     *
      * Minimum: 1
      * Maximum: 100
      * Defaults to: 100
@@ -2160,7 +2285,7 @@ export interface WebhooksApiListWebhooksRequest {
 
 export interface WebhooksApiRotateWebhookSecretRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof WebhooksApirotateWebhookSecret
@@ -2177,14 +2302,14 @@ export interface WebhooksApiRotateWebhookSecretRequest {
 
 export interface WebhooksApiTestWebhookRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof WebhooksApitestWebhook
      */
     id: string
     /**
-     * 
+     *
      * @type TestWebhookRequest
      * @memberof WebhooksApitestWebhook
      */
@@ -2193,14 +2318,14 @@ export interface WebhooksApiTestWebhookRequest {
 
 export interface WebhooksApiUpdateWebhookRequest {
     /**
-     * 
+     *
      * Defaults to: undefined
      * @type string
      * @memberof WebhooksApiupdateWebhook
      */
     id: string
     /**
-     * 
+     *
      * @type UpdateWebhookRequest
      * @memberof WebhooksApiupdateWebhook
      */

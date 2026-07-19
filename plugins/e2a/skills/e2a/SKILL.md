@@ -1,12 +1,12 @@
 ---
 name: e2a
 description: Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, handling the human-in-the-loop review hold (pending_review), managing agents and custom domains, or working with attachments — OR when integrating e2a into your own software/service (the developer email-API use case: API keys, SDKs, webhooks). With e2a YOU are the agent and the inbox IS the agent (not a human reading their mail). Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, the protection (screening + review) config, programmatic integration, and common gotchas.
-version: 16
+version: 17
 ---
 
 # Using e2a
 
-<!-- version: 16 -->
+<!-- version: 17 -->
 
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), threads conversations, and optionally holds outbound mail for human review.
 
@@ -33,9 +33,14 @@ Seven load-bearing facts. Internalize these before you start calling tools.
 
 3. **`pending_review` is success, not failure.** When the agent's protection config holds outbound mail, a send returns `{ status: "pending_review", message_id: "msg_..." }`. The message was accepted by the server and is being held for a human to review. Do NOT retry. Do NOT report this as an error to the user. Tell them the draft was queued for review, and (if asked) check on it via the pending tools.
 
-4. **Multi-agent accounts need `agent_email` per call.** If the account owns exactly one agent (the common case), tools auto-resolve to it — `whoami` is the cheapest way to confirm. If the account owns more than one, you'll get "agentEmail required." The fix is to enumerate once (`list_agents`), then pass `agent_email` explicitly to subsequent calls. Don't guess; don't pick at random; don't ask the user to pick if context already makes the choice obvious (e.g. they said "my support inbox").
+4. **Account-scoped sessions need an explicit inbox.** `whoami` tells you the
+credential scope and returns `agent_email` only for an agent-scoped credential.
+An account-scoped MCP session never guesses a default, even when the account has
+one inbox: enumerate once with `list_agents`, then pass the tool's `email` field
+explicitly. Don't guess or pick at random; use the user's stated context when it
+clearly identifies an inbox.
 
-5. **Most users don't need a custom domain — default to the shared one.** Every account can create agents on the shared `agents.e2a.dev` domain with zero DNS setup: `create_agent` with just a local part (e.g. `support-bot`) yields `support-bot@agents.e2a.dev`, live immediately. This is the right default for onboarding and for anyone who doesn't already **own** a domain. Only reach for a custom domain when the user explicitly owns a domain and wants branded addresses — if they don't own one, stay on `agents.e2a.dev` and skip the domain flow entirely. Don't send a user who just wants to get started down the DNS dance.
+5. **Most users don't need a custom domain — default to the shared one.** Every account can create agents on the shared `agents.e2a.dev` domain with zero DNS setup: call `create_agent` with the full address (for example, `support-bot@agents.e2a.dev`), and it is live immediately. This is the right default for onboarding and for anyone who doesn't already **own** a domain. Only reach for a custom domain when the user explicitly owns a domain and wants branded addresses — if they don't own one, stay on `agents.e2a.dev` and skip the domain flow entirely. Don't send a user who just wants to get started down the DNS dance.
 
 6. **Custom domains are a two-step async dance.** `register_domain` returns DNS records (MX + TXT) to publish — it does NOT make the domain live. The user (or a DNS-provider MCP, if one is loaded) must add those records out-of-band, wait for DNS propagation (minutes to hours), then `verify_domain`. Verification is idempotent and safe to retry. Until verification succeeds, the domain cannot send or receive mail. Don't promise the user their domain works the moment registration returns.
 
@@ -47,10 +52,11 @@ Seven load-bearing facts. Internalize these before you start calling tools.
 
 Before driving any e2a task or harness, check whether this is a **new/unconfigured user** and, if so, get them to a working setup instead of failing partway. One cheap probe answers it: call `whoami`.
 
-- **`whoami` errors with auth/connection failure** → not connected over MCP yet. Point the user at connecting the e2a plugin and completing OAuth: open **https://e2a.dev/e2a.md** (the connect guide) and, in Claude Code, run `/plugin` to authenticate. Interactive auth is theirs to complete — hand them the step, don't try to drive it. Once connected, continue.
-- **`whoami` succeeds but the account has no agent** (or `list_agents` is empty) → connected, but no inbox exists. Create their first one on the shared domain with `create_agent` (local part only → `name@agents.e2a.dev`, live immediately — see mental-model fact #5). No custom domain, no DNS.
-- **`whoami` returns an agent** → already set up; proceed straight to the task.
-
+- **`whoami` errors with auth/connection failure** → not connected over MCP yet. Point the user at connecting the e2a plugin and completing OAuth: open **https://e2a.dev/e2a.md** (the connect guide) and, in Claude Code, run `/mcp` to authenticate. Interactive auth is theirs to complete — hand them the step, don't try to drive it. Once connected, continue.
+- **`whoami` succeeds** → inspect its `scope`. An agent-scoped credential includes
+  its bound `agent_email`. For account scope, call `list_agents`; if it is empty,
+  create the first shared-domain inbox with the full address
+  `name@agents.e2a.dev` (see mental-model fact #5). No custom domain, no DNS.
 The through-line: for a first-time user, **help them stand up a functional e2a setup first** (connect → create a shared-domain inbox), then run the harness — rather than assuming credentials and erroring. Default new inboxes to `agents.e2a.dev`; only involve a custom domain if the user owns one and asks for it.
 
 ### Triage the inbox
@@ -88,11 +94,14 @@ The flow is copy once, send many:
 
 ```json
 { "to": ["owner@acme.com"], "template_alias": "run-report",
-  "template_data": { "agent_name": "deploy-bot", "status": "success",
-                     "summary": "3 services deployed", "sections_html": "<ul><li>api: ok</li></ul>" } }
+  "template_data": { "company_name": "Acme", "support_email": "ops@acme.com",
+    "company_address": "100 Main St, San Francisco, CA 94105",
+    "agent_name": "deploy-bot", "run_summary": "3 services deployed, 0 failed",
+    "sections_html": "<p>api: ok</p>", "sections_text": "api: ok",
+    "dashboard_url": "https://app.acme.com/runs/123" } }
 ```
 
-Syntax is a flat Mustache subset: `{{var}}` (HTML-escaped in the HTML part), `{{{var}}}` raw, dot paths into nested data — no loops or conditionals. **Missing variables render as empty strings, silently.** Preview with `validate_template` (its `suggestedData` names every variable the source references) instead of discovering blanks in sent mail. List/table content goes through raw `{{{…_html}}}` fragment slots: you build the HTML fragment, and you must HTML-escape any user-supplied text inside it — raw slots bypass escaping.
+Syntax is a small Mustache-like subset: `{{var}}` (HTML-escaped in the HTML part), `{{{var}}}` raw, and dot paths into nested data — no loops or conditionals. **Missing variables render as empty strings, silently.** Preview with `validate_template` (its `suggestedData` names every variable the source references) instead of discovering blanks in sent mail. List/table content goes through raw `{{{…_html}}}` fragment slots: you build the HTML fragment, and you must HTML-escape any user-supplied text inside it — raw slots bypass escaping.
 
 **Approval links must be confirmation pages.** For `approval-request`, `approve_url` / `reject_url` must point to pages that require an explicit human click to act — never state-changing GET endpoints. Email security scanners prefetch every link in a message, so a GET-to-approve URL gets "approved" by a robot before the human ever opens the mail.
 
@@ -174,7 +183,7 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 - **Destructive ops require `confirm: true`.** `delete_agent` and `delete_domain` refuse without explicit confirmation. This is a guard against hallucinated deletes; pass it only when the user has clearly asked for the destructive action.
 - **`approve_review` with `attachments: []` strips attachments.** An omitted `attachments` field keeps the original draft's attachments; an explicit empty array removes them. Same shape applies to other override fields — omit to keep, specify (including empty) to override.
 - **Held bodies are scrubbed after the terminal transition.** `get_review` returns the full body only while status is `pending_review`. Once it reaches a terminal state (`sent`, `review_rejected`, `review_expired_approved`, `review_expired_rejected`), body columns are wiped server-side for compliance.
-- **Token expiry on OAuth flows.** The hosted MCP runs over OAuth; if a tool starts erroring with auth failures across multiple calls, the refresh token has likely expired — re-auth via `/plugin` in Claude Code.
+- **Token expiry on OAuth flows.** The hosted MCP runs over OAuth; if a tool starts erroring with auth failures across multiple calls, the token may have expired or been revoked — re-auth via `/mcp` in Claude Code.
 
 ## When NOT to use a tool
 

@@ -84,7 +84,7 @@ with E2AClient() as client:
     for m in client.messages.list(address, read_status="unread"):
         email = client.messages.get(address, m.id)
         print(email.subject)
-        client.messages.reply(address, m.id, {"body": "Got it!"})
+        client.messages.reply(address, m.id, {"text": "Got it!"})
 ```
 
 The sync client must not be used from async code — any call made while an
@@ -106,7 +106,7 @@ async def main():
         async for m in client.messages.list(address, read_status="unread"):
             email = await client.messages.get(address, m.id)
             print(email.subject)
-            await client.messages.reply(address, m.id, {"body": "Got it!"})
+            await client.messages.reply(address, m.id, {"text": "Got it!"})
 
 asyncio.run(main())
 ```
@@ -117,8 +117,8 @@ asyncio.run(main())
 await client.messages.send(address, {
     "to": ["alice@example.com"],
     "subject": "Hello",
-    "body": "Hi from my agent!",
-    "html_body": "<p>Hi!</p>",
+    "text": "Hi from my agent!",
+    "html": "<p>Hi!</p>",
 })
 ```
 
@@ -132,6 +132,47 @@ await client.messages.send(address, body, idempotency_key=derive_from(event))
 
 Request bodies accept a plain `dict` (shown above) or the generated model
 (`from e2a.v1 import SendEmailRequest`).
+
+### Managed unsubscribe (beta)
+
+Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe.
+This capability, the agent-scoped suppression management methods, and the raw
+`GET|POST /u/{token}` confirmation flow are beta and may change before stable:
+
+```python
+await client.messages.send("sender@example.com", {
+    "to": ["recipient@example.net"],
+    "subject": "Update",
+    "text": "Hello",
+    "unsubscribe": {"mode": "managed"},
+})
+```
+
+Omitting `unsubscribe` means only that e2a does not add managed unsubscribe
+handling; it does not classify the message as transactional. Managed messages
+must have exactly one normalized envelope recipient across To, CC, and BCC.
+e2a manages the token and confirmation page, adds a visible footer plus
+`List-Unsubscribe` and `List-Unsubscribe-Post`, and signs those headers.
+
+An unsubscribe blocks that recipient only for the exact sending agent; sibling
+agents remain allowed. Account suppressions still block every agent, and a
+future blocked send raises the existing `422 recipient_suppressed` error.
+Account-scoped credentials can manage the exact-agent list:
+
+```python
+blocks = client.agents.list_suppressions("sender@example.com")
+await client.agents.create_suppression(
+    "sender@example.com",
+    {"address": "recipient@example.net", "reason": "recipient opted out"},
+)
+await client.agents.delete_suppression(
+    "sender@example.com", "recipient@example.net"
+)
+```
+
+The typed delete supplies the REST API's required `confirm=DELETE` guard.
+New blocks emit the beta `agent.suppression_added` event with
+`agent_email`, `address`, and `source`.
 
 ### Verify a webhook
 
@@ -161,7 +202,9 @@ During a rotation you can pass a list of secrets — accepted if any matches:
 
 `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
 `client.events`, `client.webhooks`, `client.account` (with
-`client.account.suppressions`), plus `await client.info()`. Each method maps to
+`client.account.suppressions`), plus `await client.info()`. Agent-scoped
+recipient blocks are managed through `client.agents.list_suppressions`,
+`create_suppression`, and `delete_suppression`. Each method maps to
 a `/v1` operation; per-agent methods take the agent `address` first.
 
 The sync `E2AClient` exposes the **same resource tree** — drop the `await`.
@@ -288,7 +331,7 @@ you want to thread.
 await client.messages.send(address, {
     "to": ["alice@example.com"],
     "subject": "Hello",
-    "body": "Hi from my agent!",
+    "text": "Hi from my agent!",
     "conversation_id": "thread-42",
 })
 

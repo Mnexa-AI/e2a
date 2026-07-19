@@ -17,7 +17,8 @@ this app
     +-- construct_event (verify HMAC + decode to a typed event)
     +-- look up / create ADK session keyed by conversation_id
     +-- runner.run_async(...)
-    +-- client.messages.reply(address, message_id, {text, conversation_id})
+    +-- client.messages.reply(address, message_id, {text, conversation_id},
+    |                         idempotency_key=event.id)
     |
     v
 e2a relay -> SMTP -> human
@@ -27,16 +28,17 @@ e2a relay -> SMTP -> human
 
 - Python 3.10+
 - An e2a account with a registered agent. Sign up at
-  [e2a.dev](https://e2a.dev) and create an agent. You'll need its
-  **API key** and a public webhook URL (see "Exposing the webhook"
-  below). The webhook's **HMAC signing secret** is returned once when you
-  create the subscription (`POST /v1/webhooks` — copy it the moment it's
-  shown, it's not retrievable later; rotate via
-  `POST /v1/webhooks/{id}/rotate-secret`).
+  [e2a.dev](https://e2a.dev) and create an agent. The running app should use an
+  **agent-scoped API key** bound to that inbox for fetch + reply. Creating the
+  webhook subscription is an account-admin operation and requires a separate
+  **account-scoped API key**. The webhook's **HMAC signing secret** is returned
+  once by `POST /v1/webhooks` — copy it immediately; rotate it later with
+  `POST /v1/webhooks/{id}/rotate-secret`.
 - A Google AI Studio API key for Gemini —
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
-> **ADK line:** this example pins ADK 1.x (`google-adk>=1.31,<2`); the MCP
+> **Version lines:** this example pins ADK 1.x (`google-adk>=1.31,<2`) and
+> targets the current e2a 5.x SDK contract. The MCP
 > quick-start example under [`mcp/examples/adk`](../../mcp/examples/adk/)
 > targets ADK 2.x. They intentionally track different ADK releases.
 
@@ -75,12 +77,13 @@ ngrok http 18080
 ```
 
 Subscribe that public URL to your agent's inbound mail. Webhooks are a separate
-resource (`/v1/webhooks`) — pass the agent's address as a filter (replace
-`<YOUR_AGENT_EMAIL>` and `<YOUR_API_KEY>`):
+resource (`/v1/webhooks`) — pass the agent's address as a filter. This setup
+call requires an account-scoped key; the app itself can keep using its narrower
+agent-scoped key. Replace `<YOUR_AGENT_EMAIL>` and `<YOUR_ACCOUNT_API_KEY>`:
 
 ```bash
 curl -X POST https://api.e2a.dev/v1/webhooks \
-  -H "Authorization: Bearer <YOUR_API_KEY>" \
+  -H "Authorization: Bearer <YOUR_ACCOUNT_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://abc123.ngrok.io/webhook",
@@ -103,11 +106,12 @@ Email is stateless at the SMTP layer. e2a re-creates threading by
 propagating an opaque `conversation_id` through each round-trip:
 
 1. **First inbound** has `conversation_id = None` (the human just
-   started a thread). The webhook mints `conv_<random>` and uses it as
-   the ADK `session_id` when creating the session.
+   started a thread). The webhook derives a stable `conv_<event-id-prefix>`
+   anchor and uses it as the ADK `session_id`. A retry derives the same value,
+   so it also reuses an identical reply request body and idempotency key.
 2. The webhook calls `client.messages.reply(address, message_id,
-   {"text": text, "conversation_id": "conv_<random>"})`. e2a stamps
-   `X-E2A-Conversation-Id: conv_<random>` on the outbound message and
+   {"text": text, "conversation_id": "conv_<event-id-prefix>"})`. e2a stamps
+   that value into `X-E2A-Conversation-Id` on the outbound message and
    remembers the binding to the message ID.
 3. **Subsequent inbound** (the human replies in their mail client) lands
    with the same `conversation_id` set — recovered from `In-Reply-To` /
@@ -118,6 +122,12 @@ propagating an opaque `conversation_id` through each round-trip:
 This is the entire trick. The webhook is ~30 lines of business logic;
 ADK does the actual memory work, e2a does the actual email work.
 
+e2a delivers webhooks at least once. The example claims each event ID before
+running ADK and reuses that ID as the reply's `Idempotency-Key`, so a timed-out
+delivery cannot send the same reply twice in the single-process demo. A
+duplicate that is still running receives a retryable 503; a completed duplicate
+is acknowledged without another agent turn.
+
 See [webhook.py](webhook.py) for the implementation, including
 [HMAC signature verification](https://github.com/tokencanopy/e2a/blob/main/sdks/python/README.md#quick-start)
 which you should *always* do on a public webhook before trusting any
@@ -125,19 +135,21 @@ field on the parsed payload.
 
 ## What this example deliberately doesn't show
 
-- **Persistence + multi-worker safety.** `InMemorySessionService` loses
-  everything on restart. It also lives in *one* Python process — running
-  `uvicorn ... --workers 4` shards sessions per-worker, so the same
-  conversation can land on different workers and lose memory at random.
-  For anything beyond the demo, use `DatabaseSessionService` (Postgres /
-  SQLite) — see [ADK sessions docs](https://adk.dev/sessions/session/).
+- **Durable sessions + event deduplication.** `InMemorySessionService` and the
+  example's `EventDeduper` both lose state on restart and live in one process.
+  Running `uvicorn ... --workers 4` shards both, so a conversation or duplicate
+  delivery can land on different workers. For production, use
+  `DatabaseSessionService` (Postgres / SQLite) and replace `EventDeduper` with a
+  durable unique claim keyed by `event.id`; keep the event-derived reply
+  idempotency key. See [ADK sessions docs](https://adk.dev/sessions/session/).
 - **Tools.** The agent has no tools beyond text generation. Add them to
   `agent.py` once the email loop works end-to-end.
-- **Attachments.** Attachment metadata lives on the `MessageView` you
-  fetch with `client.messages.get(address, message_id)` (the typed event
-  from `construct_event` carries the message payload); this example
-  ignores it. ADK's `Content` supports inline data parts if you want to
-  feed attachments to a vision model.
+- **Attachments.** The verified event carries attachment metadata only. The
+  `MessageView` fetched with `client.webhooks.fetch_message(event)` carries the
+  parsed body and attachment metadata; fetch attachment bytes separately with
+  `client.messages.get_attachment(...)`. This example ignores them. ADK's
+  `Content` supports inline data parts if you want to feed attachments to a
+  vision model.
 - **HITL.** The agent replies immediately. If you want human approval
   before the reply goes out, enable review holds on the agent's
   protection config (`PUT /v1/agents/{address}/protection`,

@@ -95,12 +95,12 @@ func walkEnums(node any, fn func([]string)) {
 }
 
 // looksLikeEventEnum reports whether an enum touches the webhook event namespace
-// (any value prefixed email. / domain.). Used to identify event enums by
+// (any value prefixed email. / domain. / agent.). Used to identify event enums by
 // membership rather than a single marker value, so the gate can't be evaded by a
 // copy that omits one particular value.
 func looksLikeEventEnum(enum []string) bool {
 	for _, v := range enum {
-		if strings.HasPrefix(v, "email.") || strings.HasPrefix(v, "domain.") {
+		if strings.HasPrefix(v, "email.") || strings.HasPrefix(v, "domain.") || strings.HasPrefix(v, "agent.") {
 			return true
 		}
 	}

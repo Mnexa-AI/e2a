@@ -14,6 +14,10 @@ export { E2AClient } from "./client.js";
 export type {
   E2AClientOptions,
   RequestOptions,
+  ManagedUnsubscribeOptions,
+  SendEmailInput,
+  ReplyInput,
+  ForwardInput,
   ListMessagesParams,
   ListEventsParams,
 } from "./client.js";

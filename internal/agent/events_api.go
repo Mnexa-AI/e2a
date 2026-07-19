@@ -9,9 +9,26 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
+
+// AgentSuppressionAddedHook returns the transactional event hook used by both
+// authenticated management and public unsubscribe insertion paths.
+func AgentSuppressionAddedHook(outbox webhookpub.Outbox) identity.AgentSuppressionTxHook {
+	return func(ctx context.Context, tx pgx.Tx, scope identity.AgentSuppressionHookScope) error {
+		e := webhookpub.NewEvent(webhookpub.EventAgentSuppressionAdded, scope.UserID, eventpayload.AgentSuppressionAddedData{
+			AgentEmail: scope.AgentID,
+			Address:    scope.Address,
+			Source:     scope.Source,
+		})
+		e.AgentID = scope.AgentID
+		return outbox.PublishTx(ctx, tx, e)
+	}
+}
 
 // Slice 6: customer-facing event log API.
 //
@@ -34,14 +51,14 @@ func (a *API) SetPoolForEvents(p *pgxpool.Pool) { a.eventsPool = p }
 // GET /events/{id}. Mirrors design §4.6.
 type eventView struct {
 	ID             string                 `json:"id"`
-	Type           string                 `json:"type" doc:"Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Stable types have frozen data schemas — see the data field."`
+	Type           string                 `json:"type" doc:"Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added, agent.suppression_added. Stable types have frozen data schemas — see the data field."`
 	SchemaVersion  string                 `json:"schema_version" doc:"Envelope schema version — a semver-ish string label (currently \"1\")."`
 	CreatedAt      time.Time              `json:"created_at"`
 	AgentID        *string                `json:"agent_email,omitempty"`
 	ConversationID *string                `json:"conversation_id,omitempty"`
 	MessageID      *string                `json:"message_id,omitempty"`
 	Status         string                 `json:"status" doc:"Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match."`
-	Data           map[string]interface{} `json:"data" doc:"Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas: email.received → EmailReceivedData, email.sent → EmailSentData, email.failed → EmailFailedData, email.delivered → EmailDeliveredData, email.bounced → EmailBouncedData, email.complained → EmailComplainedData, domain.sending_verified → DomainSendingVerifiedData, domain.sending_failed → DomainSendingFailedData, domain.suppression_added → DomainSuppressionAddedData. The beta events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) have open payloads that may change before they are declared stable."`
+	Data           map[string]interface{} `json:"data" doc:"Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas. Beta events, including agent.suppression_added, have payloads that may change before they are declared stable."`
 	DeliveryStatus *deliveryStatusJSON    `json:"delivery_status,omitempty"`
 }
 

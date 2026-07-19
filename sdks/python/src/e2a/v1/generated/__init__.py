@@ -42,6 +42,8 @@ __all__ = [
     "AccountUserView",
     "AccountView",
     "AgentIdentity",
+    "AgentSuppressionAddedData",
+    "AgentSuppressionView",
     "AgentView",
     "ApproveRequest",
     "Attachment",
@@ -54,6 +56,7 @@ __all__ = [
     "CreateAPIKeyRequest",
     "CreateAPIKeyResponse",
     "CreateAgentRequest",
+    "CreateAgentSuppressionRequest",
     "CreateTemplateRequest",
     "CreateWebhookRequest",
     "CreateWebhookResponse",
@@ -98,6 +101,7 @@ __all__ = [
     "MessageView",
     "OAuthConnectionEntry",
     "PageAPIKeyView",
+    "PageAgentSuppressionView",
     "PageAgentView",
     "PageConversationSummaryView",
     "PageDomainView",
@@ -151,6 +155,7 @@ __all__ = [
     "TestWebhookResponse",
     "ThreatCategoryView",
     "TooManyRecipientsDetails",
+    "UnsubscribeOptions",
     "UpdateAgentRequest",
     "UpdateMessageRequest",
     "UpdateMessageResultView",
@@ -198,6 +203,8 @@ from e2a.v1.generated.models.api_key_view import APIKeyView as APIKeyView
 from e2a.v1.generated.models.account_user_view import AccountUserView as AccountUserView
 from e2a.v1.generated.models.account_view import AccountView as AccountView
 from e2a.v1.generated.models.agent_identity import AgentIdentity as AgentIdentity
+from e2a.v1.generated.models.agent_suppression_added_data import AgentSuppressionAddedData as AgentSuppressionAddedData
+from e2a.v1.generated.models.agent_suppression_view import AgentSuppressionView as AgentSuppressionView
 from e2a.v1.generated.models.agent_view import AgentView as AgentView
 from e2a.v1.generated.models.approve_request import ApproveRequest as ApproveRequest
 from e2a.v1.generated.models.attachment import Attachment as Attachment
@@ -210,6 +217,7 @@ from e2a.v1.generated.models.conversation_summary_view import ConversationSummar
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest as CreateAPIKeyRequest
 from e2a.v1.generated.models.create_api_key_response import CreateAPIKeyResponse as CreateAPIKeyResponse
 from e2a.v1.generated.models.create_agent_request import CreateAgentRequest as CreateAgentRequest
+from e2a.v1.generated.models.create_agent_suppression_request import CreateAgentSuppressionRequest as CreateAgentSuppressionRequest
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest as CreateTemplateRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse as CreateWebhookResponse
@@ -254,6 +262,7 @@ from e2a.v1.generated.models.message_summary_view import MessageSummaryView as M
 from e2a.v1.generated.models.message_view import MessageView as MessageView
 from e2a.v1.generated.models.o_auth_connection_entry import OAuthConnectionEntry as OAuthConnectionEntry
 from e2a.v1.generated.models.page_api_key_view import PageAPIKeyView as PageAPIKeyView
+from e2a.v1.generated.models.page_agent_suppression_view import PageAgentSuppressionView as PageAgentSuppressionView
 from e2a.v1.generated.models.page_agent_view import PageAgentView as PageAgentView
 from e2a.v1.generated.models.page_conversation_summary_view import PageConversationSummaryView as PageConversationSummaryView
 from e2a.v1.generated.models.page_domain_view import PageDomainView as PageDomainView
@@ -307,6 +316,7 @@ from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest as T
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse as TestWebhookResponse
 from e2a.v1.generated.models.threat_category_view import ThreatCategoryView as ThreatCategoryView
 from e2a.v1.generated.models.too_many_recipients_details import TooManyRecipientsDetails as TooManyRecipientsDetails
+from e2a.v1.generated.models.unsubscribe_options import UnsubscribeOptions as UnsubscribeOptions
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest as UpdateAgentRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest as UpdateMessageRequest
 from e2a.v1.generated.models.update_message_result_view import UpdateMessageResultView as UpdateMessageResultView

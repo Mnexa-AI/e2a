@@ -217,13 +217,20 @@ func (a *API) magicApprove(w http.ResponseWriter, r *http.Request, messageID, us
 	// reviewer edits, so the stored To/CC/BCC set is the final one. On
 	// refusal the hold stays pending_review (nothing has run yet) and the
 	// reviewer sees why; clearing the suppression makes the same link work.
-	if supErr := a.checkSuppressionStrict(r.Context(), userID, outbound.SendRequest{
-		To: draft.ToRecipients, CC: draft.CC, BCC: draft.BCC,
-	}); supErr != nil {
+	sendReq, buildErr := buildSendRequestFromMessage(draft)
+	if buildErr != nil {
+		writeMagicMessage(w, http.StatusBadRequest, "Cannot send", "The held message is invalid.")
+		return
+	}
+	if supErr := a.checkSuppressionStrict(r.Context(), userID, agent.ID, sendReq); supErr != nil {
 		writeMagicMessage(w, supErr.Status, "Cannot send", html.EscapeString(supErr.Msg))
 		return
 	}
-	sent, handled, aerr := a.approveOutboundAsync(r.Context(), agent, messageID, userID, draft, identity.PendingApprovalEdit{}, nil)
+	if uerr := prepareManagedUnsubscribe(r.Context(), a.unsubscribeIssuer, a.fromDomain, userID, agent, &sendReq, true); uerr != nil {
+		writeMagicMessage(w, uerr.Status, "Cannot send", html.EscapeString(uerr.Msg))
+		return
+	}
+	sent, handled, aerr := a.approveOutboundAsyncWithRequest(r.Context(), agent, messageID, userID, draft, identity.PendingApprovalEdit{}, sendReq, nil)
 	if aerr != nil {
 		writeMagicApproveError(w, messageID, aerr)
 		return
@@ -280,6 +287,9 @@ func writeMagicApproveError(w http.ResponseWriter, messageID string, err error) 
 	case errors.Is(err, identity.ErrNotPendingApproval):
 		writeMagicMessage(w, http.StatusConflict, "Already resolved",
 			"This message has already been approved, rejected, or expired.")
+	case outbound.IsComposedSizeError(err):
+		writeMagicMessage(w, http.StatusRequestEntityTooLarge, "Cannot send",
+			"The composed message is too large. Trim it and approve again from the dashboard.")
 	default:
 		var ve *outbound.ValidationError
 		if errors.As(err, &ve) {

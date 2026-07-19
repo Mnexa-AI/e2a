@@ -82,6 +82,13 @@ type Params struct {
 	// Wired from *webhookdelivery.Jobs.EnqueueDelivery in the binary. Optional —
 	// nil in minimal test setups with no River client.
 	EnqueueDelivery func(ctx context.Context, deliveryID string) error
+
+	// AgentSuppressionAddedHook writes the beta suppression event in the same
+	// transaction as any newly inserted agent suppression, whether it came from
+	// authenticated management or a recipient token. Optional until the event
+	// slice is wired by the caller.
+	AgentSuppressionAddedHook identity.AgentSuppressionTxHook
+	ManagedUnsubscribeIssuer  agent.ManagedUnsubscribeIssuer
 }
 
 // SenderIdentityEnqueuer is the slice of *senderidentity.Manager apiserver
@@ -95,11 +102,14 @@ type SenderIdentityEnqueuer interface {
 // BuildDeps maps Params into the httpapi dependency set. Kept as the single
 // definition of the /v1 wiring so production and tests cannot diverge.
 func BuildDeps(p Params) httpapi.Deps {
+	if p.API != nil {
+		p.API.SetManagedUnsubscribeIssuer(p.ManagedUnsubscribeIssuer)
+	}
 	var rampSnapshot func(context.Context, string, string, time.Time) (sendramp.Snapshot, error)
 	if p.Pool != nil {
 		rampSnapshot = sendramp.NewStore(p.Pool).Snapshot
 	}
-	return httpapi.Deps{
+	deps := httpapi.Deps{
 		Authenticator:          p.API.AuthenticateUser,
 		PrincipalAuthenticator: p.API.AuthenticatePrincipal,
 		AuthChallenge:          p.API.WWWAuthenticateChallenge,
@@ -148,40 +158,44 @@ func BuildDeps(p Params) httpapi.Deps {
 		RestoreMessage:       p.Store.RestoreMessage,
 		PurgeMessage:         p.Store.PurgeMessage,
 
-		ListDomains:          p.Store.ListDomainsByUser,
-		SendingRampSnapshot:  rampSnapshot,
-		ClaimDomain:          p.Store.ClaimOrCreateDomain,
-		EnforceDomainCreate:  p.Enforcer.CheckDomainCreate,
-		DeleteDomain:         deleteDomainFunc(p),
-		HasAgentsOnDomain:    p.Store.HasAgentsOnDomain,
-		SMTPDomain:           p.SMTPDomain,
-		SESRegion:            p.SESRegion,
-		CursorSecret:         p.SigningSecret,
-		EventsEnabled:        p.EventsEnabled,
-		Idempotency:          p.Idempotency,
-		DeliverOutbound:      p.API.DeliverOutbound,
-		SendTest:             p.API.SendTestCore,
-		PollSendOutcome:      p.Store.GetSendOutcome,
-		ApprovePending:       p.API.ApprovePendingCore,
-		SendLimit:            p.API.SendLimitAllow,
-		PollLimit:            p.API.PollLimitAllow,
-		RegLimit:             p.API.RegLimitAllow,
-		DownloadLimit:        p.API.DownloadLimitAllow,
-		RejectPending:        p.API.RejectPendingCore,
-		GetReviewMessage:     p.Store.GetReviewMessage,
-		ApproveInboundReview: p.API.ApproveInboundReviewCore,
-		RejectInboundReview:  p.API.RejectInboundReviewCore,
-		ListReviews:          p.Store.ListReviews,
-		GetReviewWithContent: p.Store.GetReviewWithContent,
+		ListDomains:            p.Store.ListDomainsByUser,
+		SendingRampSnapshot:    rampSnapshot,
+		ClaimDomain:            p.Store.ClaimOrCreateDomain,
+		EnforceDomainCreate:    p.Enforcer.CheckDomainCreate,
+		DeleteDomain:           deleteDomainFunc(p),
+		HasAgentsOnDomain:      p.Store.HasAgentsOnDomain,
+		SMTPDomain:             p.SMTPDomain,
+		SESRegion:              p.SESRegion,
+		CursorSecret:           p.SigningSecret,
+		EventsEnabled:          p.EventsEnabled,
+		Idempotency:            p.Idempotency,
+		DeliverOutbound:        p.API.DeliverOutbound,
+		SendTest:               p.API.SendTestCore,
+		PollSendOutcome:        p.Store.GetSendOutcome,
+		ApprovePending:         p.API.ApprovePendingCore,
+		SendLimit:              p.API.SendLimitAllow,
+		PollLimit:              p.API.PollLimitAllow,
+		RegLimit:               p.API.RegLimitAllow,
+		DownloadLimit:          p.API.DownloadLimitAllow,
+		UnsubscribeLimit:       p.API.UnsubscribeLimitAllow,
+		RejectPending:          p.API.RejectPendingCore,
+		GetReviewMessage:       p.Store.GetReviewMessage,
+		ApproveInboundReview:   p.API.ApproveInboundReviewCore,
+		RejectInboundReview:    p.API.RejectInboundReviewCore,
+		ListReviews:            p.Store.ListReviews,
+		GetReviewWithContent:   p.Store.GetReviewWithContent,
+		EnforceMessageSend:     p.Enforcer.CheckMessageSend,
+		GetRepliableMessage:    p.Store.GetRepliableMessage,
+		GetLimits:              p.Enforcer.Get,
+		ExportUserData:         p.API.ExportUserDataCore,
+		DeleteUserData:         p.API.DeleteUserDataCore,
+		ListSuppressions:       p.Store.ListSuppressions,
+		RemoveSuppression:      p.Store.RemoveSuppression,
+		AddAgentSuppression:    p.Store.AddAgentSuppression,
+		ListAgentSuppressions:  p.Store.ListAgentSuppressions,
+		RemoveAgentSuppression: p.Store.RemoveAgentSuppression,
 
 		ListProtectionEventsByMessage: p.Store.ListProtectionEventsByMessage,
-		EnforceMessageSend:   p.Enforcer.CheckMessageSend,
-		GetRepliableMessage:  p.Store.GetRepliableMessage,
-		GetLimits:            p.Enforcer.Get,
-		ExportUserData:       p.API.ExportUserDataCore,
-		DeleteUserData:       p.API.DeleteUserDataCore,
-		ListSuppressions:     p.Store.ListSuppressions,
-		RemoveSuppression:    p.Store.RemoveSuppression,
 		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
 			var u httpapi.LimitsUsageView
 			if n, err := p.UsageStore.CountAgentsByUser(ctx, userID); err == nil {
@@ -246,6 +260,10 @@ func BuildDeps(p Params) httpapi.Deps {
 		WSHandle:     p.WSHandle,
 		Legacy:       p.Legacy,
 	}
+	deps.ResolveUnsubscribeToken = p.Store.ResolveUnsubscribeToken
+	deps.AddAgentSuppressionFromTokenScope = p.Store.AddAgentSuppressionFromTokenScope
+	deps.AgentSuppressionAddedHook = p.AgentSuppressionAddedHook
+	return deps
 }
 
 // deleteDomainFunc wires DELETE /domains. With SES configured the domain-row

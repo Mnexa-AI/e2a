@@ -7,11 +7,11 @@ server (`https://api.e2a.dev/mcp`, Streamable HTTP + OAuth 2.1):
   `mcpServers` + `url` shape).
 - **`vscode.mcp.json`** — VS Code / GitHub Copilot (`.vscode/mcp.json`; note the
   `servers` key + explicit `type`).
-- **`codex.toml`** — OpenAI Codex CLI (`~/.codex/config.toml`; bridges to the
-  hosted HTTP server via the `mcp-remote` stdio shim).
+- **`codex.toml`** — OpenAI Codex CLI (`~/.codex/config.toml`; native remote
+  Streamable HTTP, followed by `codex mcp login e2a`).
 
 Clients that speak remote MCP take the URL directly and run OAuth in the browser;
-stdio-only clients (Codex, Zed) wrap it with `npx -y mcp-remote …`.
+older or stdio-only clients can wrap it with `npx -y mcp-remote …`.
 
 **Full per-client guide** — Zed, Goose, headless API-key auth, and more:
 https://e2a.dev/e2a.md (the "Connecting other MCP clients" section)

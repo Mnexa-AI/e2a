@@ -39,6 +39,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/senderidentity"
 	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/telemetry"
+	"github.com/tokencanopy/e2a/internal/unsubscribe"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhook"
 	"github.com/tokencanopy/e2a/internal/webhookdelivery"
@@ -354,7 +355,12 @@ func main() {
 	// SetPublisher is called immediately below (before jobs.New, and the registrar
 	// holds this same *Worker pointer), so the publisher is wired well before the
 	// first tick (RunOnStart:false ⇒ first sweep at +60s).
+	managedUnsubscribeIssuer, managedUnsubscribeErr := unsubscribe.NewIssuer(cfg.Signing.HMACSecret, cfg.HTTP.APIURL, cfg.IsProduction(), store)
+	if managedUnsubscribeErr != nil {
+		log.Fatalf("Managed unsubscribe issuer configuration is invalid: %v", managedUnsubscribeErr)
+	}
 	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
+	hitlWorker.SetManagedUnsubscribeIssuer(managedUnsubscribeIssuer)
 	// Fire review_approved/review_rejected on TTL auto-resolution, so a hold resolved
 	// by timeout notifies subscribers exactly like a human-resolved one (same legacy
 	// publisher as the agent API). Load-bearing for inbound approve: a TTL-released
@@ -467,13 +473,21 @@ func main() {
 	// User auth (Google OAuth for agent developers)
 	userAuth := auth.NewUserAuth(&cfg.OAuth, store, cfg.IsProduction())
 	// Generic OIDC Authorization Code login. Disabled configurations perform
-	// no discovery and leave both OIDC routes unregistered.
-	oidcAuth, err := auth.NewOIDCAuth(ctx, cfg.OIDC, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
+	// no discovery and leave both OIDC routes unregistered. Enabled
+	// configurations construct synchronously (no network call) and discover
+	// the issuer in a background goroutine with retry/backoff, so an
+	// unreachable identity provider never blocks or fails server boot; the
+	// OIDC routes fail closed with 503 until discovery completes. err is
+	// retained for any future static/constructor-time failure mode, but
+	// today NewOIDCAuth only fails to construct if E2A is misconfigured in a
+	// way config.Validate() would already have caught.
+	oidcCtx, oidcCancel := context.WithCancel(ctx)
+	oidcAuth, err := auth.NewOIDCAuth(oidcCtx, cfg.OIDC, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize OIDC login: %v", err)
 	}
 	if oidcAuth != nil {
-		log.Printf("[auth] OIDC login enabled (issuer=%s)", cfg.OIDC.IssuerURL)
+		log.Printf("[auth] OIDC login enabled (issuer=%s); discovering issuer in the background", cfg.OIDC.IssuerURL)
 	}
 
 	// HTTP API
@@ -645,23 +659,25 @@ func main() {
 	// health/feedback, magic-link pages). The `/api/v1` surface is fully retired.
 	// The chi root is the process HTTP handler.
 	v1 := apiserver.New(apiserver.Params{
-		API:             api,
-		Store:           store,
-		Enforcer:        enforcer,
-		UsageStore:      usageStore,
-		SubscriberStore: subscriberStore,
-		Idempotency:     idempotencyStore,
-		Pool:            pool,
-		SMTPDomain:      cfg.SMTP.Domain,
-		SESRegion:       cfg.SenderIdentity.SESRegion,
-		SharedDomain:    cfg.SharedDomain,
-		PublicURL:       cfg.HTTP.PublicURL,
-		SigningSecret:   cfg.Signing.HMACSecret,
-		EventsEnabled:   webhookOutbox.Enabled(),
-		Production:      cfg.IsProduction(),
-		Legacy:          router,
-		WSHandle:        wsHandler.ServeWithEmail,
-		SenderIdentity:  senderEnqueuer,
+		API:                       api,
+		Store:                     store,
+		Enforcer:                  enforcer,
+		UsageStore:                usageStore,
+		SubscriberStore:           subscriberStore,
+		Idempotency:               idempotencyStore,
+		Pool:                      pool,
+		SMTPDomain:                cfg.SMTP.Domain,
+		SESRegion:                 cfg.SenderIdentity.SESRegion,
+		SharedDomain:              cfg.SharedDomain,
+		PublicURL:                 cfg.HTTP.PublicURL,
+		SigningSecret:             cfg.Signing.HMACSecret,
+		EventsEnabled:             webhookOutbox.Enabled(),
+		Production:                cfg.IsProduction(),
+		Legacy:                    router,
+		WSHandle:                  wsHandler.ServeWithEmail,
+		SenderIdentity:            senderEnqueuer,
+		ManagedUnsubscribeIssuer:  managedUnsubscribeIssuer,
+		AgentSuppressionAddedHook: agent.AgentSuppressionAddedHook(webhookOutbox),
 		// River is the sole webhook delivery engine: the /test + redelivery
 		// endpoints insert a delivery row directly (bypassing the outbox drain),
 		// so they must enqueue the River job themselves or the row never delivers.
@@ -762,6 +778,9 @@ func main() {
 
 	<-sigCh
 	log.Println("Shutting down...")
+
+	// Stop OIDC issuer discovery promptly, including an in-flight attempt.
+	oidcCancel()
 
 	// Signal the remaining background workers to stop. Their inner ctx-select
 	// branches return on the next iteration; work already in flight finishes

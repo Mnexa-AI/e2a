@@ -3,6 +3,7 @@ import type { ErrorBody } from "../../src/v1/generated/models/ErrorBody.js";
 import type { ListMessagesParams } from "../../src/v1/index.js";
 import type { EmailSentData, WebhookEvent } from "../../src/v1/webhook-signature.js";
 import type { WSEvent } from "../../src/v1/ws.js";
+import { E2AClient } from "../../src/v1/client.js";
 
 const senderFilter: ListMessagesParams = { from_: "alice@example.com" };
 void senderFilter;
@@ -52,6 +53,20 @@ const loopbackSentData: EmailSentData = {
   message_type: "send",
 };
 void loopbackSentData;
+
+const managedClient = new E2AClient({ apiKey: "e2a_test" });
+managedClient.messages.send("sender@example.com", {
+  to: ["recipient@example.net"],
+  subject: "Update",
+  text: "Hello",
+  unsubscribe: { mode: "managed" },
+});
+managedClient.agents.listSuppressions("sender@example.com");
+managedClient.agents.createSuppression("sender@example.com", {
+  address: "recipient@example.net",
+  reason: "recipient opted out",
+});
+managedClient.agents.deleteSuppression("sender@example.com", "recipient@example.net");
 
 // @ts-expect-error all five core envelope fields are required.
 const incompleteEventEnvelope: WebhookEvent = { type: "email.received", data: {} };

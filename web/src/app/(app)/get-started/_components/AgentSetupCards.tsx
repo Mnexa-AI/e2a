@@ -13,9 +13,9 @@ import { useState } from "react";
 // Hosted, account-scoped MCP endpoint (mcp/README.md). OAuth 2.1 → the
 // `mcp add` command opens a browser consent flow; no key to copy.
 const MCP_URL = "https://api.e2a.dev/mcp";
-// Hosted agent-facing setup doc (web/public/e2a.md). The pasted agent fetches
-// it to learn how to connect over MCP + drive e2a — it carries the connect
-// instructions, so the prompt just points the agent at it.
+// Stable hosted mirror of the canonical agent-facing setup doc at
+// plugins/e2a/docs/e2a.md. The pasted agent fetches it to learn how to connect
+// over MCP + drive e2a, so the prompt just points the agent at it.
 const DOC_URL = "https://e2a.dev/e2a.md";
 
 const PASTE_PROMPT = `Give yourself an email inbox with e2a. Read ${DOC_URL} and follow it to connect over MCP (${MCP_URL}) and set up my inbox, then walk me through it.`;

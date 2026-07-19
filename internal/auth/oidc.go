@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -24,54 +25,212 @@ const (
 	oidcVerifierCookieName = "e2a_oidc_verifier"
 	oidcCookiePath         = "/api/auth/oidc"
 	oidcTransactionMaxAge  = 10 * time.Minute
+
+	// oidcDiscoveryInitialBackoff/oidcDiscoveryMaxBackoff govern the
+	// background discovery retry loop started by NewOIDCAuth: the first
+	// attempt happens immediately, then failures back off exponentially
+	// from oidcDiscoveryInitialBackoff, doubling on every failed attempt,
+	// capped at oidcDiscoveryMaxBackoff, forever (until ctx is cancelled).
+	// Tests override these via WithOIDCDiscoveryBackoff so they don't block
+	// on real wall-clock time.
+	oidcDiscoveryInitialBackoff = time.Second
+	oidcDiscoveryMaxBackoff     = 60 * time.Second
+	oidcDiscoveryAttemptTimeout = 10 * time.Second
+
+	// oidcDiscoveryFailureLogGap rate-limits repeated discovery-failure log
+	// lines: the first failure always logs, subsequent failures log at most
+	// once per this interval so a persistently-down issuer doesn't flood
+	// the log.
+	oidcDiscoveryFailureLogGap = time.Minute
 )
+
+// oidcReadyState holds everything a successful provider discovery produces:
+// the OAuth2 client config (carrying the provider's real authorization/token
+// endpoints) and the ID-token verifier bound to the provider's JWKS. It is
+// published as a single atomic value once discovery succeeds so a concurrent
+// HandleLogin/HandleCallback either sees "not ready yet" (nil) or a fully
+// consistent, fully-built pair -- never a half-initialized one.
+type oidcReadyState struct {
+	oauthConfig *oauth2.Config
+	verifier    *oidc.IDTokenVerifier
+}
 
 // OIDCAuth implements an optional OpenID Connect relying party for browser
 // login. It accepts only Authorization Code responses initiated by HandleLogin,
 // verifies the returned ID token, and maps a configured claim to an existing
 // e2a users.id. It never provisions users.
 type OIDCAuth struct {
-	cfg         config.OIDCConfig
-	oauthConfig *oauth2.Config
-	verifier    *oidc.IDTokenVerifier
-	store       *identity.Store
-	secure      bool
-	baseURL     string
+	cfg     config.OIDCConfig
+	store   *identity.Store
+	secure  bool
+	baseURL string
+
+	// ready is nil until the background discovery goroutine (started in
+	// NewOIDCAuth) successfully discovers the issuer, at which point it
+	// holds the built *oidcReadyState for the remaining lifetime of oa.
+	// HandleLogin/HandleCallback fail closed (503) while it is nil.
+	ready atomic.Pointer[oidcReadyState]
+
+	// discoveryBackoff/discoveryMaxBackoff seed the retry loop's backoff
+	// schedule; discoveryDone, if set, is closed when the discovery
+	// goroutine returns (success or ctx cancellation). Both are test-only
+	// hooks set via functional options -- production callers get the
+	// package defaults and no completion signal.
+	discoveryBackoff    time.Duration
+	discoveryMaxBackoff time.Duration
+	discoveryTimeout    time.Duration
+	discoveryDone       chan<- struct{}
+}
+
+// OIDCOption configures optional, non-default behavior of NewOIDCAuth.
+// Production callers don't need any; they exist for tests that need the
+// background discovery retry loop to run on a compressed timescale, or to
+// observe the loop's lifecycle without a sleep-based race.
+type OIDCOption func(*OIDCAuth)
+
+// WithOIDCDiscoveryBackoff overrides the discovery retry loop's initial and
+// maximum backoff durations (production defaults: 1s initial, doubling,
+// capped at 60s). Intended for tests exercising the retry path against a
+// short-lived httptest server, where waiting out the real defaults would
+// make the suite slow.
+func WithOIDCDiscoveryBackoff(initial, maxBackoff time.Duration) OIDCOption {
+	return func(oa *OIDCAuth) {
+		oa.discoveryBackoff = initial
+		oa.discoveryMaxBackoff = maxBackoff
+	}
+}
+
+// WithOIDCDiscoveryAttemptTimeout overrides the maximum duration of one
+// issuer discovery HTTP request (production default: 10s). Intended for tests
+// that exercise a provider which accepts a connection but never responds.
+func WithOIDCDiscoveryAttemptTimeout(timeout time.Duration) OIDCOption {
+	return func(oa *OIDCAuth) {
+		oa.discoveryTimeout = timeout
+	}
+}
+
+// WithOIDCDiscoveryDone registers a channel that the background discovery
+// goroutine closes when it returns, whether that's because discovery
+// succeeded or because ctx was cancelled. It exists so tests can assert the
+// goroutine actually exits (no leak) without guessing at a sleep duration.
+func WithOIDCDiscoveryDone(done chan<- struct{}) OIDCOption {
+	return func(oa *OIDCAuth) {
+		oa.discoveryDone = done
+	}
 }
 
 // NewOIDCAuth returns nil without performing discovery when OIDC is disabled.
-// Enabled configurations are discovered immediately so startup fails closed if
-// the configured issuer cannot provide valid OIDC metadata.
-func NewOIDCAuth(ctx context.Context, cfg config.OIDCConfig, store *identity.Store, production bool, baseURL string) (*OIDCAuth, error) {
+// Enabled configurations construct the handler synchronously -- this call
+// never touches the network -- and start one background goroutine that
+// discovers the issuer immediately, then retries with exponential backoff
+// (capped, forever) until it succeeds or ctx is cancelled. Until discovery
+// succeeds, HandleLogin and HandleCallback fail closed with 503. This keeps
+// e2a's boot decoupled from the identity provider's availability (an
+// unreachable issuer no longer prevents the whole process -- mail included
+// -- from starting) while preserving fail-closed login behavior: there is no
+// window where login silently no-ops or half-completes.
+//
+// Static/config-shaped problems are not this function's concern: they are
+// caught by config.OIDCConfig validation before this is ever called. Only
+// the network-dependent discovery call moved off the boot path.
+func NewOIDCAuth(ctx context.Context, cfg config.OIDCConfig, store *identity.Store, production bool, baseURL string, opts ...OIDCOption) (*OIDCAuth, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
 
-	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
-	if err != nil {
-		return nil, fmt.Errorf("discover OIDC issuer: %w", err)
+	oa := &OIDCAuth{
+		cfg:                 cfg,
+		store:               store,
+		secure:              production,
+		baseURL:             strings.TrimRight(baseURL, "/"),
+		discoveryBackoff:    oidcDiscoveryInitialBackoff,
+		discoveryMaxBackoff: oidcDiscoveryMaxBackoff,
+		discoveryTimeout:    oidcDiscoveryAttemptTimeout,
+	}
+	for _, opt := range opts {
+		opt(oa)
 	}
 
-	return &OIDCAuth{
-		cfg: cfg,
-		oauthConfig: &oauth2.Config{
-			ClientID:     cfg.ClientID,
-			ClientSecret: cfg.ClientSecret,
-			RedirectURL:  cfg.RedirectURL,
-			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID},
-		},
-		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		store:    store,
-		secure:   production,
-		baseURL:  strings.TrimRight(baseURL, "/"),
-	}, nil
+	go oa.discoverWithRetry(ctx)
+
+	return oa, nil
+}
+
+// discoverWithRetry runs for the lifetime of oa on its own goroutine. It
+// attempts oidc.NewProvider immediately, then on failure retries with
+// exponential backoff (starting at oa.discoveryBackoff, doubling each
+// attempt, capped at oa.discoveryMaxBackoff) until it succeeds or ctx is
+// cancelled. On success it builds the oauth2.Config and ID-token verifier
+// exactly as the old synchronous constructor did and publishes them
+// atomically via oa.ready, then returns -- there is nothing left to retry.
+func (oa *OIDCAuth) discoverWithRetry(ctx context.Context) {
+	if oa.discoveryDone != nil {
+		defer close(oa.discoveryDone)
+	}
+
+	backoff := oa.discoveryBackoff
+	var lastLogged time.Time
+	attempt := 0
+
+	for {
+		attempt++
+
+		attemptCtx, cancel := context.WithTimeout(ctx, oa.discoveryTimeout)
+		provider, err := oidc.NewProvider(attemptCtx, oa.cfg.IssuerURL)
+		cancel()
+		if err == nil {
+			oa.ready.Store(&oidcReadyState{
+				oauthConfig: &oauth2.Config{
+					ClientID:     oa.cfg.ClientID,
+					ClientSecret: oa.cfg.ClientSecret,
+					RedirectURL:  oa.cfg.RedirectURL,
+					Endpoint:     provider.Endpoint(),
+					Scopes:       []string{oidc.ScopeOpenID},
+				},
+				verifier: provider.Verifier(&oidc.Config{ClientID: oa.cfg.ClientID}),
+			})
+			log.Printf("[auth] OIDC issuer discovered: %s", oa.cfg.IssuerURL)
+			return
+		}
+
+		if ctx.Err() != nil {
+			// Shutdown in progress -- stop retrying without logging the
+			// (expected, ctx-cancelled) discovery error as a failure.
+			return
+		}
+
+		if attempt == 1 || time.Since(lastLogged) >= oidcDiscoveryFailureLogGap {
+			log.Printf("[auth] OIDC issuer discovery failed, retrying in background (attempt %d): %v", attempt, err)
+			lastLogged = time.Now()
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+
+		backoff *= 2
+		if backoff > oa.discoveryMaxBackoff {
+			backoff = oa.discoveryMaxBackoff
+		}
+	}
 }
 
 // HandleLogin creates a browser-bound OIDC transaction and redirects to the
 // provider's authorization endpoint. The PKCE verifier and OIDC nonce never
-// appear in application logs or identity-bearing cookies.
+// appear in application logs or identity-bearing cookies. Until background
+// issuer discovery has completed at least once, this fails closed with 503
+// rather than attempting a partial or misconfigured flow.
 func (oa *OIDCAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	rs := oa.ready.Load()
+	if rs == nil {
+		http.Error(w, "login temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	state, err := randomOIDCValue()
 	if err != nil {
 		log.Printf("[auth] OIDC login initialization failed: %v", err)
@@ -90,7 +249,7 @@ func (oa *OIDCAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	oa.setTransactionCookie(w, oidcNonceCookieName, nonce, int(oidcTransactionMaxAge.Seconds()))
 	oa.setTransactionCookie(w, oidcVerifierCookieName, verifier, int(oidcTransactionMaxAge.Seconds()))
 
-	location := oa.oauthConfig.AuthCodeURL(
+	location := rs.oauthConfig.AuthCodeURL(
 		state,
 		oidc.Nonce(nonce),
 		oauth2.S256ChallengeOption(verifier),
@@ -100,8 +259,15 @@ func (oa *OIDCAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 // HandleCallback validates the browser transaction, exchanges the short-lived
 // authorization code over the back channel, verifies the ID token, and creates
-// the same e2a session used by the legacy Google flow.
+// the same e2a session used by the legacy Google flow. Until background
+// issuer discovery has completed at least once, this fails closed with 503.
 func (oa *OIDCAuth) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	rs := oa.ready.Load()
+	if rs == nil {
+		http.Error(w, "login temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	stateCookie, stateErr := r.Cookie(oidcStateCookieName)
 	nonceCookie, nonceErr := r.Cookie(oidcNonceCookieName)
 	verifierCookie, verifierErr := r.Cookie(oidcVerifierCookieName)
@@ -133,7 +299,7 @@ func (oa *OIDCAuth) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := oa.oauthConfig.Exchange(r.Context(), code, oauth2.VerifierOption(verifierCookie.Value))
+	token, err := rs.oauthConfig.Exchange(r.Context(), code, oauth2.VerifierOption(verifierCookie.Value))
 	if err != nil {
 		log.Printf("[auth] OIDC code exchange failed: %v", err)
 		http.Error(w, "login verification failed", http.StatusUnauthorized)
@@ -145,7 +311,7 @@ func (oa *OIDCAuth) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "login verification failed", http.StatusUnauthorized)
 		return
 	}
-	idToken, err := oa.verifier.Verify(r.Context(), rawIDToken)
+	idToken, err := rs.verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
 		log.Printf("[auth] OIDC ID token verification failed: %v", err)
 		http.Error(w, "login verification failed", http.StatusUnauthorized)

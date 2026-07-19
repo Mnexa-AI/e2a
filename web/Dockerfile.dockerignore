@@ -27,7 +27,11 @@ docs
 examples
 assets
 bin
-plugins
+plugins/*
+!plugins/e2a/
+plugins/e2a/*
+!plugins/e2a/docs/
+!plugins/e2a/docs/**
 *.go
 go.mod
 go.sum

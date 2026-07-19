@@ -2,16 +2,30 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/migrations"
 )
 
 const defaultTestDBURL = "postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable"
+
+type testDBPreparationError struct {
+	stage string
+	err   error
+}
+
+func (e *testDBPreparationError) Error() string {
+	return fmt.Sprintf("%s: %v", e.stage, e.err)
+}
+
+func (e *testDBPreparationError) Unwrap() error {
+	return e.err
+}
 
 func TestDBURL() string {
 	dbURL := os.Getenv("E2A_TEST_DATABASE_URL")
@@ -38,12 +52,12 @@ func OpenPreparedTestDB(ctx context.Context, dbURL string) (*pgxpool.Pool, error
 
 	if err := runMigrations(ctx, pool); err != nil {
 		pool.Close()
-		return nil, err
+		return nil, &testDBPreparationError{stage: "run migrations", err: err}
 	}
 
 	if err := truncateAll(ctx, pool); err != nil {
 		pool.Close()
-		return nil, err
+		return nil, &testDBPreparationError{stage: "truncate tables", err: err}
 	}
 
 	return pool, nil
@@ -55,6 +69,10 @@ func TestDB(t *testing.T) *pgxpool.Pool {
 	ctx := context.Background()
 	pool, err := OpenPreparedTestDB(ctx, TestDBURL())
 	if err != nil {
+		var preparationErr *testDBPreparationError
+		if errors.As(err, &preparationErr) {
+			t.Fatalf("failed to prepare test database: %v", err)
+		}
 		t.Skipf("test database not available: %v", err)
 	}
 
@@ -75,31 +93,7 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	migrationsDir := filepath.Join(projectRoot(), "migrations")
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
-			continue
-		}
-		migration, err := os.ReadFile(filepath.Join(migrationsDir, entry.Name()))
-		if err != nil {
-			return err
-		}
-		if _, err := pool.Exec(ctx, string(migration)); err != nil {
-			// Existing tables / repeated extensions are expected when a
-			// previous run already applied the schema; ignoring those is
-			// the established convention here. But we log to stderr so a
-			// genuine SQL error in a new migration surfaces during
-			// `go test` instead of being absorbed silently — that would
-			// otherwise let a broken migration ship and only fail later
-			// in the real RunMigrations path.
-			fmt.Fprintf(os.Stderr, "[testutil] migration %s: %v\n", entry.Name(), err)
-		}
-	}
-	return nil
+	return identity.RunMigrations(ctx, pool, migrations.FS, identity.ModeAuto)
 }
 
 // truncateAll resets the DB between tests. Most tables are reached implicitly by
@@ -134,10 +128,4 @@ func truncateAll(ctx context.Context, pool *pgxpool.Pool) error {
 	// Re-seed shared domain (migration seeds it but truncation removes it)
 	pool.Exec(ctx, `INSERT INTO domains (domain, user_id, verified, verified_at) VALUES ('agents.e2a.dev', NULL, true, now()) ON CONFLICT DO NOTHING`)
 	return nil
-}
-
-func projectRoot() string {
-	_, filename, _, _ := runtime.Caller(0)
-	// internal/testutil/db.go -> project root
-	return filepath.Join(filepath.Dir(filename), "..", "..")
 }

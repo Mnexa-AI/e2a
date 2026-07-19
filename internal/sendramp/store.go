@@ -249,11 +249,31 @@ func (s *Store) Confirm(ctx context.Context, messageID string) error {
 	if err != nil {
 		return err
 	}
-	if state != "reserved" {
+	if state == "confirmed" {
 		return tx.Commit(ctx)
 	}
 	var confirmed, limit int
-	if err := tx.QueryRow(ctx, `UPDATE domain_send_counters SET confirmed_count=confirmed_count+$4 WHERE user_id=$1 AND domain=$2 AND day=$3 RETURNING confirmed_count,daily_limit`, userID, domain, utcDay(day), units).Scan(&confirmed, &limit); err != nil {
+	var query string
+	switch state {
+	case "reserved":
+		query = `UPDATE domain_send_counters
+		            SET confirmed_count=confirmed_count+$4
+		          WHERE user_id=$1 AND domain=$2 AND day=$3
+		      RETURNING confirmed_count,daily_limit`
+	case "released":
+		// A locally inferred failure can be corrected by later authoritative
+		// provider feedback. Release returned its units to the daily counter, so
+		// confirming that real send must restore consumed as well as accepted
+		// volume. The reservation row lock makes this transition idempotent.
+		query = `UPDATE domain_send_counters
+		            SET reserved_count=reserved_count+$4,
+		                confirmed_count=confirmed_count+$4
+		          WHERE user_id=$1 AND domain=$2 AND day=$3
+		      RETURNING confirmed_count,daily_limit`
+	default:
+		return permanentf("sendramp: invalid reservation state %q", state)
+	}
+	if err := tx.QueryRow(ctx, query, userID, domain, utcDay(day), units).Scan(&confirmed, &limit); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE sending_ramp_reservations SET state='confirmed',updated_at=now() WHERE message_id=$1`, messageID); err != nil {

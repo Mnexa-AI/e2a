@@ -3,6 +3,8 @@ export * from '../models/APIKeyView.js';
 export * from '../models/AccountUserView.js';
 export * from '../models/AccountView.js';
 export * from '../models/AgentIdentity.js';
+export * from '../models/AgentSuppressionAddedData.js';
+export * from '../models/AgentSuppressionView.js';
 export * from '../models/AgentView.js';
 export * from '../models/ApproveRequest.js';
 export * from '../models/Attachment.js';
@@ -15,6 +17,7 @@ export * from '../models/ConversationSummaryView.js';
 export * from '../models/CreateAPIKeyRequest.js';
 export * from '../models/CreateAPIKeyResponse.js';
 export * from '../models/CreateAgentRequest.js';
+export * from '../models/CreateAgentSuppressionRequest.js';
 export * from '../models/CreateTemplateRequest.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
@@ -59,6 +62,7 @@ export * from '../models/MessageSummaryView.js';
 export * from '../models/MessageView.js';
 export * from '../models/OAuthConnectionEntry.js';
 export * from '../models/PageAPIKeyView.js';
+export * from '../models/PageAgentSuppressionView.js';
 export * from '../models/PageAgentView.js';
 export * from '../models/PageConversationSummaryView.js';
 export * from '../models/PageDomainView.js';
@@ -112,6 +116,7 @@ export * from '../models/TestWebhookRequest.js';
 export * from '../models/TestWebhookResponse.js';
 export * from '../models/ThreatCategoryView.js';
 export * from '../models/TooManyRecipientsDetails.js';
+export * from '../models/UnsubscribeOptions.js';
 export * from '../models/UpdateAgentRequest.js';
 export * from '../models/UpdateMessageRequest.js';
 export * from '../models/UpdateMessageResultView.js';
@@ -134,6 +139,8 @@ import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
+import { AgentSuppressionAddedData } from '../models/AgentSuppressionAddedData.js';
+import { AgentSuppressionView } from '../models/AgentSuppressionView.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
@@ -146,6 +153,7 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateAgentSuppressionRequest } from '../models/CreateAgentSuppressionRequest.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
@@ -190,6 +198,7 @@ import { MessageSummaryView        , MessageSummaryViewDirectionEnum            
 import { MessageView           , MessageViewDirectionEnum                     } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
+import { PageAgentSuppressionView } from '../models/PageAgentSuppressionView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -243,6 +252,7 @@ import { TestWebhookRequest , TestWebhookRequestTypeEnum   } from '../models/Tes
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { ThreatCategoryView } from '../models/ThreatCategoryView.js';
 import { TooManyRecipientsDetails } from '../models/TooManyRecipientsDetails.js';
+import { UnsubscribeOptions, UnsubscribeOptionsModeEnum   } from '../models/UnsubscribeOptions.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
@@ -286,6 +296,7 @@ let enumsMap: Set<string> = new Set<string>([
     "RateLimitedErrorBodyCodeEnum",
     "ReviewViewDirectionEnum",
     "TestWebhookRequestTypeEnum",
+    "UnsubscribeOptionsModeEnum",
     "UpdateWebhookRequestEventsEnum",
 ]);
 
@@ -295,6 +306,8 @@ let typeMap: {[index: string]: any} = {
     "AccountUserView": AccountUserView,
     "AccountView": AccountView,
     "AgentIdentity": AgentIdentity,
+    "AgentSuppressionAddedData": AgentSuppressionAddedData,
+    "AgentSuppressionView": AgentSuppressionView,
     "AgentView": AgentView,
     "ApproveRequest": ApproveRequest,
     "Attachment": Attachment,
@@ -307,6 +320,7 @@ let typeMap: {[index: string]: any} = {
     "CreateAPIKeyRequest": CreateAPIKeyRequest,
     "CreateAPIKeyResponse": CreateAPIKeyResponse,
     "CreateAgentRequest": CreateAgentRequest,
+    "CreateAgentSuppressionRequest": CreateAgentSuppressionRequest,
     "CreateTemplateRequest": CreateTemplateRequest,
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
@@ -351,6 +365,7 @@ let typeMap: {[index: string]: any} = {
     "MessageView": MessageView,
     "OAuthConnectionEntry": OAuthConnectionEntry,
     "PageAPIKeyView": PageAPIKeyView,
+    "PageAgentSuppressionView": PageAgentSuppressionView,
     "PageAgentView": PageAgentView,
     "PageConversationSummaryView": PageConversationSummaryView,
     "PageDomainView": PageDomainView,
@@ -404,6 +419,7 @@ let typeMap: {[index: string]: any} = {
     "TestWebhookResponse": TestWebhookResponse,
     "ThreatCategoryView": ThreatCategoryView,
     "TooManyRecipientsDetails": TooManyRecipientsDetails,
+    "UnsubscribeOptions": UnsubscribeOptions,
     "UpdateAgentRequest": UpdateAgentRequest,
     "UpdateMessageRequest": UpdateMessageRequest,
     "UpdateMessageResultView": UpdateMessageResultView,

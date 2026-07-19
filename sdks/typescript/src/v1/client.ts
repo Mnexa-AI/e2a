@@ -79,6 +79,8 @@ import type {
   ValidateTemplateResponse,
   StarterTemplateView,
   StarterTemplateDetailView,
+  AgentSuppressionView,
+  CreateAgentSuppressionRequest,
 } from "./generated/index.js";
 import { RetryHttpLibrary, type RetryOptions } from "./retry.js";
 import { E2AError, fromApiException, connectionError } from "./errors.js";
@@ -112,6 +114,22 @@ export interface RequestOptions {
    *  survive a process restart. */
   idempotencyKey?: string;
 }
+
+/** Beta per-message opt-in to e2a-managed unsubscribe handling. This API and
+ * its raw GET|POST /u/{token} confirmation flow may change before stable. */
+export interface ManagedUnsubscribeOptions {
+  mode: "managed";
+}
+
+export type SendEmailInput = Omit<SendEmailRequest, "unsubscribe"> & {
+  unsubscribe?: ManagedUnsubscribeOptions;
+};
+export type ReplyInput = Omit<ReplyRequest, "unsubscribe"> & {
+  unsubscribe?: ManagedUnsubscribeOptions;
+};
+export type ForwardInput = Omit<ForwardRequest, "unsubscribe"> & {
+  unsubscribe?: ManagedUnsubscribeOptions;
+};
 
 function envVar(name: string): string | undefined {
   if (typeof process !== "undefined" && process.env && process.env[name]) return process.env[name];
@@ -276,6 +294,21 @@ class AgentsResource {
   test(email: string): Promise<SendResultView> {
     return call(() => this.api.testAgent(email));
   }
+  /** Beta: list recipient blocks scoped to this exact sending agent. */
+  listSuppressions(email: string, params: { limit?: number } = {}): AutoPager<AgentSuppressionView> {
+    return new AutoPager(async (cursor) => {
+      const page = await call(() => this.api.listAgentSuppressions(email, cursor, params.limit));
+      return { items: page.items ?? [], next_cursor: page.nextCursor };
+    });
+  }
+  /** Beta: idempotently add a manual recipient block for this exact agent. */
+  createSuppression(email: string, body: CreateAgentSuppressionRequest): Promise<AgentSuppressionView> {
+    return call(() => this.api.createAgentSuppression(email, body));
+  }
+  /** Beta: remove only this exact agent-recipient block. */
+  deleteSuppression(email: string, address: string): Promise<DeleteSuppressionResult> {
+    return call(() => this.api.deleteAgentSuppression(email, address, "DELETE"));
+  }
 }
 
 export interface ListMessagesParams {
@@ -320,14 +353,14 @@ class MessagesResource {
   getAttachment(email: string, id: string, index: number, opts: { inline?: boolean } = {}): Promise<AttachmentView> {
     return call(() => this.api.getAttachment(email, id, index, opts.inline));
   }
-  send(email: string, body: SendEmailRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.sendMessage(email, body, opts.idempotencyKey));
+  send(email: string, body: SendEmailInput, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.sendMessage(email, body as SendEmailRequest, opts.idempotencyKey));
   }
-  reply(email: string, messageId: string, body: ReplyRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.replyToMessage(email, messageId, body, opts.idempotencyKey));
+  reply(email: string, messageId: string, body: ReplyInput, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.replyToMessage(email, messageId, body as ReplyRequest, opts.idempotencyKey));
   }
-  forward(email: string, messageId: string, body: ForwardRequest, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.forwardMessage(email, messageId, body, opts.idempotencyKey));
+  forward(email: string, messageId: string, body: ForwardInput, opts: RequestOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.forwardMessage(email, messageId, body as ForwardRequest, opts.idempotencyKey));
   }
   // Approve/reject a held message live on the account-scoped review queue —
   // `client.reviews.approve(id, body)` / `client.reviews.reject(id, body)`. The

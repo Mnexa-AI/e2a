@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -45,10 +44,12 @@ from google.genai import types
 from e2a.v1 import AsyncE2AClient, construct_event, E2AWebhookSignatureError
 
 from agent import APP_NAME, agent
+from delivery_state import EventDeduper, conversation_id_for
 
 load_dotenv()
 log = logging.getLogger("adk-webhook")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+event_deduper = EventDeduper()
 
 
 def _require_env(name: str) -> str:
@@ -72,12 +73,19 @@ _require_env("GOOGLE_API_KEY")
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Lazy-init shared resources once per process.
-    app.state.e2a = AsyncE2AClient()
+    client = AsyncE2AClient(
+        api_key=os.environ["E2A_API_KEY"],
+        base_url=os.getenv("E2A_API_URL") or None,
+    )
+    app.state.e2a = client
     app.state.sessions = InMemorySessionService()
     app.state.runner = Runner(
         agent=agent, app_name=APP_NAME, session_service=app.state.sessions
     )
-    yield
+    try:
+        yield
+    finally:
+        await client.aclose()
 
 
 app = FastAPI(title="ADK + e2a webhook", lifespan=lifespan)
@@ -105,64 +113,90 @@ async def webhook(request: Request) -> dict[str, str]:
     if event.type != "email.received":
         return {"status": "ignored", "type": event.type}
 
-    client: AsyncE2AClient = request.app.state.e2a
-    data = event.data  # WebhookPayload: message_id, delivered_to, from, conversation_id, …
-    delivered_to = data["delivered_to"]
-    message_id = data["message_id"]
+    # Webhooks are delivered at least once. Claim the stable envelope id before
+    # running the model so a timed-out POST cannot create a second agent turn.
+    # A duplicate still in flight returns non-2xx so e2a retries it later; a
+    # completed duplicate is acknowledged without repeating side effects.
+    claim = await event_deduper.claim(event.id)
+    if claim == "processed":
+        return {"status": "duplicate", "event_id": event.id}
+    if claim == "processing":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="event is already being processed; retry later",
+        )
 
-    # The inbound webhook payload is metadata; fetch the parsed message for the
-    # subject + body to feed the agent.
-    inbound = await client.messages.get(delivered_to, message_id)
+    try:
+        client: AsyncE2AClient = request.app.state.e2a
+        data = event.data  # WebhookPayload: message_id, delivered_to, from, conversation_id, …
+        delivered_to = data["delivered_to"]
+        message_id = data["message_id"]
 
-    # First contact has no conversation_id — mint one so this thread has an
-    # ID we can echo back on every reply. The same id becomes the ADK
-    # session_id, keying multi-turn memory.
-    conversation_id = data.get("conversation_id") or f"conv_{uuid.uuid4().hex[:12]}"
+        # The inbound webhook payload is metadata; fetch the parsed message for
+        # the subject + body to feed the agent.
+        inbound = await client.webhooks.fetch_message(event)
 
-    # user_id scopes a session to a particular human counterpart. Different
-    # senders get isolated session histories even on the same agent.
-    user_id = data["from"]
+        # First contact has no conversation_id — mint one so this thread has an
+        # ID we can echo back on every reply. The same id becomes the ADK
+        # session_id, keying multi-turn memory.
+        conversation_id = conversation_id_for(event.id, data.get("conversation_id"))
 
-    sessions = request.app.state.sessions
-    session = await sessions.get_session(
-        app_name=APP_NAME, user_id=user_id, session_id=conversation_id
-    )
-    if session is None:
-        session = await sessions.create_session(
+        # user_id scopes a session to a particular human counterpart. Different
+        # senders get isolated session histories even on the same agent.
+        user_id = data["from"]
+
+        sessions = request.app.state.sessions
+        session = await sessions.get_session(
             app_name=APP_NAME, user_id=user_id, session_id=conversation_id
         )
+        if session is None:
+            session = await sessions.create_session(
+                app_name=APP_NAME, user_id=user_id, session_id=conversation_id
+            )
 
-    prompt = types.Content(
-        role="user",
-        parts=[types.Part(text=_format_email_for_agent(inbound))],
-    )
-
-    runner: Runner = request.app.state.runner
-    reply_text = ""
-    async for event in runner.run_async(
-        user_id=user_id, session_id=conversation_id, new_message=prompt
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            reply_text = event.content.parts[0].text or ""
-
-    if not reply_text:
-        # Agent produced no response (rare — usually means a tool call without
-        # a final text turn). Don't reply with an empty email; log so the
-        # operator can investigate why the run finished without text.
-        log.warning(
-            "agent produced no reply text user=%s conv=%s msg=%s",
-            user_id, conversation_id, message_id,
+        prompt = types.Content(
+            role="user",
+            parts=[types.Part(text=_format_email_for_agent(inbound))],
         )
-        return {"status": "no_reply", "conversation_id": conversation_id}
 
-    log.info(
-        "replying user=%s conv=%s msg=%s reply_chars=%d",
-        user_id, conversation_id, message_id, len(reply_text),
-    )
-    await client.messages.reply(
-        delivered_to, message_id, {"text": reply_text, "conversation_id": conversation_id}
-    )
-    return {"status": "replied", "conversation_id": conversation_id}
+        runner: Runner = request.app.state.runner
+        reply_text = ""
+        async for agent_event in runner.run_async(
+            user_id=user_id, session_id=conversation_id, new_message=prompt
+        ):
+            if agent_event.is_final_response() and agent_event.content and agent_event.content.parts:
+                reply_text = agent_event.content.parts[0].text or ""
+
+        if not reply_text:
+            # Agent produced no response (rare — usually means a tool call without
+            # a final text turn). Don't reply with an empty email; log so the
+            # operator can investigate why the run finished without text.
+            log.warning(
+                "agent produced no reply text user=%s conv=%s msg=%s",
+                user_id, conversation_id, message_id,
+            )
+            await event_deduper.complete(event.id)
+            return {"status": "no_reply", "conversation_id": conversation_id}
+
+        log.info(
+            "replying user=%s conv=%s msg=%s reply_chars=%d",
+            user_id, conversation_id, message_id, len(reply_text),
+        )
+        result = await client.messages.reply(
+            delivered_to,
+            message_id,
+            {"text": reply_text, "conversation_id": conversation_id},
+            idempotency_key=event.id,
+        )
+        await event_deduper.complete(event.id)
+        response_status = "replied" if result.status in {"sent", "accepted"} else result.status
+        return {"status": response_status, "conversation_id": conversation_id}
+    except BaseException:
+        # Let e2a's retry schedule redeliver genuine failures. The stable
+        # event-derived Idempotency-Key prevents a later retry from sending a
+        # second reply if the first API response was lost after acceptance.
+        await event_deduper.release(event.id)
+        raise
 
 
 def _format_email_for_agent(inbound) -> str:

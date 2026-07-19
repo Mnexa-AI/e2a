@@ -53,4 +53,14 @@ python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
 # models. Keep the dedicated push envelope deterministic for diff hygiene.
 perl -0pi -e 's/\n+\z/\n/' "$DEST/models/event_envelope.py"
 
+# Keep the expanded agents surface deterministic and diff-check clean.
+perl -pi -e 's/[ \t]+$//' "$DEST/api/agents_api.py"
+
+perl -0pi -e 's/\n+\z/\n/' \
+  "$DEST/models/agent_suppression_added_data.py" \
+  "$DEST/models/agent_suppression_view.py" \
+  "$DEST/models/create_agent_suppression_request.py" \
+  "$DEST/models/page_agent_suppression_view.py" \
+  "$DEST/models/unsubscribe_options.py"
+
 echo "Python /v1 client base regenerated at sdks/python/src/e2a/v1/generated"

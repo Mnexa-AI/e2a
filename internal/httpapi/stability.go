@@ -244,6 +244,14 @@ func (s *Server) applyEvolutionStance() {
 	for _, prop := range []string{"template_alias", "template_id", "template_data"} {
 		markProperty(schemas, "SendEmailRequest", prop, extStabilityLevel, stabilityBeta)
 	}
+	// Managed unsubscribe is a beta nested capability on stable outbound
+	// operations. Mark both its reusable component and each stable request
+	// property, without weakening the containing operations or schemas.
+	unsubscribeSchema := markSchema(schemas, "UnsubscribeOptions", extStabilityLevel, stabilityBeta)
+	unsubscribeSchema.Description = "Beta: per-message opt-in to e2a-managed unsubscribe handling. This schema may change before it is declared stable."
+	for _, schema := range []string{"SendEmailRequest", "ReplyRequest", "ForwardRequest"} {
+		markProperty(schemas, schema, "unsubscribe", extStabilityLevel, stabilityBeta)
+	}
 	// The event-type vocabulary is stable EXCEPT the screening + review-hold
 	// members (their payloads may still change). The field is stable; the beta
 	// subset of its value set is machine-readable via x-experimental-values.
@@ -253,16 +261,17 @@ func (s *Server) applyEvolutionStance() {
 }
 
 // markSchema stamps an extension on a named component schema, panicking on a
-// dangling name so a rename can't silently drop a reviewed stability marker.
-func markSchema(schemas map[string]*huma.Schema, schema, ext string, value any) {
+// dangling name so a rename cannot silently drop a stability marker.
+func markSchema(schemas map[string]*huma.Schema, schema, ext string, value any) *huma.Schema {
 	sc, ok := schemas[schema]
 	if !ok {
-		panic(fmt.Sprintf("httpapi: schema %q missing while applying %s", schema, ext))
+		panic(fmt.Sprintf("httpapi: stability marker targets unknown schema %q", schema))
 	}
 	if sc.Extensions == nil {
 		sc.Extensions = map[string]any{}
 	}
 	sc.Extensions[ext] = value
+	return sc
 }
 
 // forEachOperation visits every operation in the document.

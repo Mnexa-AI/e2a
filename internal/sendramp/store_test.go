@@ -148,6 +148,23 @@ func TestReserveCountsRecipientUnitsAndIsMessageIdempotent(t *testing.T) {
 	}
 }
 
+func TestReserveRetryAfterTransientPostReservationFailureIsIdempotent(t *testing.T) {
+	store, _, userID, domain, messageID := seedRampMessage(t, "post-reserve-retry")
+	day := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	schedule := sendramp.NewSchedule(50, 100, 3)
+
+	first := reserve(t, store, userID, domain, messageID, 2, day, schedule)
+	if !first.Allowed || first.UsedToday != 2 {
+		t.Fatalf("first reservation = %+v, want allowed at 2 used", first)
+	}
+	// A later pre-provider dependency can fail after Reserve succeeds. The retry
+	// intentionally keeps and reuses the reservation rather than releasing it.
+	retry := reserve(t, store, userID, domain, messageID, 2, day, schedule)
+	if !retry.Allowed || retry.UsedToday != 2 || retry.DailyLimit != first.DailyLimit {
+		t.Fatalf("retry reservation = %+v, want idempotent reuse of %+v", retry, first)
+	}
+}
+
 func TestReserveCrossDayMovesPendingCapacity(t *testing.T) {
 	store, pool, userID, domain, messageID := seedRampMessage(t, "cross-day")
 	day1 := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
@@ -254,6 +271,42 @@ func TestResolveUsesDurableMessageOutcome(t *testing.T) {
 	_ = pool.QueryRow(context.Background(), `SELECT state FROM sending_ramp_reservations WHERE message_id=$1`, failedMessage).Scan(&failedState)
 	if sentState != "confirmed" || failedState != "released" {
 		t.Fatalf("sent=%q failed=%q", sentState, failedState)
+	}
+}
+
+func TestResolveReconfirmsReleasedReservationAfterProviderCorrection(t *testing.T) {
+	store, pool, userID, domain, messageID := seedRampMessage(t, "resolve-provider-correction")
+	day := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	if got := reserve(t, store, userID, domain, messageID, 10, day, sendramp.DefaultSchedule); !got.Allowed {
+		t.Fatalf("reserve = %+v", got)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE messages SET delivery_status='failed' WHERE id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Resolve(context.Background(), messageID); err != nil {
+		t.Fatalf("resolve local failure: %v", err)
+	}
+
+	// Provider feedback may authoritatively correct a locally inferred failure.
+	// Reconciliation must restore both consumed and confirmed volume rather than
+	// leaving the once-released send invisible to ramp accounting.
+	if _, err := pool.Exec(context.Background(), `UPDATE messages SET delivery_status='delivered' WHERE id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Resolve(context.Background(), messageID); err != nil {
+		t.Fatalf("resolve provider correction: %v", err)
+	}
+	var state string
+	var reserved, confirmed int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT r.state, c.reserved_count, c.confirmed_count
+		   FROM sending_ramp_reservations r
+		   JOIN domain_send_counters c ON c.user_id=r.user_id AND c.domain=r.domain AND c.day=r.day
+		  WHERE r.message_id=$1`, messageID).Scan(&state, &reserved, &confirmed); err != nil {
+		t.Fatal(err)
+	}
+	if state != "confirmed" || reserved != 10 || confirmed != 10 {
+		t.Fatalf("state=%q reserved=%d confirmed=%d, want confirmed/10/10", state, reserved, confirmed)
 	}
 }
 

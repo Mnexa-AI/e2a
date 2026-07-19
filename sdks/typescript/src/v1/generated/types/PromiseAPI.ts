@@ -7,6 +7,8 @@ import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
+import { AgentSuppressionAddedData } from '../models/AgentSuppressionAddedData.js';
+import { AgentSuppressionView } from '../models/AgentSuppressionView.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
@@ -19,6 +21,7 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateAgentSuppressionRequest } from '../models/CreateAgentSuppressionRequest.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
@@ -63,6 +66,7 @@ import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
+import { PageAgentSuppressionView } from '../models/PageAgentSuppressionView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -115,6 +119,7 @@ import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { ThreatCategoryView } from '../models/ThreatCategoryView.js';
 import { TooManyRecipientsDetails } from '../models/TooManyRecipientsDetails.js';
+import { UnsubscribeOptions } from '../models/UnsubscribeOptions.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
@@ -369,6 +374,30 @@ export class PromiseAgentsApi {
     }
 
     /**
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
+     * @param email
+     * @param createAgentSuppressionRequest
+     */
+    public createAgentSuppressionWithHttpInfo(email: string, createAgentSuppressionRequest: CreateAgentSuppressionRequest, _options?: PromiseConfigurationOptions): Promise<HttpInfo<AgentSuppressionView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.createAgentSuppressionWithHttpInfo(email, createAgentSuppressionRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
+     * @param email
+     * @param createAgentSuppressionRequest
+     */
+    public createAgentSuppression(email: string, createAgentSuppressionRequest: CreateAgentSuppressionRequest, _options?: PromiseConfigurationOptions): Promise<AgentSuppressionView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.createAgentSuppression(email, createAgentSuppressionRequest, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
      * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages\' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
@@ -391,6 +420,32 @@ export class PromiseAgentsApi {
     public deleteAgent(email: string, confirm: 'DELETE', permanent?: boolean, _options?: PromiseConfigurationOptions): Promise<DeleteAgentResult> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.deleteAgent(email, confirm, permanent, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
+     * @param email
+     * @param address
+     * @param confirm Must be the literal DELETE — this action is irreversible.
+     */
+    public deleteAgentSuppressionWithHttpInfo(email: string, address: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<HttpInfo<DeleteSuppressionResult>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteAgentSuppressionWithHttpInfo(email, address, confirm, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
+     * @param email
+     * @param address
+     * @param confirm Must be the literal DELETE — this action is irreversible.
+     */
+    public deleteAgentSuppression(email: string, address: string, confirm: 'DELETE', _options?: PromiseConfigurationOptions): Promise<DeleteSuppressionResult> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.deleteAgentSuppression(email, address, confirm, observableOptions);
         return result.toPromise();
     }
 
@@ -435,6 +490,32 @@ export class PromiseAgentsApi {
     public getAgentProtection(email: string, _options?: PromiseConfigurationOptions): Promise<ProtectionConfigView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.getAgentProtection(email, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
+     * @param email
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
+     */
+    public listAgentSuppressionsWithHttpInfo(email: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageAgentSuppressionView>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listAgentSuppressionsWithHttpInfo(email, cursor, limit, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
+     * @param email
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
+     */
+    public listAgentSuppressions(email: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageAgentSuppressionView> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.listAgentSuppressions(email, cursor, limit, observableOptions);
         return result.toPromise();
     }
 

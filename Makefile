@@ -15,7 +15,7 @@ test:
 	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 ./...
 
 test-unit:
-	go test -short ./internal/headers/ ./internal/outbound/ ./internal/relay/ ./internal/config/ ./internal/webhook/ ./internal/approvaltoken/ ./internal/limits/ ./internal/httpapi/ ./internal/ratelimit/
+	go test -short ./internal/headers/ ./internal/outbound/ ./internal/relay/ ./internal/config/ ./internal/webhook/ ./internal/approvaltoken/ ./internal/unsubscribe/ ./internal/limits/ ./internal/httpapi/ ./internal/ratelimit/
 
 test-integration:
 	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 ./internal/identity/ ./internal/agent/ ./internal/hitlworker/ ./internal/hitlnotify/ ./internal/limits/ ./internal/relay/ ./internal/sendramp/

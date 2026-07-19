@@ -6,9 +6,9 @@ Streamable HTTP + OAuth 2.1) and an **operate-well skill** so the agent can send
 and receive email, reply in-thread, hold outbound mail for human review (HITL),
 manage agents and custom domains, and work with attachments.
 
-On first use of an MCP tool the agent runs the OAuth flow in your browser — no
-API key to paste. (For headless/CI, an account API key works too; see
-[`clients/`](./clients).)
+After installation, authorize e2a through your client's MCP flow (Claude Code:
+run `/mcp`; Codex CLI: `codex mcp login e2a`) — no API key to paste. For
+headless/CI, an account API key works too; see [`clients/`](./clients).
 
 ## Install
 
@@ -52,6 +52,12 @@ plugins/e2a/
 ├── .cursor-plugin/plugin.json   # Cursor manifest
 ├── .mcp.json                    # the hosted MCP server (single source of truth)
 ├── assets/icon.svg
+├── docs/                        # canonical agent docs mirrored at e2a.dev
+│   ├── e2a.md                   # connect guide + first-inbox workflow
+│   ├── auth.md                  # OAuth, API keys, scopes, agent identity
+│   ├── sdk.md                   # SDK + webhook integration guide
+│   ├── templates.md             # email-template guide
+│   └── llms.txt                 # machine-readable hosted docs index
 ├── skills/e2a/SKILL.md          # the "operate-well" skill (surfaces as /e2a)
 ├── skills/agentify/SKILL.md     # deploy the autonomous-repo feedback loop (/agentify)
 ├── skills/tether/SKILL.md       # email handoff for long-running sessions (/tether)
@@ -86,6 +92,13 @@ validates every manifest parses, that the version is identical across all
 Claude/Codex/Cursor manifests, that marketplace `source` paths resolve, and that
 each `SKILL.md` satisfies Claude Code's frontmatter constraints. A change that
 wouldn't load fails CI.
+
+Agent-facing Markdown is authored in `docs/`. Run
+`node ../../scripts/sync-agent-docs.mjs` from this directory (or
+`node scripts/sync-agent-docs.mjs` from the repository root) to refresh its
+committed `web/public/` mirrors. The repository-integrity CI job runs the same
+script with `--check` and fails if a hosted mirror drifts from its canonical
+source.
 
 When bumping the plugin version, update `.claude-plugin/plugin.json` (the source
 of truth) **and** the other manifests + marketplace metadata to match — the

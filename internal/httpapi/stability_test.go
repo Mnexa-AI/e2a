@@ -14,12 +14,15 @@ import (
 
 var betaOperationIDs = []string{
 	"approveReview",
+	"createAgentSuppression",
 	"createTemplate",
+	"deleteAgentSuppression",
 	"deleteTemplate",
 	"getAgentProtection",
 	"getReview",
 	"getStarterTemplate",
 	"getTemplate",
+	"listAgentSuppressions",
 	"listReviews",
 	"listStarterTemplates",
 	"listTemplates",
@@ -256,19 +259,20 @@ func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
 func TestSpecBetaMarkers(t *testing.T) {
 	doc := renderSpec(t)
 
-	opExt := func(operationID, extension string) any {
+	opFor := func(operationID string) map[string]any {
 		paths, _ := doc["paths"].(map[string]any)
 		for _, pi := range paths {
 			item, _ := pi.(map[string]any)
 			for _, op := range item {
 				if opm, ok := op.(map[string]any); ok && opm["operationId"] == operationID {
-					return opm[extension]
+					return opm
 				}
 			}
 		}
 		t.Fatalf("operation %q not found", operationID)
 		return nil
 	}
+	opExt := func(operationID, extension string) any { return opFor(operationID)[extension] }
 
 	for _, id := range betaOperationIDs {
 		if got := opExt(id, "x-stability"); got != nil {
@@ -278,7 +282,17 @@ func TestSpecBetaMarkers(t *testing.T) {
 			t.Errorf("%s must carry canonical x-stability-level: beta, got %v", id, got)
 		}
 	}
-	for _, id := range []string{"sendMessage", "createAgent", "listMessages", "createWebhook", "listEvents", "deleteMessage", "restoreMessage", "restoreAgent", "deleteAgent"} {
+	const suppressionBetaSentence = "Beta: agent-scoped suppression management may change before it is declared stable."
+	for _, id := range []string{"listAgentSuppressions", "createAgentSuppression", "deleteAgentSuppression"} {
+		op := opFor(id)
+		if summary, _ := op["summary"].(string); !strings.Contains(summary, "(beta)") {
+			t.Errorf("%s summary must visibly say (beta), got %q", id, summary)
+		}
+		if desc, _ := op["description"].(string); !strings.Contains(desc, suppressionBetaSentence) {
+			t.Errorf("%s description must contain shared beta sentence, got %q", id, desc)
+		}
+	}
+	for _, id := range []string{"sendMessage", "replyToMessage", "forwardMessage", "listSuppressions", "deleteSuppression", "createAgent", "listMessages", "createWebhook", "listEvents", "deleteMessage", "restoreMessage", "restoreAgent", "deleteAgent"} {
 		if got := opExt(id, "x-stability"); got != nil {
 			t.Errorf("%s is stable GA surface and must NOT carry x-stability, got %v", id, got)
 		}
@@ -296,7 +310,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 		return sc[extension]
 	}
-	for _, name := range []string{"TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
+	for _, name := range []string{"AgentSuppressionView", "CreateAgentSuppressionRequest", "PageAgentSuppressionView", "UnsubscribeOptions", "TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s must not carry duplicate x-stability alias, got %v", name, got)
 		}
@@ -304,7 +318,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 			t.Errorf("schema %s must carry canonical x-stability-level: beta, got %v", name, got)
 		}
 	}
-	for _, name := range []string{"MessageView", "AgentView", "WebhookView", "SendEmailRequest", "ErrorEnvelope", "DeleteMessageResult"} {
+	for _, name := range []string{"MessageView", "AgentView", "WebhookView", "SendEmailRequest", "ReplyRequest", "ForwardRequest", "SuppressionView", "PageSuppressionView", "DeleteSuppressionResult", "ErrorEnvelope", "DeleteMessageResult"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s is stable and must NOT carry x-stability, got %v", name, got)
 		}
@@ -357,6 +371,27 @@ func TestSpecBetaMarkers(t *testing.T) {
 	rawErrorValues, _ := errorCode["x-experimental-values"].([]any)
 	if len(rawErrorValues) != 1 || rawErrorValues[0] != "blocked_by_policy" {
 		t.Errorf("ErrorBody.code x-experimental-values = %v, want [blocked_by_policy]", rawErrorValues)
+	}
+
+	// Managed unsubscribe is a beta opt-in nested inside otherwise-stable
+	// outbound request schemas and operations.
+	for _, schema := range []string{"SendEmailRequest", "ReplyRequest", "ForwardRequest"} {
+		p, _ := schemaProps(t, doc, schema)["unsubscribe"].(map[string]any)
+		if p != nil && p["x-stability"] != nil {
+			t.Errorf("%s.unsubscribe must not carry duplicate x-stability alias", schema)
+		}
+		if p == nil || p["x-stability-level"] != "beta" {
+			t.Errorf("%s.unsubscribe must carry canonical x-stability-level: beta", schema)
+		}
+		if desc, _ := p["description"].(string); !strings.Contains(desc, "Beta:") {
+			t.Errorf("%s.unsubscribe must describe its beta status for generated SDK docs", schema)
+		}
+	}
+	if schema, _ := schemas["UnsubscribeOptions"].(map[string]any); schema != nil {
+		desc, _ := schema["description"].(string)
+		if !strings.Contains(desc, "Beta:") {
+			t.Error("UnsubscribeOptions must describe its beta status for generated SDK docs")
+		}
 	}
 
 	// Value-level: the screening + review-hold event types, everywhere event

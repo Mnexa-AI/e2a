@@ -40,6 +40,12 @@ import (
 	"golang.org/x/net/idna"
 )
 
+// Managed one-click requests often originate from centralized mailbox-provider
+// scanners and proxies, so many unrelated recipients can legitimately share one
+// source IP. Keep this budget separate from attachment downloads and high enough
+// for provider fan-in while still bounding anonymous token lookup work.
+const unsubscribeRequestsPerMinute = 600
+
 // writeJSON encodes payload as the response body. Logs encoding errors
 // rather than swallowing them — an Encode failure usually means the
 // client closed the connection mid-response or the payload contains a
@@ -154,8 +160,9 @@ func validateSlug(slug string) error {
 }
 
 type API struct {
-	store  *identity.Store
-	sender *outbound.Sender
+	store             *identity.Store
+	sender            *outbound.Sender
+	unsubscribeIssuer ManagedUnsubscribeIssuer
 	// screen runs outbound content screening (Slice 5). Stateless heuristics
 	// engine; mirrors the relay's inbound piguard engine.
 	screen    *piguard.Engine
@@ -189,6 +196,7 @@ type API struct {
 	feedbackLimit     *ratelimit.Limiter
 	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
 	downloadLimit     *ratelimit.Limiter    // attachment byte-download — capability-token route (no bearer), per-IP
+	unsubscribeLimit  *ratelimit.Limiter    // managed unsubscribe — separate capability-token budget, per-IP
 	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
 	notifyEnq         NotifyEnqueuer        // optional; if nil, holdForApproval persists the hold but sends no notification
 	oauthProvider     fosite.OAuth2Provider // optional; if nil, /oauth2/* endpoints return 404
@@ -228,6 +236,51 @@ type API struct {
 	// transaction and returns accepted before provider submission.
 	outboundEnq OutboundEnqueuer
 	wsHub       WebSocketHub
+}
+
+// ManagedUnsubscribeIssuer is deliberately narrow: it receives only the final
+// canonical recipient and returns a stored, absolute public capability URL.
+type ManagedUnsubscribeIssuer interface {
+	Ready() error
+	Issue(ctx context.Context, userID, agentID, recipient string) (string, error)
+}
+
+const managedUnsubscribeRecipientMessage = "managed unsubscribe requires exactly one recipient"
+
+func (a *API) SetManagedUnsubscribeIssuer(i ManagedUnsubscribeIssuer) { a.unsubscribeIssuer = i }
+
+func prepareManagedUnsubscribe(ctx context.Context, issuer ManagedUnsubscribeIssuer, fromDomain, userID string, agent *identity.AgentIdentity, req *outbound.SendRequest, mint bool) *OutboundError {
+	if req.Unsubscribe == nil {
+		return nil
+	}
+	_, _, _, recipients, err := outbound.NormalizeRecipients(agent, fromDomain, *req)
+	if err != nil {
+		var validationErr *outbound.ValidationError
+		if errors.As(err, &validationErr) && validationErr.Error() == "no valid recipients" {
+			return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: managedUnsubscribeRecipientMessage}
+		}
+		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: err.Error()}
+	}
+	if len(recipients) != 1 {
+		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: managedUnsubscribeRecipientMessage}
+	}
+	if issuer == nil {
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}
+	}
+	if err := issuer.Ready(); err != nil {
+		log.Printf("[api] managed unsubscribe issuer unavailable: agent=%s error=%v", agent.ID, err)
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}
+	}
+	if !mint {
+		return nil
+	}
+	link, err := issuer.Issue(ctx, userID, agent.ID, recipients[0])
+	if err != nil {
+		log.Printf("[api] managed unsubscribe issue failed: agent=%s error=%v", agent.ID, err)
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}
+	}
+	req.Unsubscribe.URL = link
+	return nil
 }
 
 // WebSocketHub is the narrow live-delivery seam shared with internal/ws.
@@ -419,6 +472,13 @@ func (a *API) DownloadLimitAllow(key string) (bool, time.Duration, int, int, int
 	return a.downloadLimit.AllowSnapshot(key)
 }
 
+// UnsubscribeLimitAllow exposes the distinct per-IP managed-unsubscribe
+// limiter. Mailbox providers centralize link scanning and one-click requests,
+// so this has a provider-friendly budget and never consumes attachment quota.
+func (a *API) UnsubscribeLimitAllow(key string) (bool, time.Duration, int, int, int) {
+	return a.unsubscribeLimit.AllowSnapshot(key)
+}
+
 // SetUsageStore wires in the usage store used by handleGetMyLimits to
 // surface the user's current counts (agents, domains, messages this
 // month, storage bytes) alongside the resolved caps. Separate from the
@@ -461,14 +521,15 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		publicURL:    publicURL,
 		// Default the API/issuer URL to the web URL; SetAPIURL overrides it
 		// for split web/API-host deployments.
-		apiURL:        publicURL,
-		production:    production,
-		sendLimit:     ratelimit.New(1*time.Minute, 60),  // 60 sends per agent per minute
-		regLimit:      ratelimit.New(1*time.Hour, 200),   // 200 registrations per IP per hour
-		pollLimit:     ratelimit.New(1*time.Minute, 60),  // 60 poll requests per user per minute
-		feedbackLimit: ratelimit.New(1*time.Hour, 10),    // 10 feedback submissions per IP per hour
-		dcrLimit:      ratelimit.New(1*time.Hour, 10),    // 10 OAuth client registrations per IP per hour
-		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
+		apiURL:           publicURL,
+		production:       production,
+		sendLimit:        ratelimit.New(1*time.Minute, 60),                           // 60 sends per agent per minute
+		regLimit:         ratelimit.New(1*time.Hour, 200),                            // 200 registrations per IP per hour
+		pollLimit:        ratelimit.New(1*time.Minute, 60),                           // 60 poll requests per user per minute
+		feedbackLimit:    ratelimit.New(1*time.Hour, 10),                             // 10 feedback submissions per IP per hour
+		dcrLimit:         ratelimit.New(1*time.Hour, 10),                             // 10 OAuth client registrations per IP per hour
+		downloadLimit:    ratelimit.New(1*time.Minute, 120),                          // 120 attachment downloads per IP per minute
+		unsubscribeLimit: ratelimit.New(1*time.Minute, unsubscribeRequestsPerMinute), // provider-friendly one-click budget
 	}
 }
 
@@ -998,13 +1059,13 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 		// accept-tx. A same-tx enqueue failure fails the whole hold (500) — the same
 		// DB fault would have failed the message insert anyway.
 		if txErr := a.store.WithTx(ctx, func(tx pgx.Tx) error {
-			m, err := a.store.CreatePendingOutboundMessageTx(
+			m, err := a.store.CreatePendingOutboundMessageManagedTx(
 				ctx, tx, agent.ID,
 				req.To, req.CC, req.BCC,
 				req.Subject, req.Body, req.HTMLBody,
 				attachmentsJSON,
 				msgType, req.ConversationID, replyToEmailMessageID, req.ReplyTo,
-				agent.HITLTTLSeconds,
+				agent.HITLTTLSeconds, req.Unsubscribe != nil,
 			)
 			if err != nil {
 				return err
@@ -1024,13 +1085,13 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 		}
 	} else {
 		// No notifier configured: plain hold, no notification (behavior unchanged).
-		m, err := a.store.CreatePendingOutboundMessage(
+		m, err := a.store.CreatePendingOutboundMessageManaged(
 			ctx, agent.ID,
 			req.To, req.CC, req.BCC,
 			req.Subject, req.Body, req.HTMLBody,
 			attachmentsJSON,
 			msgType, req.ConversationID, replyToEmailMessageID, req.ReplyTo,
-			agent.HITLTTLSeconds,
+			agent.HITLTTLSeconds, req.Unsubscribe != nil,
 		)
 		if err != nil {
 			log.Printf("[api] hitl: create pending message: agent=%s err=%v", agent.ID, err)
@@ -1080,13 +1141,13 @@ func (e *OutboundError) Error() string { return e.Msg }
 // suppressionLister is the narrow store surface the suppression checks read —
 // an interface so the check core is unit-testable without Postgres.
 type suppressionLister interface {
-	SuppressedAddresses(ctx context.Context, userID string, addrs []string) ([]string, error)
+	EffectiveSuppressions(ctx context.Context, userID, agentID string, addrs []string) ([]string, error)
 }
 
 // checkSuppressionCore rejects a send when any recipient of the request's
-// FULL To/CC/BCC set is on the owning account's suppression list (decision 9;
-// the store normalizes both sides, so case/whitespace differences still
-// match). Returns a structured recipient_suppressed 422.
+// FULL To/CC/BCC set is in the effective union of the owning account's global
+// list and the exact sending agent's list. The store normalizes both sides, so
+// case/whitespace differences still match. Returns recipient_suppressed 422.
 //
 // failClosed selects the store-error posture:
 //   - false (accept-time direct send): fail OPEN — a suppression-DB hiccup
@@ -1098,7 +1159,7 @@ type suppressionLister interface {
 //     sending on a store error would break the public "addresses e2a will
 //     refuse to send to" contract (GET /v1/account/suppressions). The hold
 //     stays pending_review.
-func checkSuppressionCore(ctx context.Context, store suppressionLister, userID string, req outbound.SendRequest, failClosed bool) *OutboundError {
+func checkSuppressionCore(ctx context.Context, store suppressionLister, userID, agentID string, req outbound.SendRequest, failClosed bool) *OutboundError {
 	addrs := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
 	addrs = append(addrs, req.To...)
 	addrs = append(addrs, req.CC...)
@@ -1106,7 +1167,7 @@ func checkSuppressionCore(ctx context.Context, store suppressionLister, userID s
 	if len(addrs) == 0 {
 		return nil
 	}
-	suppressed, err := store.SuppressedAddresses(ctx, userID, addrs)
+	suppressed, err := store.EffectiveSuppressions(ctx, userID, agentID, addrs)
 	if err != nil {
 		if failClosed {
 			log.Printf("[api] suppression check failed (refusing approval): %v", err)
@@ -1116,22 +1177,21 @@ func checkSuppressionCore(ctx context.Context, store suppressionLister, userID s
 		return nil
 	}
 	if len(suppressed) > 0 {
-		return &OutboundError{Status: http.StatusUnprocessableEntity, Code: "recipient_suppressed", Msg: "recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") +
-			" — remove via DELETE /v1/account/suppressions/{address}"}
+		return &OutboundError{Status: http.StatusUnprocessableEntity, Code: "recipient_suppressed", Msg: "recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") + outbound.SuppressionRemediation(agentID)}
 	}
 	return nil
 }
 
 // checkSuppression is the accept-time (direct send) check: fail-open on a
 // store error (see checkSuppressionCore for the rationale + backstop).
-func (a *API) checkSuppression(ctx context.Context, userID string, req outbound.SendRequest) *OutboundError {
-	return checkSuppressionCore(ctx, a.store, userID, req, false)
+func (a *API) checkSuppression(ctx context.Context, userID, agentID string, req outbound.SendRequest) *OutboundError {
+	return checkSuppressionCore(ctx, a.store, userID, agentID, req, false)
 }
 
 // checkSuppressionStrict is the approval-time check (human approve + magic
 // link): fail-closed on a store error, leaving the hold pending_review.
-func (a *API) checkSuppressionStrict(ctx context.Context, userID string, req outbound.SendRequest) *OutboundError {
-	return checkSuppressionCore(ctx, a.store, userID, req, true)
+func (a *API) checkSuppressionStrict(ctx context.Context, userID, agentID string, req outbound.SendRequest) *OutboundError {
+	return checkSuppressionCore(ctx, a.store, userID, agentID, req, true)
 }
 
 // DeliverOutbound is the shared send/reply/forward delivery tail, HTTP-free:
@@ -1163,11 +1223,16 @@ func resolveOutboundConversationID(explicit, msgType string, referenced *identit
 }
 
 func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message, idemCompleteTx AcceptIdemCompleter) (*OutboundResult, *OutboundError) {
+	// Validate the canonical envelope before screening can durably hold the
+	// draft, but deliberately do not mint while it is pending human review.
+	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, user.ID, agent, &req, false); uerr != nil {
+		return nil, uerr
+	}
 	// Suppression enforcement (decision 9 / Slice 4b): fail fast if any
 	// recipient is on this tenant's suppression list. Enforced fresh on every
 	// attempt and NOT cached under the idempotency key (it's a clearable state,
 	// released like every other error).
-	if supErr := a.checkSuppression(ctx, user.ID, req); supErr != nil {
+	if supErr := a.checkSuppression(ctx, user.ID, agent.ID, req); supErr != nil {
 		return nil, supErr
 	}
 
@@ -1209,6 +1274,9 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 		}
 		return &OutboundResult{Held: true, PendingMessageID: msg.ID, ApprovalExpiresAt: msg.ApprovalExpiresAt}, nil
 	}
+	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, user.ID, agent, &req, true); uerr != nil {
+		return nil, uerr
+	}
 
 	// Usage is metered AFTER the side effect + persist, never before (slice 1
 	// §7.2 / async-send-contract.md): billing must not run ahead of a durable
@@ -1242,6 +1310,9 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 	}
 	comp, cerr := a.sender.ComposeForAccept(agent, req)
 	if cerr != nil {
+		if sizeErr := composedSizeOutboundError(cerr); sizeErr != nil {
+			return nil, sizeErr
+		}
 		if outbound.IsValidationError(cerr) {
 			return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: cerr.Error()}
 		}
@@ -1308,7 +1379,7 @@ func (a *API) SendTestCore(ctx context.Context, agent *identity.AgentIdentity) (
 
 	// Suppression enforcement — the same recipient gate DeliverOutbound runs
 	// (decision 9): a suppressed agent address must never be submitted.
-	if supErr := a.checkSuppression(ctx, agent.UserID, testReq); supErr != nil {
+	if supErr := a.checkSuppression(ctx, agent.UserID, agent.ID, testReq); supErr != nil {
 		return nil, supErr
 	}
 
@@ -1369,6 +1440,9 @@ func (a *API) acceptPlatformSend(ctx context.Context, agent *identity.AgentIdent
 	}
 	comp, cerr := a.sender.ComposePlatformForAccept(req)
 	if cerr != nil {
+		if sizeErr := composedSizeOutboundError(cerr); sizeErr != nil {
+			return nil, sizeErr
+		}
 		if outbound.IsValidationError(cerr) {
 			return nil, &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: cerr.Error()}
 		}

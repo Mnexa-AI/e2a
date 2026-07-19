@@ -15,12 +15,9 @@ import (
 	"github.com/tokencanopy/e2a/migrations"
 )
 
-// migratedTestDB returns a test pool with the schema_migrations tracker
-// populated the way production does. testutil.TestDB applies migration DDL via
-// raw Exec but does NOT record schema_migrations, so the /readyz and /selftest
-// migration-applied checks (which query that tracker, as they do in prod) need
-// this. RunMigrations re-applies the already-present (idempotent) migrations and
-// records each filename.
+// migratedTestDB returns a test pool prepared through the production migration
+// runner. The explicit second call verifies the startup path is idempotent before
+// /readyz and /selftest query the schema_migrations tracker.
 func migratedTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pool := testutil.TestDB(t)

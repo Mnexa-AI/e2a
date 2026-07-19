@@ -14,6 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class SuppressionExportEntry {
     'address': string;
+    'agentEmail'?: string;
     'createdAt': Date;
     'reason'?: string;
     'source': string;
@@ -26,6 +27,12 @@ export class SuppressionExportEntry {
         {
             "name": "address",
             "baseName": "address",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "agentEmail",
+            "baseName": "agent_email",
             "type": "string",
             "format": ""
         },

@@ -277,8 +277,8 @@ if event.type == "email.received":
     # event.data is metadata only — replying needs just the recipient + message_id
     # fetch the full body with client.webhooks.fetch_message(event) if needed
     meta = event.data
-    await client.messages.reply(meta["recipient"], meta["message_id"],
-                                {"body": "Got it!", "conversation_id": "conv_123"})
+    await client.messages.reply(meta["delivered_to"], meta["message_id"],
+                                {"text": "Got it!", "conversation_id": "conv_123"})
 ```
 
 WebSocket (no public URL needed):
@@ -287,10 +287,13 @@ WebSocket (no public URL needed):
 from e2a.v1 import AsyncE2AClient
 
 async with AsyncE2AClient(api_key="e2a_…") as client:
-    async for notif in client.listen("bot@your-domain.com"):
-        # notif is lightweight metadata — fetch the body when you want it
-        email = await client.messages.get(notif.recipient, notif.message_id)
-        await client.messages.reply(notif.recipient, notif.message_id, {"body": "Got it!"})
+    async for event in client.listen("bot@your-domain.com"):
+        if event.type != "email.received":
+            continue  # tolerate future event kinds
+        # The event is lightweight metadata — fetch the body when you want it.
+        meta = event.data
+        email = await client.webhooks.fetch_message(event)
+        await client.messages.reply(meta["delivered_to"], meta["message_id"], {"text": "Got it!"})
 ```
 
 See [sdks/python/README.md](sdks/python/README.md).

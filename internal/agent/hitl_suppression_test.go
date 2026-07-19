@@ -76,13 +76,12 @@ func TestApprovePendingCore_RecipientSuppressedWhileHeld(t *testing.T) {
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "apprsuppheld")
 
-	msg := holdDraft(t, store, ag.ID, []string{"alice@external.test"}, nil, nil)
+	msg := holdDraft(t, store, ag.ID, []string{"Alice Recipient <alice@external.test>"}, nil, nil)
 
-	// Suppress with different CASE than the stored recipient — normalization
-	// must still match (suppressions are stored normalized; the check
-	// normalizes its input).
-	if _, err := store.AddSuppression(ctx, user.ID, "ALICE@External.TEST", "hard bounce", "bounce", ""); err != nil {
-		t.Fatalf("AddSuppression: %v", err)
+	// Suppress with different CASE than the stored display-name recipient —
+	// normalization must still match its canonical addr-spec.
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "ALICE@External.TEST", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatalf("AddAgentSuppression: %v", err)
 	}
 
 	idemCalled := false
@@ -100,6 +99,10 @@ func TestApprovePendingCore_RecipientSuppressedWhileHeld(t *testing.T) {
 	if !strings.Contains(oerr.Msg, "alice@external.test") {
 		t.Errorf("error message %q should name the suppressed address", oerr.Msg)
 	}
+	if !strings.Contains(oerr.Msg, "/v1/account/suppressions/{address}") ||
+		!strings.Contains(oerr.Msg, "/v1/agents/"+ag.ID+"/suppressions/{address}?confirm=DELETE") {
+		t.Errorf("approval remediation = %q, want account and exact-agent endpoints", oerr.Msg)
+	}
 	if idemCalled {
 		t.Error("idempotency completer ran on a refused approval — a 422 must not poison the key")
 	}
@@ -107,8 +110,8 @@ func TestApprovePendingCore_RecipientSuppressedWhileHeld(t *testing.T) {
 
 	// Clearing the suppression makes the SAME approve succeed (the refusal
 	// resolved nothing and cached nothing).
-	if _, err := store.RemoveSuppression(ctx, user.ID, "alice@external.test"); err != nil {
-		t.Fatalf("RemoveSuppression: %v", err)
+	if _, err := store.RemoveAgentSuppression(ctx, user.ID, ag.ID, "alice@external.test"); err != nil {
+		t.Fatalf("RemoveAgentSuppression: %v", err)
 	}
 	sent, oerr = api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{}, complete)
 	if oerr != nil {
@@ -131,13 +134,13 @@ func TestApprovePendingCore_ReviewerAddedSuppressedRecipient(t *testing.T) {
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "apprsuppovr")
 
-	if _, err := store.AddSuppression(ctx, user.ID, "bad@external.test", "complaint", "complaint", ""); err != nil {
-		t.Fatalf("AddSuppression: %v", err)
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "bad@external.test", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatalf("AddAgentSuppression: %v", err)
 	}
 
 	msg := holdDraft(t, store, ag.ID, []string{"clean@external.test"}, nil, nil)
 
-	bad := []string{"Bad@External.TEST"} // case-varied on purpose
+	bad := []string{"Blocked Recipient <Bad@External.TEST>"} // display-name and case-varied on purpose
 	clean := []string{"clean@external.test"}
 	cases := []struct {
 		name string
@@ -217,10 +220,16 @@ func TestApprovePendingCore_SelfSendUnaffectedBySuppressionCheck(t *testing.T) {
 func TestMagicApprovePOST_SuppressedRecipientRefused(t *testing.T) {
 	server, store, signer, smtpDone := setupMagicLinkAPI(t)
 	a, userID := prepareHITLAgent(t, store, "magic-suppressed")
-	msg := issuePending(t, store, a.ID) // held to alice@example.com
+	msg, err := store.CreatePendingOutboundMessage(context.Background(), a.ID,
+		[]string{"Alice Recipient <alice@example.com>"}, nil, nil,
+		"Held", "plain body", "<p>html</p>", nil,
+		"send", "", "", "", 3600)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := store.AddSuppression(context.Background(), userID, "Alice@Example.COM", "manual", "manual", ""); err != nil {
-		t.Fatalf("AddSuppression: %v", err)
+	if _, _, err := store.AddAgentSuppression(context.Background(), userID, a.ID, "Alice@Example.COM", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatalf("AddAgentSuppression: %v", err)
 	}
 
 	tok, _ := signer.Sign(msg.ID, approvaltoken.ActionApprove, time.Now().Add(1*time.Hour))

@@ -9,7 +9,7 @@ npm install @e2a/sdk
 ```
 
 The SDK major version tracks the SDK package's own breaking changes and is
-independent of the API version path (`/v1`): SDK 4.x targets the e2a v1 API.
+independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
 
 ## Upgrading to 4.0
 
@@ -47,8 +47,8 @@ retries + idempotency, and auto-pagination.
 - const { messages } = await client.getMessages({ status: "unread" });
 - const email = await client.getMessage(messages[0].messageId);
 - await email.reply("Thanks!");
-+ const messages = await client.messages.list(address, { status: "unread" }).toArray({ limit: 50 });
-+ await client.messages.reply(address, messages[0].messageId, { body: "Thanks!" });
++ const messages = await client.messages.list(address, { readStatus: "unread" }).toArray({ limit: 50 });
++ await client.messages.reply(address, messages[0].id, { text: "Thanks!" });
 ```
 
 ## Quick Start
@@ -64,10 +64,10 @@ const address = "my-agent@agents.e2a.dev";
 
 ```typescript
 // List endpoints return an AutoPager: iterate, or collect with a required limit.
-for await (const m of client.messages.list(address, { status: "unread" })) {
-  const email = await client.messages.get(address, m.messageId);
-  console.log(email.subject, email.body?.text);
-  await client.messages.reply(address, m.messageId, { body: "Got it!" });
+for await (const m of client.messages.list(address, { readStatus: "unread" })) {
+  const email = await client.messages.get(address, m.id);
+  console.log(email.subject, email.parsed?.text);
+  await client.messages.reply(address, m.id, { text: "Got it!" });
 }
 ```
 
@@ -77,8 +77,8 @@ for await (const m of client.messages.list(address, { status: "unread" })) {
 await client.messages.send(address, {
   to: ["alice@example.com"],
   subject: "Hello",
-  body: "Hi from my agent!",
-  htmlBody: "<p>Hi!</p>",
+  text: "Hi from my agent!",
+  html: "<p>Hi!</p>",
   cc: ["carol@example.com"],
 });
 ```
@@ -90,6 +90,45 @@ double-send. Supply a stable key to also survive a process restart:
 ```typescript
 await client.messages.send(address, body, { idempotencyKey: deriveFromEvent(evt) });
 ```
+
+### Managed unsubscribe (beta)
+
+Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe.
+This capability, the agent-scoped suppression management methods, and the raw
+`GET|POST /u/{token}` confirmation flow are beta and may change before stable:
+
+```typescript
+await client.messages.send("sender@example.com", {
+  to: ["recipient@example.net"],
+  subject: "Update",
+  text: "Hello",
+  unsubscribe: { mode: "managed" },
+});
+```
+
+Omitting `unsubscribe` means only that e2a does not add managed unsubscribe
+handling; it does not classify the message as transactional. Managed messages
+must have exactly one normalized envelope recipient across To, CC, and BCC.
+e2a manages the token and confirmation page, adds a visible footer plus
+`List-Unsubscribe` and `List-Unsubscribe-Post`, and signs those headers.
+
+An unsubscribe blocks that recipient only for the exact sending agent; sibling
+agents remain allowed. Account suppressions still block every agent, and a
+future blocked send returns the existing `422 recipient_suppressed` error.
+Account-scoped credentials can manage the exact-agent list:
+
+```typescript
+const blocks = client.agents.listSuppressions("sender@example.com");
+await client.agents.createSuppression("sender@example.com", {
+  address: "recipient@example.net",
+  reason: "recipient opted out",
+});
+await client.agents.deleteSuppression("sender@example.com", "recipient@example.net");
+```
+
+The typed delete supplies the REST API's required `confirm=DELETE` guard.
+New blocks emit the beta `agent.suppression_added` event with
+`agent_email`, `address`, and `source`.
 
 ### Verify a webhook
 
@@ -124,7 +163,9 @@ accepted if any one matches: `constructEvent(body, header, [oldSecret, newSecret
 
 `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
 `client.events`, `client.webhooks`, `client.account` (with
-`client.account.suppressions`), plus `client.info()`. Each method maps to a
+`client.account.suppressions`), plus `client.info()`. Agent-scoped recipient
+blocks are managed through `client.agents.listSuppressions`,
+`createSuppression`, and `deleteSuppression`. Each method maps to a
 `/v1` operation; per-agent methods take the agent `address` as the first
 argument.
 

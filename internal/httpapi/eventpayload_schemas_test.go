@@ -11,11 +11,11 @@ import (
 // registerEventPayloadSchemas, plus the nested components reachable from them
 // (AttachmentMetaView via EmailReceivedData.attachments).
 var eventPayloadComponentNames = func() []string {
-	names := make([]string, 0, len(eventpayload.StableEvents)+1)
+	names := make([]string, 0, len(eventpayload.StableEvents)+2)
 	for _, event := range eventpayload.StableEvents {
 		names = append(names, event.SchemaName)
 	}
-	return append(names, "AttachmentMetaView")
+	return append(names, "AttachmentMetaView", "AgentSuppressionAddedData")
 }()
 
 // TestEventPayloadSchemasAreOpen enforces the forward-compatibility invariant

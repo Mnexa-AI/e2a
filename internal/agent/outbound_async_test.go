@@ -74,6 +74,7 @@ func setupAsyncAPI(t *testing.T) (*agent.API, *identity.Store, webhookpub.Outbox
 	store := identity.NewStore(pool)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
+	sender.SetSendingStatusLookup(store)
 	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(),
 		"e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
 	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
