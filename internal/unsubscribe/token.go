@@ -11,7 +11,10 @@ import (
 	"strings"
 )
 
-const tokenPrefix = "u1_"
+const (
+	tokenPrefix  = "u1_"
+	tokenPurpose = "e2a:unsubscribe:u1"
+)
 
 // Derive returns a deterministic opaque token bound to one user, sending
 // agent, and recipient. Email identifiers use the same lowercase, trimmed
@@ -33,6 +36,7 @@ func Derive(secret, userID, agentID, recipient string) (string, error) {
 	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
+	writeField(mac, tokenPurpose)
 	writeField(mac, userID)
 	writeField(mac, agentID)
 	writeField(mac, recipient)

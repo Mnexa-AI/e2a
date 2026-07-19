@@ -26,6 +26,26 @@ func TestDeriveIsDeterministicForNormalizedScope(t *testing.T) {
 	}
 }
 
+func TestDeriveKnownAnswer(t *testing.T) {
+	// This vector pins HMAC-SHA256 with the first length-prefixed field
+	// "e2a:unsubscribe:u1", followed by normalized user, agent, and recipient
+	// fields. Each field length is an unsigned 64-bit big-endian byte count.
+	const want = "u1_PUUbtIxrGtvnQCcJ-0P-l35CMmAcqURYPS6hEF_ktvQ"
+
+	got, err := Derive(
+		"known-secret",
+		" user_123 ",
+		" Otto@Example.COM ",
+		" Person@Example.COM ",
+	)
+	if err != nil {
+		t.Fatalf("Derive: %v", err)
+	}
+	if got != want {
+		t.Fatalf("Derive known-answer token = %q, want %q", got, want)
+	}
+}
+
 func TestDeriveSeparatesEveryInput(t *testing.T) {
 	base, err := Derive("secret", "user_123", "otto@example.com", "person@example.com")
 	if err != nil {
