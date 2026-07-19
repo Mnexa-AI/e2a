@@ -76,11 +76,10 @@ func TestApprovePendingCore_RecipientSuppressedWhileHeld(t *testing.T) {
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "apprsuppheld")
 
-	msg := holdDraft(t, store, ag.ID, []string{"alice@external.test"}, nil, nil)
+	msg := holdDraft(t, store, ag.ID, []string{"Alice Recipient <alice@external.test>"}, nil, nil)
 
-	// Suppress with different CASE than the stored recipient — normalization
-	// must still match (suppressions are stored normalized; the check
-	// normalizes its input).
+	// Suppress with different CASE than the stored display-name recipient —
+	// normalization must still match its canonical addr-spec.
 	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "ALICE@External.TEST", "opted out", "unsubscribe", nil); err != nil {
 		t.Fatalf("AddAgentSuppression: %v", err)
 	}
@@ -141,7 +140,7 @@ func TestApprovePendingCore_ReviewerAddedSuppressedRecipient(t *testing.T) {
 
 	msg := holdDraft(t, store, ag.ID, []string{"clean@external.test"}, nil, nil)
 
-	bad := []string{"Bad@External.TEST"} // case-varied on purpose
+	bad := []string{"Blocked Recipient <Bad@External.TEST>"} // display-name and case-varied on purpose
 	clean := []string{"clean@external.test"}
 	cases := []struct {
 		name string
@@ -221,7 +220,13 @@ func TestApprovePendingCore_SelfSendUnaffectedBySuppressionCheck(t *testing.T) {
 func TestMagicApprovePOST_SuppressedRecipientRefused(t *testing.T) {
 	server, store, signer, smtpDone := setupMagicLinkAPI(t)
 	a, userID := prepareHITLAgent(t, store, "magic-suppressed")
-	msg := issuePending(t, store, a.ID) // held to alice@example.com
+	msg, err := store.CreatePendingOutboundMessage(context.Background(), a.ID,
+		[]string{"Alice Recipient <alice@example.com>"}, nil, nil,
+		"Held", "plain body", "<p>html</p>", nil,
+		"send", "", "", "", 3600)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, _, err := store.AddAgentSuppression(context.Background(), userID, a.ID, "Alice@Example.COM", "opted out", "unsubscribe", nil); err != nil {
 		t.Fatalf("AddAgentSuppression: %v", err)

@@ -167,7 +167,7 @@ func (s *Store) EffectiveSuppressions(ctx context.Context, userID, agentID strin
 	}
 	normalized := make([]string, 0, len(addresses))
 	for _, address := range addresses {
-		normalized = append(normalized, NormalizeEmail(address))
+		normalized = append(normalized, NormalizeMailboxAddress(address))
 	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT address FROM suppressions

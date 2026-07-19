@@ -68,7 +68,7 @@ func TestDeliverOutbound_AgentSuppressionBlocksSendReplyAndForward(t *testing.T)
 	for _, messageType := range []string{"send", "reply", "forward"} {
 		t.Run(messageType, func(t *testing.T) {
 			res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
-				To: []string{"blocked@external.test"}, Subject: messageType, Body: "x",
+				To: []string{"Blocked Recipient <blocked@external.test>"}, Subject: messageType, Body: "x",
 			}, messageType, "", nil, nil)
 			if res != nil || oerr == nil || oerr.Code != "recipient_suppressed" {
 				t.Fatalf("result/error = %+v/%+v, want recipient_suppressed", res, oerr)

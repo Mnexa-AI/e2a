@@ -17,9 +17,9 @@ import (
 )
 
 // TestWorkerAutoApproveAsync_SuppressedRecipientAutoRejected: an expired
-// approve-hold whose CC recipient was suppressed (with case differences)
-// after the hold was created is auto-REJECTED with an explicit suppression
-// reason — no enqueue, no SMTP.
+// approve-hold whose CC recipient used a display name and was suppressed with
+// case differences after the hold was created is auto-REJECTED with an
+// explicit suppression reason — no enqueue, no SMTP.
 func TestWorkerAutoApproveAsync_SuppressedRecipientAutoRejected(t *testing.T) {
 	w, store, pool, smtpDone := setupWorker(t)
 	ctx := context.Background()
@@ -29,13 +29,14 @@ func TestWorkerAutoApproveAsync_SuppressedRecipientAutoRejected(t *testing.T) {
 	w.SetOutboundEnqueuer(enq)
 
 	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
-		[]string{"alice@external.test"}, []string{"bob@external.test"}, nil,
+		[]string{"alice@external.test"}, []string{"Bob Recipient <bob@external.test>"}, nil,
 		"Held", "body", "", nil, "send", "", "", "", 60)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Suppressed AFTER the hold was created, with different case — the check
-	// must normalize and match against the exact sending agent's list.
+	// must extract the stored display-name recipient's canonical addr-spec and
+	// match against the exact sending agent's list.
 	if _, _, err := store.AddAgentSuppression(ctx, agent.UserID, agent.ID, "BOB@External.Test", "opted out", "unsubscribe", nil); err != nil {
 		t.Fatalf("AddAgentSuppression: %v", err)
 	}

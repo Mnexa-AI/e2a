@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -60,6 +63,60 @@ func TestAgentSuppressionDuplicateNormalizesAndCallsHookOnce(t *testing.T) {
 	}
 	if second.Address != first.Address || second.Reason != first.Reason || second.Source != first.Source {
 		t.Errorf("duplicate returned %+v, want original %+v", second, first)
+	}
+}
+
+func TestAgentSuppressionConcurrentSamePairIsIdempotent(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	u, a := suppressionUserAndAgent(t, store, "supp-concurrent")
+
+	const workers = 12
+	start := make(chan struct{})
+	results := make(chan bool, workers)
+	errs := make(chan error, workers)
+	var hookCalls atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			sp, added, err := store.AddAgentSuppression(ctx, u.ID, a.ID, " Same@Example.COM ", "first reason wins", "manual",
+				func(context.Context, pgx.Tx, identity.AgentSuppressionHookScope) error {
+					hookCalls.Add(1)
+					return nil
+				})
+			if err == nil && (sp.AgentEmail != a.ID || sp.Address != "same@example.com") {
+				err = fmt.Errorf("unexpected suppression: %+v", sp)
+			}
+			results <- added
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent AddAgentSuppression: %v", err)
+		}
+	}
+	addedCount := 0
+	for added := range results {
+		if added {
+			addedCount++
+		}
+	}
+	if addedCount != 1 || hookCalls.Load() != 1 {
+		t.Fatalf("added=%d hook calls=%d, want exactly one of each", addedCount, hookCalls.Load())
+	}
+	rows, err := store.ListAgentSuppressions(ctx, u.ID, a.ID, 10, time.Time{}, "")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("stored rows = %+v, %v; want exactly one", rows, err)
 	}
 }
 
@@ -158,7 +215,7 @@ func TestAgentSuppressionTenantAgentIsolationAndEffectiveDedup(t *testing.T) {
 	}
 
 	got, err := store.EffectiveSuppressions(ctx, u1.ID, " SUPP-SCOPE-ONE@AGENTS.E2A.DEV ", []string{
-		" SHARED@EXAMPLE.COM ", "account@example.com", "agent-b@example.com", "tenant-two@example.com",
+		"Shared Recipient <SHARED@EXAMPLE.COM>", "Account Recipient <account@example.com>", "agent-b@example.com", "tenant-two@example.com",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -176,6 +233,58 @@ func TestAgentSuppressionTenantAgentIsolationAndEffectiveDedup(t *testing.T) {
 	rows, err := store.ListAgentSuppressions(ctx, u1.ID, " SUPP-SCOPE-ONE@AGENTS.E2A.DEV ", 10, identity.AgentSuppression{}.CreatedAt, "")
 	if err != nil || len(rows) != 1 || rows[0].Address != "shared@example.com" {
 		t.Fatalf("scoped ListAgentSuppressions = %+v, %v", rows, err)
+	}
+}
+
+func TestAgentSuppressionKeysetUsesAddressTieBreaker(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	u, a := suppressionUserAndAgent(t, store, "supp-page-tie")
+	for _, address := range []string{"a@example.com", "b@example.com", "c@example.com"} {
+		if _, _, err := store.AddAgentSuppression(ctx, u.ID, a.ID, address, "", "manual", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tiedAt := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx,
+		`UPDATE agent_suppressions SET created_at = $1 WHERE user_id = $2 AND agent_id = $3`,
+		tiedAt, u.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	page1, err := store.ListAgentSuppressions(ctx, u.ID, a.ID, 2, time.Time{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page 1 = %+v, want two rows", page1)
+	}
+	if got := []string{page1[0].Address, page1[1].Address}; !reflect.DeepEqual(got, []string{"c@example.com", "b@example.com"}) {
+		t.Fatalf("page 1 = %v, want descending address tie-breaker", got)
+	}
+	page2, err := store.ListAgentSuppressions(ctx, u.ID, a.ID, 2, page1[1].CreatedAt, page1[1].Address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page2) != 1 || page2[0].Address != "a@example.com" {
+		t.Fatalf("page 2 = %+v, want only a@example.com", page2)
+	}
+}
+
+func TestAgentSuppressionListHasMatchingKeysetIndex(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	var definition string
+	if err := pool.QueryRow(ctx,
+		`SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'agent_suppressions_list_idx'`,
+	).Scan(&definition); err != nil {
+		t.Fatalf("agent suppression list index: %v", err)
+	}
+	for _, column := range []string{"user_id", "agent_id", "created_at DESC", "address DESC"} {
+		if !strings.Contains(definition, column) {
+			t.Fatalf("index definition %q missing %q", definition, column)
+		}
 	}
 }
 
