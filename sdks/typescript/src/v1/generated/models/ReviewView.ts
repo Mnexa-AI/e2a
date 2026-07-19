@@ -10,6 +10,7 @@
  * Do not edit the class manually.
  */
 
+import { HoldReasonView } from '../models/HoldReasonView.js';
 import { HttpFile } from '../http/http.js';
 
 export class ReviewView {
@@ -23,6 +24,10 @@ export class ReviewView {
     'flagReason'?: string;
     'flagged'?: boolean;
     'from_': string;
+    /**
+    * Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
+    */
+    'holdReason'?: HoldReasonView;
     /**
     * The review\'s id. This is the SAME value as the held message\'s id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.
     */
@@ -79,6 +84,12 @@ export class ReviewView {
             "name": "from_",
             "baseName": "from",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "holdReason",
+            "baseName": "hold_reason",
+            "type": "HoldReasonView",
             "format": ""
         },
         {

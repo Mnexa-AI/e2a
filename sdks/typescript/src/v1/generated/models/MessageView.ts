@@ -12,6 +12,7 @@
 
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AuthVerdict } from '../models/AuthVerdict.js';
+import { HoldReasonView } from '../models/HoldReasonView.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { HttpFile } from '../http/http.js';
@@ -41,6 +42,7 @@ export class MessageView {
     'flagReason'?: string;
     'flagged'?: boolean;
     'from_': string;
+    'holdReason'?: HoldReasonView;
     'id': string;
     'labels': Array<string>;
     'parsed'?: MessageParsedView;
@@ -163,6 +165,12 @@ export class MessageView {
             "name": "from_",
             "baseName": "from",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "holdReason",
+            "baseName": "hold_reason",
+            "type": "HoldReasonView",
             "format": ""
         },
         {

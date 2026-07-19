@@ -61,6 +61,7 @@ from e2a.v1.generated.models.event_envelope import EventEnvelope
 from e2a.v1.generated.models.event_view import EventView
 from e2a.v1.generated.models.field_error import FieldError
 from e2a.v1.generated.models.forward_request import ForwardRequest
+from e2a.v1.generated.models.hold_reason_view import HoldReasonView
 from e2a.v1.generated.models.limit_exceeded_details import LimitExceededDetails
 from e2a.v1.generated.models.limit_exceeded_envelope import LimitExceededEnvelope
 from e2a.v1.generated.models.limit_exceeded_error_body import LimitExceededErrorBody

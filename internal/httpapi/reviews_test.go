@@ -25,8 +25,8 @@ func reviewsServer(t *testing.T) *httptest.Server {
 				return nil, errors.New("unexpected user")
 			}
 			return []identity.ReviewListItem{
-				{ID: "in1", AgentID: "support@acme.dev", Direction: "inbound", Sender: "spam@evil.biz", To: []string{"support@acme.dev"}, Subject: "held inbound", Status: "pending_review", CreatedAt: time.Unix(1700000200, 0).UTC()},
-				{ID: "out1", AgentID: "support@acme.dev", Direction: "outbound", Sender: "support@acme.dev", To: []string{"cust@x.com"}, Subject: "held draft", Status: "pending_review", CreatedAt: time.Unix(1700000100, 0).UTC()},
+				{ID: "in1", AgentID: "support@acme.dev", Direction: "inbound", Sender: "spam@evil.biz", To: []string{"support@acme.dev"}, Subject: "held inbound", Status: "pending_review", ReviewReason: identity.ReviewReasonSenderGate, CreatedAt: time.Unix(1700000200, 0).UTC()},
+				{ID: "out1", AgentID: "support@acme.dev", Direction: "outbound", Sender: "support@acme.dev", To: []string{"cust@x.com"}, Subject: "held draft", Status: "pending_review", ReviewReason: identity.ReviewReasonOutboundScan, CreatedAt: time.Unix(1700000100, 0).UTC()},
 			}, nil
 		},
 		GetReviewWithContent: func(ctx context.Context, userID, id string) (*identity.Message, error) {
@@ -34,7 +34,7 @@ func reviewsServer(t *testing.T) *httptest.Server {
 				return &identity.Message{
 					ID: "in1", AgentID: "support@acme.dev", Direction: "inbound",
 					Sender: "spam@evil.biz", Recipient: "support@acme.dev",
-					Subject: "held inbound", Status: "pending_review",
+					Subject: "held inbound", Status: "pending_review", ReviewReason: identity.ReviewReasonInboundScan,
 					RawMessage: []byte("From: spam@evil.biz\r\nSubject: held inbound\r\n\r\nbad link"),
 					CreatedAt:  time.Unix(1700000200, 0).UTC(),
 				}, nil
@@ -67,6 +67,10 @@ func TestReviews_ListReturnsBothDirections(t *testing.T) {
 	if !dirs["inbound"] || !dirs["outbound"] {
 		t.Fatalf("expected both directions, got %v", dirs)
 	}
+	first := items[0].(map[string]any)["hold_reason"].(map[string]any)
+	if first["type"] != "gate" || first["code"] != "sender_gate" || first["summary"] != "This sender isn't allowed by the inbox policy." {
+		t.Fatalf("unexpected gate hold_reason: %v", first)
+	}
 }
 
 // Regression: the inbound /reviews/{id} detail MUST report
@@ -84,6 +88,34 @@ func TestReviews_InboundDetailReportsReviewStatus(t *testing.T) {
 	}
 	if body["review_status"] != "pending_review" {
 		t.Fatalf("inbound review detail must report review_status=pending_review, got %v", body["review_status"])
+	}
+	reason, _ := body["hold_reason"].(map[string]any)
+	if reason["type"] != "scan" || reason["code"] != "inbound_scan" || reason["summary"] != "Content screening found a potential risk." {
+		t.Fatalf("unexpected detail hold_reason: %v", reason)
+	}
+}
+
+func TestBaseHoldReason(t *testing.T) {
+	tests := []struct {
+		code, wantType, wantSummary string
+	}{
+		{identity.ReviewReasonSenderGate, "gate", "This sender isn't allowed by the inbox policy."},
+		{identity.ReviewReasonRecipientGate, "gate", "One or more recipients aren't allowed by the inbox policy."},
+		{identity.ReviewReasonInboundScan, "scan", "Content screening found a potential risk."},
+		{identity.ReviewReasonOutboundScan, "scan", "Content screening found a potential risk."},
+		{identity.ReviewReasonOutboundSend, "send", "This outbound message requires review before sending."},
+		{"future_reason", "unknown", "This message requires review."},
+	}
+	for _, tc := range tests {
+		t.Run(tc.code, func(t *testing.T) {
+			got := baseHoldReason(tc.code)
+			if got == nil || got.Type != tc.wantType || got.Code != tc.code || got.Summary != tc.wantSummary {
+				t.Fatalf("baseHoldReason(%q) = %#v", tc.code, got)
+			}
+		})
+	}
+	if got := baseHoldReason(""); got != nil {
+		t.Fatalf("baseHoldReason(empty) = %#v, want nil", got)
 	}
 }
 

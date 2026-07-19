@@ -330,3 +330,60 @@ func TestInboundReview_RejectDeliveredMessageIsNoop(t *testing.T) {
 		t.Error("a delivered message was dropped to review_rejected via /reject — must be impossible")
 	}
 }
+
+// TestListReviews_SurfacesHoldReason is the review-queue reason contract: the
+// coded review_reason (populated for EVERY hold path) comes back on both the
+// list and detail. scan_score remains internal screening persistence; public
+// confidence comes from validated protection events on the detail endpoint.
+func TestListReviews_SurfacesHoldReason(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := seedReviewAgent(t, store, ctx, "reason.example.com")
+
+	exp := time.Now().Add(time.Hour)
+	// A scan-driven hold.
+	scanID := createInbound(t, store, ctx, agentID, "evil@x.com", "scan-held", identity.InboundScreening{
+		Status: identity.MessageStatusPendingReview, ScanAction: "review",
+		ReviewReason: identity.ReviewReasonInboundScan, ApprovalExpiresAt: &exp,
+	})
+	// A gate-driven hold: review_reason=sender_gate, no scan ran (nil score) —
+	// the case flag_reason would cover but scan holds would not.
+	gateID := createInbound(t, store, ctx, agentID, "blocked@x.com", "gate-held", identity.InboundScreening{
+		Status: identity.MessageStatusPendingReview, ScanAction: "review",
+		ReviewReason: identity.ReviewReasonSenderGate, ApprovalExpiresAt: &exp,
+	})
+
+	items, err := store.ListReviews(ctx, userID, 0, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListReviews: %v", err)
+	}
+	byID := map[string]identity.ReviewListItem{}
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+
+	scan, ok := byID[scanID]
+	if !ok {
+		t.Fatalf("scan hold %s missing from review queue", scanID)
+	}
+	if scan.ReviewReason != identity.ReviewReasonInboundScan {
+		t.Errorf("scan hold review_reason = %q, want %q", scan.ReviewReason, identity.ReviewReasonInboundScan)
+	}
+
+	gate, ok := byID[gateID]
+	if !ok {
+		t.Fatalf("gate hold %s missing from review queue", gateID)
+	}
+	if gate.ReviewReason != identity.ReviewReasonSenderGate {
+		t.Errorf("gate hold review_reason = %q, want %q", gate.ReviewReason, identity.ReviewReasonSenderGate)
+	}
+	// The detail surface (GET /v1/reviews/{id}) carries the same reason.
+	detail, err := store.GetReviewWithContent(ctx, userID, scanID)
+	if err != nil {
+		t.Fatalf("GetReviewWithContent: %v", err)
+	}
+	if detail.ReviewReason != identity.ReviewReasonInboundScan {
+		t.Errorf("detail review_reason = %q, want %q", detail.ReviewReason, identity.ReviewReasonInboundScan)
+	}
+}

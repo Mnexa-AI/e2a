@@ -28,6 +28,15 @@ export type DashboardAgent = {
 // fans out over the account's agents and tags each row with the
 // owning agent's address (`agent_email`) — needed to drive the
 // agent-scoped approve/reject/detail endpoints.
+export type HoldReason = {
+  type: "gate" | "scan" | "send" | "unknown" | string;
+  code: string;
+  summary: string;
+  category?: string;
+  detail?: string;
+  confidence?: number | null;
+};
+
 export type PendingMessageSummary = {
   id: string;
   // Owning agent's email address. In `/v1` this is how detail/approve/
@@ -48,6 +57,9 @@ export type PendingMessageSummary = {
   bcc?: string[];
   status: string;
   created_at: string;
+  // Product-facing explanation from the review API. Render summary directly;
+  // code is an open machine-readable value for automation.
+  hold_reason?: HoldReason;
 };
 
 export type PendingAttachment = {

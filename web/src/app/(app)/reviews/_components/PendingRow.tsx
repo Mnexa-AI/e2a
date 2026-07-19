@@ -27,6 +27,7 @@ import type {
 } from "../../../components/types";
 import { Chip, Dot } from "@e2a/ui";
 import { diffApproveEdits, joinCSV } from "./edits";
+import { holdReasonSummary } from "./reviewReason";
 
 function formatQueuedAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -81,6 +82,8 @@ export function PendingRow({
 }) {
   const agentEmail = summary.agent_email;
   const id = summary.id;
+  // "Why held" line, computed once (pure; stable within a render).
+  const reasonLabel = holdReasonSummary(summary.hold_reason);
   // Inbound holds are screened *incoming* messages: approve = release to
   // the inbox, reject = block. They aren't editable drafts, so the editor
   // and "& send" wording are outbound-only.
@@ -229,6 +232,19 @@ export function PendingRow({
               </>
             )}
           </span>
+          {/* Why this message is held — the coded screening verdict rendered as
+              a reader-friendly line (+ scan confidence when present). Omitted
+              when the queue row carries no reason. */}
+          {reasonLabel && (
+            <span
+              className="flex items-center gap-1 text-[11px] mt-0.5 truncate"
+              style={{ color: "var(--warn-strong)" }}
+              title={reasonLabel}
+            >
+              <span aria-hidden>⚑</span>
+              <span className="truncate">{reasonLabel}</span>
+            </span>
+          )}
         </span>
         <Chip tone={summary.direction === "inbound" ? "info" : "neutral"}>
           {summary.direction === "inbound" ? "Inbound" : "Outbound"}

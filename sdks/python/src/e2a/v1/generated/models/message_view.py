@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
 from e2a.v1.generated.models.auth_verdict import AuthVerdict
+from e2a.v1.generated.models.hold_reason_view import HoldReasonView
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
 from typing import Optional, Set
@@ -46,6 +47,7 @@ class MessageView(BaseModel):
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
     from_: StrictStr = Field(alias="from")
+    hold_reason: Optional[HoldReasonView] = None
     id: StrictStr
     labels: List[StrictStr]
     parsed: Optional[MessageParsedView] = None
@@ -60,7 +62,7 @@ class MessageView(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "id", "labels", "parsed", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "labels", "parsed", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -116,6 +118,9 @@ class MessageView(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of body
         if self.body:
             _dict['body'] = self.body.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of hold_reason
+        if self.hold_reason:
+            _dict['hold_reason'] = self.hold_reason.to_dict()
         # override the default output from pydantic by calling `to_dict()` of parsed
         if self.parsed:
             _dict['parsed'] = self.parsed.to_dict()
@@ -156,6 +161,7 @@ class MessageView(BaseModel):
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
             "from": obj.get("from"),
+            "hold_reason": HoldReasonView.from_dict(obj["hold_reason"]) if obj.get("hold_reason") is not None else None,
             "id": obj.get("id"),
             "labels": obj.get("labels"),
             "parsed": MessageParsedView.from_dict(obj["parsed"]) if obj.get("parsed") is not None else None,

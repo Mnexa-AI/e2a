@@ -173,3 +173,25 @@ func TestMessageViewRawMessageWireLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// TestMessageViewFromIdentity_NoHoldReasonLeak pins the PR's central safety
+// guarantee: hold_reason is surfaced ONLY on the account-scoped
+// review-detail path (handleGetReview sets them post-construction), never by the
+// shared constructor. The agent-facing GET /v1/agents/{email}/messages/{id}
+// returns bare messageViewFromIdentity output, so even a row that carries a hold
+// verdict must not expose it here. A future edit that starts populating these in
+// the constructor would leak screening internals onto the agent surface — this
+// test fails loudly if that happens.
+func TestMessageViewFromIdentity_NoHoldReasonLeak(t *testing.T) {
+	score := 0.91
+	v := messageViewFromIdentity(&identity.Message{
+		ID:           "msg_leak",
+		Direction:    "inbound",
+		ReviewReason: identity.ReviewReasonInboundScan,
+		ScanScore:    &score,
+		ScanAction:   "review",
+	})
+	if v.HoldReason != nil {
+		t.Errorf("agent-surface MessageView leaked hold_reason = %#v, want nil", v.HoldReason)
+	}
+}

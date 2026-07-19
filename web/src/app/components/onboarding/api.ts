@@ -332,6 +332,9 @@ type MessageViewWire = {
   delivery_status?: string;
   review_status?: string;
   read_status?: string;
+  // Populated only on the review-detail surface; agent message reads never
+  // return review context.
+  hold_reason?: PendingMessageDetail["hold_reason"];
   created_at: string;
   auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
@@ -363,6 +366,7 @@ function projectPending(
     // the delivery rollup is empty until it's approved + sent.
     status: w.review_status ?? "",
     created_at: w.created_at,
+    hold_reason: w.hold_reason,
     // Outbound drafts carry an editable `body`; sent outbound and inbound holds
     // carry the content as `parsed` (the draft columns are scrubbed at send).
     // Fall back so the body shows either way.
@@ -561,13 +565,14 @@ export async function setProtection(
 // drafts awaiting send + inbound messages held by a screening gate).
 type ReviewWire = {
   id: string;
-  agent: string;
+  agent_email: string;
   direction: "inbound" | "outbound";
   from: string;
   to?: string[] | null;
   subject: string;
   conversation_id?: string;
   review_status: string;
+  hold_reason?: PendingMessageSummary["hold_reason"];
   created_at: string;
 };
 
@@ -580,7 +585,7 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
   const page = await request<{ items?: ReviewWire[] | null }>("/v1/reviews");
   return (page.items ?? []).map<PendingMessageSummary>((r) => ({
     id: r.id,
-    agent_email: r.agent,
+    agent_email: r.agent_email,
     direction: r.direction,
     from: r.from,
     subject: r.subject,
@@ -588,6 +593,7 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
     to: r.to ?? [],
     status: r.review_status,
     created_at: r.created_at,
+    hold_reason: r.hold_reason,
   }));
 }
 

@@ -64,6 +64,7 @@ models/EventEnvelope.ts
 models/EventView.ts
 models/FieldError.ts
 models/ForwardRequest.ts
+models/HoldReasonView.ts
 models/LimitExceededDetails.ts
 models/LimitExceededEnvelope.ts
 models/LimitExceededErrorBody.ts

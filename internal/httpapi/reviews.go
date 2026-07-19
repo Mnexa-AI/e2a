@@ -30,14 +30,15 @@ type ReviewView struct {
 	Direction string `json:"direction" enum:"inbound,outbound"`
 	// From/To: for outbound, From is the inbox and To the recipients; for inbound,
 	// From is the external sender and To the inbox.
-	From           string    `json:"from"`
-	To             []string  `json:"to" nullable:"false"`
-	Subject        string    `json:"subject"`
-	ConversationID string    `json:"conversation_id,omitempty"`
-	ReviewStatus   string    `json:"review_status" doc:"Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items)."`
-	Flagged        bool      `json:"flagged,omitempty"`
-	FlagReason     string    `json:"flag_reason,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	From           string          `json:"from"`
+	To             []string        `json:"to" nullable:"false"`
+	Subject        string          `json:"subject"`
+	ConversationID string          `json:"conversation_id,omitempty"`
+	ReviewStatus   string          `json:"review_status" doc:"Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items)."`
+	Flagged        bool            `json:"flagged,omitempty"`
+	FlagReason     string          `json:"flag_reason,omitempty"`
+	HoldReason     *HoldReasonView `json:"hold_reason,omitempty" doc:"Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value."`
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 func reviewView(it identity.ReviewListItem) ReviewView {
@@ -52,6 +53,7 @@ func reviewView(it identity.ReviewListItem) ReviewView {
 		ReviewStatus:   it.Status,
 		Flagged:        it.Flagged,
 		FlagReason:     it.FlagReason,
+		HoldReason:     baseHoldReason(it.ReviewReason),
 		CreatedAt:      it.CreatedAt,
 	}
 }
@@ -197,6 +199,9 @@ func (s *Server) handleGetReview(ctx context.Context, in *getReviewInput) (*revi
 	// lives in m.Status — surface it so clients see pending_review on inbound
 	// holds too.
 	view.HITLStatus = msg.Status
+	// The hold explanation is review-only: messageViewFromIdentity leaves it nil
+	// so it never rides along on the agent /messages surface.
+	view.HoldReason = baseHoldReason(msg.ReviewReason)
 	return &reviewDetailOutput{Body: view}, nil
 }
 

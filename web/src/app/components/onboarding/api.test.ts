@@ -89,7 +89,7 @@ describe("message projection (v1 contract)", () => {
             items: [
               {
                 id: "m1",
-                agent: "a@x.com",
+                agent_email: "a@x.com",
                 direction: "outbound",
                 from: "a@x.com",
                 to: ["b@y.com"],
@@ -99,7 +99,7 @@ describe("message projection (v1 contract)", () => {
               },
               {
                 id: "m2",
-                agent: "a@x.com",
+                agent_email: "a@x.com",
                 direction: "inbound",
                 from: "spammer@evil.com",
                 to: ["a@x.com"],

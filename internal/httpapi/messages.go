@@ -72,9 +72,13 @@ type MessageView struct {
 	// Flagged + FlagReason carry the inbound ingestion verdict (migration 033 /
 	// Slice 7): true when the agent's inbound_policy gate flagged this message
 	// on arrival (still delivered). Inbound-relevant; omitted on unflagged rows.
-	Flagged    bool     `json:"flagged,omitempty"`
-	FlagReason string   `json:"flag_reason,omitempty"`
-	Labels     []string `json:"labels" nullable:"false"`
+	Flagged    bool   `json:"flagged,omitempty"`
+	FlagReason string `json:"flag_reason,omitempty"`
+	// HoldReason is populated only by GET /v1/reviews/{id}. The shared
+	// messageViewFromIdentity constructor deliberately leaves it nil so review
+	// context never leaks onto agent-facing message APIs.
+	HoldReason *HoldReasonView `json:"hold_reason,omitempty"`
+	Labels     []string        `json:"labels" nullable:"false"`
 	// CreatedAt is emitted as a full-precision RFC3339Nano date-time (time.Time),
 	// consistent with every other timestamp in the surface. This is the keyset
 	// pagination ORDERING key, so it must NOT be truncated to whole seconds —

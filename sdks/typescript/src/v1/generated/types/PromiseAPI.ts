@@ -50,6 +50,7 @@ import { EventEnvelope } from '../models/EventEnvelope.js';
 import { EventView } from '../models/EventView.js';
 import { FieldError } from '../models/FieldError.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
+import { HoldReasonView } from '../models/HoldReasonView.js';
 import { LimitExceededDetails } from '../models/LimitExceededDetails.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { LimitExceededErrorBody } from '../models/LimitExceededErrorBody.js';
