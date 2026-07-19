@@ -2,18 +2,17 @@
 
 ## Problem Statement
 
-The agent-facing Markdown at `web/public/e2a.md` and
-`web/public/templates.md` is published at stable e2a.dev URLs, but its current
-location makes the website tree appear authoritative. Agent documentation and
+The agent-facing documents published from `web/public/` at stable e2a.dev URLs
+currently make the website tree appear authoritative. Agent documentation and
 skills should instead be authored together in the OSS plugin tree while the
 website continues to publish stable mirrors.
 
 ## Goals
 
-- Make `plugins/e2a/docs/e2a.md` and `plugins/e2a/docs/templates.md` the
-  canonical sources.
-- Preserve `https://e2a.dev/e2a.md` and
-  `https://e2a.dev/templates.md` with byte-identical files in `web/public/`.
+- Make `plugins/e2a/docs/e2a.md`, `auth.md`, `sdk.md`, `templates.md`, and
+  `llms.txt` the canonical agent-document sources.
+- Preserve the corresponding stable `https://e2a.dev/*` URLs with
+  byte-identical files in `web/public/`.
 - Refresh the hosted mirrors automatically before a web production build.
 - Fail the existing repository-integrity CI job when a committed mirror is
   missing or differs from its canonical source.
@@ -26,6 +25,8 @@ website continues to publish stable mirrors.
 - Do not change the published URLs or Markdown content as part of the move.
 - Do not redirect e2a.dev Markdown URLs to GitHub.
 - Do not relocate `plugins/e2a/skills/**`.
+- Do not move website implementation or visual assets such as `scalar.html`,
+  icons, logos, or social images into the plugin docs tree.
 - Do not add runtime fetching or a website-server dependency.
 - Do not address the deferred Domains-card placement or Webhooks prompt card.
 
@@ -40,8 +41,8 @@ modes:
 - `--check` mode performs no writes. It reports each missing or stale mirror
   and exits nonzero if any mismatch exists.
 
-The file mapping is explicit in the script rather than discovered by glob, so
-adding a new public agent document is a deliberate contract change.
+The five-file mapping is explicit in the script rather than discovered by
+glob, so adding a new public agent document is a deliberate contract change.
 
 Add `prebuild` to `web/package.json` so `npm run build` invokes the default sync
 before Next.js static export. Extend

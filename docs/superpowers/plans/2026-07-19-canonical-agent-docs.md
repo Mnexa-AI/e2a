@@ -195,3 +195,63 @@ git commit -m "docs(plugin): align canonical agent doc references"
 ```
 
 Skip this commit only when the inventory proves no reference edits are needed.
+
+### Task 4: Canonicalize the remaining public agent documents
+
+**Files:**
+- Modify: `scripts/sync-agent-docs.test.mjs`
+- Modify: `scripts/sync-agent-docs.mjs`
+- Create: `plugins/e2a/docs/auth.md` from `web/public/auth.md`
+- Create: `plugins/e2a/docs/sdk.md` from `web/public/sdk.md`
+- Create: `plugins/e2a/docs/llms.txt` from `web/public/llms.txt`
+- Regenerate: `web/public/auth.md`
+- Regenerate: `web/public/sdk.md`
+- Regenerate: `web/public/llms.txt`
+- Modify: `plugins/e2a/README.md`
+
+- [ ] **Step 1: Write the failing exact mapping test**
+
+Assert that `AGENT_DOC_MIRRORS` exactly equals:
+
+```js
+[
+  ["plugins/e2a/docs/e2a.md", "web/public/e2a.md"],
+  ["plugins/e2a/docs/auth.md", "web/public/auth.md"],
+  ["plugins/e2a/docs/sdk.md", "web/public/sdk.md"],
+  ["plugins/e2a/docs/templates.md", "web/public/templates.md"],
+  ["plugins/e2a/docs/llms.txt", "web/public/llms.txt"],
+]
+```
+
+- [ ] **Step 2: Run the focused test and verify RED**
+
+Run `node --test scripts/sync-agent-docs.test.mjs`.
+
+Expected: the mapping assertion fails because only `e2a.md` and
+`templates.md` are mapped.
+
+- [ ] **Step 3: Expand the mapping and add canonical sources**
+
+Add the three mappings in the exact order above. Relocate the current public
+contents without changing bytes, then run `node scripts/sync-agent-docs.mjs`
+to refresh all five committed mirrors.
+
+- [ ] **Step 4: Update the plugin documentation inventory**
+
+List `e2a.md`, `auth.md`, `sdk.md`, `templates.md`, and `llms.txt` beneath the
+`docs/` entry in `plugins/e2a/README.md`. Keep stable e2a.dev URLs in all
+user-facing instructions.
+
+- [ ] **Step 5: Verify all canonical, public, and build-output copies**
+
+Run the Node tests, `--check`, repository integrity, the full web Jest suite,
+and the web production build. Use `cmp` to verify all five canonical files
+against both `web/public/` and `web/out/`.
+
+- [ ] **Step 6: Commit and update PR #575**
+
+```bash
+git add docs/superpowers plugins/e2a/docs plugins/e2a/README.md scripts/sync-agent-docs.mjs scripts/sync-agent-docs.test.mjs web/public
+git commit -m "refactor(docs): canonicalize all public agent docs"
+git push
+```
