@@ -6,10 +6,12 @@ Keep `/v1` stable by default and beta-mark only surfaces for which the repositor
 already records an explicit instability decision.
 
 The audit covers all 130 generated component schemas, every operation root, and
-field/value-level lifecycle annotations. It found one actionable gap:
+field/value-level lifecycle annotations. It found two actionable gaps:
 
 1. `hold_reason` and the review-detail `protection` evidence are not yet stable,
    but their fields and component schemas have no machine-readable beta marker.
+2. `flagged` and `flag_reason` are the pollable verdict for delivered policy-flag
+   outcomes, but their fields likewise lack machine-readable beta markers.
 
 The unified review operations were described as beta in the original design.
 Although v1.0.10 emitted them without markers, the product decision is to
@@ -30,8 +32,9 @@ remain stable.
 - Mark `HoldReasonView` as a beta component.
 - Mark `ProtectionFindingView` and `ThreatCategoryView` as beta components so
   compatibility tooling can evolve the technical evidence shape.
-- Remove the superseded `flagged` and `flag_reason` fields from `ReviewView`,
-  `MessageView`, and `MessageSummaryView`.
+- Preserve `flagged` and `flag_reason` on `ReviewView`, `MessageView`, and
+  `MessageSummaryView`, and mark the fields beta. A flag outcome is delivered
+  rather than held, so these fields are the only pollable warning signal.
 - Keep `ErrorBody.code` stable while marking only `blocked_by_policy` as an
   experimental value.
 - Keep `MessageView`, `SendResultView`, and shared error types stable. The
@@ -49,6 +52,8 @@ remain stable.
   every other stable-to-beta downgrade remains an error.
 - A prose-only beta label is insufficient: each unstable operation, field, or
   component must carry the canonical extension.
+- Delivered policy-flag outcomes remain visible on message detail, list, and
+  conversation projections even though their fields are beta.
 - Runtime JSON, persistence, authorization, and review behavior do not change.
 
 ## Verification

@@ -339,13 +339,14 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 	}
 
-	// The legacy gate-flag projection has been removed in favor of the beta
-	// hold_reason/protection contract.
+	// A delivered flag verdict remains visible to polling agents, but the two
+	// fields are beta while their shape and vocabulary evolve.
 	for _, schema := range []string{"MessageView", "MessageSummaryView", "ReviewView"} {
 		props := schemaProps(t, doc, schema)
 		for _, field := range []string{"flagged", "flag_reason"} {
-			if _, ok := props[field]; ok {
-				t.Errorf("%s.%s must not be published", schema, field)
+			property, _ := props[field].(map[string]any)
+			if property == nil || property["x-stability-level"] != "beta" {
+				t.Errorf("%s.%s must carry canonical x-stability-level: beta", schema, field)
 			}
 		}
 	}

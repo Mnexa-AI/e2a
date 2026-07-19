@@ -1,11 +1,2 @@
-# Explicit removal of the legacy gate-flag projection. Product replaced these
-# fields with the beta hold_reason/protection boundary. Keep every rule fully
-# qualified so all other stable response-property removals remain blocked.
-GET /v1/agents/{email}/conversations/{id} removed the optional property `messages/items/flag_reason` from the response with the `200` status
-GET /v1/agents/{email}/conversations/{id} removed the optional property `messages/items/flagged` from the response with the `200` status
-GET /v1/agents/{email}/messages removed the optional property `items/items/flag_reason` from the response with the `200` status
-GET /v1/agents/{email}/messages removed the optional property `items/items/flagged` from the response with the `200` status
-GET /v1/agents/{email}/messages/{id} removed the optional property `flag_reason` from the response with the `200` status
-GET /v1/agents/{email}/messages/{id} removed the optional property `flagged` from the response with the `200` status
-POST /v1/agents/{email}/messages/{id}/restore removed the optional property `flag_reason` from the response with the `200` status
-POST /v1/agents/{email}/messages/{id}/restore removed the optional property `flagged` from the response with the `200` status
+# No reviewed warning exceptions. Keep this file present because the pinned
+# compatibility command always passes it to oasdiff.

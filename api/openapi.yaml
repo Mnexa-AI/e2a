@@ -2022,6 +2022,12 @@ components:
             - inbound
             - outbound
           type: string
+        flag_reason:
+          type: string
+          x-stability-level: beta
+        flagged:
+          type: boolean
+          x-stability-level: beta
         from:
           type: string
         id:
@@ -2109,6 +2115,12 @@ components:
             - inbound
             - outbound
           type: string
+        flag_reason:
+          type: string
+          x-stability-level: beta
+        flagged:
+          type: boolean
+          x-stability-level: beta
         from:
           type: string
         hold_reason:
@@ -2837,6 +2849,12 @@ components:
             - inbound
             - outbound
           type: string
+        flag_reason:
+          type: string
+          x-stability-level: beta
+        flagged:
+          type: boolean
+          x-stability-level: beta
         from:
           type: string
         hold_reason:

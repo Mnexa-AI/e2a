@@ -112,6 +112,37 @@ func TestMessageViewCarriesWebhookStatusAndSize(t *testing.T) {
 	}
 }
 
+// A policy "flag" verdict is delivered to the agent rather than held for
+// review, so message reads must preserve the only pollable warning signal.
+func TestMessageViewsPreserveFlagVerdict(t *testing.T) {
+	msg := identity.Message{
+		ID:         "msg_flagged",
+		Direction:  "inbound",
+		Flagged:    true,
+		FlagReason: "sender not on allowlist",
+	}
+
+	detail := messageViewFromIdentity(&msg)
+	if !detail.Flagged || detail.FlagReason != msg.FlagReason {
+		t.Errorf("detail flag verdict = (%v, %q), want (true, %q)", detail.Flagged, detail.FlagReason, msg.FlagReason)
+	}
+
+	summary := messageSummaryFromIdentity(msg)
+	if !summary.Flagged || summary.FlagReason != msg.FlagReason {
+		t.Errorf("summary flag verdict = (%v, %q), want (true, %q)", summary.Flagged, summary.FlagReason, msg.FlagReason)
+	}
+
+	review := reviewView(identity.ReviewListItem{
+		ID:         msg.ID,
+		Direction:  msg.Direction,
+		Flagged:    msg.Flagged,
+		FlagReason: msg.FlagReason,
+	})
+	if !review.Flagged || review.FlagReason != msg.FlagReason {
+		t.Errorf("review flag verdict = (%v, %q), want (true, %q)", review.Flagged, review.FlagReason, msg.FlagReason)
+	}
+}
+
 // Held-draft (pending_approval) messages expose body_text/html via Body, the
 // second representation the unified read serves (sent/inbound use raw_message).
 func TestMessageViewHeldDraftBody(t *testing.T) {

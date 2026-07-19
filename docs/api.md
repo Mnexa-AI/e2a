@@ -470,8 +470,10 @@ The unified review resource is beta and may change before it is declared stable.
 The product-facing `hold_reason` explanation and the optional technical
 `protection` evidence on detail responses are beta and may change before they
 are declared stable.
-The legacy `flagged` and `flag_reason` projections have been removed from
-review, message-detail, message-list, and conversation responses.
+The `flagged` and `flag_reason` projections remain available on review,
+message-detail, message-list, and conversation responses so polling agents can
+identify delivered policy-flag outcomes. These fields are beta and may change
+before they are declared stable.
 
 - `GET /v1/reviews`, `GET /v1/reviews/{id}` — list the queue / full detail of one
   held message.

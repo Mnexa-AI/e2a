@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.auth_verdict import AuthVerdict
 from typing import Optional, Set
@@ -37,6 +37,8 @@ class MessageSummaryView(BaseModel):
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)")
     direction: StrictStr
+    flag_reason: Optional[StrictStr] = None
+    flagged: Optional[StrictBool] = None
     from_: StrictStr = Field(alias="from")
     id: StrictStr
     labels: List[StrictStr]
@@ -50,7 +52,7 @@ class MessageSummaryView(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["auth", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "from", "id", "labels", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["auth", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "id", "labels", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -122,6 +124,8 @@ class MessageSummaryView(BaseModel):
             "delivery_detail": obj.get("delivery_detail"),
             "delivery_status": obj.get("delivery_status"),
             "direction": obj.get("direction"),
+            "flag_reason": obj.get("flag_reason"),
+            "flagged": obj.get("flagged"),
             "from": obj.get("from"),
             "id": obj.get("id"),
             "labels": obj.get("labels"),

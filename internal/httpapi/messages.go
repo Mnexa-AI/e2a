@@ -69,6 +69,12 @@ type MessageView struct {
 	// SentAs is the From identity actually used at relay accept time.
 	// Outbound-only; omitted on inbound messages.
 	SentAs string `json:"sent_as,omitempty" doc:"From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."`
+	// Flagged + FlagReason carry the beta inbound ingestion verdict: true when
+	// the agent's inbound-policy gate flagged this message on arrival while still
+	// delivering it. Polling agents need this signal because no review item is
+	// created for the flag action.
+	Flagged    bool   `json:"flagged,omitempty"`
+	FlagReason string `json:"flag_reason,omitempty"`
 	// HoldReason is populated only by GET /v1/reviews/{id}. The shared
 	// messageViewFromIdentity constructor deliberately leaves it nil so review
 	// context never leaks onto agent-facing message APIs.
@@ -176,6 +182,8 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		AuthHeaders: m.AuthHeaders,
 		Auth:        m.Auth,
 		RawMessage:  m.RawMessage,
+		Flagged:     m.Flagged,
+		FlagReason:  m.FlagReason,
 	}
 	// Webhook delivery context + raw size — apply to both directions so the
 	// detail view stays a superset of the summary view (omitempty hides empties).
@@ -265,6 +273,11 @@ type MessageSummaryView struct {
 	DeliveryStatus string `json:"delivery_status,omitempty" doc:"Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)"`
 	DeliveryDetail string `json:"delivery_detail,omitempty"`
 	SentAs         string `json:"sent_as,omitempty" doc:"From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."`
+	// Flagged + FlagReason are the beta inbound ingestion verdict. They remain in
+	// list projections so polling agents can identify delivered flag outcomes
+	// without a per-message drill-down.
+	Flagged    bool   `json:"flagged,omitempty"`
+	FlagReason string `json:"flag_reason,omitempty"`
 	// SizeBytes is the RAW MIME byte length of the whole stored message —
 	// same semantics as MessageView.SizeBytes (see there for the full note,
 	// including its role as the dominant term of storage-quota accounting).
@@ -317,6 +330,8 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		CreatedAt:      m.CreatedAt.UTC(),
 		DeletedAt:      utcPtr(m.DeletedAt),
 		Auth:           m.Auth,
+		Flagged:        m.Flagged,
+		FlagReason:     m.FlagReason,
 	}
 	if m.Direction == "outbound" {
 		s.HITLStatus = m.Status
