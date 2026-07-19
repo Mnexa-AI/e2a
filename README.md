@@ -231,7 +231,7 @@ Authenticate either with **OAuth 2.1** (add e2a as a connector and authorize in 
 
 The toolset covers the full agent loop — inbox (`list_messages`, `get_message`, `get_attachment`, `list_conversations`, `get_conversation`, `update_message_labels`), outbound (`send_message`, `reply_to_message`, `forward_message`), HITL review (`list_reviews`, `get_review`, `approve_review`, `reject_review`), plus agent/domain/webhook management. Inbound is consumed by polling (`list_messages`) or a `create_webhook` subscription.
 
-The server publishes to npm as [`@e2a/mcp-server`](https://www.npmjs.com/package/@e2a/mcp-server) for self-hosting. See [mcp/README.md](mcp/README.md) for per-framework setup and the full tool reference.
+The hosted server is the primary path; npm publishing of `@e2a/mcp-server` is retired (frozen at `0.4.0`). See [mcp/README.md](mcp/README.md) for per-framework setup and the full tool reference.
 
 ## CLI
 
