@@ -2,6 +2,8 @@ package testutil
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -11,6 +13,19 @@ import (
 )
 
 const defaultTestDBURL = "postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable"
+
+type testDBPreparationError struct {
+	stage string
+	err   error
+}
+
+func (e *testDBPreparationError) Error() string {
+	return fmt.Sprintf("%s: %v", e.stage, e.err)
+}
+
+func (e *testDBPreparationError) Unwrap() error {
+	return e.err
+}
 
 func TestDBURL() string {
 	dbURL := os.Getenv("E2A_TEST_DATABASE_URL")
@@ -37,12 +52,12 @@ func OpenPreparedTestDB(ctx context.Context, dbURL string) (*pgxpool.Pool, error
 
 	if err := runMigrations(ctx, pool); err != nil {
 		pool.Close()
-		return nil, err
+		return nil, &testDBPreparationError{stage: "run migrations", err: err}
 	}
 
 	if err := truncateAll(ctx, pool); err != nil {
 		pool.Close()
-		return nil, err
+		return nil, &testDBPreparationError{stage: "truncate tables", err: err}
 	}
 
 	return pool, nil
@@ -54,6 +69,10 @@ func TestDB(t *testing.T) *pgxpool.Pool {
 	ctx := context.Background()
 	pool, err := OpenPreparedTestDB(ctx, TestDBURL())
 	if err != nil {
+		var preparationErr *testDBPreparationError
+		if errors.As(err, &preparationErr) {
+			t.Fatalf("failed to prepare test database: %v", err)
+		}
 		t.Skipf("test database not available: %v", err)
 	}
 

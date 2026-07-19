@@ -2,9 +2,17 @@ package testutil
 
 import (
 	"context"
+	"net/url"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const testDBErrorChildEnv = "E2A_TEST_DB_ERROR_CHILD"
 
 func TestTruncateAll_CleansInboundIntakeWithoutExclusiveTableLock(t *testing.T) {
 	pool := TestDB(t)
@@ -101,4 +109,74 @@ func TestRunMigrations_RepeatedPreparationUsesTrackerWithoutConsumingAttributeSl
 	if tracked != 3 {
 		t.Fatalf("tracked HITL migrations = %d, want 3", tracked)
 	}
+}
+
+func TestTestDB_PreparationFailureIsFatal(t *testing.T) {
+	if os.Getenv(testDBErrorChildEnv) == t.Name() {
+		_ = TestDB(t)
+		return
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, TestDBURL())
+	if err != nil {
+		t.Skipf("test database not available: %v", err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("test database not available: %v", err)
+	}
+
+	dbURL, err := url.Parse(TestDBURL())
+	if err != nil {
+		t.Fatalf("parse test database URL: %v", err)
+	}
+	query := dbURL.Query()
+	query.Set("search_path", "e2a_test_missing_schema")
+	dbURL.RawQuery = query.Encode()
+
+	output, err := runTestDBErrorChild(t, dbURL.String())
+	if err == nil {
+		t.Fatalf("TestDB preparation failure exited successfully; want fatal failure\n%s", output)
+	}
+	if !strings.Contains(output, "failed to prepare test database") {
+		t.Fatalf("fatal output missing preparation context:\n%s", output)
+	}
+}
+
+func TestTestDB_UnavailableDatabaseStillSkips(t *testing.T) {
+	if os.Getenv(testDBErrorChildEnv) == t.Name() {
+		_ = TestDB(t)
+		return
+	}
+
+	const unavailableURL = "postgres://e2a:e2a@127.0.0.1:1/e2a_test?sslmode=disable&connect_timeout=1"
+	output, err := runTestDBErrorChild(t, unavailableURL)
+	if err != nil {
+		t.Fatalf("unavailable test database should skip, not fail: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "SKIP") {
+		t.Fatalf("unavailable test database output missing skip:\n%s", output)
+	}
+}
+
+func runTestDBErrorChild(t *testing.T, dbURL string) (string, error) {
+	t.Helper()
+
+	cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$", "-test.v")
+	cmd.Env = testDBChildEnv(t.Name(), dbURL)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func testDBChildEnv(testName, dbURL string) []string {
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, item := range os.Environ() {
+		if strings.HasPrefix(item, testDBErrorChildEnv+"=") ||
+			strings.HasPrefix(item, "E2A_TEST_DATABASE_URL=") {
+			continue
+		}
+		env = append(env, item)
+	}
+	return append(env, testDBErrorChildEnv+"="+testName, "E2A_TEST_DATABASE_URL="+dbURL)
 }
