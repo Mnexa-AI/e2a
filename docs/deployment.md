@@ -21,6 +21,12 @@ Copy `config.example.yaml` to `config.yaml` and fill in values, or set the envir
 | `E2A_SHARED_DOMAIN` | optional | Mail domain backing slug-based agent registration (e.g. `agents.example.com`). When set, users can register agents with just a slug; when empty, every agent must use a custom domain that the user verifies. The shared domain itself becomes reserved (cannot be claimed as a custom domain). |
 | `E2A_GOOGLE_CLIENT_ID` | for OAuth login | Google OAuth client ID for dashboard sign-in |
 | `E2A_GOOGLE_CLIENT_SECRET` | for OAuth login | Google OAuth client secret |
+| `E2A_OIDC_ENABLED` | no (default off) | Turns on generic OIDC login as an additional sign-in path (see below) |
+| `E2A_OIDC_ISSUER_URL` | if OIDC enabled | Expected ID-token issuer / discovery base URL |
+| `E2A_OIDC_CLIENT_ID` | if OIDC enabled | Confidential client ID registered with the OIDC provider |
+| `E2A_OIDC_CLIENT_SECRET` | if OIDC enabled | Confidential client secret |
+| `E2A_OIDC_REDIRECT_URL` | if OIDC enabled | Registered absolute callback URL |
+| `E2A_OIDC_USER_ID_CLAIM` | if OIDC enabled | ID-token claim naming an existing `users.id` — OIDC login never provisions new users |
 | `E2A_OUTBOUND_SMTP_HOST` | for outbound | Upstream SMTP host (e.g. `email-smtp.us-east-1.amazonaws.com`) |
 | `E2A_OUTBOUND_SMTP_PORT` | for outbound | Upstream SMTP port (typically `587`) |
 | `E2A_OUTBOUND_SMTP_USERNAME` | for outbound | Upstream SMTP username |
@@ -126,6 +132,6 @@ That leaves two real horizontal-scaling caveats:
 
 **Vertical scaling is fine.** The API, the SMTP relay, and all three background workers run safely on multiple replicas today — the only paths that need attention before you do are the two above.
 
-**Dashboard auth is Google OAuth only.** [`internal/auth/auth.go`](../internal/auth/auth.go) imports `golang.org/x/oauth2/google` directly and the config exposes `google_client_id` / `google_client_secret`. Teams running GitHub OAuth, Microsoft Entra, Okta, or generic OIDC need to add a provider in that package. The CLI and SDKs authenticate with API keys, which are provider-agnostic.
+**Dashboard auth is Google OAuth plus an optional generic OIDC login.** [`internal/auth/auth.go`](../internal/auth/auth.go) imports `golang.org/x/oauth2/google` directly and the config exposes `google_client_id` / `google_client_secret`. [`internal/auth/oidc.go`](../internal/auth/oidc.go) additionally implements an off-by-default OpenID Connect relying party (`E2A_OIDC_ENABLED` + the `E2A_OIDC_*` vars above) for teams on GitHub OAuth, Microsoft Entra, Okta, or another OIDC provider — it's an additional login path, not a Google OAuth replacement: it maps a configured ID-token claim to an existing e2a user and never provisions new ones, so accounts must already exist (e.g. via Google OAuth or `-bootstrap-email`) before OIDC login works for them. The CLI and SDKs authenticate with API keys, which are provider-agnostic.
 
 **Otherwise infra-agnostic.** The Go binary runs on any container host (Docker, Podman, k8s, ECS, Fly, Cloud Run, …). Storage is plain Postgres 14+ — managed (RDS, Cloud SQL, Neon, Supabase) or self-managed. Email goes out via standard SMTP, not a vendor SDK. Attachments live in Postgres rows, so there's no S3/GCS dependency. No queue, no Redis, no separate worker process. Secrets are read from env vars, so any secret manager that injects env at start time works.
