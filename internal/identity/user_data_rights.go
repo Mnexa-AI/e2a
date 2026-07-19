@@ -39,10 +39,11 @@ type UserExport struct {
 // SuppressionExportEntry is one suppressed recipient address the account owns.
 // source_message_id is an internal correlation id, deliberately omitted.
 type SuppressionExportEntry struct {
-	Address   string    `json:"address"`
-	Reason    string    `json:"reason,omitempty"`
-	Source    string    `json:"source"`
-	CreatedAt time.Time `json:"created_at"`
+	AgentEmail string    `json:"agent_email,omitempty"`
+	Address    string    `json:"address"`
+	Reason     string    `json:"reason,omitempty"`
+	Source     string    `json:"source"`
+	CreatedAt  time.Time `json:"created_at"`
 } // @name SuppressionExportEntry
 
 // ProtectionEventExportEntry is one row of the protection_events audit log for
@@ -194,8 +195,15 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 // scanSuppressionsForUser loads the user's suppression list for the export.
 func scanSuppressionsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]SuppressionExportEntry, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT address, COALESCE(reason, ''), source, created_at
-		   FROM suppressions WHERE user_id = $1 ORDER BY created_at DESC`, userID)
+		`SELECT agent_email, address, reason, source, created_at
+		   FROM (
+		         SELECT '' AS agent_email, address, COALESCE(reason, '') AS reason, source, created_at
+		           FROM suppressions WHERE user_id = $1
+		         UNION ALL
+		         SELECT agent_id AS agent_email, address, reason, source, created_at
+		           FROM agent_suppressions WHERE user_id = $1
+		        ) all_suppressions
+		  ORDER BY created_at DESC, address DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +211,7 @@ func scanSuppressionsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]S
 	out := []SuppressionExportEntry{}
 	for rows.Next() {
 		var e SuppressionExportEntry
-		if err := rows.Scan(&e.Address, &e.Reason, &e.Source, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.AgentEmail, &e.Address, &e.Reason, &e.Source, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

@@ -279,6 +279,54 @@ func TestExportUserData(t *testing.T) {
 	}
 }
 
+func TestUserExportAgentSuppressionScopedAndDoesNotLeakTokens(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	user, agent := suppressionUserAndAgent(t, store, "export-agent-suppression")
+	other, otherAgent := suppressionUserAndAgent(t, store, "export-agent-suppression-other")
+
+	if _, err := store.AddSuppression(ctx, user.ID, "account@example.com", "bounce", "manual", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, agent.ID, "agent@example.com", "asked", "unsubscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AddAgentSuppression(ctx, other.ID, otherAgent.ID, "other@example.com", "", "manual", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutUnsubscribeToken(ctx, []byte("secret-token-hash-not-for-export"), user.ID, agent.ID, "token-only@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	dump, err := store.ExportUserData(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dump.Suppressions) != 2 {
+		t.Fatalf("export suppressions = %+v, want account + agent rows", dump.Suppressions)
+	}
+	byAddress := make(map[string]identity.SuppressionExportEntry, len(dump.Suppressions))
+	for _, row := range dump.Suppressions {
+		byAddress[row.Address] = row
+	}
+	if got := byAddress["account@example.com"].AgentEmail; got != "" {
+		t.Errorf("account suppression agent_email = %q, want omitted", got)
+	}
+	if got := byAddress["agent@example.com"].AgentEmail; got != agent.ID {
+		t.Errorf("agent suppression agent_email = %q, want %q", got, agent.ID)
+	}
+	raw, err := json.Marshal(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"secret-token-hash-not-for-export", "token-only@example.com", "other@example.com"} {
+		if jsonContains(raw, forbidden) {
+			t.Errorf("export leaked %q: %s", forbidden, raw)
+		}
+	}
+}
+
 // TestDeleteUserData verifies the right-of-deletion flow does the full
 // cascade and reports per-table counts. After deletion, the user record
 // must be gone and orphan rows must not exist for any of: domains,
