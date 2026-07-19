@@ -33,6 +33,10 @@ type OutboundEnqueuer interface {
 	EnqueueSendTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error)
 }
 
+type ManagedUnsubscribeIssuer interface {
+	Issue(ctx context.Context, userID, agentID, recipient string) (string, error)
+}
+
 type WebSocketHub interface {
 	IsConnected(agentID string) bool
 	Send(agentID string, msg []byte) bool
@@ -63,8 +67,9 @@ type Worker struct {
 	// outboundEnq routes an approved external send onto QueueOutbound. Main always
 	// wires it; a nil value fails closed and leaves the hold pending. Self-sends use
 	// the local loopback path.
-	outboundEnq OutboundEnqueuer
-	wsHub       WebSocketHub
+	outboundEnq       OutboundEnqueuer
+	unsubscribeIssuer ManagedUnsubscribeIssuer
+	wsHub             WebSocketHub
 }
 
 // SetPublisher wires the webhook publisher used to emit review-resolution events
@@ -80,7 +85,9 @@ func (w *Worker) SetOutbox(o webhookpub.Outbox) { w.outbox = o }
 // wiring: pass the *outboundsend.Jobs pointer; its shared River client is injected
 // later via the jobs client's SetEnqueuer.
 func (w *Worker) SetOutboundEnqueuer(e OutboundEnqueuer) { w.outboundEnq = e }
-func (w *Worker) SetWebSocketHub(h WebSocketHub)         { w.wsHub = h }
+
+func (w *Worker) SetManagedUnsubscribeIssuer(i ManagedUnsubscribeIssuer) { w.unsubscribeIssuer = i }
+func (w *Worker) SetWebSocketHub(h WebSocketHub)                         { w.wsHub = h }
 
 // New constructs a Worker. fromDomain is the deployment's outbound
 // from-domain (cfg.OutboundSMTP.FromDomain) — used by the self-send
@@ -269,6 +276,23 @@ func (w *Worker) autoApproveAsync(ctx context.Context, agent *identity.AgentIden
 	isPlatformTest := msg.Type == "test"
 	if !isPlatformTest && loopback.IsSelfSend(req, agent.EmailAddress()) {
 		return false // self-send — fall through to the local loopback path
+	}
+	if req.Unsubscribe != nil {
+		_, _, _, finalRecipients, nerr := outbound.NormalizeRecipients(agent, w.fromDomain, req)
+		if nerr != nil || len(finalRecipients) != 1 {
+			w.autoReject(ctx, c.MessageID, "auto-approve failed: managed unsubscribe requires exactly one recipient")
+			return true
+		}
+		if w.unsubscribeIssuer == nil {
+			log.Printf("[hitl-worker] auto-approve %s: managed unsubscribe unavailable (leaving pending)", c.MessageID)
+			return true
+		}
+		link, ierr := w.unsubscribeIssuer.Issue(ctx, agent.UserID, agent.ID, finalRecipients[0])
+		if ierr != nil {
+			log.Printf("[hitl-worker] auto-approve %s: managed unsubscribe issue: %v (leaving pending)", c.MessageID, ierr)
+			return true
+		}
+		req.Unsubscribe.URL = link
 	}
 	var comp *outbound.ComposeResult
 	if isPlatformTest {
@@ -536,5 +560,13 @@ func sendRequestFromStoredMessage(m *identity.Message) (outbound.SendRequest, er
 		ReplyToMessageID: m.EmailMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,
+		Unsubscribe:      managedUnsubscribeIntent(m.ManagedUnsubscribe),
 	}, nil
+}
+
+func managedUnsubscribeIntent(enabled bool) *outbound.UnsubscribeOptions {
+	if !enabled {
+		return nil
+	}
+	return &outbound.UnsubscribeOptions{Mode: "managed"}
 }

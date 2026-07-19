@@ -39,6 +39,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/senderidentity"
 	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/telemetry"
+	"github.com/tokencanopy/e2a/internal/unsubscribe"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhook"
 	"github.com/tokencanopy/e2a/internal/webhookdelivery"
@@ -354,7 +355,13 @@ func main() {
 	// SetPublisher is called immediately below (before jobs.New, and the registrar
 	// holds this same *Worker pointer), so the publisher is wired well before the
 	// first tick (RunOnStart:false ⇒ first sweep at +60s).
+	managedUnsubscribeIssuer, managedUnsubscribeErr := unsubscribe.NewIssuer(cfg.Signing.HMACSecret, cfg.HTTP.APIURL, cfg.IsProduction(), store)
+	if managedUnsubscribeErr != nil {
+		log.Printf("[unsubscribe] managed sends disabled: %v", managedUnsubscribeErr)
+		managedUnsubscribeIssuer = nil
+	}
 	hitlWorker := hitlworker.New(store, sender, usageTracker, cfg.OutboundSMTP.FromDomain)
+	hitlWorker.SetManagedUnsubscribeIssuer(managedUnsubscribeIssuer)
 	// Fire review_approved/review_rejected on TTL auto-resolution, so a hold resolved
 	// by timeout notifies subscribers exactly like a human-resolved one (same legacy
 	// publisher as the agent API). Load-bearing for inbound approve: a TTL-released
@@ -645,23 +652,24 @@ func main() {
 	// health/feedback, magic-link pages). The `/api/v1` surface is fully retired.
 	// The chi root is the process HTTP handler.
 	v1 := apiserver.New(apiserver.Params{
-		API:             api,
-		Store:           store,
-		Enforcer:        enforcer,
-		UsageStore:      usageStore,
-		SubscriberStore: subscriberStore,
-		Idempotency:     idempotencyStore,
-		Pool:            pool,
-		SMTPDomain:      cfg.SMTP.Domain,
-		SESRegion:       cfg.SenderIdentity.SESRegion,
-		SharedDomain:    cfg.SharedDomain,
-		PublicURL:       cfg.HTTP.PublicURL,
-		SigningSecret:   cfg.Signing.HMACSecret,
-		EventsEnabled:   webhookOutbox.Enabled(),
-		Production:      cfg.IsProduction(),
-		Legacy:          router,
-		WSHandle:        wsHandler.ServeWithEmail,
-		SenderIdentity:  senderEnqueuer,
+		API:                      api,
+		Store:                    store,
+		Enforcer:                 enforcer,
+		UsageStore:               usageStore,
+		SubscriberStore:          subscriberStore,
+		Idempotency:              idempotencyStore,
+		Pool:                     pool,
+		SMTPDomain:               cfg.SMTP.Domain,
+		SESRegion:                cfg.SenderIdentity.SESRegion,
+		SharedDomain:             cfg.SharedDomain,
+		PublicURL:                cfg.HTTP.PublicURL,
+		SigningSecret:            cfg.Signing.HMACSecret,
+		EventsEnabled:            webhookOutbox.Enabled(),
+		Production:               cfg.IsProduction(),
+		Legacy:                   router,
+		WSHandle:                 wsHandler.ServeWithEmail,
+		SenderIdentity:           senderEnqueuer,
+		ManagedUnsubscribeIssuer: managedUnsubscribeIssuer,
 		// River is the sole webhook delivery engine: the /test + redelivery
 		// endpoints insert a delivery row directly (bypassing the outbox drain),
 		// so they must enqueue the River job themselves or the row never delivers.

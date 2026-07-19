@@ -160,8 +160,9 @@ func validateSlug(slug string) error {
 }
 
 type API struct {
-	store  *identity.Store
-	sender *outbound.Sender
+	store             *identity.Store
+	sender            *outbound.Sender
+	unsubscribeIssuer ManagedUnsubscribeIssuer
 	// screen runs outbound content screening (Slice 5). Stateless heuristics
 	// engine; mirrors the relay's inbound piguard engine.
 	screen    *piguard.Engine
@@ -235,6 +236,40 @@ type API struct {
 	// transaction and returns accepted before provider submission.
 	outboundEnq OutboundEnqueuer
 	wsHub       WebSocketHub
+}
+
+// ManagedUnsubscribeIssuer is deliberately narrow: it receives only the final
+// canonical recipient and returns a stored, absolute public capability URL.
+type ManagedUnsubscribeIssuer interface {
+	Issue(ctx context.Context, userID, agentID, recipient string) (string, error)
+}
+
+func (a *API) SetManagedUnsubscribeIssuer(i ManagedUnsubscribeIssuer) { a.unsubscribeIssuer = i }
+
+func prepareManagedUnsubscribe(ctx context.Context, issuer ManagedUnsubscribeIssuer, fromDomain, userID string, agent *identity.AgentIdentity, req *outbound.SendRequest, mint bool) *OutboundError {
+	if req.Unsubscribe == nil {
+		return nil
+	}
+	_, _, _, recipients, err := outbound.NormalizeRecipients(agent, fromDomain, *req)
+	if err != nil {
+		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: err.Error()}
+	}
+	if len(recipients) != 1 {
+		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: "managed unsubscribe requires exactly one recipient"}
+	}
+	if !mint {
+		return nil
+	}
+	if issuer == nil {
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}
+	}
+	link, err := issuer.Issue(ctx, userID, agent.ID, recipients[0])
+	if err != nil {
+		log.Printf("[api] managed unsubscribe issue failed: agent=%s error=%v", agent.ID, err)
+		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}
+	}
+	req.Unsubscribe.URL = link
+	return nil
 }
 
 // WebSocketHub is the narrow live-delivery seam shared with internal/ws.
@@ -1013,13 +1048,13 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 		// accept-tx. A same-tx enqueue failure fails the whole hold (500) — the same
 		// DB fault would have failed the message insert anyway.
 		if txErr := a.store.WithTx(ctx, func(tx pgx.Tx) error {
-			m, err := a.store.CreatePendingOutboundMessageTx(
+			m, err := a.store.CreatePendingOutboundMessageManagedTx(
 				ctx, tx, agent.ID,
 				req.To, req.CC, req.BCC,
 				req.Subject, req.Body, req.HTMLBody,
 				attachmentsJSON,
 				msgType, req.ConversationID, replyToEmailMessageID, req.ReplyTo,
-				agent.HITLTTLSeconds,
+				agent.HITLTTLSeconds, req.Unsubscribe != nil,
 			)
 			if err != nil {
 				return err
@@ -1039,13 +1074,13 @@ func (a *API) HoldForApprovalCore(ctx context.Context, agent *identity.AgentIden
 		}
 	} else {
 		// No notifier configured: plain hold, no notification (behavior unchanged).
-		m, err := a.store.CreatePendingOutboundMessage(
+		m, err := a.store.CreatePendingOutboundMessageManaged(
 			ctx, agent.ID,
 			req.To, req.CC, req.BCC,
 			req.Subject, req.Body, req.HTMLBody,
 			attachmentsJSON,
 			msgType, req.ConversationID, replyToEmailMessageID, req.ReplyTo,
-			agent.HITLTTLSeconds,
+			agent.HITLTTLSeconds, req.Unsubscribe != nil,
 		)
 		if err != nil {
 			log.Printf("[api] hitl: create pending message: agent=%s err=%v", agent.ID, err)
@@ -1178,6 +1213,11 @@ func resolveOutboundConversationID(explicit, msgType string, referenced *identit
 }
 
 func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *identity.AgentIdentity, req outbound.SendRequest, msgType, replyToEmailMessageID string, referenced *identity.Message, idemCompleteTx AcceptIdemCompleter) (*OutboundResult, *OutboundError) {
+	// Validate the canonical envelope before screening can durably hold the
+	// draft, but deliberately do not mint while it is pending human review.
+	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, user.ID, agent, &req, false); uerr != nil {
+		return nil, uerr
+	}
 	// Suppression enforcement (decision 9 / Slice 4b): fail fast if any
 	// recipient is on this tenant's suppression list. Enforced fresh on every
 	// attempt and NOT cached under the idempotency key (it's a clearable state,
@@ -1223,6 +1263,9 @@ func (a *API) DeliverOutbound(ctx context.Context, user *identity.User, agent *i
 			a.annotateAndAudit(ctx, agent, msg.ID, req, verdict)
 		}
 		return &OutboundResult{Held: true, PendingMessageID: msg.ID, ApprovalExpiresAt: msg.ApprovalExpiresAt}, nil
+	}
+	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, user.ID, agent, &req, true); uerr != nil {
+		return nil, uerr
 	}
 
 	// Usage is metered AFTER the side effect + persist, never before (slice 1

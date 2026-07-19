@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -244,6 +245,56 @@ type SendEmailRequest struct {
 	ConversationID string                `json:"conversation_id,omitempty" maxLength:"200" doc:"Caller-assigned conversation (thread) id. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF."`
 	ReplyTo        string                `json:"reply_to,omitempty" maxLength:"320" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name (e.g. \"Support <support@acme.com>\"). At most 320 characters (display name + address combined). Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
+	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty"`
+}
+
+// UnsubscribeOptions is presence-aware because omission is the compatibility
+// path: it means only that e2a-managed unsubscribe was not requested. It does
+// not classify the message as transactional.
+type UnsubscribeOptions struct {
+	Mode    string `json:"mode,omitempty"`
+	Present bool   `json:"-"`
+	invalid string
+}
+
+// TransformSchema defers this nested object's strictness to UnmarshalJSON so
+// every invalid unsubscribe shape gets the feature's stable 400 response
+// instead of Huma's generic schema-level 422.
+func (UnsubscribeOptions) TransformSchema(_ huma.Registry, s *huma.Schema) *huma.Schema {
+	s.Required = nil
+	s.AdditionalProperties = true
+	s.Nullable = true
+	return s
+}
+
+func (o *UnsubscribeOptions) UnmarshalJSON(data []byte) error {
+	o.Present = true
+	if string(data) == "null" {
+		o.invalid = "unsubscribe must be an object"
+		return nil
+	}
+	var wire struct {
+		Mode string `json:"mode"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&wire); err != nil {
+		o.invalid = "invalid unsubscribe object"
+		return nil
+	}
+	if wire.Mode != "managed" {
+		o.invalid = "unsubscribe.mode must be managed"
+		return nil
+	}
+	o.Mode = wire.Mode
+	return nil
+}
+
+func validateUnsubscribeOptions(o UnsubscribeOptions) *ErrorEnvelope {
+	if o.Present && o.invalid != "" {
+		return NewError(http.StatusBadRequest, "invalid_request", o.invalid)
+	}
+	return nil
 }
 
 type createMessageInput struct {
@@ -363,6 +414,7 @@ type ReplyRequest struct {
 	ConversationID string                `json:"conversation_id,omitempty" maxLength:"200" doc:"Caller-assigned conversation (thread) id override. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF."`
 	ReplyTo        string                `json:"reply_to,omitempty" maxLength:"320" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. At most 320 characters (display name + address combined). Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
+	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty"`
 }
 
 type replyInput struct {
@@ -449,6 +501,9 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 		return nil, err
 	}
 	b := in.Body
+	if env := validateUnsubscribeOptions(b.Unsubscribe); env != nil {
+		return nil, env
+	}
 	if b.Body == "" {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "text is required")
 	}
@@ -497,6 +552,7 @@ func (s *Server) handleReply(ctx context.Context, in *replyInput) (*sendOutput, 
 		// is centralized in DeliverOutbound, which receives this message as the
 		// referenced message — so the reply inherits its thread there (#328).
 		ConversationID: b.ConversationID, ReplyTo: b.ReplyTo, Attachments: b.Attachments,
+		Unsubscribe: outboundUnsubscribe(b.Unsubscribe),
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
@@ -546,6 +602,7 @@ type ForwardRequest struct {
 	ConversationID string                `json:"conversation_id,omitempty" maxLength:"200" doc:"Caller-assigned conversation (thread) id override. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF."`
 	ReplyTo        string                `json:"reply_to,omitempty" maxLength:"320" doc:"Sets the Reply-To header — where replies to this message are directed. A single RFC 5322 address, optionally with a display name. At most 320 characters (display name + address combined). Defaults to the sending agent's own address."`
 	Attachments    []outbound.Attachment `json:"attachments,omitempty" nullable:"false" doc:"Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."`
+	Unsubscribe    UnsubscribeOptions    `json:"unsubscribe,omitempty"`
 }
 
 type forwardInput struct {
@@ -563,6 +620,9 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 		return nil, err
 	}
 	b := in.Body
+	if env := validateUnsubscribeOptions(b.Unsubscribe); env != nil {
+		return nil, env
+	}
 	if len(b.To) == 0 && len(b.CC) == 0 {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "at least one recipient in to or cc is required")
 	}
@@ -594,6 +654,7 @@ func (s *Server) handleForward(ctx context.Context, in *forwardInput) (*sendOutp
 	req := outbound.SendRequest{
 		To: b.To, CC: b.CC, BCC: b.BCC, Subject: subject, Body: composedBody, HTMLBody: composedHTML,
 		ConversationID: b.ConversationID, ReplyTo: b.ReplyTo, Attachments: attachments,
+		Unsubscribe: outboundUnsubscribe(b.Unsubscribe),
 	}
 	req.CC = agent.StripAgentSelfAliases(req.CC, ag.EmailAddress())
 	req.BCC = agent.StripAgentSelfAliases(req.BCC, ag.EmailAddress())
@@ -931,6 +992,9 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 		return nil, uerr
 	}
 	b := in.Body
+	if env := validateUnsubscribeOptions(b.Unsubscribe); env != nil {
+		return nil, env
+	}
 	// The deterministic template-shape checks (mutual exclusions) depend only
 	// on the request bytes, so they stay in the prologue. Resolution +
 	// rendering consult the mutable templates table and therefore run inside
@@ -965,8 +1029,16 @@ func (s *Server) handleCreateMessage(ctx context.Context, in *createMessageInput
 			From: ag.EmailAddress(), To: b.To, CC: b.CC, BCC: b.BCC, Subject: b.Subject,
 			Body: b.Body, HTMLBody: b.HTMLBody, ConversationID: b.ConversationID,
 			ReplyTo: b.ReplyTo, Attachments: b.Attachments,
+			Unsubscribe: outboundUnsubscribe(b.Unsubscribe),
 		}, nil
 	}
 	// A cold send has no referenced inbound (nil) — it's not a reply/forward.
 	return s.deliver(ctx, user, ag, prepare, "send", "", route, in.IdempotencyKey, in.Wait, in.RawBody, nil)
+}
+
+func outboundUnsubscribe(o UnsubscribeOptions) *outbound.UnsubscribeOptions {
+	if !o.Present {
+		return nil
+	}
+	return &outbound.UnsubscribeOptions{Mode: o.Mode}
 }

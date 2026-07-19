@@ -88,6 +88,7 @@ type Params struct {
 	// authenticated management or a recipient token. Optional until the event
 	// slice is wired by the caller.
 	AgentSuppressionAddedHook identity.AgentSuppressionTxHook
+	ManagedUnsubscribeIssuer  agent.ManagedUnsubscribeIssuer
 }
 
 // SenderIdentityEnqueuer is the slice of *senderidentity.Manager apiserver
@@ -101,6 +102,9 @@ type SenderIdentityEnqueuer interface {
 // BuildDeps maps Params into the httpapi dependency set. Kept as the single
 // definition of the /v1 wiring so production and tests cannot diverge.
 func BuildDeps(p Params) httpapi.Deps {
+	if p.API != nil {
+		p.API.SetManagedUnsubscribeIssuer(p.ManagedUnsubscribeIssuer)
+	}
 	var rampSnapshot func(context.Context, string, string, time.Time) (sendramp.Snapshot, error)
 	if p.Pool != nil {
 		rampSnapshot = sendramp.NewStore(p.Pool).Snapshot

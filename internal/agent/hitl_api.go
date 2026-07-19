@@ -133,6 +133,14 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	if supErr := a.checkSuppressionStrict(ctx, agent.UserID, mergedReq); supErr != nil {
 		return nil, supErr
 	}
+	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, agent.UserID, agent, &mergedReq, true); uerr != nil {
+		return nil, uerr
+	}
+	// approveOutboundAsync rebuilds from preview+edits; carry the resolved URL
+	// explicitly so composition uses the exact final recipient binding.
+	if mergedReq.Unsubscribe != nil {
+		preview.ManagedUnsubscribe = true
+	}
 
 	// Transition the hold to review_approved + delivery_status='accepted'
 	// and enqueue an outbound_send job; the SendWorker performs the SMTP submit +
@@ -141,7 +149,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	if a.outboundEnq == nil {
 		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "outbound delivery queue unavailable"}
 	}
-	sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits, idemCompleteTx)
+	sent, handled, aerr := a.approveOutboundAsyncWithRequest(ctx, agent, messageID, userID, preview, edits, mergedReq, idemCompleteTx)
 	if aerr != nil {
 		return nil, approveAsyncError(agent.ID, messageID, aerr)
 	}
@@ -198,6 +206,16 @@ func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIde
 	if err != nil {
 		return nil, false, err
 	}
+	return a.approveOutboundAsyncComposed(ctx, agent, messageID, userID, draft, editedByReviewer, sendReq, idemCompleteTx)
+}
+
+func (a *API) approveOutboundAsyncWithRequest(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit, sendReq outbound.SendRequest, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
+	editedByReviewer := edits.Apply(draft)
+	return a.approveOutboundAsyncComposed(ctx, agent, messageID, userID, draft, editedByReviewer, sendReq, idemCompleteTx)
+}
+
+func (a *API) approveOutboundAsyncComposed(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, editedByReviewer bool, sendReq outbound.SendRequest, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
+	var err error
 	attachReferencesChain(ctx, a.store, agent.ID, &sendReq)
 	// A held platform test (type="test") targets the agent's own address by
 	// design, so the self-send predicate below would silently reroute its
@@ -316,7 +334,15 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 		ReplyToMessageID: replyToMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,
+		Unsubscribe:      managedUnsubscribeIntent(m.ManagedUnsubscribe),
 	}, nil
+}
+
+func managedUnsubscribeIntent(enabled bool) *outbound.UnsubscribeOptions {
+	if !enabled {
+		return nil
+	}
+	return &outbound.UnsubscribeOptions{Mode: "managed"}
 }
 
 // RejectPendingCore is the HTTP-free core of HITL reject: optional

@@ -136,6 +136,22 @@ func TestSign_RejectsEmptyKey(t *testing.T) {
 	}
 }
 
+func TestSign_CoversManagedUnsubscribeHeaders(t *testing.T) {
+	kp, err := GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := []byte("From: bot@example.com\r\nTo: a@example.net\r\nSubject: hi\r\nDate: Fri, 22 May 2026 12:00:00 +0000\r\nList-Unsubscribe: <https://api.example/u/x>\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nbody")
+	signed, err := Sign(msg, "example.com", kp.Selector, kp.PrivateKeyDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := string(signed[:bytes.Index(signed, []byte("\r\n\r\n"))])
+	if !strings.Contains(strings.ToLower(head), "list-unsubscribe:list-unsubscribe-post") {
+		t.Fatalf("DKIM h= does not cover both unsubscribe headers:\n%s", head)
+	}
+}
+
 func TestDNSRecord_Format(t *testing.T) {
 	name, value := DNSRecord("e2a202605", "mail.acme.com", "ABCDEF")
 	if name != "e2a202605._domainkey.mail.acme.com" {
