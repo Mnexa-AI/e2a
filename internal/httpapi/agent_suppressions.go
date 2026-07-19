@@ -47,8 +47,8 @@ type listAgentSuppressionsOutput struct {
 }
 
 type CreateAgentSuppressionRequest struct {
-	Address string `json:"address" required:"true" doc:"Recipient email address to suppress for this agent."`
-	Reason  string `json:"reason,omitempty" doc:"Optional account-supplied reason for the manual block."`
+	Address string `json:"address" required:"true" maxLength:"320" doc:"Recipient email address to suppress for this agent. At most 320 Unicode code points."`
+	Reason  string `json:"reason,omitempty" maxLength:"2000" doc:"Optional account-supplied reason for the manual block. At most 2000 Unicode code points."`
 }
 
 type createAgentSuppressionInput struct {

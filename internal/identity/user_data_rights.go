@@ -24,7 +24,7 @@ import (
 //   - User session tokens are transient and excluded.
 type UserExport struct {
 	GeneratedAt      time.Time                    `json:"generated_at"`
-	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"2\"."`
+	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"3\"; v3 suppression entries may include agent_email for exact-agent scope."`
 	User             UserExportUser               `json:"user"`
 	Domains          []Domain                     `json:"domains" nullable:"false"`
 	Agents           []AgentIdentity              `json:"agents" nullable:"false"`
@@ -180,7 +180,7 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 
 	return &UserExport{
 		GeneratedAt:      time.Now().UTC(),
-		SchemaVersion:    "2",
+		SchemaVersion:    "3",
 		User:             u,
 		Domains:          domains,
 		Agents:           agents,

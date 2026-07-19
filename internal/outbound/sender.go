@@ -85,6 +85,24 @@ type UnsubscribeOptions struct {
 	URL  string `json:"-"`
 }
 
+// ManagedUnsubscribeIntent reconstructs the unresolved composition intent
+// persisted on a held message. The recipient-bound URL is minted only when the
+// final recipient set is approved.
+func ManagedUnsubscribeIntent(enabled bool) *UnsubscribeOptions {
+	if !enabled {
+		return nil
+	}
+	return &UnsubscribeOptions{Mode: "managed"}
+}
+
+// SuppressionRemediation returns the shared operator guidance for an address
+// blocked by either account-wide or exact-agent suppression scope.
+func SuppressionRemediation(agentID string) string {
+	agentID = strings.ToLower(strings.TrimSpace(agentID))
+	return " — remove every applicable suppression before retrying; if both scopes contain an address, remove both (account-wide: DELETE /v1/account/suppressions/{address}; agent-scoped: DELETE /v1/agents/" +
+		agentID + "/suppressions/{address}?confirm=DELETE)"
+}
+
 // SendResult contains the result of a successful send, including the
 // canonicalized recipient lists for persistence.
 type SendResult struct {

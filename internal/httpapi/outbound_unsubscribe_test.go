@@ -2,20 +2,9 @@ package httpapi
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
-
-type unsubscribeReadSpy struct{ reads int }
-
-func (s *unsubscribeReadSpy) Read([]byte) (int, error) {
-	s.reads++
-	return 0, io.EOF
-}
-
-func (*unsubscribeReadSpy) Close() error { return nil }
 
 func TestUnsubscribeOptionsJSON(t *testing.T) {
 	var omitted SendEmailRequest
@@ -80,7 +69,7 @@ func TestAllOutboundRequestsCarryUnsubscribeOptions(t *testing.T) {
 	}
 }
 
-func TestInvalidUnsubscribeReturns400OnEveryOutboundRoute(t *testing.T) {
+func TestInvalidUnsubscribeUsesNative422OnEveryOutboundRoute(t *testing.T) {
 	routes := []struct {
 		name, path string
 		body       map[string]any
@@ -100,7 +89,7 @@ func TestInvalidUnsubscribeReturns400OnEveryOutboundRoute(t *testing.T) {
 				body["unsubscribe"] = unsubscribe
 				srv := testServer(t)
 				code, response := postJSON(t, srv.URL+route.path, "good", body)
-				if code != 400 || errCode(response) != "invalid_request" {
+				if code != http.StatusUnprocessableEntity || errCode(response) != "invalid_request" {
 					t.Fatalf("unsubscribe=%v got %d %v", unsubscribe, code, response)
 				}
 			})
@@ -108,7 +97,7 @@ func TestInvalidUnsubscribeReturns400OnEveryOutboundRoute(t *testing.T) {
 	}
 }
 
-func TestOutboundUnsubscribeStatusMappingLeavesOtherValidationAt422(t *testing.T) {
+func TestOutboundUnsubscribeDecodeFailuresRemainNative422(t *testing.T) {
 	for _, requestBody := range []map[string]any{
 		{"to": "not-an-array", "subject": "s", "text": "b"},
 		{"to": "not-an-array", "subject": "s", "text": "b", "unsubscribe": map[string]any{"mode": "other"}},
@@ -121,7 +110,7 @@ func TestOutboundUnsubscribeStatusMappingLeavesOtherValidationAt422(t *testing.T
 	}
 }
 
-func TestOutboundUnsubscribeStatusMappingDoesNotMatchSiblingFieldPrefixes(t *testing.T) {
+func TestOutboundUnsubscribeSiblingFieldPrefixesRemainNative422(t *testing.T) {
 	routes := []struct {
 		name, path string
 		body       map[string]any
@@ -145,21 +134,6 @@ func TestOutboundUnsubscribeStatusMappingDoesNotMatchSiblingFieldPrefixes(t *tes
 				}
 			})
 		}
-	}
-}
-
-func TestOutboundUnsubscribeStatusMappingNeverReadsRequestBody(t *testing.T) {
-	body := &unsubscribeReadSpy{}
-	req := httptest.NewRequest(http.MethodPost, "/v1/agents/support%40acme.com/messages", body)
-	recorder := httptest.NewRecorder()
-	outboundUnsubscribeValidationStatus(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if body.reads != 0 {
-			t.Fatalf("status mapper read request body %d times", body.reads)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})).ServeHTTP(recorder, req)
-	if recorder.Code != http.StatusNoContent || body.reads != 0 {
-		t.Fatalf("status=%d reads=%d", recorder.Code, body.reads)
 	}
 }
 

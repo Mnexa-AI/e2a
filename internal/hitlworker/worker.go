@@ -560,13 +560,6 @@ func sendRequestFromStoredMessage(m *identity.Message) (outbound.SendRequest, er
 		ReplyToMessageID: m.EmailMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,
-		Unsubscribe:      managedUnsubscribeIntent(m.ManagedUnsubscribe),
+		Unsubscribe:      outbound.ManagedUnsubscribeIntent(m.ManagedUnsubscribe),
 	}, nil
-}
-
-func managedUnsubscribeIntent(enabled bool) *outbound.UnsubscribeOptions {
-	if !enabled {
-		return nil
-	}
-	return &outbound.UnsubscribeOptions{Mode: "managed"}
 }

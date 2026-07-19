@@ -31,6 +31,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/outbound"
 )
 
 // sendRetryBackoffs is the per-attempt delay schedule for a failed outbound send —
@@ -318,7 +319,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return fmt.Errorf("suppression check before outbound send: %w", serr)
 	}
 	if len(suppressed) > 0 {
-		supErr := fmt.Errorf("recipient_suppressed: %s%s", strings.Join(suppressed, ", "), suppressionRemediation(j.AgentID))
+		supErr := fmt.Errorf("recipient_suppressed: %s%s", strings.Join(suppressed, ", "), outbound.SuppressionRemediation(j.AgentID))
 		w.markFailed(ctx, j.MessageID, job.Attempt, supErr.Error(), delivery.FailureSourceLocal)
 		if w.ramp != nil && j.rampEligible() {
 			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
@@ -389,12 +390,6 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return fmt.Errorf("release outbound send claim after retryable failure: %w", err)
 	}
 	return fmt.Errorf("outbound send attempt %d failed: %w", job.Attempt, out.Err)
-}
-
-func suppressionRemediation(agentID string) string {
-	agentID = strings.ToLower(strings.TrimSpace(agentID))
-	return " — remove every applicable suppression before retrying; if both scopes contain an address, remove both (account-wide: DELETE /v1/account/suppressions/{address}; agent-scoped: DELETE /v1/agents/" +
-		agentID + "/suppressions/{address}?confirm=DELETE)"
 }
 
 func (j *SendJob) rampEligible() bool {

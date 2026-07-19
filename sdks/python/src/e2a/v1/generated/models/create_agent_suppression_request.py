@@ -17,8 +17,9 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Any, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -26,8 +27,8 @@ class CreateAgentSuppressionRequest(BaseModel):
     """
     CreateAgentSuppressionRequest
     """ # noqa: E501
-    address: StrictStr = Field(description="Recipient email address to suppress for this agent.")
-    reason: Optional[StrictStr] = Field(default=None, description="Optional account-supplied reason for the manual block.")
+    address: Annotated[str, Field(strict=True, max_length=320)] = Field(description="Recipient email address to suppress for this agent. At most 320 Unicode code points.")
+    reason: Optional[Annotated[str, Field(strict=True, max_length=2000)]] = Field(default=None, description="Optional account-supplied reason for the manual block. At most 2000 Unicode code points.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["address", "reason"]
 

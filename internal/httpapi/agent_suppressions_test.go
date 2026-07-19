@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -176,6 +177,56 @@ func TestAgentSuppressionsCreateIsNormalizedIdempotentAndManual(t *testing.T) {
 	wantScope := identity.AgentSuppressionHookScope{UserID: "u_1", AgentID: "support@example.com", Address: "person@example.net", Source: "manual"}
 	if !reflect.DeepEqual(fixture.hookScopes, []identity.AgentSuppressionHookScope{wantScope}) {
 		t.Fatalf("hook scopes = %+v, want one exact normalized scope %+v", fixture.hookScopes, wantScope)
+	}
+}
+
+func TestCreateAgentSuppressionRequestPublishesWriteBounds(t *testing.T) {
+	typ := reflect.TypeOf(CreateAgentSuppressionRequest{})
+	for field, want := range map[string]string{"Address": "320", "Reason": "2000"} {
+		f, ok := typ.FieldByName(field)
+		if !ok {
+			t.Fatalf("CreateAgentSuppressionRequest.%s missing", field)
+		}
+		if got := f.Tag.Get("maxLength"); got != want {
+			t.Errorf("CreateAgentSuppressionRequest.%s maxLength = %q, want %q", field, got, want)
+		}
+	}
+
+	schema := New(Deps{}).API.OpenAPI().Components.Schemas.Map()["CreateAgentSuppressionRequest"]
+	if schema == nil {
+		t.Fatal("CreateAgentSuppressionRequest schema missing")
+	}
+	if got := schema.Properties["address"].MaxLength; got == nil || *got != 320 {
+		t.Errorf("address schema maxLength = %v, want 320", got)
+	}
+	if got := schema.Properties["reason"].MaxLength; got == nil || *got != 2000 {
+		t.Errorf("reason schema maxLength = %v, want 2000", got)
+	}
+}
+
+func TestCreateAgentSuppressionUnicodeWriteBoundaries(t *testing.T) {
+	srv := newAgentSuppressionsServer(t, nil)
+	path := srv.URL + "/v1/agents/support%40example.com/suppressions"
+	localAtLimit := strings.Repeat("a", 320-len("@example.net")) + "@example.net"
+
+	code, body := sendJSON(t, http.MethodPost, path, "account", map[string]any{
+		"address": localAtLimit,
+		"reason":  cjk(2000),
+	})
+	if code != http.StatusOK {
+		t.Fatalf("values at maxLength = %d %v, want 200", code, body)
+	}
+
+	for name, request := range map[string]map[string]any{
+		"address": {"address": "a" + localAtLimit},
+		"reason":  {"address": "other@example.net", "reason": cjk(2001)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, body := sendJSON(t, http.MethodPost, path, "account", request)
+			if code != http.StatusUnprocessableEntity || errCode(body) != "invalid_request" {
+				t.Fatalf("over-limit %s = %d %v, want 422 invalid_request", name, code, body)
+			}
+		})
 	}
 }
 

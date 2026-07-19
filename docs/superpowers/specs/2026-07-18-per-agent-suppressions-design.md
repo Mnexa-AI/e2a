@@ -153,7 +153,8 @@ Omitting `unsubscribe` preserves current bytes and behavior; omission means
 only that e2a-managed unsubscribe was not requested, not that e2a has classified
 the message as transactional. When the object is present, `mode` is required
 and `managed` is the only accepted initial value. Empty objects, `null`, unknown
-modes, and unsupported fields return `400 invalid_request`. This is a
+modes, and unsupported fields use the API's native schema-validation response,
+`422 invalid_request`. This is a
 per-message choice because e2a cannot infer whether the application is sending
 subscribed or transactional content. An agent-wide default is deferred until
 e2a has an explicit content/purpose model.
@@ -313,7 +314,9 @@ Webhook delivery failure never rolls back the suppression.
 
 Account export unions agent rows into the existing suppressions collection and
 includes optional `agent_email`, so data-rights handling preserves scope without
-changing the stable export envelope. Account deletion removes both tables
+changing the stable export envelope. This interior-shape change advances the
+export `schema_version` to `3`; v3 consumers distinguish account-wide rows
+(no `agent_email`) from exact-agent rows (`agent_email` present). Account deletion removes both tables
 through their user cascades. Agent trash, restore, and permanent deletion do not
 mutate either table.
 

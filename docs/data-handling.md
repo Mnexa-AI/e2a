@@ -31,7 +31,7 @@ Application logs do **not** include message bodies, attachment contents, raw API
 
 The API exposes the two operations that GDPR Art. 15 / Art. 17 (and CCPA equivalents) require:
 
-- **`GET /v1/account/export`** — returns a JSON dump of everything the authenticated account owns. Profile, agents, domains, API key metadata, all messages with bodies, usage events. Internal identifiers (Google subject, key hashes, session tokens) are excluded.
+- **`GET /v1/account/export`** — returns a JSON dump of everything the authenticated account owns. Profile, agents, domains, API key metadata, all messages with bodies, usage events, and account-wide or exact-agent suppressions. Export schema v3 suppression entries use optional `agent_email` to distinguish exact-agent blocks; entries without it are account-wide. Internal identifiers (Google subject, key hashes, session tokens) are excluded.
 - **`DELETE /v1/account?confirm=DELETE`** — wipes the account and every related row in a single Postgres transaction (cascade through `agent_identities → messages → webhook_deliveries`, plus explicit deletion of `usage_events` which has `ON DELETE SET NULL` rather than CASCADE so it survives by default). Returns per-table row counts so the caller can audit what was removed.
 
 Both are scoped to the authenticated user — there's no path to target someone else's data.

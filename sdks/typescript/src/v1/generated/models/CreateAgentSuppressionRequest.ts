@@ -14,11 +14,11 @@ import { HttpFile } from '../http/http.js';
 
 export class CreateAgentSuppressionRequest {
     /**
-    * Recipient email address to suppress for this agent.
+    * Recipient email address to suppress for this agent. At most 320 Unicode code points.
     */
     'address': string;
     /**
-    * Optional account-supplied reason for the manual block.
+    * Optional account-supplied reason for the manual block. At most 2000 Unicode code points.
     */
     'reason'?: string;
 

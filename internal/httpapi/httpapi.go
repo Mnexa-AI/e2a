@@ -399,7 +399,6 @@ func New(deps Deps) *Server {
 	root.Use(securityHeaders)
 	root.Use(authChallenge(deps.AuthChallenge))
 	root.Use(withRawRequest)
-	root.Use(outboundUnsubscribeValidationStatus)
 
 	config := huma.DefaultConfig("e2a API", APIVersion)
 	// Serve the spec and human docs under the versioned prefix so they sit

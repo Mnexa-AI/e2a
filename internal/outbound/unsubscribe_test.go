@@ -8,6 +8,28 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 )
 
+func TestManagedUnsubscribeIntent(t *testing.T) {
+	if got := ManagedUnsubscribeIntent(false); got != nil {
+		t.Fatalf("disabled intent = %+v, want nil", got)
+	}
+	got := ManagedUnsubscribeIntent(true)
+	if got == nil || got.Mode != "managed" || got.URL != "" {
+		t.Fatalf("enabled intent = %+v, want unresolved managed intent", got)
+	}
+}
+
+func TestSuppressionRemediation(t *testing.T) {
+	got := SuppressionRemediation(" SENDER@Agents.Test ")
+	for _, want := range []string{
+		"DELETE /v1/account/suppressions/{address}",
+		"DELETE /v1/agents/sender@agents.test/suppressions/{address}?confirm=DELETE",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("remediation %q does not contain %q", got, want)
+		}
+	}
+}
+
 func TestNormalizeRecipientsForManagedUnsubscribe(t *testing.T) {
 	agent := &identity.AgentIdentity{ID: "bot@example.com", Domain: "example.com"}
 	req := SendRequest{

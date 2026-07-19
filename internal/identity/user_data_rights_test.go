@@ -303,6 +303,9 @@ func TestUserExportAgentSuppressionScopedAndDoesNotLeakTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if dump.SchemaVersion != "3" {
+		t.Fatalf("export schema_version = %q, want 3 for agent-scoped suppression rows", dump.SchemaVersion)
+	}
 	if len(dump.Suppressions) != 2 {
 		t.Fatalf("export suppressions = %+v, want account + agent rows", dump.Suppressions)
 	}

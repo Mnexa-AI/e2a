@@ -594,10 +594,12 @@ components:
       additionalProperties: false
       properties:
         address:
-          description: Recipient email address to suppress for this agent.
+          description: Recipient email address to suppress for this agent. At most 320 Unicode code points.
+          maxLength: 320
           type: string
         reason:
-          description: Optional account-supplied reason for the manual block.
+          description: Optional account-supplied reason for the manual block. At most 2000 Unicode code points.
+          maxLength: 2000
           type: string
       required:
         - address
@@ -3509,7 +3511,7 @@ components:
             $ref: "#/components/schemas/ProtectionEventExportEntry"
           type: array
         schema_version:
-          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "2".
+          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "3"; v3 suppression entries may include agent_email for exact-agent scope.
           type: string
         suppressions:
           items:

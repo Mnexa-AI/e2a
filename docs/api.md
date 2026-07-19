@@ -286,6 +286,9 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   The export **envelope** (the top-level keys and `schema_version`) is stable;
   the **interior** record shapes are versioned by `schema_version` and may
   evolve — branch on `schema_version` before interpreting interior records.
+  The current export version is `3`; its suppression entries may include
+  `agent_email`, which identifies an exact-agent block. Entries without
+  `agent_email` remain account-wide.
   Interior schemas carry `x-stability-level: beta` in the OpenAPI document to
   mark that exemption machine-readably; the operation itself is stable.
   Each exported message carries `attachments` as the same typed
@@ -421,6 +424,11 @@ scanner-safe confirmation only and never
 changes state; the RFC 8058 one-click POST body is
 `List-Unsubscribe=One-Click`. The application never stores or constructs the
 token.
+
+Malformed unsubscribe objects (including `null`, missing/unknown modes, or
+unsupported fields) use the API's standard schema-validation response,
+`422 invalid_request`. A valid managed object with a recipient count other than
+one is rejected as `400 invalid_request` with a stable explanatory message.
 
 A confirmed unsubscribe blocks the recipient only for the exact sending agent,
 so a sibling agent can still send. Account-wide suppressions continue to block

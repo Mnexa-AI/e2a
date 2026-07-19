@@ -136,12 +136,6 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, agent.UserID, agent, &mergedReq, true); uerr != nil {
 		return nil, uerr
 	}
-	// approveOutboundAsync rebuilds from preview+edits; carry the resolved URL
-	// explicitly so composition uses the exact final recipient binding.
-	if mergedReq.Unsubscribe != nil {
-		preview.ManagedUnsubscribe = true
-	}
-
 	// Transition the hold to review_approved + delivery_status='accepted'
 	// and enqueue an outbound_send job; the SendWorker performs the SMTP submit +
 	// email.sent/failed + metering. The reviewer gets "accepted" back (the send is
@@ -187,7 +181,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	return sent, nil
 }
 
-// approveOutboundAsync composes the (edited) draft and, for a non-self-send,
+// approveOutboundAsyncWithRequest composes the edited draft and, for a non-self-send,
 // transitions the hold to status='sent' + delivery_status='accepted' and enqueues an
 // outbound_send job in one tx (via store.ApproveAndAccept). Returns (sent, true, nil)
 // when queued; (nil, false, nil) when the message is a self-send (the caller uses the
@@ -200,15 +194,6 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 // resolution is recorded via reviewed_by_user_id + the review_approved event, and
 // delivery_status ('accepted' → 'sent'/'failed') tracks the async send. (The TTL
 // sweep uses review_expired_approved instead — see hitlworker.autoApproveAsync.)
-func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
-	editedByReviewer := edits.Apply(draft)
-	sendReq, err := buildSendRequestFromMessage(draft)
-	if err != nil {
-		return nil, false, err
-	}
-	return a.approveOutboundAsyncComposed(ctx, agent, messageID, userID, draft, editedByReviewer, sendReq, idemCompleteTx)
-}
-
 func (a *API) approveOutboundAsyncWithRequest(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit, sendReq outbound.SendRequest, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
 	editedByReviewer := edits.Apply(draft)
 	return a.approveOutboundAsyncComposed(ctx, agent, messageID, userID, draft, editedByReviewer, sendReq, idemCompleteTx)
@@ -354,15 +339,8 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 		ReplyToMessageID: replyToMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,
-		Unsubscribe:      managedUnsubscribeIntent(m.ManagedUnsubscribe),
+		Unsubscribe:      outbound.ManagedUnsubscribeIntent(m.ManagedUnsubscribe),
 	}, nil
-}
-
-func managedUnsubscribeIntent(enabled bool) *outbound.UnsubscribeOptions {
-	if !enabled {
-		return nil
-	}
-	return &outbound.UnsubscribeOptions{Mode: "managed"}
 }
 
 // RejectPendingCore is the HTTP-free core of HITL reject: optional
