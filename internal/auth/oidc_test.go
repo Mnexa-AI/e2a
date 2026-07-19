@@ -1,12 +1,14 @@
 package auth_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -313,6 +315,82 @@ func TestNewOIDCAuthConstructsWithUnreachableIssuer(t *testing.T) {
 	oidcAuth.HandleCallback(callbackW, httptest.NewRequest(http.MethodGet, "/api/auth/oidc/callback?code=x&state=y", nil))
 	if callbackW.Code != http.StatusServiceUnavailable {
 		t.Fatalf("HandleCallback status = %d, want 503 while discovery is unreachable", callbackW.Code)
+	}
+}
+
+func TestOIDCDiscoveryTimesOutStalledAttemptAndRetries(t *testing.T) {
+	var attempts atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			<-r.Context().Done()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                 server.URL,
+			"authorization_endpoint": server.URL + "/authorize",
+			"token_endpoint":         server.URL + "/token",
+			"jwks_uri":               server.URL + "/jwks",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	oidcAuth, err := auth.NewOIDCAuth(ctx, config.OIDCConfig{
+		Enabled: true, IssuerURL: server.URL, ClientID: "client", ClientSecret: "secret",
+		RedirectURL: testOIDCRedirectURL, UserIDClaim: testOIDCUserIDClaim,
+	}, nil, false, "",
+		auth.WithOIDCDiscoveryBackoff(testOIDCDiscoveryInitialBackoff, testOIDCDiscoveryMaxBackoff),
+		auth.WithOIDCDiscoveryAttemptTimeout(25*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("NewOIDCAuth: %v", err)
+	}
+
+	waitOIDCReady(t, oidcAuth)
+	if got := attempts.Load(); got < 2 {
+		t.Fatalf("discovery attempts = %d, want at least 2 after stalled attempt timed out", got)
+	}
+}
+
+func TestOIDCUnavailableHandlersDoNotLogPerRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousOutput) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	oidcAuth, err := auth.NewOIDCAuth(ctx, config.OIDCConfig{
+		Enabled: true, IssuerURL: server.URL, ClientID: "client", ClientSecret: "secret",
+		RedirectURL: testOIDCRedirectURL, UserIDClaim: testOIDCUserIDClaim,
+	}, nil, false, "",
+		auth.WithOIDCDiscoveryBackoff(testOIDCDiscoveryInitialBackoff, testOIDCDiscoveryMaxBackoff),
+		auth.WithOIDCDiscoveryDone(done),
+	)
+	if err != nil {
+		t.Fatalf("NewOIDCAuth: %v", err)
+	}
+
+	oidcAuth.HandleLogin(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/auth/oidc/login", nil))
+	oidcAuth.HandleCallback(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/auth/oidc/callback", nil))
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("discovery goroutine did not exit after cancellation")
+	}
+
+	got := logs.String()
+	if strings.Contains(got, "OIDC login rejected") || strings.Contains(got, "OIDC callback rejected") {
+		t.Fatalf("unavailable handlers logged per-request messages: %q", got)
 	}
 }
 

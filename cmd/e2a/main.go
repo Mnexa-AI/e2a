@@ -475,7 +475,8 @@ func main() {
 	// retained for any future static/constructor-time failure mode, but
 	// today NewOIDCAuth only fails to construct if E2A is misconfigured in a
 	// way config.Validate() would already have caught.
-	oidcAuth, err := auth.NewOIDCAuth(ctx, cfg.OIDC, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
+	oidcCtx, oidcCancel := context.WithCancel(ctx)
+	oidcAuth, err := auth.NewOIDCAuth(oidcCtx, cfg.OIDC, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize OIDC login: %v", err)
 	}
@@ -769,6 +770,9 @@ func main() {
 
 	<-sigCh
 	log.Println("Shutting down...")
+
+	// Stop OIDC issuer discovery promptly, including an in-flight attempt.
+	oidcCancel()
 
 	// Signal the remaining background workers to stop. Their inner ctx-select
 	// branches return on the next iteration; work already in flight finishes

@@ -35,6 +35,7 @@ const (
 	// on real wall-clock time.
 	oidcDiscoveryInitialBackoff = time.Second
 	oidcDiscoveryMaxBackoff     = 60 * time.Second
+	oidcDiscoveryAttemptTimeout = 10 * time.Second
 
 	// oidcDiscoveryFailureLogGap rate-limits repeated discovery-failure log
 	// lines: the first failure always logs, subsequent failures log at most
@@ -77,6 +78,7 @@ type OIDCAuth struct {
 	// package defaults and no completion signal.
 	discoveryBackoff    time.Duration
 	discoveryMaxBackoff time.Duration
+	discoveryTimeout    time.Duration
 	discoveryDone       chan<- struct{}
 }
 
@@ -95,6 +97,15 @@ func WithOIDCDiscoveryBackoff(initial, maxBackoff time.Duration) OIDCOption {
 	return func(oa *OIDCAuth) {
 		oa.discoveryBackoff = initial
 		oa.discoveryMaxBackoff = maxBackoff
+	}
+}
+
+// WithOIDCDiscoveryAttemptTimeout overrides the maximum duration of one
+// issuer discovery HTTP request (production default: 10s). Intended for tests
+// that exercise a provider which accepts a connection but never responds.
+func WithOIDCDiscoveryAttemptTimeout(timeout time.Duration) OIDCOption {
+	return func(oa *OIDCAuth) {
+		oa.discoveryTimeout = timeout
 	}
 }
 
@@ -134,6 +145,7 @@ func NewOIDCAuth(ctx context.Context, cfg config.OIDCConfig, store *identity.Sto
 		baseURL:             strings.TrimRight(baseURL, "/"),
 		discoveryBackoff:    oidcDiscoveryInitialBackoff,
 		discoveryMaxBackoff: oidcDiscoveryMaxBackoff,
+		discoveryTimeout:    oidcDiscoveryAttemptTimeout,
 	}
 	for _, opt := range opts {
 		opt(oa)
@@ -163,7 +175,9 @@ func (oa *OIDCAuth) discoverWithRetry(ctx context.Context) {
 	for {
 		attempt++
 
-		provider, err := oidc.NewProvider(ctx, oa.cfg.IssuerURL)
+		attemptCtx, cancel := context.WithTimeout(ctx, oa.discoveryTimeout)
+		provider, err := oidc.NewProvider(attemptCtx, oa.cfg.IssuerURL)
+		cancel()
 		if err == nil {
 			oa.ready.Store(&oidcReadyState{
 				oauthConfig: &oauth2.Config{
@@ -213,7 +227,6 @@ func (oa *OIDCAuth) discoverWithRetry(ctx context.Context) {
 func (oa *OIDCAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	rs := oa.ready.Load()
 	if rs == nil {
-		log.Printf("[auth] OIDC login rejected: issuer discovery has not completed yet")
 		http.Error(w, "login temporarily unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -251,7 +264,6 @@ func (oa *OIDCAuth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 func (oa *OIDCAuth) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	rs := oa.ready.Load()
 	if rs == nil {
-		log.Printf("[auth] OIDC callback rejected: issuer discovery has not completed yet")
 		http.Error(w, "login temporarily unavailable", http.StatusServiceUnavailable)
 		return
 	}
