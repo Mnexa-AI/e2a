@@ -173,6 +173,13 @@ limits:
   # billing_hook_url: "http://billing:9000/api/internal/billing/cancel"
   billing_hook_url: ""
 
+# Per-user budget shared by authenticated message, conversation, and webhook
+# reads across every agent client and dashboard session on the account. The
+# default allows 240 requests per minute; tune this for the combined workload,
+# not for one polling client. Rate limits are in-memory and apply per process.
+rate_limits:
+  poll_per_minute: 240
+
 # — Trash (soft delete) ———————————————————————————————————————————————————————
 # How many days a soft-deleted resource (agent inbox or message) stays
 # restorable in the trash before it is purged permanently. The public API

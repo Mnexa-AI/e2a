@@ -498,6 +498,7 @@ func main() {
 	// the web app (the authorization_endpoint + login/consent stay on
 	// public_url because they need the web app's session cookie).
 	api.SetAPIURL(cfg.HTTP.APIURL)
+	api.SetPollRateLimit(cfg.RateLimits.PollPerMinute)
 	// HITL magic-link token signer reuses the shared HMAC secret so operators
 	// don't have to configure a second key.
 	approvalSigner := approvaltoken.NewSigner(cfg.Signing.HMACSecret)
