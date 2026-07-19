@@ -615,6 +615,124 @@ scenarios:
             "items[0].review_status": pending_review
             "items[1].direction": inbound
 
+  - name: agent_suppression_and_managed_unsubscribe
+    description: >
+      The beta agent-suppression CRUD surface blocks the exact recipient until
+      deletion, and managed unsubscribe is accepted by the live send endpoint.
+      All setup is performed through public requests so every SDK contract
+      runner executes this scenario rather than skipping store-backed setup.
+    steps:
+      - id: register_domain
+        action: request
+        method: POST
+        path: /v1/domains
+        body:
+          domain: suppression-contract.test.dev
+        expect:
+          status: 201
+
+      - id: verify_domain
+        action: request
+        method: POST
+        path: /v1/domains/suppression-contract.test.dev/verify
+        expect:
+          status: 200
+          body_match:
+            verified: true
+
+      - id: register_agent
+        action: request
+        method: POST
+        path: /v1/agents
+        body:
+          email: bot@suppression-contract.test.dev
+        expect:
+          status: 201
+          body_match:
+            email: bot@suppression-contract.test.dev
+
+      - id: create_suppression
+        action: request
+        method: POST
+        path: /v1/agents/bot@suppression-contract.test.dev/suppressions
+        body:
+          address: recipient@example.net
+          reason: contract test
+        expect:
+          status: 200
+          body_match:
+            agent_email: bot@suppression-contract.test.dev
+            address: recipient@example.net
+            source: manual
+
+      - id: list_suppressions
+        action: request
+        method: GET
+        path: /v1/agents/bot@suppression-contract.test.dev/suppressions
+        expect:
+          status: 200
+          body_match:
+            "items.length": 1
+            "items[0].address": recipient@example.net
+
+      - id: suppressed_send_refused
+        action: request
+        method: POST
+        path: /v1/agents/bot@suppression-contract.test.dev/messages
+        body:
+          to:
+            - Recipient <recipient@example.net>
+          subject: blocked by agent suppression
+          text: must not be accepted
+        expect:
+          status: 422
+          body_match:
+            "error.code": recipient_suppressed
+
+      - id: delete_suppression
+        action: request
+        method: DELETE
+        path: /v1/agents/bot@suppression-contract.test.dev/suppressions/recipient@example.net?confirm=DELETE
+        expect:
+          status: 200
+          body_match:
+            deleted: true
+            address: recipient@example.net
+
+      - id: enable_outbound_review
+        action: request
+        method: PUT
+        path: /v1/agents/bot@suppression-contract.test.dev/protection
+        body:
+          inbound:
+            gate: {}
+            scan: {}
+          outbound:
+            gate:
+              policy: allowlist
+              action: review
+              allowlist: []
+            scan: {}
+          holds: {}
+        expect:
+          status: 200
+
+      - id: managed_unsubscribe_send_held
+        action: request
+        method: POST
+        path: /v1/agents/bot@suppression-contract.test.dev/messages
+        body:
+          to:
+            - recipient@example.net
+          subject: managed unsubscribe contract
+          text: held for review
+          unsubscribe:
+            mode: managed
+        expect:
+          status: 202
+          body_match:
+            status: pending_review
+
   - name: info_unauthenticated_shape
     description: >
       GET /v1/info is the deployment-discovery endpoint — works
