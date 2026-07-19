@@ -288,12 +288,29 @@ func outboundUnsubscribeBadRequest(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			next.ServeHTTP(w, r)
+		originalBody := r.Body
+		if r.ContentLength > maxOutboundBytes {
+			_ = originalBody.Close()
+			writeOutboundRequestBodyTooLarge(w, r, r.ContentLength)
 			return
 		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
+		body, err := io.ReadAll(io.LimitReader(originalBody, int64(maxOutboundBytes)+1))
+		if err != nil {
+			_ = originalBody.Close()
+			writeRawEnvelope(w, r, NewError(http.StatusBadRequest, "invalid_request", "failed to read request body"))
+			return
+		}
+		if len(body) > maxOutboundBytes {
+			_ = originalBody.Close()
+			writeOutboundRequestBodyTooLarge(w, r, int64(len(body)))
+			return
+		}
+		// Keep the original closer attached to the byte-identical replay so the
+		// server still closes the transport body after Huma consumes it.
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{Reader: bytes.NewReader(body), Closer: originalBody}
 		var object map[string]json.RawMessage
 		if json.Unmarshal(body, &object) != nil {
 			next.ServeHTTP(w, r)
@@ -311,6 +328,16 @@ func outboundUnsubscribeBadRequest(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func writeOutboundRequestBodyTooLarge(w http.ResponseWriter, r *http.Request, actualBytes int64) {
+	writeRawEnvelope(w, r, NewError(http.StatusRequestEntityTooLarge, "payload_too_large",
+		fmt.Sprintf("request body exceeds the %d byte limit", maxOutboundBytes)).
+		WithDetails(PayloadTooLargeDetails{
+			Scope:       "request_body",
+			ActualBytes: actualBytes,
+			MaxBytes:    maxOutboundBytes,
+		}))
 }
 
 func isOutboundMessageWritePath(path string) bool {
