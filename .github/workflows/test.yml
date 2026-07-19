@@ -133,11 +133,11 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-      # The internal/e2e suite (build tag `integration`) boots the real relay +
-      # HTTP API against the test DB and drives them over SMTP/HTTP. It is NOT
-      # run by `go test ./...` (no build tag) or `make cover` (no build tag) —
-      # this job is its only CI gate.
-      - name: Run e2e suite
+      # Run every package containing an `integration`-tagged test. The Make
+      # target discovers these packages from their build constraints, so tagged
+      # tests outside internal/e2e cannot silently fall out of CI. Normal tests
+      # are covered by the Go and coverage jobs above.
+      - name: Run integration-tagged Go suite
         run: make test-e2e
 
   web:

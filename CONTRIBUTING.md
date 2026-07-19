@@ -199,7 +199,7 @@ slow and need a database.
 ```bash
 make test-unit          # no DB needed — fast
 make test-integration   # needs Postgres on :5433 (make docker-up)
-make test-e2e           # build tag 'integration', runs internal/e2e/* + senderidentity
+make test-e2e           # discovers and runs every package with integration-tagged tests
 make test               # all three, with -p 1 to avoid DB-state races
 make cover-check        # tests + per-package coverage floors (.testcoverage.yml)
 ```
