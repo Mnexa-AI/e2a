@@ -299,20 +299,21 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// Final suppression guard immediately before provider I/O: a suppression
 	// added after acceptance or while an allowed ramp reservation was in flight
 	// must still prevent delivery. A match is terminal; a store error fails
-	// closed and releases both the side-effect-free claim and any reservation.
+	// closed, releasing the side-effect-free claim before its ramp reservation.
 	suppressed, serr := w.store.SuppressedRecipients(ctx, j.UserID, j.AgentID, j.Recipients)
 	if serr != nil {
-		var releaseErrs []error
+		if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+			// Keep the idempotent ramp reservation while the message claim remains
+			// held. Releasing capacity first would let another message consume it,
+			// then a retry could reserve the same message a second time.
+			return fmt.Errorf("suppression check and claim cleanup before outbound send: %w",
+				errors.Join(serr, fmt.Errorf("release outbound send claim: %w", err)))
+		}
 		if w.ramp != nil && j.rampEligible() {
 			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
-				releaseErrs = append(releaseErrs, fmt.Errorf("release ramp reservation: %w", err))
+				return fmt.Errorf("suppression check and ramp cleanup before outbound send: %w",
+					errors.Join(serr, fmt.Errorf("release ramp reservation: %w", err)))
 			}
-		}
-		if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
-			releaseErrs = append(releaseErrs, fmt.Errorf("release outbound send claim: %w", err))
-		}
-		if releaseErr := errors.Join(releaseErrs...); releaseErr != nil {
-			return fmt.Errorf("suppression check and cleanup before outbound send: %w", errors.Join(serr, releaseErr))
 		}
 		return fmt.Errorf("suppression check before outbound send: %w", serr)
 	}

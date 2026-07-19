@@ -101,6 +101,45 @@ func TestSendWorker_SuppressionCheckErrorAfterRampReleasesReservation(t *testing
 	}
 }
 
+func TestSendWorker_SuppressionCheckErrorKeepsRampReservationWhenClaimReleaseFails(t *testing.T) {
+	lookupErr := errors.New("suppression store down")
+	claimErr := errors.New("claim release down")
+	j := acceptedJob("msg_1")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j, suppressedErr: lookupErr, releaseErr: claimErr}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}}
+	w := outboundsend.NewSendWorker(st, trippingDeliverer{t}, gate)
+
+	err := w.Work(context.Background(), job("msg_1", 1))
+	if !errors.Is(err, lookupErr) || !errors.Is(err, claimErr) {
+		t.Fatalf("error = %v, want joined lookup and claim-release causes", err)
+	}
+	if len(st.released) != 1 {
+		t.Fatalf("claim release calls = %v, want one attempt", st.released)
+	}
+	if len(gate.released) != 0 {
+		t.Fatalf("ramp releases = %v, want none while claim remains held", gate.released)
+	}
+}
+
+func TestSendWorker_SuppressionCheckErrorRetainsRampReleaseFailureAfterClaimReleased(t *testing.T) {
+	lookupErr := errors.New("suppression store down")
+	rampErr := errors.New("ramp release down")
+	j := acceptedJob("msg_1")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j, suppressedErr: lookupErr}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}, releaseErr: rampErr}
+	w := outboundsend.NewSendWorker(st, trippingDeliverer{t}, gate)
+
+	err := w.Work(context.Background(), job("msg_1", 1))
+	if !errors.Is(err, lookupErr) || !errors.Is(err, rampErr) {
+		t.Fatalf("error = %v, want joined lookup and ramp-release causes", err)
+	}
+	if len(st.released) != 1 || len(gate.released) != 1 {
+		t.Fatalf("claim/ramp releases = %v/%v, want one each", st.released, gate.released)
+	}
+}
+
 func TestSendWorker_UnsuppressedRecipientStillSends(t *testing.T) {
 	st := &fakeStore{job: acceptedJob("msg_1")} // no suppressions
 	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "ses-ok", SentAs: "relay"}}
