@@ -31,6 +31,11 @@ WORKDIR /app
 # `next build`. No build step needed here — dist/ is prebuilt and committed.
 COPY design-system ./design-system
 
+# The web prebuild mirrors canonical agent docs into web/public. Keep the
+# script and only its canonical inputs in the image build context.
+COPY scripts/sync-agent-docs.mjs ./scripts/
+COPY plugins/e2a/docs ./plugins/e2a/docs/
+
 # Install web deps first so the layer caches when only source changes.
 COPY web/package.json web/package-lock.json ./web/
 WORKDIR /app/web
