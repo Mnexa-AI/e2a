@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -50,9 +51,13 @@ func TestPrepareManagedUnsubscribeFailsClosed(t *testing.T) {
 		"zero": {To: []string{"bot@example.com"}, Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"}},
 		"many": {To: []string{"a@example.net"}, BCC: []string{"b@example.net"}, Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"}},
 	} {
-		if got := prepareManagedUnsubscribe(context.Background(), &fakeUnsubscribeIssuer{}, "send.e2a.dev", "u", ag, &req, false); got == nil || got.Status != 400 {
+		if got := prepareManagedUnsubscribe(context.Background(), &fakeUnsubscribeIssuer{}, "send.e2a.dev", "u", ag, &req, false); got == nil || got.Status != 400 || got.Msg != "managed unsubscribe requires exactly one recipient" {
 			t.Errorf("%s got=%v", name, got)
 		}
+	}
+	invalid := outbound.SendRequest{To: []string{"not an address"}, Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"}}
+	if got := prepareManagedUnsubscribe(context.Background(), &fakeUnsubscribeIssuer{}, "send.e2a.dev", "u", ag, &invalid, false); got == nil || got.Status != 400 || !strings.HasPrefix(got.Msg, "invalid To address:") {
+		t.Fatalf("invalid address error=%v", got)
 	}
 	req := outbound.SendRequest{To: []string{"a@example.net"}, Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"}}
 	got := prepareManagedUnsubscribe(context.Background(), &fakeUnsubscribeIssuer{err: errors.New("db down")}, "send.e2a.dev", "u", ag, &req, true)

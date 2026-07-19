@@ -173,6 +173,46 @@ func TestDeliverOutboundManagedUnsubscribeRejectsPostFooterComposedSize(t *testi
 	}
 }
 
+func TestDeliverOutboundManagedUnsubscribeSelfAliasUsesStableCardinalityError(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedselfalias")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+
+	_, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{ag.EmailAddress()}, Subject: "managed self", Body: "body",
+		Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr == nil || oerr.Status != 400 || oerr.Code != "invalid_request" || oerr.Msg != "managed unsubscribe requires exactly one recipient" {
+		t.Fatalf("error=%+v", oerr)
+	}
+}
+
+func TestApproveManagedUnsubscribeSelfAliasUsesStableCardinalityErrorAndKeepsHold(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedapproveselfalias")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+	msg, err := store.CreatePendingOutboundMessageManaged(ctx, ag.ID,
+		[]string{ag.EmailAddress()}, nil, nil, "managed held self", "body", "", nil,
+		"send", "", "", "", 3600, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.ID, agent.ApproveOverrides{}, nil)
+	if oerr == nil || oerr.Status != 400 || oerr.Code != "invalid_request" || oerr.Msg != "managed unsubscribe requires exactly one recipient" {
+		t.Fatalf("error=%+v", oerr)
+	}
+	got, err := store.GetOutboundMessageForUser(ctx, msg.ID, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != identity.MessageStatusPendingReview || got.DeliveryStatus == "accepted" {
+		t.Fatalf("status=%q delivery_status=%q", got.Status, got.DeliveryStatus)
+	}
+}
+
 func TestHITLManagedUnsubscribePersistsIntentThenMintsOnApproval(t *testing.T) {
 	api, store, _, _ := setupAsyncAPI(t)
 	ctx := context.Background()

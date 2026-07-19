@@ -245,6 +245,8 @@ type ManagedUnsubscribeIssuer interface {
 	Issue(ctx context.Context, userID, agentID, recipient string) (string, error)
 }
 
+const managedUnsubscribeRecipientMessage = "managed unsubscribe requires exactly one recipient"
+
 func (a *API) SetManagedUnsubscribeIssuer(i ManagedUnsubscribeIssuer) { a.unsubscribeIssuer = i }
 
 func prepareManagedUnsubscribe(ctx context.Context, issuer ManagedUnsubscribeIssuer, fromDomain, userID string, agent *identity.AgentIdentity, req *outbound.SendRequest, mint bool) *OutboundError {
@@ -253,10 +255,14 @@ func prepareManagedUnsubscribe(ctx context.Context, issuer ManagedUnsubscribeIss
 	}
 	_, _, _, recipients, err := outbound.NormalizeRecipients(agent, fromDomain, *req)
 	if err != nil {
+		var validationErr *outbound.ValidationError
+		if errors.As(err, &validationErr) && validationErr.Error() == "no valid recipients" {
+			return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: managedUnsubscribeRecipientMessage}
+		}
 		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: err.Error()}
 	}
 	if len(recipients) != 1 {
-		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: "managed unsubscribe requires exactly one recipient"}
+		return &OutboundError{Status: http.StatusBadRequest, Code: "invalid_request", Msg: managedUnsubscribeRecipientMessage}
 	}
 	if issuer == nil {
 		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "managed unsubscribe unavailable"}

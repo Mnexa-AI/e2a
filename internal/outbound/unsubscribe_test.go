@@ -27,6 +27,14 @@ func TestNormalizeRecipientsForManagedUnsubscribe(t *testing.T) {
 	}
 }
 
+func TestNormalizeRecipientsUnmanagedSelfAliasRetainsNoValidRecipientsError(t *testing.T) {
+	agent := &identity.AgentIdentity{ID: "bot@example.com", Email: "bot@example.com"}
+	_, _, _, _, err := NormalizeRecipients(agent, "send.e2a.dev", SendRequest{To: []string{agent.EmailAddress()}})
+	if err == nil || err.Error() != "no valid recipients" {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestComposeManagedUnsubscribeAddsFooterAndHeaders(t *testing.T) {
 	link := "https://api.example.com/u/u1_token"
 	agent := &identity.AgentIdentity{ID: "bot@example.com", Domain: "example.com"}
