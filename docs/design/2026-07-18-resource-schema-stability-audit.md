@@ -30,6 +30,10 @@ remain stable.
 - Mark `HoldReasonView` as a beta component.
 - Mark `ProtectionFindingView` and `ThreatCategoryView` as beta components so
   compatibility tooling can evolve the technical evidence shape.
+- Remove the superseded `flagged` and `flag_reason` fields from `ReviewView`,
+  `MessageView`, and `MessageSummaryView`.
+- Keep `ErrorBody.code` stable while marking only `blocked_by_policy` as an
+  experimental value.
 - Keep `MessageView`, `SendResultView`, and shared error types stable. The
   review-only `hold_reason` and `protection` fields remain beta without
   degrading shared stable parent resources.

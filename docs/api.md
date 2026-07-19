@@ -107,7 +107,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | **Auth / policy** | | |
 | `unauthorized` | 401 | Missing or invalid credentials (REST and the WebSocket handshake). |
 | `forbidden` | 403 | Authenticated but not allowed (key scope, cross-tenant access). |
-| `blocked_by_policy` | 403 | The outbound message was blocked by the agent's outbound policy gate. |
+| `blocked_by_policy` | 403 | **Experimental.** The outbound message was blocked by the agent's outbound policy gate. |
 | **Validation** | | |
 | `invalid_request` | 400 / 422 | The canonical input-validation code — malformed (400) or semantically invalid (422). `error.details` carries the per-field list. |
 | `invalid_cursor` | 400 | Bad pagination cursor — drop it and re-fetch from the start. |
@@ -236,7 +236,8 @@ every `/v1` operation not listed here is covered by the GA freeze.
   `email.review_requested`, `email.review_approved`, `email.review_rejected`),
   the field carries `x-experimental-values` listing exactly those values —
   their payloads may still change; all other event types are stable. Anything
-  not marked experimental is stable surface. One deliberate schema-level use
+  not marked experimental is stable surface. The stable `ErrorBody.code`
+  discriminator similarly marks only `blocked_by_policy` experimental. One deliberate schema-level use
   of the beta marker under a **stable** operation: the account export's
   interior record schemas (`GET /v1/account/export`) are beta-marked because
   they are versioned by the export's stable `schema_version` envelope field
@@ -469,6 +470,8 @@ The unified review resource is beta and may change before it is declared stable.
 The product-facing `hold_reason` explanation and the optional technical
 `protection` evidence on detail responses are beta and may change before they
 are declared stable.
+The legacy `flagged` and `flag_reason` projections have been removed from
+review, message-detail, message-list, and conversation responses.
 
 - `GET /v1/reviews`, `GET /v1/reviews/{id}` — list the queue / full detail of one
   held message.

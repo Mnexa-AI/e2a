@@ -21,8 +21,6 @@ export class ReviewView {
     'conversationId'?: string;
     'createdAt': Date;
     'direction': ReviewViewDirectionEnum;
-    'flagReason'?: string;
-    'flagged'?: boolean;
     'from_': string;
     /**
     * Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
@@ -66,18 +64,6 @@ export class ReviewView {
             "name": "direction",
             "baseName": "direction",
             "type": "ReviewViewDirectionEnum",
-            "format": ""
-        },
-        {
-            "name": "flagReason",
-            "baseName": "flag_reason",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "flagged",
-            "baseName": "flagged",
-            "type": "boolean",
             "format": ""
         },
         {

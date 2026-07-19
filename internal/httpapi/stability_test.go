@@ -339,6 +339,25 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 	}
 
+	// The legacy gate-flag projection has been removed in favor of the beta
+	// hold_reason/protection contract.
+	for _, schema := range []string{"MessageView", "MessageSummaryView", "ReviewView"} {
+		props := schemaProps(t, doc, schema)
+		for _, field := range []string{"flagged", "flag_reason"} {
+			if _, ok := props[field]; ok {
+				t.Errorf("%s.%s must not be published", schema, field)
+			}
+		}
+	}
+
+	// The error discriminator remains stable; only the gate-policy value is
+	// experimental.
+	errorCode, _ := schemaProps(t, doc, "ErrorBody")["code"].(map[string]any)
+	rawErrorValues, _ := errorCode["x-experimental-values"].([]any)
+	if len(rawErrorValues) != 1 || rawErrorValues[0] != "blocked_by_policy" {
+		t.Errorf("ErrorBody.code x-experimental-values = %v, want [blocked_by_policy]", rawErrorValues)
+	}
+
 	// Value-level: the screening + review-hold event types, everywhere event
 	// types are enumerated, matching the canonical Go list.
 	for _, name := range []string{"CreateWebhookRequest", "UpdateWebhookRequest", "WebhookView", "CreateWebhookResponse"} {

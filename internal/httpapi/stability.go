@@ -227,6 +227,9 @@ func (s *Server) applyEvolutionStance() {
 	for _, schema := range []string{"HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
 		markSchema(schemas, schema, extStabilityLevel, stabilityBeta)
 	}
+	// ErrorBody.code is a stable open discriminator; only the outbound
+	// gate-policy value remains experimental.
+	markProperty(schemas, "ErrorBody", "code", extExperimentalValues, []string{"blocked_by_policy"})
 	//
 	// The template hooks on send are beta (templates are beta) even though
 	// sendMessage itself is stable.

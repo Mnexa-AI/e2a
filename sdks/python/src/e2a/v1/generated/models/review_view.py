@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.hold_reason_view import HoldReasonView
 from typing import Optional, Set
@@ -32,8 +32,6 @@ class ReviewView(BaseModel):
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
     direction: StrictStr
-    flag_reason: Optional[StrictStr] = None
-    flagged: Optional[StrictBool] = None
     from_: StrictStr = Field(alias="from")
     hold_reason: Optional[HoldReasonView] = Field(default=None, description="Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.")
     id: StrictStr = Field(description="The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.")
@@ -41,7 +39,7 @@ class ReviewView(BaseModel):
     subject: StrictStr
     to: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "review_status", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "from", "hold_reason", "id", "review_status", "subject", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -108,8 +106,6 @@ class ReviewView(BaseModel):
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
             "direction": obj.get("direction"),
-            "flag_reason": obj.get("flag_reason"),
-            "flagged": obj.get("flagged"),
             "from": obj.get("from"),
             "hold_reason": HoldReasonView.from_dict(obj["hold_reason"]) if obj.get("hold_reason") is not None else None,
             "id": obj.get("id"),

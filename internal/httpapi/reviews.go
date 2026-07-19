@@ -38,8 +38,6 @@ type ReviewView struct {
 	Subject        string          `json:"subject"`
 	ConversationID string          `json:"conversation_id,omitempty"`
 	ReviewStatus   string          `json:"review_status" doc:"Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items)."`
-	Flagged        bool            `json:"flagged,omitempty"`
-	FlagReason     string          `json:"flag_reason,omitempty"`
 	HoldReason     *HoldReasonView `json:"hold_reason,omitempty" doc:"Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value."`
 	CreatedAt      time.Time       `json:"created_at"`
 }
@@ -54,8 +52,6 @@ func reviewView(it identity.ReviewListItem) ReviewView {
 		Subject:        it.Subject,
 		ConversationID: it.ConversationID,
 		ReviewStatus:   it.Status,
-		Flagged:        it.Flagged,
-		FlagReason:     it.FlagReason,
 		HoldReason:     baseHoldReason(it.ReviewReason),
 		CreatedAt:      it.CreatedAt,
 	}

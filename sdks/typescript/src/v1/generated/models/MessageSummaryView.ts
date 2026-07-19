@@ -32,8 +32,6 @@ export class MessageSummaryView {
     */
     'deliveryStatus'?: string;
     'direction': MessageSummaryViewDirectionEnum;
-    'flagReason'?: string;
-    'flagged'?: boolean;
     'from_': string;
     'id': string;
     'labels': Array<string>;
@@ -116,18 +114,6 @@ export class MessageSummaryView {
             "name": "direction",
             "baseName": "direction",
             "type": "MessageSummaryViewDirectionEnum",
-            "format": ""
-        },
-        {
-            "name": "flagReason",
-            "baseName": "flag_reason",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "flagged",
-            "baseName": "flagged",
-            "type": "boolean",
             "format": ""
         },
         {

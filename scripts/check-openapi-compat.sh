@@ -11,6 +11,7 @@ base="$1"
 revision="${2:-$repo_root/api/openapi.yaml}"
 levels="$repo_root/api/oasdiff-levels.txt"
 ignored_errors="$repo_root/api/oasdiff-ignore-errors.txt"
+ignored_warnings="$repo_root/api/oasdiff-ignore-warnings.txt"
 format="${OASDIFF_FORMAT:-text}"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/e2a-openapi-compat.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -71,6 +72,7 @@ run_oasdiff breaking \
   --stability-level stable \
   --severity-levels "$levels" \
   --err-ignore "$ignored_errors" \
+  --warn-ignore "$ignored_warnings" \
   --format "$format" \
   "$tmpdir/base.yaml" "$tmpdir/revision.yaml"
 

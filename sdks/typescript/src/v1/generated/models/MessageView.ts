@@ -40,8 +40,6 @@ export class MessageView {
     */
     'deliveryStatus'?: string;
     'direction': MessageViewDirectionEnum;
-    'flagReason'?: string;
-    'flagged'?: boolean;
     'from_': string;
     'holdReason'?: HoldReasonView;
     'id': string;
@@ -152,18 +150,6 @@ export class MessageView {
             "name": "direction",
             "baseName": "direction",
             "type": "MessageViewDirectionEnum",
-            "format": ""
-        },
-        {
-            "name": "flagReason",
-            "baseName": "flag_reason",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "flagged",
-            "baseName": "flagged",
-            "type": "boolean",
             "format": ""
         },
         {
