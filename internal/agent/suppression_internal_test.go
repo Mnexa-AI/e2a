@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/tokencanopy/e2a/internal/outbound"
@@ -64,6 +65,13 @@ func TestCheckSuppressionCore_SuppressedIs422(t *testing.T) {
 		oerr := checkSuppressionCore(context.Background(), stub, "user_1", "sender@agents.test", req, failClosed)
 		if oerr == nil || oerr.Status != http.StatusUnprocessableEntity || oerr.Code != "recipient_suppressed" {
 			t.Fatalf("failClosed=%v: error = %+v, want 422 recipient_suppressed", failClosed, oerr)
+		}
+		if !strings.Contains(oerr.Msg, "/v1/account/suppressions/{address}") ||
+			!strings.Contains(oerr.Msg, "/v1/agents/sender@agents.test/suppressions/{address}?confirm=DELETE") {
+			t.Fatalf("remediation = %q, want both account-wide and exact-agent endpoints", oerr.Msg)
+		}
+		if strings.Contains(oerr.Msg, "remove via DELETE /v1/account") {
+			t.Fatalf("remediation falsely implies account deletion alone is sufficient: %q", oerr.Msg)
 		}
 	}
 }

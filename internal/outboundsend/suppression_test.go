@@ -31,7 +31,7 @@ func TestSendWorker_SuppressedRecipientFailsTerminallyWithoutProviderIO(t *testi
 	j := acceptedJob("msg_1")
 	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
 	st := &fakeStore{job: j, suppressed: []string{"b@y.com"}}
-	gate := &fakeRampGate{}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}}
 	w := outboundsend.NewSendWorker(st, trippingDeliverer{t}, gate)
 
 	err := w.Work(context.Background(), job("msg_1", 1))
@@ -43,6 +43,10 @@ func TestSendWorker_SuppressedRecipientFailsTerminallyWithoutProviderIO(t *testi
 	}
 	if !strings.Contains(st.failed[0].detail, "recipient_suppressed") || !strings.Contains(st.failed[0].detail, "b@y.com") {
 		t.Errorf("failure detail = %q, want recipient_suppressed naming the address", st.failed[0].detail)
+	}
+	if !strings.Contains(st.failed[0].detail, "/v1/account/suppressions/{address}") ||
+		!strings.Contains(st.failed[0].detail, "/v1/agents/sender@agents.test/suppressions/{address}?confirm=DELETE") {
+		t.Errorf("failure remediation = %q, want both applicable suppression endpoints", st.failed[0].detail)
 	}
 	if len(st.sent) != 0 {
 		t.Errorf("MarkSent = %+v, want none", st.sent)
@@ -76,6 +80,24 @@ func TestSendWorker_SuppressionCheckErrorFailsClosed(t *testing.T) {
 	}
 	if len(st.released) != 1 || st.released[0] != "msg_1" {
 		t.Errorf("released claims = %v, want [msg_1]", st.released)
+	}
+}
+
+func TestSendWorker_SuppressionCheckErrorAfterRampReleasesReservation(t *testing.T) {
+	j := acceptedJob("msg_1")
+	j.Domain, j.MessageType, j.SentAs = "new.example.com", "send", "own_address"
+	st := &fakeStore{job: j, suppressedErr: errors.New("suppression store down")}
+	gate := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}}
+	w := outboundsend.NewSendWorker(st, trippingDeliverer{t}, gate)
+
+	if err := w.Work(context.Background(), job("msg_1", 1)); err == nil {
+		t.Fatal("suppression-store error must retry")
+	}
+	if len(gate.released) != 1 || gate.released[0] != "msg_1" {
+		t.Fatalf("ramp releases = %v, want [msg_1]", gate.released)
+	}
+	if len(st.released) != 1 || st.released[0] != "msg_1" {
+		t.Fatalf("claim releases = %v, want [msg_1]", st.released)
 	}
 }
 

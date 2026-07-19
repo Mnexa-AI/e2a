@@ -8,6 +8,7 @@ package agent_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -18,6 +19,33 @@ import (
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
+
+type blockingRampGate struct {
+	entered  chan struct{}
+	resume   chan struct{}
+	mu       sync.Mutex
+	released []string
+}
+
+func (g *blockingRampGate) Reserve(context.Context, outboundsend.RampRequest) (outboundsend.RampDecision, error) {
+	close(g.entered)
+	<-g.resume
+	return outboundsend.RampDecision{Allowed: true}, nil
+}
+func (*blockingRampGate) Confirm(context.Context, string) error { return nil }
+func (g *blockingRampGate) Release(_ context.Context, messageID string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.released = append(g.released, messageID)
+	return nil
+}
+func (*blockingRampGate) Resolve(context.Context, string) error { return nil }
+
+func (g *blockingRampGate) releasedIDs() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.released...)
+}
 
 // countingDeliverer records provider submits so the guard can assert zero I/O.
 type countingDeliverer struct {
@@ -96,6 +124,10 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 	if !strings.Contains(detail, "recipient_suppressed") || !strings.Contains(detail, "victim@external.test") {
 		t.Errorf("delivery_detail = %q, want recipient_suppressed naming the address", detail)
 	}
+	if !strings.Contains(detail, "/v1/account/suppressions/{address}") ||
+		!strings.Contains(detail, "/v1/agents/"+ag.ID+"/suppressions/{address}?confirm=DELETE") {
+		t.Errorf("worker remediation = %q, want account and exact-agent endpoints", detail)
+	}
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailFailed); n != 1 {
 		t.Errorf("email.failed events = %d, want 1", n)
 	}
@@ -123,5 +155,46 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 	}
 	if allowedDeliverer.calls != 1 {
 		t.Fatalf("sibling provider calls = %d, want 1", allowedDeliverer.calls)
+	}
+}
+
+func TestSendWorker_SuppressionAddedDuringRampReservePreventsProviderIO(t *testing.T) {
+	api, store, outbox, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "suppduringramp")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"late@external.test"}, Subject: "ramp race", Body: "x",
+	}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+
+	gate := &blockingRampGate{entered: make(chan struct{}), resume: make(chan struct{})}
+	deliverer := &countingDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "must-not-happen"}}
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), deliverer, gate)
+	done := make(chan error, 1)
+	go func() { done <- worker.Work(ctx, workerJob(res.MessageID, 1)) }()
+	<-gate.entered
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "late@external.test", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	close(gate.resume)
+	if err := <-done; err == nil {
+		t.Fatal("suppression created during ramp reservation must cancel the send")
+	}
+	if deliverer.calls != 0 {
+		t.Fatalf("provider calls = %d, want zero", deliverer.calls)
+	}
+	if got := gate.releasedIDs(); len(got) != 1 || got[0] != res.MessageID {
+		t.Fatalf("released reservations = %v, want [%s]", got, res.MessageID)
+	}
+	var status, detail string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT delivery_status, COALESCE(delivery_detail,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&status, &detail)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || !strings.Contains(detail, "recipient_suppressed") {
+		t.Fatalf("status/detail = %q/%q, want failed recipient_suppressed", status, detail)
 	}
 }

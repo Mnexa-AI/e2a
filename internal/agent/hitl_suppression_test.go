@@ -100,6 +100,10 @@ func TestApprovePendingCore_RecipientSuppressedWhileHeld(t *testing.T) {
 	if !strings.Contains(oerr.Msg, "alice@external.test") {
 		t.Errorf("error message %q should name the suppressed address", oerr.Msg)
 	}
+	if !strings.Contains(oerr.Msg, "/v1/account/suppressions/{address}") ||
+		!strings.Contains(oerr.Msg, "/v1/agents/"+ag.ID+"/suppressions/{address}?confirm=DELETE") {
+		t.Errorf("approval remediation = %q, want account and exact-agent endpoints", oerr.Msg)
+	}
 	if idemCalled {
 		t.Error("idempotency completer ran on a refused approval — a 422 must not poison the key")
 	}

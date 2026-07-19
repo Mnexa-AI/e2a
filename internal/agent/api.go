@@ -1171,10 +1171,14 @@ func checkSuppressionCore(ctx context.Context, store suppressionLister, userID, 
 		return nil
 	}
 	if len(suppressed) > 0 {
-		return &OutboundError{Status: http.StatusUnprocessableEntity, Code: "recipient_suppressed", Msg: "recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") +
-			" — remove via DELETE /v1/account/suppressions/{address}"}
+		return &OutboundError{Status: http.StatusUnprocessableEntity, Code: "recipient_suppressed", Msg: "recipient(s) on the suppression list: " + strings.Join(suppressed, ", ") + suppressionRemediation(agentID)}
 	}
 	return nil
+}
+
+func suppressionRemediation(agentID string) string {
+	return " — remove every applicable suppression before retrying; if both scopes contain an address, remove both (account-wide: DELETE /v1/account/suppressions/{address}; agent-scoped: DELETE /v1/agents/" +
+		normalizeEmail(agentID) + "/suppressions/{address}?confirm=DELETE)"
 }
 
 // checkSuppression is the accept-time (direct send) check: fail-open on a

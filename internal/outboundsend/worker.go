@@ -249,37 +249,11 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return nil
 	}
 
-	// Final suppression guard before provider I/O: a suppression added AFTER
-	// approval/acceptance (bounce, complaint, or manual add while the job sat
-	// on the queue) must still prevent delivery. A match is terminal like the
-	// Permanent branch below — record delivery_status='failed' + email.failed
-	// in one tx (MarkFailed) WITHOUT calling the provider. A store error fails
-	// CLOSED: release the side-effect-free claim and let River retry, because
-	// silently sending would break the published "addresses e2a will refuse to
-	// send to" contract. The check is scoped to the message's owning account
-	// and exact sending agent.
-	suppressed, serr := w.store.SuppressedRecipients(ctx, j.UserID, j.AgentID, j.Recipients)
-	if serr != nil {
-		if rerr := w.store.ReleaseSend(ctx, j.MessageID, job.ID); rerr != nil {
-			return fmt.Errorf("release outbound send claim after suppression-check failure: %w", rerr)
-		}
-		return fmt.Errorf("suppression check before outbound send: %w", serr)
-	}
-	if len(suppressed) > 0 {
-		supErr := fmt.Errorf("recipient_suppressed: %s — remove via DELETE /v1/account/suppressions/{address}", strings.Join(suppressed, ", "))
-		w.markFailed(ctx, j.MessageID, job.Attempt, supErr.Error(), delivery.FailureSourceLocal)
-		if w.ramp != nil && j.rampEligible() {
-			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
-				return fmt.Errorf("release ramp reservation after suppression: %w", err)
-			}
-		}
-		return river.JobCancel(supErr)
-	}
-
 	// Ramp only mail that uses a verified customer identity. Platform-originated
 	// test mail uses the relay identity and remains exempt; loopback never enters
-	// this worker. Reserve after the provider-evidence and suppression guards so
-	// neither an already-submitted nor locally refused message consumes capacity.
+	// this worker. Reserve after the provider-evidence guard. The final suppression
+	// check deliberately follows an allowed reservation, closing the policy window
+	// while Reserve waits on shared capacity.
 	if w.ramp != nil && j.rampEligible() {
 		decision, rerr := w.ramp.Reserve(ctx, RampRequest{
 			MessageID: j.MessageID,
@@ -320,6 +294,37 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 			}
 			return river.JobSnooze(delay)
 		}
+	}
+
+	// Final suppression guard immediately before provider I/O: a suppression
+	// added after acceptance or while an allowed ramp reservation was in flight
+	// must still prevent delivery. A match is terminal; a store error fails
+	// closed and releases both the side-effect-free claim and any reservation.
+	suppressed, serr := w.store.SuppressedRecipients(ctx, j.UserID, j.AgentID, j.Recipients)
+	if serr != nil {
+		var releaseErrs []error
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+				releaseErrs = append(releaseErrs, fmt.Errorf("release ramp reservation: %w", err))
+			}
+		}
+		if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
+			releaseErrs = append(releaseErrs, fmt.Errorf("release outbound send claim: %w", err))
+		}
+		if releaseErr := errors.Join(releaseErrs...); releaseErr != nil {
+			return fmt.Errorf("suppression check and cleanup before outbound send: %w", errors.Join(serr, releaseErr))
+		}
+		return fmt.Errorf("suppression check before outbound send: %w", serr)
+	}
+	if len(suppressed) > 0 {
+		supErr := fmt.Errorf("recipient_suppressed: %s%s", strings.Join(suppressed, ", "), suppressionRemediation(j.AgentID))
+		w.markFailed(ctx, j.MessageID, job.Attempt, supErr.Error(), delivery.FailureSourceLocal)
+		if w.ramp != nil && j.rampEligible() {
+			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
+				return fmt.Errorf("release ramp reservation after suppression: %w", err)
+			}
+		}
+		return river.JobCancel(supErr)
 	}
 
 	out := w.deliverer.Deliver(ctx, j)
@@ -383,6 +388,12 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return fmt.Errorf("release outbound send claim after retryable failure: %w", err)
 	}
 	return fmt.Errorf("outbound send attempt %d failed: %w", job.Attempt, out.Err)
+}
+
+func suppressionRemediation(agentID string) string {
+	agentID = strings.ToLower(strings.TrimSpace(agentID))
+	return " — remove every applicable suppression before retrying; if both scopes contain an address, remove both (account-wide: DELETE /v1/account/suppressions/{address}; agent-scoped: DELETE /v1/agents/" +
+		agentID + "/suppressions/{address}?confirm=DELETE)"
 }
 
 func (j *SendJob) rampEligible() bool {
