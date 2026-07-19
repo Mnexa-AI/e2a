@@ -27,6 +27,7 @@ pip install e2a             # Python (async)
 import { E2AClient } from "@e2a/sdk";
 
 const client = new E2AClient({ apiKey: process.env.E2A_API_KEY });
+const messageId = "msg_..."; // an inbound message id from a webhook, WebSocket, or list call
 
 // Send (held drafts come back status="pending_review", not an error)
 await client.messages.send("bot@agents.e2a.dev", {
@@ -44,9 +45,11 @@ await client.messages.reply("bot@agents.e2a.dev", messageId, {
 ### Python
 
 ```python
+import os
 from e2a.v1 import AsyncE2AClient
 
 async with AsyncE2AClient(api_key=os.environ["E2A_API_KEY"]) as client:
+    message_id = "msg_..."  # an inbound message id from a webhook, WebSocket, or list call
     await client.messages.send("bot@agents.e2a.dev", {
         "to": ["person@example.com"],
         "subject": "Hello from my agent",
@@ -67,15 +70,14 @@ the HMAC and throws on a bad/forged/replayed delivery.
 ### TypeScript
 
 ```ts
-import { constructEvent, E2AClient } from "@e2a/sdk";
+import { constructEvent, E2AClient, isEmailReceived } from "@e2a/sdk";
 
 // in your HTTP handler, with the RAW request body:
 const event = constructEvent(rawBody, req.headers["x-e2a-signature"], WEBHOOK_SECRET);
-if (event.type === "email.received") {
-  const { delivered_to, message_id } = event.data as { delivered_to: string; message_id: string };
-  const msg = await client.messages.get(delivered_to, message_id); // typed: from, subject, parsed.text, attachments
+if (isEmailReceived(event)) {
+  const msg = await client.webhooks.fetchMessage(event); // typed: from_, subject, parsed.text, attachments
   // …decide a reply…
-  await client.messages.reply(delivered_to, message_id, { text: "On it." });
+  await client.messages.reply(event.data.delivered_to, event.data.message_id, { text: "On it." });
 }
 ```
 
@@ -91,7 +93,7 @@ except E2AWebhookSignatureError:
 
 if event.type == "email.received":
     data = event.data
-    inbound = await client.messages.get(data["delivered_to"], data["message_id"])
+    inbound = await client.webhooks.fetch_message(event)
     # inbound.from_, inbound.subject, inbound.parsed.text
     await client.messages.reply(data["delivered_to"], data["message_id"], {"text": "On it."})
 ```
@@ -122,14 +124,20 @@ await client.reviews.reject(message_id, {"reason": "spam"})
 Open a notification stream instead of hosting a webhook:
 
 ```ts
-for await (const n of client.listen("bot@agents.e2a.dev")) {
-  const msg = await client.messages.get(n.delivered_to, n.message_id);
+import { E2AClient, isEmailReceived } from "@e2a/sdk";
+
+const client = new E2AClient();
+for await (const event of client.listen("bot@agents.e2a.dev")) {
+  if (!isEmailReceived(event)) continue;
+  const msg = await client.webhooks.fetchMessage(event);
 }
 ```
 
 ```python
-async for n in client.listen("bot@agents.e2a.dev"):
-    msg = await client.messages.get(n.delivered_to, n.message_id)
+async for event in client.listen("bot@agents.e2a.dev"):
+    if event.type != "email.received":
+        continue
+    msg = await client.webhooks.fetch_message(event)
 ```
 
 ## Raw REST (without an SDK)

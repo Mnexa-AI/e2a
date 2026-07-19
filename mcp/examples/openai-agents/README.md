@@ -7,7 +7,7 @@
 ## Prerequisites
 
 - Python 3.10+
-- An [e2a API key](https://e2a.dev)
+- An **agent-scoped** [e2a API key](https://e2a.dev), recommended so the runtime can act only as its own inbox
 - An [OpenAI API key](https://platform.openai.com/api-keys)
 
 ## Run
@@ -16,13 +16,21 @@
 pip install -r requirements.txt
 export E2A_API_KEY=e2a_…
 export OPENAI_API_KEY=sk-…
+# Optional: export E2A_MCP_URL=https://your-e2a.example/mcp
 
 python agent.py "what's in my inbox?"
 python agent.py "reply to the most recent message politely"
 ```
 
-If your credential resolves a single agent, the hosted endpoint scopes tools to it server-side. With an account-scoped key and multiple agents, pass `agent_email` per tool call.
+The example deliberately uses an agent-scoped key. An account-scoped key exposes
+admin/setup tools as well and requires `agent_email` on inbox calls when the
+account owns multiple agents; use that broader scope only for a provisioning UI.
 
 ## How it works
 
-`MCPServerStreamableHttp` connects to the hosted e2a tool surface, the `Agent` picks them up as its toolset, and `Runner.run` drives the loop. The async-context-manager wrapper ensures the HTTP client is cleaned up when the run finishes.
+`MCPServerStreamableHttp` connects to the hosted e2a tool surface, caches its
+stable tool list for the run, and retries initial MCP connection failures up to
+three times. The `Agent` receives those tools and `Runner.run` drives the loop.
+The async context manager closes the HTTP client. Instructions tell the agent to
+retry only structured errors marked `retryable`, and to treat `pending_review`
+as accepted rather than retrying it.

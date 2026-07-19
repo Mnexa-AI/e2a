@@ -20,29 +20,35 @@ import sys
 from agents import Agent, Runner
 from agents.mcp import MCPServerStreamableHttp
 
+MCP_URL = os.getenv("E2A_MCP_URL", "https://api.e2a.dev/mcp")
+INSTRUCTIONS = """Manage email through the e2a tools.
+Use an agent-scoped e2a key so this runtime can act only as its own inbox.
+Call whoami once to learn that inbox address. Use list_messages and then
+get_message to read mail. Use reply_to_message for an existing thread so the
+In-Reply-To and References headers are preserved; use send_message only for a
+new thread. If send_message or reply_to_message returns pending_review, the
+message was accepted for human review: report that status and Do not retry it.
+Never approve or reject the agent's own held mail. Retry a failed tool call only
+when its structured error says retryable=true, honoring retry_after_seconds.
+"""
+
 
 async def main(prompt: str) -> None:
     async with MCPServerStreamableHttp(
         name="e2a",
         params={
-            "url": "https://api.e2a.dev/mcp",
+            "url": MCP_URL,
             "headers": {
                 "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
             },
+            "timeout": 30,
         },
-        # Default is 5s — too tight for the first request against a
-        # cold serverless backend. Match the ADK and LangChain
-        # examples at 30s.
-        client_session_timeout_seconds=30,
+        cache_tools_list=True,
+        max_retry_attempts=3,
     ) as e2a:
         agent = Agent(
             name="e2a_agent",
-            instructions=(
-                "Manage email through the e2a tools. Use whoami once to "
-                "find the inbox; list_messages + get_message to read; "
-                "reply_to_message to reply in-thread, and send_message to "
-                "start a new one."
-            ),
+            instructions=INSTRUCTIONS,
             mcp_servers=[e2a],
         )
         result = await Runner.run(agent, prompt)
