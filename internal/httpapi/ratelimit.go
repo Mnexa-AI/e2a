@@ -29,7 +29,7 @@ type RateSnapshot func(key string) (ok bool, retryAfter time.Duration, limit, re
 // label PATCH stays legacy-only). The legacy surface deliberately did NOT
 // poll-limit agents/domains/events/limits/export reads, so neither do we:
 // notably the events API is built for reconciliation polling and must not
-// compete for the shared 60/min message-read budget. getInfo is public (no
+// compete for the shared per-user message-read budget. getInfo is public (no
 // principal to key on).
 var pollLimitedOps = map[string]bool{
 	"listMessages": true, "getMessage": true,

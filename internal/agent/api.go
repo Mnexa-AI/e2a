@@ -525,7 +525,11 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		production:       production,
 		sendLimit:        ratelimit.New(1*time.Minute, 60),                           // 60 sends per agent per minute
 		regLimit:         ratelimit.New(1*time.Hour, 200),                            // 200 registrations per IP per hour
-		pollLimit:        ratelimit.New(1*time.Minute, 60),                           // 60 poll requests per user per minute
+		// 240/min: the bucket is keyed per USER and shared by every reader the
+		// account runs — each agent's polling loop plus the dashboard, whose
+		// thread view fetches message bodies individually. 60/min starved
+		// multi-agent accounts the moment a human opened a long thread.
+		pollLimit:        ratelimit.New(1*time.Minute, 240),                          // 240 poll requests per user per minute
 		feedbackLimit:    ratelimit.New(1*time.Hour, 10),                             // 10 feedback submissions per IP per hour
 		dcrLimit:         ratelimit.New(1*time.Hour, 10),                             // 10 OAuth client registrations per IP per hour
 		downloadLimit:    ratelimit.New(1*time.Minute, 120),                          // 120 attachment downloads per IP per minute
