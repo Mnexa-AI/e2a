@@ -473,13 +473,21 @@ func main() {
 	// User auth (Google OAuth for agent developers)
 	userAuth := auth.NewUserAuth(&cfg.OAuth, store, cfg.IsProduction())
 	// Generic OIDC Authorization Code login. Disabled configurations perform
-	// no discovery and leave both OIDC routes unregistered.
-	oidcAuth, err := auth.NewOIDCAuth(ctx, cfg.OIDC, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
+	// no discovery and leave both OIDC routes unregistered. Enabled
+	// configurations construct synchronously (no network call) and discover
+	// the issuer in a background goroutine with retry/backoff, so an
+	// unreachable identity provider never blocks or fails server boot; the
+	// OIDC routes fail closed with 503 until discovery completes. err is
+	// retained for any future static/constructor-time failure mode, but
+	// today NewOIDCAuth only fails to construct if E2A is misconfigured in a
+	// way config.Validate() would already have caught.
+	oidcCtx, oidcCancel := context.WithCancel(ctx)
+	oidcAuth, err := auth.NewOIDCAuth(oidcCtx, cfg.OIDC, store, cfg.IsProduction(), cfg.HTTP.PublicURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize OIDC login: %v", err)
 	}
 	if oidcAuth != nil {
-		log.Printf("[auth] OIDC login enabled (issuer=%s)", cfg.OIDC.IssuerURL)
+		log.Printf("[auth] OIDC login enabled (issuer=%s); discovering issuer in the background", cfg.OIDC.IssuerURL)
 	}
 
 	// HTTP API
@@ -770,6 +778,9 @@ func main() {
 
 	<-sigCh
 	log.Println("Shutting down...")
+
+	// Stop OIDC issuer discovery promptly, including an in-flight attempt.
+	oidcCancel()
 
 	// Signal the remaining background workers to stop. Their inner ctx-select
 	// branches return on the next iteration; work already in flight finishes
