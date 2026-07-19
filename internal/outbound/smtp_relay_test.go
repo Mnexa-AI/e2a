@@ -1,14 +1,53 @@
 package outbound
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/textproto"
 	"testing"
+	"time"
 
 	"github.com/tokencanopy/e2a/internal/config"
 )
+
+func TestSMTPRelaySendWithContextCancelsHangingServer(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			accepted <- conn
+		}
+	}()
+	t.Cleanup(func() {
+		select {
+		case conn := <-accepted:
+			_ = conn.Close()
+		default:
+		}
+	})
+
+	addr := listener.Addr().(*net.TCPAddr)
+	relay := NewSMTPRelay(&config.OutboundSMTPConfig{Host: addr.IP.String(), Port: addr.Port})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	_, err = relay.SendWithContext(ctx, "noreply@example.com", []string{"feedback@example.com"}, []byte("Subject: test\r\n\r\nbody"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SendWithContext error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("SendWithContext returned after %s, want cancellation within 1s", elapsed)
+	}
+}
 
 // smtpErr mirrors PRODUCTION's error shape: net/smtp returns a *textproto.Error for
 // a non-2xx reply, which sendOnce wraps with a command prefix via %w. The

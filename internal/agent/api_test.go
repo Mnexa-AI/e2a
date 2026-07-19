@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -330,5 +332,104 @@ func TestFeedback_MethodNotAllowed(t *testing.T) {
 
 	if resp.StatusCode != 405 {
 		t.Errorf("status = %d, want 405 for GET on feedback endpoint", resp.StatusCode)
+	}
+}
+
+// With the email channel configured (and GitHub off), a submission delivers
+// via the platform relay: one message, To+Cc in the envelope, submitter in
+// Reply-To and the body.
+func TestFeedback_EmailNotification(t *testing.T) {
+	server, _, _, smtpDone := setupAPIWithSMTP(t)
+	t.Setenv("GITHUB_FEEDBACK_TOKEN", "")
+	t.Setenv("FEEDBACK_NOTIFY_TO", "feedback-to@example.com")
+	t.Setenv("FEEDBACK_NOTIFY_CC", "feedback-cc@example.com")
+
+	payload := `{"email":"user@example.com","category":"bug","message":"Something is broken"}`
+	resp, err := http.Post(server.URL+"/api/feedback", "application/json", bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d, want 200 (email channel delivers with GitHub off)", resp.StatusCode)
+	}
+
+	msgs := smtpDone()
+	if len(msgs) != 1 {
+		t.Fatalf("smtp messages = %d, want 1", len(msgs))
+	}
+	m := msgs[0]
+
+	if m.From != "noreply@test.e2a.dev" {
+		t.Errorf("envelope from = %q, want noreply@test.e2a.dev", m.From)
+	}
+	wantRcpts := []string{"feedback-to@example.com", "feedback-cc@example.com"}
+	if strings.Join(m.Recipients, ",") != strings.Join(wantRcpts, ",") {
+		t.Errorf("recipients = %v, want %v", m.Recipients, wantRcpts)
+	}
+	for _, want := range []string{
+		"To: feedback-to@example.com",
+		"Cc: feedback-cc@example.com",
+		"Reply-To: user@example.com",
+		"Category: bug",
+		"Submitted by: user@example.com",
+		"Something is broken",
+	} {
+		if !strings.Contains(m.Data, want) {
+			t.Errorf("message data missing %q", want)
+		}
+	}
+
+	// Subject is Q-encoded — decode before comparing. (fakesmtp captures
+	// Data with bare "\n" line endings, not the on-wire CRLF.)
+	headers := m.Data
+	if i := strings.Index(headers, "\n\n"); i >= 0 {
+		headers = headers[:i]
+	}
+	headers = strings.ReplaceAll(headers, "\n ", " ") // unfold
+	subject := ""
+	for _, line := range strings.Split(headers, "\n") {
+		if strings.HasPrefix(line, "Subject: ") {
+			subject = strings.TrimPrefix(line, "Subject: ")
+		}
+	}
+	decoded, err := new(mime.WordDecoder).DecodeHeader(subject)
+	if err != nil {
+		t.Fatalf("decode subject %q: %v", subject, err)
+	}
+	if want := "[e2a feedback] [bug] Something is broken"; decoded != want {
+		t.Errorf("subject = %q, want %q", decoded, want)
+	}
+}
+
+// When every configured channel fails (here: email on but the relay is
+// unreachable, GitHub off), the submission must surface a 500 so the user
+// knows it didn't land — the old log-only fallback only applies when NO
+// channel is configured.
+func TestFeedback_AllChannelsFail_500(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	deadRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{Host: "127.0.0.1", Port: 1})
+	sender := outbound.NewSender(deadRelay, "test.e2a.dev")
+	api := agent.NewAPI(store, sender, deadRelay, nil, usage.NewNoopUsageTracker(), "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
+	router := mux.NewRouter()
+	api.RegisterRoutes(router)
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	t.Setenv("GITHUB_FEEDBACK_TOKEN", "")
+	t.Setenv("FEEDBACK_NOTIFY_TO", "feedback-to@example.com")
+	t.Setenv("FEEDBACK_NOTIFY_CC", "")
+
+	payload := `{"category":"general","message":"this should not land anywhere"}`
+	resp, err := http.Post(server.URL+"/api/feedback", "application/json", bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 500 {
+		t.Errorf("status = %d, want 500 when every configured channel fails", resp.StatusCode)
 	}
 }

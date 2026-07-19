@@ -1,6 +1,7 @@
 package outbound
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -30,7 +31,14 @@ func (r *SMTPRelay) Configured() bool {
 
 // Send sends an email to one or more recipients and returns the Message-ID assigned by the remote server (e.g. SES).
 func (r *SMTPRelay) Send(from string, recipients []string, message []byte) (string, error) {
-	return r.SendWithEnvelope(from, recipients, message)
+	return r.SendWithContext(context.Background(), from, recipients, message)
+}
+
+// SendWithContext sends an email while honoring ctx during SMTP I/O and retry
+// backoff. It is intended for request-bound callers that cannot allow the
+// relay's normal retry envelope to outlive the request budget.
+func (r *SMTPRelay) SendWithContext(ctx context.Context, from string, recipients []string, message []byte) (string, error) {
+	return r.SendWithEnvelopeContext(ctx, from, recipients, message)
 }
 
 // SendWithEnvelope sends an email using envelopeFrom for SMTP MAIL FROM.
@@ -38,24 +46,37 @@ func (r *SMTPRelay) Send(from string, recipients []string, message []byte) (stri
 // Returns the Message-ID assigned by the remote SMTP server from the DATA response.
 // Retries transient SMTP errors (4xx) up to 3 times with backoff.
 func (r *SMTPRelay) SendWithEnvelope(envelopeFrom string, recipients []string, message []byte) (string, error) {
+	return r.SendWithEnvelopeContext(context.Background(), envelopeFrom, recipients, message)
+}
+
+// SendWithEnvelopeContext is SendWithEnvelope with caller-controlled
+// cancellation and deadline propagation.
+func (r *SMTPRelay) SendWithEnvelopeContext(ctx context.Context, envelopeFrom string, recipients []string, message []byte) (string, error) {
 	if !r.Configured() {
 		return "", fmt.Errorf("outbound SMTP relay not configured")
 	}
 
 	var lastErr error
 	for attempt := 0; attempt <= len(smtpRetryBackoffs); attempt++ {
-		msgID, err := r.sendOnce(envelopeFrom, recipients, message)
+		msgID, err := r.sendOnceContext(ctx, envelopeFrom, recipients, message)
 		if err == nil {
 			return msgID, nil
 		}
 		lastErr = err
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		if !isTransientSMTPError(lastErr) {
 			return "", lastErr
 		}
 		if attempt < len(smtpRetryBackoffs) {
 			log.Printf("[smtp-relay] transient error sending to %v (attempt %d/%d), retrying in %s: %v",
 				recipients, attempt+1, len(smtpRetryBackoffs)+1, smtpRetryBackoffs[attempt], lastErr)
-			time.Sleep(smtpRetryBackoffs[attempt])
+			select {
+			case <-time.After(smtpRetryBackoffs[attempt]):
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
 		}
 	}
 	return "", lastErr
@@ -72,7 +93,7 @@ func (r *SMTPRelay) SendOnce(envelopeFrom string, recipients []string, message [
 	if !r.Configured() {
 		return "", fmt.Errorf("outbound SMTP relay not configured")
 	}
-	return r.sendOnce(envelopeFrom, recipients, message)
+	return r.sendOnceContext(context.Background(), envelopeFrom, recipients, message)
 }
 
 // IsTransientSMTPError reports whether err is a retryable SMTP failure (4xx /
@@ -137,15 +158,31 @@ func IsConnectionError(err error) bool {
 // SES returns the assigned Message-ID in the 250 response after DATA, e.g.:
 //
 //	250 Ok <010f019d2bd82cd5-49c4925c-...@us-east-2.amazonses.com>
-func (r *SMTPRelay) sendOnce(envelopeFrom string, recipients []string, message []byte) (string, error) {
+func (r *SMTPRelay) sendOnceContext(ctx context.Context, envelopeFrom string, recipients []string, message []byte) (msgID string, err error) {
+	defer func() {
+		if err != nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
+
 	addr := net.JoinHostPort(r.cfg.Host, fmt.Sprintf("%d", r.cfg.Port))
 
-	conn, err := net.DialTimeout("tcp", addr, 30*time.Second)
+	dialer := net.Dialer{Timeout: 30 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return "", fmt.Errorf("dial: %w", err)
 	}
 	// Set an overall deadline so a hanging server can't block forever
-	conn.SetDeadline(time.Now().Add(2 * time.Minute))
+	deadline := time.Now().Add(2 * time.Minute)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		_ = conn.Close()
+		return "", fmt.Errorf("set smtp deadline: %w", err)
+	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stopCancel()
 
 	c, err := smtp.NewClient(conn, r.cfg.Host)
 	if err != nil {
