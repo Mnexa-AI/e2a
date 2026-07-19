@@ -340,6 +340,13 @@ func TestDeleteUserData(t *testing.T) {
 	ctx := context.Background()
 
 	user := seedUserData(t, store, ctx, "deleter")
+	agentID := "bot@deleter.example.com"
+	if _, added, err := store.AddAgentSuppression(ctx, user.ID, agentID, "opted-out@example.net", "", "manual", nil); err != nil || !added {
+		t.Fatalf("seed agent suppression: added=%v err=%v", added, err)
+	}
+	if err := store.PutUnsubscribeToken(ctx, []byte("delete-audit-token-hash"), user.ID, agentID, "token@example.net"); err != nil {
+		t.Fatalf("seed unsubscribe token: %v", err)
+	}
 
 	res, err := store.DeleteUserData(ctx, user.ID)
 	if err != nil {
@@ -363,6 +370,12 @@ func TestDeleteUserData(t *testing.T) {
 	}
 	if res.SessionsDeleted != 1 {
 		t.Errorf("SessionsDeleted = %d, want 1", res.SessionsDeleted)
+	}
+	if res.AgentSuppressionsDeleted != 1 {
+		t.Errorf("AgentSuppressionsDeleted = %d, want 1", res.AgentSuppressionsDeleted)
+	}
+	if res.AgentUnsubscribeTokensDeleted != 1 {
+		t.Errorf("AgentUnsubscribeTokensDeleted = %d, want 1", res.AgentUnsubscribeTokensDeleted)
 	}
 
 	// Verify the user row itself is gone.
@@ -389,6 +402,8 @@ func TestDeleteUserData(t *testing.T) {
 		{"sessions", `SELECT count(*) FROM user_sessions WHERE user_id = $1`},
 		{"usage_events", `SELECT count(*) FROM usage_events WHERE user_id = $1`},
 		{"usage_summaries", `SELECT count(*) FROM usage_summaries WHERE user_id = $1`},
+		{"agent_suppressions", `SELECT count(*) FROM agent_suppressions WHERE user_id = $1`},
+		{"agent_unsubscribe_tokens", `SELECT count(*) FROM agent_unsubscribe_tokens WHERE user_id = $1`},
 	}
 	for _, c := range checks {
 		var n int

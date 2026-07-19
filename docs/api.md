@@ -422,8 +422,10 @@ across To, CC, and BCC. e2a owns the opaque token, adds a visible footer and the
 hosts the beta raw confirmation flow at `GET|POST /u/{token}`. GET is
 scanner-safe confirmation only and never
 changes state; the RFC 8058 one-click POST body is
-`List-Unsubscribe=One-Click`. The application never stores or constructs the
-token.
+`List-Unsubscribe=One-Click`. The public POST accepts bounded (1 KiB maximum)
+`application/x-www-form-urlencoded` and `multipart/form-data` bodies, including
+standard charset parameters. The application never stores or constructs the
+token. Invalid managed-unsubscribe issuer configuration fails server startup.
 
 Malformed unsubscribe objects (including `null`, missing/unknown modes, or
 unsupported fields) use the API's standard schema-validation response,

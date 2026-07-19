@@ -13,6 +13,8 @@ For vulnerability reporting and the security model, see [SECURITY.md](../SECURIT
 | Outbound message bodies (only while in `pending_review`) | Postgres `messages.body_text` / `body_html` / `attachments_json` | **Scrubbed on terminal review transition** (approve/reject/expire) — only metadata persists after that |
 | Attachments | Postgres rows (`attachments_json`, JSONB) | Same lifetime as the parent message — no S3/GCS |
 | Agent + domain ownership records | Postgres `agent_identities`, `domains` | Until the user deletes the agent/domain or the account |
+| Agent-scoped recipient suppressions | Postgres `agent_suppressions` | Until the account is deleted. They intentionally survive agent trash, permanent deletion, and recreation so recipient consent remains effective for the same sending address. |
+| Managed-unsubscribe capability mappings (agent + recipient addresses and token hash; never the bearer token) | Postgres `agent_unsubscribe_tokens` | Until the account is deleted. Links in previously delivered mail remain valid, including after an agent is deleted. |
 | API keys | Postgres `api_keys`, **hash only** (hex-encoded SHA-256 of the plaintext) | Until revoked or the user is deleted; plaintext exists only in the create response and is never persisted |
 | OAuth sessions | Postgres `user_sessions` | 30 days; cleanup worker removes expired rows hourly |
 | Usage events / summaries (only when `E2A_USAGE_TRACKING=true`) | Postgres `usage_events`, `usage_summaries` | Indefinite by default — operator can purge or override |
@@ -32,7 +34,7 @@ Application logs do **not** include message bodies, attachment contents, raw API
 The API exposes the two operations that GDPR Art. 15 / Art. 17 (and CCPA equivalents) require:
 
 - **`GET /v1/account/export`** — returns a JSON dump of everything the authenticated account owns. Profile, agents, domains, API key metadata, all messages with bodies, usage events, and account-wide or exact-agent suppressions. Export schema v3 suppression entries use optional `agent_email` to distinguish exact-agent blocks; entries without it are account-wide. Internal identifiers (Google subject, key hashes, session tokens) are excluded.
-- **`DELETE /v1/account?confirm=DELETE`** — wipes the account and every related row in a single Postgres transaction (cascade through `agent_identities → messages → webhook_deliveries`, plus explicit deletion of `usage_events` which has `ON DELETE SET NULL` rather than CASCADE so it survives by default). Returns per-table row counts so the caller can audit what was removed.
+- **`DELETE /v1/account?confirm=DELETE`** — wipes the account and every related row in a single Postgres transaction (cascade through `agent_identities → messages → webhook_deliveries` and the account-owned suppression/token tables, plus explicit deletion of `usage_events` which has `ON DELETE SET NULL` rather than CASCADE so it survives by default). Returns per-table row counts, including `agent_suppressions_deleted` and `agent_unsubscribe_tokens_deleted`, so the caller can audit what was removed.
 
 Both are scoped to the authenticated user — there's no path to target someone else's data.
 

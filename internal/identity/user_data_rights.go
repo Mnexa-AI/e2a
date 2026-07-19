@@ -253,18 +253,20 @@ func scanProtectionEventsForUser(ctx context.Context, tx pgx.Tx, userID string) 
 // {deleted:true, ...}); the /v1 handler sets it. It is always true on a
 // response — a failed delete is an error envelope, never deleted:false.
 type DeleteUserDataResult struct {
-	Deleted                   bool  `json:"deleted" doc:"Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false."`
-	UsageEventsDeleted        int64 `json:"usage_events_deleted"`
-	UsageSummariesDeleted     int64 `json:"usage_summaries_deleted"`
-	MessagesDeleted           int64 `json:"messages_deleted"`
-	AgentsDeleted             int64 `json:"agents_deleted"`
-	DomainsDeleted            int64 `json:"domains_deleted"`
-	APIKeysDeleted            int64 `json:"api_keys_deleted"`
-	SessionsDeleted           int64 `json:"sessions_deleted"`
-	OAuthAuthCodesDeleted     int64 `json:"oauth_auth_codes_deleted,omitempty"`
-	OAuthAccessTokensDeleted  int64 `json:"oauth_access_tokens_deleted,omitempty"`
-	OAuthRefreshTokensDeleted int64 `json:"oauth_refresh_tokens_deleted,omitempty"`
-	UserDeleted               bool  `json:"user_deleted"`
+	Deleted                       bool  `json:"deleted" doc:"Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false."`
+	UsageEventsDeleted            int64 `json:"usage_events_deleted"`
+	UsageSummariesDeleted         int64 `json:"usage_summaries_deleted"`
+	MessagesDeleted               int64 `json:"messages_deleted"`
+	AgentsDeleted                 int64 `json:"agents_deleted"`
+	DomainsDeleted                int64 `json:"domains_deleted"`
+	APIKeysDeleted                int64 `json:"api_keys_deleted"`
+	SessionsDeleted               int64 `json:"sessions_deleted"`
+	AgentSuppressionsDeleted      int64 `json:"agent_suppressions_deleted"`
+	AgentUnsubscribeTokensDeleted int64 `json:"agent_unsubscribe_tokens_deleted"`
+	OAuthAuthCodesDeleted         int64 `json:"oauth_auth_codes_deleted,omitempty"`
+	OAuthAccessTokensDeleted      int64 `json:"oauth_access_tokens_deleted,omitempty"`
+	OAuthRefreshTokensDeleted     int64 `json:"oauth_refresh_tokens_deleted,omitempty"`
+	UserDeleted                   bool  `json:"user_deleted"`
 } // @name DeleteUserDataResult
 
 // DeleteUserData wipes everything tied to a user in a single transaction.
@@ -272,7 +274,8 @@ type DeleteUserDataResult struct {
 // Schema cascades cover most of it (user_sessions, domains, agent_identities,
 // api_keys, usage_summaries all `ON DELETE CASCADE` from users; messages
 // cascade through agent_identities; webhook_deliveries cascade through
-// messages). The one row that doesn't is usage_events: its FK is `ON
+// messages; agent_suppressions and agent_unsubscribe_tokens cascade directly
+// from users). The one row that doesn't is usage_events: its FK is `ON
 // DELETE SET NULL` so analytics survives, which we explicitly override
 // here for full deletion.
 //
@@ -312,6 +315,8 @@ func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainIn
 		{&res.MessagesDeleted, `SELECT count(*) FROM messages m JOIN agent_identities a ON a.id = m.agent_id WHERE a.user_id = $1`},
 		{&res.UsageEventsDeleted, `SELECT count(*) FROM usage_events WHERE user_id = $1`},
 		{&res.UsageSummariesDeleted, `SELECT count(*) FROM usage_summaries WHERE user_id = $1`},
+		{&res.AgentSuppressionsDeleted, `SELECT count(*) FROM agent_suppressions WHERE user_id = $1`},
+		{&res.AgentUnsubscribeTokensDeleted, `SELECT count(*) FROM agent_unsubscribe_tokens WHERE user_id = $1`},
 	}
 	for _, q := range queries {
 		if err := tx.QueryRow(ctx, q.query, userID).Scan(q.dst); err != nil {
@@ -342,7 +347,7 @@ func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainIn
 
 	// Cascade does the rest: user_sessions, domains, agent_identities
 	// (and through them, messages → webhook_deliveries), api_keys,
-	// usage_summaries.
+	// usage_summaries, agent_suppressions, and agent_unsubscribe_tokens.
 	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("delete: users: %w", err)

@@ -106,6 +106,9 @@ CREATE TABLE agent_unsubscribe_tokens (
 
 CREATE INDEX agent_unsubscribe_tokens_scope_idx
     ON agent_unsubscribe_tokens (user_id, agent_id, address);
+
+CREATE INDEX agent_suppressions_list_idx
+    ON agent_suppressions (user_id, agent_id, created_at DESC, address DESC);
 ```
 
 The existing `suppressions` table and its `(user_id,address)` uniqueness remain
@@ -174,9 +177,10 @@ and builds an absolute HTTPS URL from configured `HTTP.APIURL`:
 https://api.e2a.dev/u/{token}
 ```
 
-If the public API URL is unavailable, non-HTTPS in production, or token storage
-fails, the opted-in send is rejected rather than delivering a broken consent
-experience. The URL is appended as a standard visible footer—“Unsubscribe from
+If the public API URL is unavailable or non-HTTPS in production, startup fails
+instead of silently disabling managed unsubscribe. If token storage fails, the
+opted-in send is rejected rather than delivering a broken consent experience.
+The URL is appended as a standard visible footer—“Unsubscribe from
 emails sent by {agent address}”—to both the plain-text and HTML alternatives.
 e2a then injects:
 
@@ -209,12 +213,14 @@ POST /u/{token}
 `GET` performs a constant-time hash lookup and renders a minimal confirmation
 page identifying the sender address; it never changes state, which prevents
 mail security scanners from unsubscribing recipients. The form posts back to
-the same URL. `POST` accepts both the RFC 8058 body
-`List-Unsubscribe=One-Click` and the browser confirmation form, requires no
-login, cookies, JavaScript, redirects, or CSRF token, and returns `200` for a
-valid token even when the suppression already exists. Invalid tokens return a
-generic `404` without revealing tuple data. Responses use `Cache-Control:
-no-store` and a restrictive content-security policy.
+the same URL. `POST` accepts both the RFC 8058 field
+`List-Unsubscribe=One-Click` and the browser confirmation form as bounded
+`application/x-www-form-urlencoded` or `multipart/form-data` input. The entire
+request body is capped at 1 KiB. The route requires no login, cookies,
+JavaScript, redirects, or CSRF token, and returns `200` for a valid token even
+when the suppression already exists. Invalid tokens return a generic `404`
+without revealing tuple data. Responses use `Cache-Control: no-store` and a
+restrictive content-security policy.
 
 A valid POST idempotently inserts an `agent_suppressions` row with
 `source=unsubscribe`, blank reason, and no required message foreign key. It
@@ -361,7 +367,8 @@ they remain isolated within e2a.
 The effective lookup remains a bounded indexed union over the request's capped
 recipient set. The existing `(user_id,address)` uniqueness supports account
 matches; the new `(user_id,agent_id,address)` uniqueness supports agent matches.
-Pagination remains keyset based.
+The `(user_id,agent_id,created_at DESC,address DESC)` index matches the keyset
+list order, including its deterministic address tie-breaker.
 
 Separate tables deliberately keep deliverability feedback, agent consent, and
 public bearer capabilities as different storage concepts while presenting the

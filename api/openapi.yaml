@@ -835,6 +835,12 @@ components:
     DeleteUserDataResult:
       additionalProperties: true
       properties:
+        agent_suppressions_deleted:
+          format: int64
+          type: integer
+        agent_unsubscribe_tokens_deleted:
+          format: int64
+          type: integer
         agents_deleted:
           format: int64
           type: integer
@@ -879,6 +885,8 @@ components:
         - domains_deleted
         - api_keys_deleted
         - sessions_deleted
+        - agent_suppressions_deleted
+        - agent_unsubscribe_tokens_deleted
         - user_deleted
       type: object
     DeleteWebhookResult:
