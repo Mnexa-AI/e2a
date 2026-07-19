@@ -7,15 +7,20 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tokencanopy/e2a/internal/agent"
+	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
+	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -51,6 +56,19 @@ func (g *blockingRampGate) releasedIDs() []string {
 type countingDeliverer struct {
 	calls int
 	out   outboundsend.DeliverOutcome
+}
+
+type failOnceSuppressionStore struct {
+	outboundsend.Store
+	failed bool
+}
+
+func (s *failOnceSuppressionStore) SuppressedRecipients(ctx context.Context, userID, agentID string, recipients []string) ([]string, error) {
+	if !s.failed {
+		s.failed = true
+		return nil, errors.New("transient suppression lookup failure")
+	}
+	return s.Store.SuppressedRecipients(ctx, userID, agentID, recipients)
 }
 
 func (d *countingDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) outboundsend.DeliverOutcome {
@@ -199,5 +217,96 @@ func TestSendWorker_SuppressionAddedDuringRampReservePreventsProviderIO(t *testi
 	}
 	if status != "failed" || !strings.Contains(detail, "recipient_suppressed") {
 		t.Fatalf("status/detail = %q/%q, want failed recipient_suppressed", status, detail)
+	}
+}
+
+func TestSendWorker_TransientSuppressionFailureReusesRealRampReservation(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "rampretryreal")
+	if err := store.SetSendingStatus(ctx, ag.RegisteredDomain, "verified", "verified", "verified", "", nil); err != nil {
+		t.Fatalf("SetSendingStatus: %v", err)
+	}
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"recipient@external.test"}, Subject: "retry after suppression lookup", Body: "x",
+	}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+
+	baseStore := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
+	failingStore := &failOnceSuppressionStore{Store: baseStore}
+	day := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	ramp := agent.NewOutboundRampGate(sendramp.NewStore(pool), sendramp.NewSchedule(50, 100, 2), true, func() time.Time { return day })
+	deliverer := &countingDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "ses-after-retry", SentAs: "own_address"}}
+	worker := outboundsend.NewSendWorker(failingStore, deliverer, ramp)
+
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, 999, 1)); err == nil {
+		t.Fatal("first worker attempt must return the injected transient error")
+	}
+	var firstState string
+	if err := pool.QueryRow(ctx, `SELECT state FROM sending_ramp_reservations WHERE message_id=$1`, res.MessageID).Scan(&firstState); err != nil {
+		t.Fatalf("read first reservation: %v", err)
+	}
+	if firstState != "reserved" {
+		t.Fatalf("reservation after transient error = %q, want reserved", firstState)
+	}
+	if deliverer.calls != 0 {
+		t.Fatalf("provider calls after transient error = %d, want zero", deliverer.calls)
+	}
+
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, 999, 2)); err != nil {
+		t.Fatalf("retry worker attempt: %v", err)
+	}
+	var finalState, status string
+	if err := pool.QueryRow(ctx, `SELECT state FROM sending_ramp_reservations WHERE message_id=$1`, res.MessageID).Scan(&finalState); err != nil {
+		t.Fatalf("read final reservation: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT delivery_status FROM messages WHERE id=$1`, res.MessageID).Scan(&status); err != nil {
+		t.Fatalf("read final message: %v", err)
+	}
+	if finalState != "confirmed" || status != "sent" || deliverer.calls != 1 {
+		t.Fatalf("final reservation/status/provider calls = %q/%q/%d, want confirmed/sent/1", finalState, status, deliverer.calls)
+	}
+}
+
+func TestAccountSuppressionFromBounceBlocksEveryAgentSend(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, first := selfAgent(t, store, "accountbounce")
+	second, err := store.CreateAgent(ctx, "second@"+first.RegisteredDomain, first.RegisteredDomain, "", "", "local", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent(second): %v", err)
+	}
+
+	seed, err := store.CreateOutboundMessage(ctx, first.ID, []string{"bounced@external.test"}, nil, nil,
+		"seed provider bounce", "send", "smtp", "ses-account-bounce", "", []byte("raw"))
+	if err != nil {
+		t.Fatalf("CreateOutboundMessage: %v", err)
+	}
+	if err := store.MarkMessageSent(ctx, seed.ID, "own_address", []string{"bounced@external.test"}, nil, nil); err != nil {
+		t.Fatalf("MarkMessageSent: %v", err)
+	}
+	bounce, err := delivery.ParseSESNotification([]byte(`{
+		"eventType":"Bounce",
+		"mail":{"messageId":"ses-account-bounce"},
+		"bounce":{"bounceType":"Permanent","bouncedRecipients":[{
+			"emailAddress":"BOUNCED@EXTERNAL.TEST","diagnosticCode":"550 no such user"
+		}]}
+	}`))
+	if err != nil {
+		t.Fatalf("ParseSESNotification: %v", err)
+	}
+	if err := delivery.NewConsumer(store, nil).Process(ctx, bounce); err != nil {
+		t.Fatalf("Process bounce: %v", err)
+	}
+
+	for _, ag := range []*identity.AgentIdentity{first, second} {
+		res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+			To: []string{"Bounced Recipient <BOUNCED@EXTERNAL.TEST>"}, Subject: "must be blocked", Body: "x",
+		}, "send", "", nil, nil)
+		if res != nil || oerr == nil || oerr.Code != "recipient_suppressed" {
+			t.Fatalf("agent %s result/error = %+v/%+v, want account-wide recipient_suppressed", ag.ID, res, oerr)
+		}
 	}
 }

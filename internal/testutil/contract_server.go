@@ -17,6 +17,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/limits"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/relay"
+	"github.com/tokencanopy/e2a/internal/unsubscribe"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhook"
 	"github.com/tokencanopy/e2a/internal/ws"
@@ -43,6 +44,11 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 	}
 
 	store := identity.NewStore(pool)
+	managedUnsubscribeIssuer, err := unsubscribe.NewIssuer(TestHMACSecret, "http://127.0.0.1", false, store)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	signer := headers.NewSigner(TestHMACSecret)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
@@ -79,8 +85,9 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		SubscriberStore: subscriberStore, Idempotency: idempotencyStore, Pool: pool,
 		SMTPDomain: "test.e2a.dev", SharedDomain: "agents.e2a.dev",
 		PublicURL: "http://127.0.0.1", Production: false,
-		EventsEnabled: true,
-		Legacy:        router, WSHandle: wsHandler.ServeWithEmail,
+		EventsEnabled:            true,
+		ManagedUnsubscribeIssuer: managedUnsubscribeIssuer,
+		Legacy:                   router, WSHandle: wsHandler.ServeWithEmail,
 	})
 
 	httpLn, err := net.Listen("tcp", "127.0.0.1:0")

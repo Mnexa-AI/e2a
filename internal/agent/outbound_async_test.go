@@ -70,6 +70,12 @@ func workerJobWithID(id string, jobID int64, attempt int) *river.Job[outboundsen
 
 func setupAsyncAPI(t *testing.T) (*agent.API, *identity.Store, webhookpub.Outbox, *fakeOutboundEnqueuer) {
 	t.Helper()
+	api, store, outbox, enq, _ := setupAsyncAPIWithPool(t)
+	return api, store, outbox, enq
+}
+
+func setupAsyncAPIWithPool(t *testing.T) (*agent.API, *identity.Store, webhookpub.Outbox, *fakeOutboundEnqueuer, *pgxpool.Pool) {
+	t.Helper()
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
@@ -81,7 +87,7 @@ func setupAsyncAPI(t *testing.T) (*agent.API, *identity.Store, webhookpub.Outbox
 	api.SetOutbox(outbox)
 	enq := &fakeOutboundEnqueuer{jobID: 999}
 	api.SetOutboundEnqueuer(enq)
-	return api, store, outbox, enq
+	return api, store, outbox, enq, pool
 }
 
 func TestHoldForApprovalCore_SuppressedAgentCreatesHoldWithoutNotificationJob(t *testing.T) {
