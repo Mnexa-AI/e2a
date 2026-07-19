@@ -28,8 +28,8 @@ Pick the row that fits you:
   claude mcp add --transport http --scope user e2a https://api.e2a.dev/mcp
   ```
   `--scope user` installs e2a globally so it's available in every project (drop
-  it to scope the server to just the current directory). A browser opens for
-  OAuth sign-in — no API key to paste.
+  it to scope the server to just the current directory). Then run `/mcp` in
+  Claude Code and complete OAuth in the browser — no API key to paste.
 - **You're an agent without a terminal** (Claude Desktop, a chat box) → ask your
   host to add the MCP connector `https://api.e2a.dev/mcp` and authorize in the
   browser, then come back here.
@@ -44,9 +44,9 @@ Pick the row that fits you:
 
 ## Connecting other MCP clients
 
-One endpoint — `https://api.e2a.dev/mcp` (Streamable HTTP, OAuth 2.1). Clients
-that speak remote MCP take the URL and run OAuth in the browser; stdio-only
-clients (Codex, Zed) wrap it with `npx -y mcp-remote …`.
+One endpoint — `https://api.e2a.dev/mcp` (Streamable HTTP, OAuth 2.1). Current
+clients that speak remote MCP take the URL directly and run OAuth in the
+browser. Older or stdio-only clients can bridge it with `mcp-remote`.
 
 - **Cursor / Windsurf / Claude Desktop** — `mcpServers` + `url`:
   ```json
@@ -59,13 +59,13 @@ clients (Codex, Zed) wrap it with `npx -y mcp-remote …`.
 - **OpenAI Codex CLI** — `~/.codex/config.toml`:
   ```toml
   [mcp_servers.e2a]
-  command = "npx"
-  args = ["-y", "mcp-remote", "https://api.e2a.dev/mcp"]
+  url = "https://api.e2a.dev/mcp"
   ```
-- **Headless / CI** (no browser for OAuth) — authenticate with an account API
-  key via a header instead:
+  Then run `codex mcp login e2a` to complete OAuth.
+- **Headless Codex / CI** (no browser for OAuth) — add the remote server with
+  an account API key read from the environment:
   ```
-  npx -y mcp-remote https://api.e2a.dev/mcp --header "Authorization: Bearer $E2A_API_KEY"
+  codex mcp add e2a --url https://api.e2a.dev/mcp --bearer-token-env-var E2A_API_KEY
   ```
 
 Ready-to-paste config files for each client:
@@ -137,7 +137,8 @@ credential). Don't retry — it's held, not failed.
   the shared `agents.e2a.dev` address works immediately.
 - Held messages carry a review **TTL** (default 7 days) after which they
   auto-resolve.
-- Attachments are fetched via short-lived signed URLs, not streamed inline.
+- Attachments are fetched via short-lived signed URLs by default; callers may
+  request small attachments inline.
 
 ## Anti-patterns
 
@@ -145,7 +146,8 @@ credential). Don't retry — it's held, not failed.
   double-queue. Wait for the human decision.
 - ❌ Starting a new `send_message` to answer an inbound → breaks threading. Use
   `reply_to_message`.
-- ❌ Trusting the `From` display name → use the authenticated SPF/DKIM identity.
+- ❌ Trusting the `From` display name → use the authenticated SPF/DKIM/DMARC
+  result and `authenticated_from` identity.
 - ❌ Hardcoding tool signatures from this doc → call `tools/list`; it's
   authoritative.
 
@@ -160,8 +162,8 @@ The full agent skill — mental model, gotchas, and worked examples — ships as
 **e2a** Claude Code plugin (the `e2a` skill + the hosted MCP server). Add it from
 the marketplace at https://github.com/tokencanopy/e2a.
 
-Getting started is free (shared domain, no card). Paid plans for custom domains
-and higher volume aren't enabled yet; when they land they'll be opt-in and the
-open-source code path stays unchanged. See https://e2a.dev for current status.
+Getting started is free (shared domain, no card). The hosted service also offers
+opt-in paid plans for higher limits; self-hosting and the open-source code path
+stay unchanged. See https://e2a.dev for current plans.
 
 Machine-readable doc index for agents: https://e2a.dev/llms.txt.

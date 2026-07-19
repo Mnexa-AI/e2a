@@ -25,10 +25,10 @@ If any of these is already configured, use it and stop. Do not ask the user for 
 
 ## Credentials
 
-e2a accepts two credential shapes at every `/v1/...` endpoint, dispatched by token prefix:
+Authenticated `/v1/...` endpoints accept two credential shapes, dispatched by token prefix:
 
 - **OAuth access token** (`ate2a_…`, refresh `rte2a_…`) — issued by the e2a OAuth server to a registered client after the user consents in a browser. Use this if you are an MCP client.
-- **API key** (`e2a_acct_…` for account scope, `e2a_agt_…` for a single-agent scope) — issued by the user directly from the dashboard, supplied to your environment out of band. Use this if you are a CLI, script, server-side integration, or direct API consumer.
+- **API key** (`e2a_acct_…` for account scope, `e2a_agt_…` for a single-agent scope) — issued through the dashboard, CLI, or account API and supplied to your environment out of band. Use this if you are a CLI, script, server-side integration, or direct API consumer.
 
 Both are presented as `Authorization: Bearer <credential>`.
 
@@ -66,7 +66,10 @@ If none of the above is set and you genuinely need a key, **do not ask the user 
 
 This keeps the key out of your transcript, out of any logs the user shares, and out of the model provider's training data.
 
-API keys do not expire on their own. Treat a `401` on a previously-working key as revocation: drop it from memory and ask the user to refresh whichever source you read it from.
+API keys may have an optional hard expiry chosen at creation; a key created
+without `expires_at` does not expire automatically. Treat a `401` on a
+previously-working key as expiry or revocation: drop it from memory and ask the
+user to refresh whichever source you read it from.
 
 ### How to use the credential
 
@@ -87,7 +90,9 @@ Idempotency-Key: <UUIDv4>
 }
 ```
 
-The plain-text body field is `text` (required). The HTML alternative is `html` (optional).
+For a literal send, `subject` and the plain-text `text` body are required; the
+HTML alternative is optional. A template send uses `template_id` or
+`template_alias` instead and must omit literal `subject`, `text`, and `html`.
 
 Read the credential from the environment at the moment of the call. Do not copy it into variables you log, do not echo it back to the user, do not include it in commit messages, PR descriptions, error reports, or screenshots. If you are running a shell command, never interpolate the credential inline — reference the environment variable so it does not appear in command history.
 
@@ -125,7 +130,7 @@ The `WWW-Authenticate` header on 401 responses tells you whether the failing cre
 
 This section describes e2a's bet on where agent auth is heading. The bootstrap identity endpoint below is shipped (behind an opt-in signing-key config); third-party ID-JAG consumption and the email-loop claim ceremony are still direction, not shipped surface. If you are implementing today, use the credential paths above for anything beyond the identity bootstrap.
 
-Every e2a agent has a stable, verified email address. The owner proved control of the domain (via DNS records and a verification token), and e2a enforces SPF and DKIM on every inbound message routed to that agent. Equivalently for agents on the shared `agents.e2a.dev` domain, e2a is the authoritative issuer. **The agent's email is not a label — it's an identity claim e2a stands behind.**
+Every e2a agent has a stable, verified email address. The owner proved control of the domain (via DNS records and a verification token), and e2a evaluates SPF, DKIM, and DMARC on every inbound message routed to that agent. Equivalently for agents on the shared `agents.e2a.dev` domain, e2a is the authoritative issuer. **The agent's email is not a label — it's an identity claim e2a stands behind.**
 
 We are building two pieces on top of this:
 

@@ -5,14 +5,9 @@
 
 ## Using a coding agent?
 
-Templates are a one-time setup your coding agent can do headlessly — copy this prompt:
+Copy this prompt into your coding agent:
 
-> Read https://e2a.dev/templates.md and set up e2a email
-> templates for this project: browse the starter templates, copy the ones we need via
-> `from_starter`, brand them (accent color is marked `<!-- BRAND: accent -->`), and wire
-> our transactional sends using `template_alias` + `template_data`. Use the e2a MCP tools
-> if connected (otherwise the REST API with `$E2A_API_KEY`), validate each template before
-> wiring it in, and finish by listing the templates you created plus the send code you added.
+> Help me set up e2a email templates using https://api.e2a.dev/mcp
 
 Templates are reusable email sources — a subject, a plain-text body, and an
 optional HTML body — stored on your account and **rendered server-side at send

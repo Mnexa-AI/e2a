@@ -6,9 +6,9 @@ Streamable HTTP + OAuth 2.1) and an **operate-well skill** so the agent can send
 and receive email, reply in-thread, hold outbound mail for human review (HITL),
 manage agents and custom domains, and work with attachments.
 
-On first use of an MCP tool the agent runs the OAuth flow in your browser — no
-API key to paste. (For headless/CI, an account API key works too; see
-[`clients/`](./clients).)
+After installation, authorize e2a through your client's MCP flow (Claude Code:
+run `/mcp`; Codex CLI: `codex mcp login e2a`) — no API key to paste. For
+headless/CI, an account API key works too; see [`clients/`](./clients).
 
 ## Install
 

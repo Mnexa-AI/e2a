@@ -153,7 +153,7 @@ Conventions:
   pinned to one inbox.
 
 The endpoint map, exact request/response bodies, enums, and error codes are all
-in the OpenAPI 3.1 contract — generated from the live handlers, so it never
-lags: **https://e2a.dev/openapi.yaml**. The core resources are `agents`
+in the OpenAPI 3.1 contract — generated from the live handlers and checked for
+drift in CI: **https://e2a.dev/openapi.yaml**. The core resources are `agents`
 (inboxes), `messages` (send/reply/forward/get/list/attachments), `reviews`
 (HITL), `domains`, `webhooks`, `events`, and `account`.
