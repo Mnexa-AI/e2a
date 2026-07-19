@@ -1557,43 +1557,135 @@ func (a *API) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		body += fmt.Sprintf("\n\n---\nSubmitted by: `%s`", sanitize(req.Email))
 	}
 
-	ghToken := os.Getenv("GITHUB_FEEDBACK_TOKEN")
-	if ghToken == "" {
+	// Fan out to every configured delivery channel. A submission succeeds if
+	// AT LEAST ONE channel delivers — one broken integration (e.g. an expired
+	// GitHub token) must not lose feedback while another channel still works.
+	attempted, delivered := 0, 0
+
+	// Channel 1: GitHub issue. Credential resolution (GitHub App preferred,
+	// PAT fallback) lives in feedback_github.go.
+	issueURL := ""
+	ghClient, ghErr := feedbackGitHubClient(r.Context())
+	switch {
+	case ghErr != nil:
+		attempted++
+		log.Printf("feedback: github auth: %v", ghErr)
+	case ghClient != nil:
+		attempted++
+		ghRepo := os.Getenv("GITHUB_FEEDBACK_REPO")
+		if ghRepo == "" {
+			ghRepo = "tokencanopy/e2a"
+		}
+		parts := strings.SplitN(ghRepo, "/", 2)
+		if len(parts) != 2 {
+			log.Printf("feedback: invalid GITHUB_FEEDBACK_REPO: %s", ghRepo)
+		} else {
+			issue, _, err := ghClient.Issues.Create(r.Context(), parts[0], parts[1], &github.IssueRequest{
+				Title:  github.Ptr(title),
+				Body:   github.Ptr(body),
+				Labels: &[]string{label},
+			})
+			if err != nil {
+				log.Printf("feedback: GitHub API error: %v", err)
+			} else {
+				delivered++
+				issueURL = issue.GetHTMLURL()
+			}
+		}
+	}
+
+	// Channel 2: notification email via the platform relay (hitlnotify-style
+	// compose + direct submit; the durable outbound pipeline requires an agent
+	// identity, which feedback has none). Recipients are deployment config via
+	// FEEDBACK_NOTIFY_TO / FEEDBACK_NOTIFY_CC (comma-separated) — empty means
+	// the channel is off (self-host default).
+	notifyTo := splitFeedbackAddrs(os.Getenv("FEEDBACK_NOTIFY_TO"))
+	notifyCC := splitFeedbackAddrs(os.Getenv("FEEDBACK_NOTIFY_CC"))
+	if len(notifyTo) > 0 || len(notifyCC) > 0 {
+		attempted++
+		// Surface the GitHub outcome in the email body: when the issue
+		// channel breaks, the notification doubles as the alert for it.
+		ghNote := ""
+		if ghClient != nil || ghErr != nil {
+			if issueURL != "" {
+				ghNote = "GitHub issue: " + issueURL
+			} else {
+				ghNote = "GitHub issue: creation FAILED (see server logs)"
+			}
+		}
+		if err := a.sendFeedbackEmail(title, req.Category, req.Message, req.Email, ghNote, notifyTo, notifyCC); err != nil {
+			log.Printf("feedback: notify email failed: %v", err)
+		} else {
+			delivered++
+		}
+	}
+
+	if attempted == 0 {
+		// No delivery channel configured — log-only graceful fallback.
 		safeMsg := strings.ReplaceAll(req.Message, "\n", " ")
 		if len([]rune(safeMsg)) > 200 {
 			safeMsg = string([]rune(safeMsg)[:200])
 		}
-		log.Printf("feedback: GITHUB_FEEDBACK_TOKEN not set, logging only: [%s] %s", req.Category, safeMsg)
-		w.Header().Set("Content-Type", "application/json")
-		writeJSON(w, map[string]string{"status": "ok"})
-		return
-	}
-
-	ghRepo := os.Getenv("GITHUB_FEEDBACK_REPO")
-	if ghRepo == "" {
-		ghRepo = "tokencanopy/e2a"
-	}
-	parts := strings.SplitN(ghRepo, "/", 2)
-	if len(parts) != 2 {
-		log.Printf("feedback: invalid GITHUB_FEEDBACK_REPO: %s", ghRepo)
-		http.Error(w, "failed to submit feedback", http.StatusInternalServerError)
-		return
-	}
-
-	client := github.NewClient(nil).WithAuthToken(ghToken)
-	_, _, err := client.Issues.Create(r.Context(), parts[0], parts[1], &github.IssueRequest{
-		Title:  github.Ptr(title),
-		Body:   github.Ptr(body),
-		Labels: &[]string{label},
-	})
-	if err != nil {
-		log.Printf("feedback: GitHub API error: %v", err)
+		log.Printf("feedback: no delivery channel configured, logging only: [%s] %s", req.Category, safeMsg)
+	} else if delivered == 0 {
 		http.Error(w, "failed to submit feedback", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// sendFeedbackEmail emails a copy of a feedback submission to the configured
+// recipients through the platform relay (From: "e2a" <noreply@<from_domain>>).
+// Reply-To carries the submitter's address when given, so replying to the
+// notification reaches them directly; compose-layer header sanitization
+// neutralizes any CR/LF in that user-controlled value.
+func (a *API) sendFeedbackEmail(title, category, message, submitterEmail, ghNote string, to, cc []string) error {
+	if a.smtpRelay == nil || !a.smtpRelay.Configured() || a.fromDomain == "" {
+		return fmt.Errorf("outbound SMTP relay not configured")
+	}
+
+	from := outbound.PlatformEnvelopeFrom(a.fromDomain)
+	headerFrom := fmt.Sprintf("%q <%s>", outbound.PlatformDisplayName, from)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Category: %s\n", category)
+	if submitterEmail != "" {
+		fmt.Fprintf(&b, "Submitted by: %s\n", submitterEmail)
+	}
+	if ghNote != "" {
+		fmt.Fprintf(&b, "%s\n", ghNote)
+	}
+	fmt.Fprintf(&b, "\n%s\n", message)
+
+	raw, err := outbound.ComposeMessage(headerFrom, to, cc, "[e2a feedback] "+title, b.String(), "text/plain", "", nil, a.fromDomain, submitterEmail, "")
+	if err != nil {
+		return fmt.Errorf("compose: %w", err)
+	}
+
+	rcpts := make([]string, 0, len(to)+len(cc))
+	rcpts = append(rcpts, to...)
+	rcpts = append(rcpts, cc...)
+
+	// Send (not SendOnce) — no job queue owns retries for this path, so the
+	// relay's own transient-4xx backoff is the only retry envelope.
+	if _, err := a.smtpRelay.Send(from, rcpts, raw); err != nil {
+		return fmt.Errorf("smtp send: %w", err)
+	}
+	return nil
+}
+
+// splitFeedbackAddrs parses a comma-separated address list from env config,
+// trimming whitespace and dropping empties.
+func splitFeedbackAddrs(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func truncate(s string, maxLen int) string {
