@@ -11,6 +11,35 @@ npm install @e2a/sdk
 The SDK major version tracks the SDK package's own breaking changes and is
 independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
 
+## Upgrading to 5.2
+
+The reserved-word wire field `from` is now uniformly exposed as `from_` on
+generated models and the `listMessages` sender filter (was the
+private-looking `_from`, an OpenAPI Generator escape artifact). Affected
+models: `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`,
+`EmailReceivedData`, `EmailSentData`, `EmailFailedData`. The wire JSON is
+unchanged — requests and responses still carry `from`; only the generated
+TS field name changed. The hand-written webhook/WS payload interfaces in
+`webhook-signature.ts` keep the literal `from` property (those are raw-JSON
+shapes, not generated models). Migrate: `message._from` → `message.from_`;
+`list(..., { _from })` → `{ from_ }`.
+
+## Upgrading to 5.1
+
+Every `.delete(...)` now returns a typed deletion object instead of `void`.
+The API's seven delete endpoints all return `200 OK` with
+`{deleted: true, <identity key>}` instead of the previous mix of
+`204 No Content` and `200`. New return types: `agents.delete` →
+`DeleteAgentResult`, `domains.delete` → `DeleteDomainResult`,
+`webhooks.delete` → `DeleteWebhookResult`, `templates.delete` →
+`DeleteTemplateResult`, `account.apiKeys.delete` → `DeleteApiKeyResult`,
+`account.suppressions.delete` → `DeleteSuppressionResult`;
+`account.delete()` still returns `DeleteUserDataResult`, which now also
+carries `deleted: true`. `deleted` is always `true` — a failed delete throws
+a typed error. Callers that ignored the old `void` return need no changes.
+Older SDK versions expecting `204` are incompatible with servers running
+this contract — upgrade together.
+
 ## Upgrading to 4.0
 
 4.0 is a breaking change to the domain DNS-records shape (server #304).
@@ -212,6 +241,18 @@ List methods return an `AutoPager<T>` — an `AsyncIterable` that threads the
 cursor for you. Use `for await`, or `.toArray({ limit })` (the limit is
 required, to bound memory on a large inbox), or `.forEach(fn)` (return `false`
 to stop early).
+
+For manual, caller-driven pagination (e.g. checkpoint/resume from a queue), use
+`.page(cursor)`: it fetches a SINGLE page and returns a `{ items, next_cursor }`
+object. Omit the cursor for the first page and pass the previous page's
+`next_cursor` to resume; a `null`/`undefined`/empty `next_cursor` means there
+are no more pages.
+
+```ts
+const page = await client.messages.list("bot@agents.e2a.dev", { limit: 100 }).page();
+process(page.items);
+checkpoint(page.next_cursor); // resume later with .page(savedCursor)
+```
 
 ## WebSocket (real-time delivery for local agents)
 
