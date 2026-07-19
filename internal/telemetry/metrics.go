@@ -38,8 +38,11 @@ type Metrics interface {
 	// webhook fire?"
 	OutboxEventsNoMatch(eventType string)
 
-	// OutboxFailures is incremented on any worker-side failure.
-	// stage in {"lease", "list_webhooks", "insert_delivery", "update_status"}.
+	// OutboxFailures is incremented on any outbox failure — worker-side
+	// (stage in {"lease", "list_webhooks", "insert_delivery", "update_status"})
+	// or emit-side when a producer's PublishTx fails and an event is
+	// DROPPED (stage "publish"). A non-zero "publish" rate means contract
+	// events are silently missing from the log — alert on it.
 	OutboxFailures(stage string)
 
 	// RedeliverRequests is incremented on each customer-driven replay.

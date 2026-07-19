@@ -315,7 +315,12 @@ func (a *API) buildBlockedOutboundEvent(agent *identity.AgentIdentity, messageID
 	})
 	e.AgentID = agent.ID
 	e.ConversationID = req.ConversationID
-	e.MessageID = messageID
+	// e.MessageID stays UNSET: the webhook_events.message_id column has an FK to
+	// messages(id), and a blocked send persists no message row — writing the
+	// msgblk_ soft-ref there fails the FK and rolls back the whole event (the
+	// column is for real rows only; consumers already see NULL there after
+	// ON DELETE SET NULL). The soft-ref still travels in data.message_id and
+	// still keys the deterministic event id, so retried blocks dedupe.
 	e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailBlocked)
 	return e
 }
@@ -331,6 +336,7 @@ func (a *API) emitBlockedOutbound(agent *identity.AgentIdentity, messageID strin
 			return a.outbox.PublishTx(context.Background(), tx, e)
 		}); err != nil {
 			log.Printf("[api] outbox tx for email.blocked err: %v", err)
+			a.emit().OutboxFailures("publish")
 		}
 	}
 }
