@@ -242,9 +242,10 @@ type Deps struct {
 	// Optional — nil disables that limiter on the /v1 surface.
 	PollLimit RateSnapshot
 	RegLimit  RateSnapshot
-	// DownloadLimit is the per-IP attachment-download limiter (key = client ip).
-	// The download route is a raw chi handler outside the Huma rate-limit
-	// middleware, so it consults this directly. Optional — nil disables it.
+	// DownloadLimit is the existing per-IP raw capability-route limiter (key =
+	// client IP), shared by attachment downloads and managed unsubscribe. Both
+	// routes sit outside Huma's authenticated middleware, so they consult it
+	// directly. Optional — nil disables it.
 	DownloadLimit RateSnapshot
 	// GetRepliableMessage loads a message that can be replied to or forwarded —
 	// either an inbound the agent received or an outbound the agent sent — as

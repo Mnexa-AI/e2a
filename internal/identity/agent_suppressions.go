@@ -18,9 +18,19 @@ type AgentSuppression struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// AgentSuppressionHookScope carries the complete tenant and consent routing
+// key for a newly inserted agent suppression. Event hooks must use UserID
+// directly rather than trying to infer account ownership from an agent address.
+type AgentSuppressionHookScope struct {
+	UserID  string
+	AgentID string
+	Address string
+	Source  string
+}
+
 // AgentSuppressionTxHook runs in the insertion transaction after a new row is
 // created and before commit. It is not called for an existing row.
-type AgentSuppressionTxHook func(context.Context, pgx.Tx, AgentSuppression) error
+type AgentSuppressionTxHook func(context.Context, pgx.Tx, AgentSuppressionHookScope) error
 
 // UnsubscribeScope is the exact account, sending agent, and recipient bound to
 // an opaque managed-unsubscribe token.
@@ -88,7 +98,13 @@ func (s *Store) addAgentSuppression(ctx context.Context, userID, agentID, addres
 	} else {
 		added = true
 		if onAdded != nil {
-			if err := onAdded(ctx, tx, sp); err != nil {
+			scope := AgentSuppressionHookScope{
+				UserID:  userID,
+				AgentID: sp.AgentEmail,
+				Address: sp.Address,
+				Source:  sp.Source,
+			}
+			if err := onAdded(ctx, tx, scope); err != nil {
 				return AgentSuppression{}, false, err
 			}
 		}

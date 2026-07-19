@@ -35,13 +35,13 @@ func TestAgentSuppressionDuplicateNormalizesAndCallsHookOnce(t *testing.T) {
 	u, a := suppressionUserAndAgent(t, store, "supp-duplicate")
 
 	var calls atomic.Int32
-	hook := func(_ context.Context, tx pgx.Tx, got identity.AgentSuppression) error {
+	hook := func(_ context.Context, tx pgx.Tx, got identity.AgentSuppressionHookScope) error {
 		calls.Add(1)
 		var inTransaction bool
 		if err := tx.QueryRow(ctx, `SELECT txid_current_if_assigned() IS NOT NULL`).Scan(&inTransaction); err != nil {
 			return err
 		}
-		if !inTransaction || got.AgentEmail != a.ID || got.Address != "recipient@example.com" {
+		if !inTransaction || got.UserID != u.ID || got.AgentID != a.ID || got.Address != "recipient@example.com" || got.Source != "unsubscribe" {
 			return fmt.Errorf("hook got %+v, inTransaction=%v", got, inTransaction)
 		}
 		return nil
@@ -71,7 +71,7 @@ func TestAgentSuppressionRejectsAgentNotLiveAndOwnedByUser(t *testing.T) {
 	other, otherAgent := suppressionUserAndAgent(t, store, "supp-foreign")
 
 	var hookCalls atomic.Int32
-	hook := func(context.Context, pgx.Tx, identity.AgentSuppression) error {
+	hook := func(context.Context, pgx.Tx, identity.AgentSuppressionHookScope) error {
 		hookCalls.Add(1)
 		return nil
 	}
@@ -117,7 +117,7 @@ func TestAgentSuppressionHookFailureRollsBackInsert(t *testing.T) {
 	wantErr := errors.New("outbox unavailable")
 
 	_, _, err := store.AddAgentSuppression(ctx, u.ID, a.ID, "rollback@example.com", "", "manual",
-		func(context.Context, pgx.Tx, identity.AgentSuppression) error { return wantErr })
+		func(context.Context, pgx.Tx, identity.AgentSuppressionHookScope) error { return wantErr })
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("AddAgentSuppression error = %v, want %v", err, wantErr)
 	}

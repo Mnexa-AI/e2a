@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -20,11 +21,12 @@ import (
 const publicUnsubscribeToken = "u1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 type publicUnsubscribeFixture struct {
-	mu        sync.Mutex
-	rows      map[string]identity.AgentSuppression
-	addCalls  int
-	hookCalls atomic.Int32
-	scope     identity.UnsubscribeScope
+	mu           sync.Mutex
+	rows         map[string]identity.AgentSuppression
+	addCalls     int
+	hookCalls    atomic.Int32
+	resolveCalls atomic.Int32
+	scope        identity.UnsubscribeScope
 }
 
 func newPublicUnsubscribeServer(t *testing.T, mutate func(*Deps, *publicUnsubscribeFixture)) (*httptest.Server, *publicUnsubscribeFixture) {
@@ -36,6 +38,7 @@ func newPublicUnsubscribeServer(t *testing.T, mutate func(*Deps, *publicUnsubscr
 	wantHash := string(unsubscribe.Hash(publicUnsubscribeToken))
 	deps := Deps{
 		ResolveUnsubscribeToken: func(_ context.Context, tokenHash []byte) (*identity.UnsubscribeScope, error) {
+			fixture.resolveCalls.Add(1)
 			if string(tokenHash) != wantHash {
 				return nil, nil
 			}
@@ -52,14 +55,17 @@ func newPublicUnsubscribeServer(t *testing.T, mutate func(*Deps, *publicUnsubscr
 			}
 			row := identity.AgentSuppression{AgentEmail: scope.AgentID, Address: scope.Address, Source: "unsubscribe"}
 			if hook != nil {
-				if err := hook(ctx, nil, row); err != nil {
+				if err := hook(ctx, nil, identity.AgentSuppressionHookScope{UserID: scope.UserID, AgentID: scope.AgentID, Address: scope.Address, Source: "unsubscribe"}); err != nil {
 					return identity.AgentSuppression{}, false, err
 				}
 			}
 			fixture.rows[key] = row
 			return row, true, nil
 		},
-		AgentSuppressionAddedHook: func(context.Context, pgx.Tx, identity.AgentSuppression) error {
+		AgentSuppressionAddedHook: func(_ context.Context, _ pgx.Tx, got identity.AgentSuppressionHookScope) error {
+			if got.UserID != "u_1" || got.AgentID != "sender@example.com" || got.Address != "recipient@example.net" || got.Source != "unsubscribe" {
+				return errors.New("hook received incomplete scope")
+			}
 			fixture.hookCalls.Add(1)
 			return nil
 		},
@@ -260,6 +266,39 @@ func TestPublicUnsubscribeUnsupportedMethodHasSecurityHeaders(t *testing.T) {
 	resp, _ := doPublicUnsubscribe(t, srv.Client(), http.MethodPut, srv.URL+"/u/"+publicUnsubscribeToken, "application/x-www-form-urlencoded", "confirm=unsubscribe")
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("PUT status = %d, want 405", resp.StatusCode)
+	}
+}
+
+func TestPublicUnsubscribeRateLimitRunsBeforeTokenResolution(t *testing.T) {
+	var limiterKey string
+	srv, fixture := newPublicUnsubscribeServer(t, func(d *Deps, _ *publicUnsubscribeFixture) {
+		d.DownloadLimit = func(key string) (bool, time.Duration, int, int, int) {
+			limiterKey = key
+			return false, 3 * time.Second, 10, 0, 60
+		}
+	})
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/u/"+publicUnsubscribeToken, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("CF-Connecting-IP", "203.0.113.9")
+	req.Header.Set("X-Forwarded-For", "198.51.100.7")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	assertPublicUnsubscribeSecurityHeaders(t, resp)
+	if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") != "3" {
+		t.Fatalf("limited response = %d retry=%q, want 429 retry=3", resp.StatusCode, resp.Header.Get("Retry-After"))
+	}
+	if limiterKey != "203.0.113.9" {
+		t.Fatalf("limiter key = %q, want trusted CF client IP", limiterKey)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if fixture.resolveCalls.Load() != 0 || fixture.addCalls != 0 || len(fixture.rows) != 0 || fixture.hookCalls.Load() != 0 {
+		t.Fatalf("limited request did work: resolves=%d adds=%d rows=%d hooks=%d", fixture.resolveCalls.Load(), fixture.addCalls, len(fixture.rows), fixture.hookCalls.Load())
 	}
 }
 

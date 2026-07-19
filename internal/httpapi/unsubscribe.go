@@ -7,7 +7,9 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tokencanopy/e2a/internal/unsubscribe"
@@ -29,6 +31,24 @@ var (
 // the same response.
 func (s *Server) handlePublicUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	setPublicUnsubscribeHeaders(w)
+	// This bearer-capability route sits outside Huma's authenticated limiter.
+	// Reuse the existing raw-capability per-IP budget and apply it before even
+	// hashing/resolving the token, matching attachment download semantics.
+	if s.deps.DownloadLimit != nil {
+		ok, retryAfter, limit, remaining, reset := s.deps.DownloadLimit(clientIP(r))
+		w.Header().Set("RateLimit-Limit", strconv.Itoa(limit))
+		w.Header().Set("RateLimit-Remaining", strconv.Itoa(remaining))
+		w.Header().Set("RateLimit-Reset", strconv.Itoa(reset))
+		if !ok {
+			secs := int(retryAfter.Round(time.Second).Seconds())
+			if secs < 1 {
+				secs = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			writePublicUnsubscribeError(w, http.StatusTooManyRequests)
+			return
+		}
+	}
 	token := chi.URLParam(r, "token")
 	if !validPublicUnsubscribeToken(token) || s.deps.ResolveUnsubscribeToken == nil {
 		writePublicUnsubscribeError(w, http.StatusNotFound)
