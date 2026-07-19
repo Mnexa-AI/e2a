@@ -28,14 +28,16 @@ import { writeReport, warn } from "../harness/report.ts";
 // conformance account that may be capped at a handful of live agents (e.g.
 // staging's free-plan probe account, max 3), and a trashed agent doesn't
 // count against that cap (internal/usage TestCountAgentsByUser_ExcludesTrashedAgents)
-// but a LIVE one does. So: message-trash assertions reuse the suite's
-// existing primary agent via a self-send loopback (materializes a real
-// message without depending on outbound SMTP/SES), and exactly ONE throwaway
-// agent is created — reused for both the message-held guard and the full
-// agent delete/restore cycle — instead of one agent per test.
+// but a LIVE one does. So exactly ONE tracked throwaway agent is shared by
+// both tests: its self-send loopback materializes a real message without
+// depending on outbound SMTP/SES, then the same agent is reused for the
+// message-held guard and full agent delete/restore cycle. The persistent
+// primary agent is never sent a message, so repeated runs do not pollute its
+// inbox.
 const SUITE = "24-trash-lifecycle";
 const client = new ApiClient();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+let lifecycleAgentPromise: Promise<string> | undefined;
 
 after(async () => {
   const r = await cleanup(client);
@@ -62,6 +64,25 @@ interface ErrorBody {
   error?: { code: string; message?: string };
 }
 
+// Lazily create one agent for the whole file. Cache the initialization so
+// every test in this suite uses the same tracked identity.
+function lifecycleAgent(): Promise<string> {
+  lifecycleAgentPromise ??= (async () => {
+    const slug = uniqueSlug("trash-agent");
+    const email = `${slug}@${client.env.sharedDomain}`;
+    const created = await client.post<{ email: string }>("/v1/agents", {
+      body: { email, name: "trash lifecycle" },
+      expect: 201,
+    });
+    // Track the requested identity before assertions so teardown still owns
+    // cleanup if a malformed success response omits or changes the email.
+    track("agent", email);
+    assert.equal(created.body?.email, email);
+    return email;
+  })();
+  return lifecycleAgentPromise;
+}
+
 // Self-send loopback: the agent mails itself, so the send completes without
 // depending on a real external SMTP hop, and the inbound copy shows up in
 // the same agent's own inbox — the pattern 23-coverage-happy-path.test.ts
@@ -83,7 +104,7 @@ async function loopbackMessage(email: string, subject: string): Promise<{ id: st
 }
 
 test("message trash lifecycle: delete hides it, GET stays readable, restore brings it back", async () => {
-  const email = client.env.primaryAgentEmail;
+  const email = await lifecycleAgent();
   const subject = uniqueSubject("trash-msg");
   const { id } = await loopbackMessage(email, subject);
 
@@ -147,14 +168,7 @@ test("message trash lifecycle: delete hides it, GET stays readable, restore brin
 });
 
 test("agent trash lifecycle: message-held delete guard, then delete/restore the agent itself", async () => {
-  const slug = uniqueSlug("trash-agent");
-  const email = `${slug}@${client.env.sharedDomain}`;
-  const created = await client.post<{ email: string }>("/v1/agents", {
-    body: { email, name: "trash lifecycle" },
-    expect: 201,
-  });
-  assert.equal(created.body?.email, email);
-  track("agent", email);
+  const email = await lifecycleAgent();
 
   // --- message_held guard: a pending_review draft cannot be trashed ---
   const hold = await holdAllOutbound(client, email);
