@@ -47,6 +47,16 @@ python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
 # The upstream template emits a whitespace-only JSDoc line in standalone
 # component models. Normalize the newly published docs-only envelope so the
 # repository's `git diff --check` release gate remains clean and reproducible.
-perl -pi -e 's/[ \t]+$//' "$OUT/models/EventEnvelope.ts"
+perl -pi -e 's/[ \t]+$//' \
+  "$OUT/models/EventEnvelope.ts" \
+  "$OUT/models/AgentSuppressionAddedData.ts" \
+  "$OUT/models/AgentSuppressionView.ts" \
+  "$OUT/models/CreateAgentSuppressionRequest.ts" \
+  "$OUT/models/PageAgentSuppressionView.ts" \
+  "$OUT/models/UnsubscribeOptions.ts" \
+  "$OUT/apis/AgentsApi.ts" \
+  "$OUT/types/ObjectParamAPI.ts"
+
+perl -0pi -e 's/\n+\z/\n/' "$OUT/models/UnsubscribeOptions.ts"
 
 echo "TS /v1 client base regenerated at sdks/typescript/src/v1/generated"

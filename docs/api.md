@@ -30,8 +30,8 @@ MCP tool surface), see:
     cannot manage account-level resources or approve its own held messages.
 
   The unauthenticated exceptions are `GET /api/health`, `GET /v1/info`,
-  `POST /api/feedback`, and the HITL magic-link routes (which carry a signed `t`
-  token instead).
+  `POST /api/feedback`, `GET|POST /u/{token}`, and the HITL magic-link routes
+  (which carry a signed token instead).
 - **Path parameters with `@`/`+`.** Agent (and suppression/domain) paths are
   addressed by a full email/host (`/v1/agents/{email}/…`). **Percent-encode the
   segment**: `@` → `%40` and — importantly — `+` → `%2B`. A bare `+` in a path is
@@ -116,7 +116,7 @@ or the state first); `rate_limited`, `idempotency_in_flight`, and 5xx
 | `reserved_domain` | 400 | The domain is reserved by the deployment (e.g. the shared domain). |
 | `too_many_recipients` | 400 | Send/reply/forward recipient count over the cap. |
 | `template_render_failed`, `template_rendered_empty` | 400 | Template send: rendering failed / produced an empty body. |
-| `recipient_suppressed` | 422 | A recipient is on the account suppression list — un-suppress or drop it. |
+| `recipient_suppressed` | 422 | A recipient is on the account-wide or exact sending-agent suppression list — un-suppress or drop it. |
 | **Not found / gone** | | |
 | `not_found` | 404 | No such resource (agents, messages, webhooks, …). |
 | `attachment_not_found`, `template_not_found`, `starter_template_not_found` | 404 | The `*_not_found` family — a specific sub-resource is missing. |
@@ -194,11 +194,14 @@ every `/v1` operation not listed here is covered by the GA freeze.
 
 | operationId | Method and path | Surface |
 | --- | --- | --- |
+| `createAgentSuppression` | `POST /v1/agents/{email}/suppressions` | Agent suppressions |
 | `createTemplate` | `POST /v1/templates` | Templates |
+| `deleteAgentSuppression` | `DELETE /v1/agents/{email}/suppressions/{address}` | Agent suppressions |
 | `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
 | `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
 | `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
 | `getTemplate` | `GET /v1/templates/{id}` | Templates |
+| `listAgentSuppressions` | `GET /v1/agents/{email}/suppressions` | Agent suppressions |
 | `listStarterTemplates` | `GET /v1/starter-templates` | Starter templates |
 | `listTemplates` | `GET /v1/templates` | Templates |
 | `putAgentProtection` | `PUT /v1/agents/{email}/protection` | Protection config |
@@ -222,8 +225,9 @@ every `/v1` operation not listed here is covered by the GA freeze.
 - **Beta surfaces are marked `x-stability-level: beta`** in the spec
   for automated compatibility tools
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
-  send) and `(beta)` in prose — today: templates, starter templates, and the agent
-  protection config. They are **exempt from the
+  send) and `(beta)` in prose — today: templates, starter templates, the agent
+  protection config, agent-scoped suppression management, and managed
+  unsubscribe (including its raw confirmation flow). They are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
@@ -282,6 +286,9 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   The export **envelope** (the top-level keys and `schema_version`) is stable;
   the **interior** record shapes are versioned by `schema_version` and may
   evolve — branch on `schema_version` before interpreting interior records.
+  The current export version is `3`; its suppression entries may include
+  `agent_email`, which identifies an exact-agent block. Entries without
+  `agent_email` remain account-wide.
   Interior schemas carry `x-stability-level: beta` in the OpenAPI document to
   mark that exemption machine-readably; the operation itself is stable.
   Each exported message carries `attachments` as the same typed
@@ -295,7 +302,9 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   Account scope only.
 - `GET /v1/account/suppressions`, `DELETE /v1/account/suppressions/{address}?confirm=DELETE`
   — the recipient suppression list (auto-added on hard bounce/complaint; sends to
-  a suppressed address fail with `recipient_suppressed`). Delete to un-suppress.
+  a suppressed address fail with `recipient_suppressed`). These blocks apply to
+  every sending agent. Delete to un-suppress; this does not remove agent-scoped
+  blocks.
 
 Irreversible deletes require the `?confirm=DELETE` query param — schema-required
 (`enum: [DELETE]`) on every `DELETE` endpoint except message delete, where it is
@@ -355,6 +364,13 @@ or on the deployment's shared domain (see `GET /v1/info`).
   Account scope only. Beta — shape may change before it is declared stable.
 - `POST /v1/agents/{email}/test` — send a platform test email to the agent's own
   address to confirm inbound delivery.
+- `GET/POST /v1/agents/{email}/suppressions`,
+  `DELETE /v1/agents/{email}/suppressions/{address}?confirm=DELETE` — list,
+  idempotently add, or remove recipient blocks for this exact sending agent.
+  These account-admin operations use `{items,next_cursor}` pagination; an
+  agent-scoped credential cannot manage its own blocks. Manual create accepts
+  `{address, reason?}`. The official SDK delete methods supply the confirmation
+  guard automatically.
 
 ### Messages (`/v1/agents/{email}/messages`)
 
@@ -396,6 +412,30 @@ single message.
 - `GET …/messages/{id}/attachments/{index}` — attachment metadata + a short-lived
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
+
+**Managed unsubscribe (beta).** Send, reply, and forward accept the optional strict
+object `"unsubscribe":{"mode":"managed"}`. Omission means only that e2a does
+not add its managed unsubscribe mechanism; it does not classify the message as
+transactional. Managed mode requires exactly one normalized envelope recipient
+across To, CC, and BCC. e2a owns the opaque token, adds a visible footer and the
+`List-Unsubscribe` / `List-Unsubscribe-Post` headers before DKIM signing, and
+hosts the beta raw confirmation flow at `GET|POST /u/{token}`. GET is
+scanner-safe confirmation only and never
+changes state; the RFC 8058 one-click POST body is
+`List-Unsubscribe=One-Click`. The public POST accepts bounded (1 KiB maximum)
+`application/x-www-form-urlencoded` and `multipart/form-data` bodies, including
+standard charset parameters. The application never stores or constructs the
+token. Invalid managed-unsubscribe issuer configuration fails server startup.
+
+Malformed unsubscribe objects (including `null`, missing/unknown modes, or
+unsupported fields) use the API's standard schema-validation response,
+`422 invalid_request`. A valid managed object with a recipient count other than
+one is rejected as `400 invalid_request` with a stable explanatory message.
+
+A confirmed unsubscribe blocks the recipient only for the exact sending agent,
+so a sibling agent can still send. Account-wide suppressions continue to block
+all agents. Either scope produces the existing `422 recipient_suppressed` on a
+future send.
 
 **Outbound attachment limits** (send / reply / forward, enforced on the **decoded**
 bytes — not the base64 wire size): at most **10 attachments** per message, each
@@ -485,6 +525,15 @@ own **per-webhook signing secret** that signs the payloads sent to it.
   stays valid for a 24h grace window.
 - `GET /v1/webhooks/{id}/deliveries` — the per-webhook delivery log (debug view).
 - `POST /v1/webhooks/{id}/test` — fire a one-off synthetic delivery.
+
+Agent-scoped suppression management is beta. The authenticated list, create,
+and delete operations and their request/response schemas may change before
+they are declared stable. `agent.suppression_added` is a beta event emitted
+once when a new exact-agent
+block is created. Its current payload is
+`{agent_email, address, source}`, where `source` is `unsubscribe` or `manual`.
+Consumers must tolerate additive or other beta payload changes. The existing
+stable `domain.suppression_added` event remains account-scoped and unchanged.
 
 To verify an inbound webhook payload, pass the webhook's signing secret to the SDK
 helper — `construct_event(body, header, secret)` /

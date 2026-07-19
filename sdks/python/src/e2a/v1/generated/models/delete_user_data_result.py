@@ -26,6 +26,8 @@ class DeleteUserDataResult(BaseModel):
     """
     DeleteUserDataResult
     """ # noqa: E501
+    agent_suppressions_deleted: StrictInt
+    agent_unsubscribe_tokens_deleted: StrictInt
     agents_deleted: StrictInt
     api_keys_deleted: StrictInt
     deleted: StrictBool = Field(description="Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false.")
@@ -39,7 +41,7 @@ class DeleteUserDataResult(BaseModel):
     usage_summaries_deleted: StrictInt
     user_deleted: StrictBool
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agents_deleted", "api_keys_deleted", "deleted", "domains_deleted", "messages_deleted", "oauth_access_tokens_deleted", "oauth_auth_codes_deleted", "oauth_refresh_tokens_deleted", "sessions_deleted", "usage_events_deleted", "usage_summaries_deleted", "user_deleted"]
+    __properties: ClassVar[List[str]] = ["agent_suppressions_deleted", "agent_unsubscribe_tokens_deleted", "agents_deleted", "api_keys_deleted", "deleted", "domains_deleted", "messages_deleted", "oauth_access_tokens_deleted", "oauth_auth_codes_deleted", "oauth_refresh_tokens_deleted", "sessions_deleted", "usage_events_deleted", "usage_summaries_deleted", "user_deleted"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -99,6 +101,8 @@ class DeleteUserDataResult(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "agent_suppressions_deleted": obj.get("agent_suppressions_deleted"),
+            "agent_unsubscribe_tokens_deleted": obj.get("agent_unsubscribe_tokens_deleted"),
             "agents_deleted": obj.get("agents_deleted"),
             "api_keys_deleted": obj.get("api_keys_deleted"),
             "deleted": obj.get("deleted"),

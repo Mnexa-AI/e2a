@@ -4,6 +4,6 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["src", "tests/client.types.ts"],
+  "include": ["src", "tests/client.types.ts", "tests/sdk-shape.test.ts"],
   "exclude": ["dist", "node_modules"]
 }

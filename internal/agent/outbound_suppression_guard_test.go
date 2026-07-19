@@ -8,6 +8,7 @@ package agent_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,33 @@ import (
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
 
+type blockingRampGate struct {
+	entered  chan struct{}
+	resume   chan struct{}
+	mu       sync.Mutex
+	released []string
+}
+
+func (g *blockingRampGate) Reserve(context.Context, outboundsend.RampRequest) (outboundsend.RampDecision, error) {
+	close(g.entered)
+	<-g.resume
+	return outboundsend.RampDecision{Allowed: true}, nil
+}
+func (*blockingRampGate) Confirm(context.Context, string) error { return nil }
+func (g *blockingRampGate) Release(_ context.Context, messageID string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.released = append(g.released, messageID)
+	return nil
+}
+func (*blockingRampGate) Resolve(context.Context, string) error { return nil }
+
+func (g *blockingRampGate) releasedIDs() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.released...)
+}
+
 // countingDeliverer records provider submits so the guard can assert zero I/O.
 type countingDeliverer struct {
 	calls int
@@ -28,6 +56,25 @@ type countingDeliverer struct {
 func (d *countingDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) outboundsend.DeliverOutcome {
 	d.calls++
 	return d.out
+}
+
+func TestDeliverOutbound_AgentSuppressionBlocksSendReplyAndForward(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "agentacceptscope")
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "blocked@external.test", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, messageType := range []string{"send", "reply", "forward"} {
+		t.Run(messageType, func(t *testing.T) {
+			res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+				To: []string{"Blocked Recipient <blocked@external.test>"}, Subject: messageType, Body: "x",
+			}, messageType, "", nil, nil)
+			if res != nil || oerr == nil || oerr.Code != "recipient_suppressed" {
+				t.Fatalf("result/error = %+v/%+v, want recipient_suppressed", res, oerr)
+			}
+		})
+	}
 }
 
 func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) {
@@ -48,8 +95,8 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 
 	// Suppression lands between accept and the worker run (e.g. a bounce or a
 	// manual add) — case-varied to exercise normalization.
-	if _, err := store.AddSuppression(ctx, user.ID, "Victim@External.TEST", "complaint", "complaint", ""); err != nil {
-		t.Fatalf("AddSuppression: %v", err)
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "Victim@External.TEST", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatalf("AddAgentSuppression: %v", err)
 	}
 
 	deliverer := &countingDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "must-not-happen"}}
@@ -77,10 +124,80 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 	if !strings.Contains(detail, "recipient_suppressed") || !strings.Contains(detail, "victim@external.test") {
 		t.Errorf("delivery_detail = %q, want recipient_suppressed naming the address", detail)
 	}
+	if !strings.Contains(detail, "/v1/account/suppressions/{address}") ||
+		!strings.Contains(detail, "/v1/agents/"+ag.ID+"/suppressions/{address}?confirm=DELETE") {
+		t.Errorf("worker remediation = %q, want account and exact-agent endpoints", detail)
+	}
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailFailed); n != 1 {
 		t.Errorf("email.failed events = %d, want 1", n)
 	}
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 0 {
 		t.Errorf("email.sent events = %d, want 0", n)
+	}
+
+	// A sibling agent under the same account remains allowed for the same
+	// recipient; the exact message.agent_id must reach the worker guard.
+	domain := ag.RegisteredDomain
+	sibling, err := store.CreateAgent(ctx, "sibling@"+domain, domain, "", "", "local", user.ID)
+	if err != nil {
+		t.Fatalf("CreateAgent(sibling): %v", err)
+	}
+	siblingResult, siblingErr := api.DeliverOutbound(ctx, user, sibling, outbound.SendRequest{
+		To: []string{"victim@external.test"}, Subject: "sibling allowed", Body: "x",
+	}, "send", "", nil, nil)
+	if siblingErr != nil {
+		t.Fatalf("sibling DeliverOutbound: %+v", siblingErr)
+	}
+	allowedDeliverer := &countingDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "ses-sibling", SentAs: "own_address"}}
+	allowedWorker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), allowedDeliverer)
+	if err := allowedWorker.Work(ctx, workerJob(siblingResult.MessageID, 1)); err != nil {
+		t.Fatalf("sibling worker: %v", err)
+	}
+	if allowedDeliverer.calls != 1 {
+		t.Fatalf("sibling provider calls = %d, want 1", allowedDeliverer.calls)
+	}
+}
+
+func TestSendWorker_SuppressionAddedDuringRampReservePreventsProviderIO(t *testing.T) {
+	api, store, outbox, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "suppduringramp")
+	if err := store.SetSendingStatus(ctx, ag.RegisteredDomain, "verified", "verified", "verified", "", nil); err != nil {
+		t.Fatalf("SetSendingStatus: %v", err)
+	}
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"late@external.test"}, Subject: "ramp race", Body: "x",
+	}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+
+	gate := &blockingRampGate{entered: make(chan struct{}), resume: make(chan struct{})}
+	deliverer := &countingDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "must-not-happen"}}
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), deliverer, gate)
+	done := make(chan error, 1)
+	go func() { done <- worker.Work(ctx, workerJob(res.MessageID, 1)) }()
+	<-gate.entered
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "late@external.test", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	close(gate.resume)
+	if err := <-done; err == nil {
+		t.Fatal("suppression created during ramp reservation must cancel the send")
+	}
+	if deliverer.calls != 0 {
+		t.Fatalf("provider calls = %d, want zero", deliverer.calls)
+	}
+	if got := gate.releasedIDs(); len(got) != 1 || got[0] != res.MessageID {
+		t.Fatalf("released reservations = %v, want [%s]", got, res.MessageID)
+	}
+	var status, detail string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT delivery_status, COALESCE(delivery_detail,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&status, &detail)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || !strings.Contains(detail, "recipient_suppressed") {
+		t.Fatalf("status/detail = %q/%q, want failed recipient_suppressed", status, detail)
 	}
 }

@@ -8,6 +8,8 @@ import { APIKeyView } from '../models/APIKeyView.js';
 import { AccountUserView } from '../models/AccountUserView.js';
 import { AccountView } from '../models/AccountView.js';
 import { AgentIdentity } from '../models/AgentIdentity.js';
+import { AgentSuppressionAddedData } from '../models/AgentSuppressionAddedData.js';
+import { AgentSuppressionView } from '../models/AgentSuppressionView.js';
 import { AgentView } from '../models/AgentView.js';
 import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
@@ -20,6 +22,7 @@ import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
 import { CreateAPIKeyResponse } from '../models/CreateAPIKeyResponse.js';
 import { CreateAgentRequest } from '../models/CreateAgentRequest.js';
+import { CreateAgentSuppressionRequest } from '../models/CreateAgentSuppressionRequest.js';
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
@@ -64,6 +67,7 @@ import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
+import { PageAgentSuppressionView } from '../models/PageAgentSuppressionView.js';
 import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
@@ -116,6 +120,7 @@ import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { ThreatCategoryView } from '../models/ThreatCategoryView.js';
 import { TooManyRecipientsDetails } from '../models/TooManyRecipientsDetails.js';
+import { UnsubscribeOptions } from '../models/UnsubscribeOptions.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
 import { UpdateMessageRequest } from '../models/UpdateMessageRequest.js';
 import { UpdateMessageResultView } from '../models/UpdateMessageResultView.js';
@@ -480,6 +485,42 @@ export class ObservableAgentsApi {
     }
 
     /**
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
+     * @param email
+     * @param createAgentSuppressionRequest
+     */
+    public createAgentSuppressionWithHttpInfo(email: string, createAgentSuppressionRequest: CreateAgentSuppressionRequest, _options?: ConfigurationOptions): Observable<HttpInfo<AgentSuppressionView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.createAgentSuppression(email, createAgentSuppressionRequest, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.createAgentSuppressionWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Suppress a recipient for an agent (beta)
+     * @param email
+     * @param createAgentSuppressionRequest
+     */
+    public createAgentSuppression(email: string, createAgentSuppressionRequest: CreateAgentSuppressionRequest, _options?: ConfigurationOptions): Observable<AgentSuppressionView> {
+        return this.createAgentSuppressionWithHttpInfo(email, createAgentSuppressionRequest, _options).pipe(map((apiResponse: HttpInfo<AgentSuppressionView>) => apiResponse.data));
+    }
+
+    /**
      * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages\' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param email
@@ -515,6 +556,44 @@ export class ObservableAgentsApi {
      */
     public deleteAgent(email: string, confirm: 'DELETE', permanent?: boolean, _options?: ConfigurationOptions): Observable<DeleteAgentResult> {
         return this.deleteAgentWithHttpInfo(email, confirm, permanent, _options).pipe(map((apiResponse: HttpInfo<DeleteAgentResult>) => apiResponse.data));
+    }
+
+    /**
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
+     * @param email
+     * @param address
+     * @param confirm Must be the literal DELETE — this action is irreversible.
+     */
+    public deleteAgentSuppressionWithHttpInfo(email: string, address: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<HttpInfo<DeleteSuppressionResult>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.deleteAgentSuppression(email, address, confirm, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.deleteAgentSuppressionWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * Remove an agent recipient suppression (beta)
+     * @param email
+     * @param address
+     * @param confirm Must be the literal DELETE — this action is irreversible.
+     */
+    public deleteAgentSuppression(email: string, address: string, confirm: 'DELETE', _options?: ConfigurationOptions): Observable<DeleteSuppressionResult> {
+        return this.deleteAgentSuppressionWithHttpInfo(email, address, confirm, _options).pipe(map((apiResponse: HttpInfo<DeleteSuppressionResult>) => apiResponse.data));
     }
 
     /**
@@ -583,6 +662,44 @@ export class ObservableAgentsApi {
      */
     public getAgentProtection(email: string, _options?: ConfigurationOptions): Observable<ProtectionConfigView> {
         return this.getAgentProtectionWithHttpInfo(email, _options).pipe(map((apiResponse: HttpInfo<ProtectionConfigView>) => apiResponse.data));
+    }
+
+    /**
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
+     * @param email
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
+     */
+    public listAgentSuppressionsWithHttpInfo(email: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageAgentSuppressionView>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.listAgentSuppressions(email, cursor, limit, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.listAgentSuppressionsWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable.
+     * List an agent\'s suppressed recipients (beta)
+     * @param email
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor. Continuation requests must not change the other filters.
+     * @param [limit] Maximum number of items to return (1-100).
+     */
+    public listAgentSuppressions(email: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageAgentSuppressionView> {
+        return this.listAgentSuppressionsWithHttpInfo(email, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageAgentSuppressionView>) => apiResponse.data));
     }
 
     /**

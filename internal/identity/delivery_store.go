@@ -334,6 +334,7 @@ type OutboundSendPayload struct {
 	// UserID is the owning account (agent_identities.user_id) — the tenant
 	// scope for the worker's pre-provider suppression guard.
 	UserID         string
+	AgentID        string
 	Domain         string
 	MessageType    string
 	DeliveryStatus string
@@ -402,6 +403,7 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 		envelopeFrom     string
 		sentAs           string
 		userID           string
+		agentID          string
 		registeredDomain string
 		messageType      string
 		to, cc, bcc      []string
@@ -409,7 +411,7 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 		createdAt        time.Time
 	)
 	err := s.pool.QueryRow(ctx,
-		`SELECT COALESCE(m.delivery_status,''), COALESCE(m.envelope_from,''), COALESCE(m.sent_as,''), a.user_id, a.registered_domain,
+		`SELECT COALESCE(m.delivery_status,''), COALESCE(m.envelope_from,''), COALESCE(m.sent_as,''), a.user_id, m.agent_id, a.registered_domain,
 		        COALESCE(m.message_type,''),
 		        m.to_recipients, m.cc, m.bcc, m.raw_message, m.created_at
 		   FROM messages m
@@ -417,7 +419,7 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.deleted_at IS NULL AND a.deleted_at IS NULL`,
 		messageID,
-	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &userID, &registeredDomain, &messageType, &to, &cc, &bcc, &raw, &createdAt)
+	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &userID, &agentID, &registeredDomain, &messageType, &to, &cc, &bcc, &raw, &createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -431,6 +433,7 @@ func (s *Store) LoadOutboundForSend(ctx context.Context, messageID string) (*Out
 	return &OutboundSendPayload{
 		ID:             messageID,
 		UserID:         userID,
+		AgentID:        agentID,
 		Domain:         registeredDomain,
 		MessageType:    messageType,
 		DeliveryStatus: deliveryStatus,
@@ -566,6 +569,7 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 	p := &OutboundSendPayload{
 		ID:                messageID,
 		UserID:            userID,
+		AgentID:           agentID,
 		Domain:            registeredDomain,
 		MessageType:       messageType,
 		DeliveryStatus:    deliveryStatus,

@@ -1,6 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
-import { E2AClient } from "@e2a/sdk";
+import {
+  E2AClient,
+  type AgentSuppressionView,
+  type SendEmailInput,
+} from "@e2a/sdk/v1";
 import { McpClient } from "../src/client.js";
 
 // Guardrail (companion to scripts/check-sdk-version-sync.mjs): exercise the REAL
@@ -68,5 +72,33 @@ describe("MCP <-> SDK shape guardrail", () => {
     };
     expect(Array.isArray(domain.dnsRecords)).toBe(true);
     expect(domain.dnsRecords!.length).toBeGreaterThan(0);
+  });
+
+  it("publishes the managed unsubscribe and agent suppression shapes", () => {
+    const send: SendEmailInput = {
+      to: ["recipient@example.net"],
+      subject: "Update",
+      text: "Hello",
+      unsubscribe: { mode: "managed" },
+    };
+    expect(send.unsubscribe?.mode).toBe("managed");
+
+    if (false) {
+      const sdk = new E2AClient({ apiKey: "test", baseUrl: "http://127.0.0.1" });
+      const list: Promise<AgentSuppressionView[]> = sdk.agents
+        .listSuppressions("sender@example.com")
+        .toArray({ limit: 10 });
+      const create: Promise<AgentSuppressionView> = sdk.agents.createSuppression(
+        "sender@example.com",
+        { address: "recipient@example.net" },
+      );
+      const remove: Promise<{ deleted: boolean }> = sdk.agents.deleteSuppression(
+        "sender@example.com",
+        "recipient@example.net",
+      );
+      void list;
+      void create;
+      void remove;
+    }
   });
 });

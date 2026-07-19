@@ -12,6 +12,7 @@ import (
 
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/outbound"
 )
 
 // bigAttachmentJSON builds the attachments_json for a single attachment whose
@@ -77,6 +78,35 @@ func TestApprovePendingCore_ComposedCapOnMergedMessage(t *testing.T) {
 	}
 	if deliveryStatus == "accepted" {
 		t.Errorf("delivery_status = accepted, want the over-cap approve to NOT enqueue delivery")
+	}
+}
+
+func TestApprovePendingCoreManagedUnsubscribeRejectsWhenFooterCrossesCap(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "approvepostfooter")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+	subject := "s"
+	body := strings.Repeat("x", outbound.MaxComposedMessageBytes-len(subject))
+	msg, err := store.CreatePendingOutboundMessageManaged(ctx, ag.ID,
+		[]string{"alice@external.test"}, nil, nil, subject, body, "", nil,
+		"send", "", "", "", 3600, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{}, nil)
+	if oerr == nil || oerr.Status != http.StatusRequestEntityTooLarge || oerr.Code != "payload_too_large" {
+		t.Fatalf("error=%+v, want 413 payload_too_large", oerr)
+	}
+	var status, deliveryStatus string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT status, COALESCE(delivery_status, '') FROM messages WHERE id=$1`, msg.ID).Scan(&status, &deliveryStatus)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusPendingReview || deliveryStatus == "accepted" {
+		t.Fatalf("status=%q delivery_status=%q", status, deliveryStatus)
 	}
 }
 

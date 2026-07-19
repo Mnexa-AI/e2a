@@ -16,7 +16,7 @@ import { HttpFile } from '../http/http.js';
 export class CreateWebhookRequest {
     'description'?: string;
     /**
-    * Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable.
+    * Beta: the screening, review-hold, and agent.suppression_added events are unstable — their payload may change before they are declared stable. All other events are stable.
     */
     'events': Array<CreateWebhookRequestEventsEnum>;
     'filters'?: WebhookFiltersRequest;
@@ -75,6 +75,7 @@ export enum CreateWebhookRequestEventsEnum {
     EmailBounced = 'email.bounced',
     EmailComplained = 'email.complained',
     DomainSuppressionAdded = 'domain.suppression_added',
+    AgentSuppressionAdded = 'agent.suppression_added',
     EmailFlagged = 'email.flagged',
     EmailBlocked = 'email.blocked',
     EmailReviewRequested = 'email.review_requested'

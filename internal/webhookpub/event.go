@@ -62,6 +62,8 @@ const (
 	EventEmailBounced           = "email.bounced"
 	EventEmailComplained        = "email.complained"
 	EventDomainSuppressionAdded = "domain.suppression_added"
+	// Agent-scoped recipient consent. Beta until its payload contract graduates.
+	EventAgentSuppressionAdded = "agent.suppression_added"
 	// Inbound trust policy (decision 10 / Slice 7): an inbound message did not
 	// match the agent's ingestion policy (allowlist/domain). It is delivered but
 	// flagged — operators get a signal, nothing is dropped.
@@ -104,6 +106,7 @@ var AllEventTypes = []string{
 	EventEmailBounced,
 	EventEmailComplained,
 	EventDomainSuppressionAdded,
+	EventAgentSuppressionAdded,
 	EventEmailFlagged,
 	EventEmailBlocked,
 	EventEmailReviewRequested,
@@ -121,6 +124,7 @@ var ExperimentalEventTypes = []string{
 	EventEmailReviewRequested,
 	EventEmailReviewApproved,
 	EventEmailReviewRejected,
+	EventAgentSuppressionAdded,
 }
 
 // IsValidEventType reports whether name is one of the catalog

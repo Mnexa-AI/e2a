@@ -1,0 +1,299 @@
+package agent_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/tokencanopy/e2a/internal/agent"
+	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/outbound"
+)
+
+type recordingIssuer struct {
+	calls     int
+	recipient string
+	err       error
+	readyErr  error
+}
+
+func (i *recordingIssuer) Ready() error { return i.readyErr }
+
+func (i *recordingIssuer) Issue(_ context.Context, _, _, recipient string) (string, error) {
+	i.calls++
+	i.recipient = recipient
+	if i.err != nil {
+		return "", i.err
+	}
+	return "https://api.example/u/u1_stable", nil
+}
+
+func TestDeliverOutboundManagedUnsubscribeBindsBeforeAccept(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "manageddirect")
+	issuer := &recordingIssuer{}
+	api.SetManagedUnsubscribeIssuer(issuer)
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"Person <USER@Example.net>", "user@example.net"}, Subject: "managed", Body: "body",
+		Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	if issuer.calls != 1 || issuer.recipient != "user@example.net" {
+		t.Fatalf("issuer=%+v", issuer)
+	}
+	var raw []byte
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT raw_message FROM messages WHERE id=$1`, res.MessageID).Scan(&raw)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "List-Unsubscribe: <https://api.example/u/u1_stable>") || !strings.Contains(string(raw), "Unsubscribe from emails sent by "+ag.ID) {
+		t.Fatalf("accepted raw missing managed unsubscribe:\n%s", raw)
+	}
+}
+
+func TestDeliverOutboundManagedUnsubscribeIssuerFailureDoesNotAccept(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedfail")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{err: errors.New("store down")})
+	_, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"user@example.net"}, Subject: "must not accept", Body: "body", Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr == nil || oerr.Status != 500 {
+		t.Fatalf("error=%+v", oerr)
+	}
+	var count int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject='must not accept'`, ag.ID).Scan(&count)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("issuer failure accepted %d messages", count)
+	}
+}
+
+func TestDeliverOutboundReviewManagedUnsubscribeRequiresReadyIssuerBeforeHold(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		issuer agent.ManagedUnsubscribeIssuer
+	}{
+		{name: "missing"},
+		{name: "invalid", issuer: &recordingIssuer{readyErr: errors.New("invalid configuration")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, store, _, _ := setupAsyncAPI(t)
+			ctx := context.Background()
+			user, ag := selfAgent(t, store, "managedreviewfail"+tc.name)
+			ag.OutboundPolicy = identity.OutboundPolicyAllowlist
+			ag.OutboundPolicyAction = "review"
+			ag.OutboundScan = identity.ScanOff
+			api.SetManagedUnsubscribeIssuer(tc.issuer)
+
+			_, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+				To: []string{"outside@example.net"}, Subject: "must not hold " + tc.name, Body: "body",
+				Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+			}, "send", "", nil, nil)
+			if oerr == nil || oerr.Status != 500 || oerr.Code != "internal_error" {
+				t.Fatalf("error=%+v", oerr)
+			}
+			var pending, tokens int
+			if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+				if err := tx.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject=$2`, ag.ID, "must not hold "+tc.name).Scan(&pending); err != nil {
+					return err
+				}
+				return tx.QueryRow(ctx, `SELECT count(*) FROM agent_unsubscribe_tokens WHERE agent_id=$1`, ag.ID).Scan(&tokens)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if pending != 0 || tokens != 0 {
+				t.Fatalf("pending=%d tokens=%d, want no persistence", pending, tokens)
+			}
+		})
+	}
+}
+
+func TestDeliverOutboundReviewManagedUnsubscribeHoldsWithoutMinting(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedreviewready")
+	ag.OutboundPolicy = identity.OutboundPolicyAllowlist
+	ag.OutboundPolicyAction = "review"
+	ag.OutboundScan = identity.ScanOff
+	issuer := &recordingIssuer{}
+	api.SetManagedUnsubscribeIssuer(issuer)
+
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"outside@example.net"}, Subject: "hold without token", Body: "body",
+		Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr != nil || res == nil || !res.Held {
+		t.Fatalf("result=%+v error=%+v", res, oerr)
+	}
+	var tokens int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM agent_unsubscribe_tokens WHERE agent_id=$1`, ag.ID).Scan(&tokens)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if issuer.calls != 0 || tokens != 0 {
+		t.Fatalf("issuer calls=%d tokens=%d, want deferred mint", issuer.calls, tokens)
+	}
+}
+
+func TestDeliverOutboundManagedUnsubscribeRejectsPostFooterComposedSize(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedpostcap")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+	subject := "s"
+	body := strings.Repeat("x", outbound.MaxComposedMessageBytes-len(subject))
+
+	_, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"outside@example.net"}, Subject: subject, Body: body,
+		Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr == nil || oerr.Status != 413 || oerr.Code != "payload_too_large" {
+		t.Fatalf("error=%+v, want 413 payload_too_large", oerr)
+	}
+	var count int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject=$2`, ag.ID, subject).Scan(&count)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("accepted %d over-cap messages", count)
+	}
+}
+
+func TestDeliverOutboundManagedUnsubscribeSelfAliasUsesStableCardinalityError(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedselfalias")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+
+	_, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{ag.EmailAddress()}, Subject: "managed self", Body: "body",
+		Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "", nil, nil)
+	if oerr == nil || oerr.Status != 400 || oerr.Code != "invalid_request" || oerr.Msg != "managed unsubscribe requires exactly one recipient" {
+		t.Fatalf("error=%+v", oerr)
+	}
+}
+
+func TestApproveManagedUnsubscribeSelfAliasUsesStableCardinalityErrorAndKeepsHold(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedapproveselfalias")
+	api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+	msg, err := store.CreatePendingOutboundMessageManaged(ctx, ag.ID,
+		[]string{ag.EmailAddress()}, nil, nil, "managed held self", "body", "", nil,
+		"send", "", "", "", 3600, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.ID, agent.ApproveOverrides{}, nil)
+	if oerr == nil || oerr.Status != 400 || oerr.Code != "invalid_request" || oerr.Msg != "managed unsubscribe requires exactly one recipient" {
+		t.Fatalf("error=%+v", oerr)
+	}
+	got, err := store.GetOutboundMessageForUser(ctx, msg.ID, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != identity.MessageStatusPendingReview || got.DeliveryStatus == "accepted" {
+		t.Fatalf("status=%q delivery_status=%q", got.Status, got.DeliveryStatus)
+	}
+}
+
+func TestHITLManagedUnsubscribePersistsIntentThenMintsOnApproval(t *testing.T) {
+	api, store, _, _ := setupAsyncAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "managedhitl")
+	issuer := &recordingIssuer{}
+	api.SetManagedUnsubscribeIssuer(issuer)
+	held, err := api.HoldForApprovalCore(ctx, ag, outbound.SendRequest{
+		To: []string{"original@example.net"}, Subject: "held managed", Body: "body", Unsubscribe: &outbound.UnsubscribeOptions{Mode: "managed"},
+	}, "send", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issuer.calls != 0 {
+		t.Fatalf("hold minted token: %d", issuer.calls)
+	}
+	draft, err := store.GetOutboundMessageForUser(ctx, held.ID, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !draft.ManagedUnsubscribe {
+		t.Fatal("managed intent was not persisted")
+	}
+	override := []string{"FINAL@Example.net"}
+	approved, oerr := api.ApprovePendingCore(ctx, user.ID, held.ID, ag.ID, agent.ApproveOverrides{To: &override}, nil)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	if issuer.calls != 1 || issuer.recipient != "final@example.net" {
+		t.Fatalf("issuer=%+v", issuer)
+	}
+	if approved.DeliveryStatus != "accepted" {
+		t.Fatalf("approved=%+v", approved)
+	}
+	var raw []byte
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT raw_message FROM messages WHERE id=$1`, held.ID).Scan(&raw)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "List-Unsubscribe: <https://api.example/u/u1_stable>") {
+		t.Fatalf("raw=%s", raw)
+	}
+}
+
+func TestManagedUnsubscribeAcceptedRawForRenderedTemplateAndForwardAttachment(t *testing.T) {
+	for _, tc := range []struct {
+		name, msgType string
+		req           outbound.SendRequest
+		want          string
+	}{
+		{
+			name: "rendered_template", msgType: "send",
+			req:  outbound.SendRequest{To: []string{"template@example.net"}, Subject: "Welcome Ada", Body: "Hello Ada", HTMLBody: "<p>Hello Ada</p>"},
+			want: "Hello Ada",
+		},
+		{
+			name: "forward_attachment", msgType: "forward",
+			req:  outbound.SendRequest{To: []string{"forward@example.net"}, Subject: "Fwd: report", Body: "Forwarded report", HTMLBody: "<p>Forwarded report</p>", Attachments: []outbound.Attachment{{Filename: "report.txt", ContentType: "text/plain", Data: "cmVwb3J0"}}},
+			want: `filename="report.txt"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, store, _, _ := setupAsyncAPI(t)
+			ctx := context.Background()
+			user, ag := selfAgent(t, store, "managed-"+tc.name)
+			api.SetManagedUnsubscribeIssuer(&recordingIssuer{})
+			tc.req.Unsubscribe = &outbound.UnsubscribeOptions{Mode: "managed"}
+			res, oerr := api.DeliverOutbound(ctx, user, ag, tc.req, tc.msgType, "", nil, nil)
+			if oerr != nil {
+				t.Fatal(oerr)
+			}
+			var raw []byte
+			if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+				return tx.QueryRow(ctx, `SELECT raw_message FROM messages WHERE id=$1`, res.MessageID).Scan(&raw)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			text := string(raw)
+			if strings.Count(text, "List-Unsubscribe: <https://api.example/u/u1_stable>") != 1 || strings.Count(text, "List-Unsubscribe-Post: List-Unsubscribe=One-Click") != 1 || !strings.Contains(text, "Unsubscribe from emails sent by "+ag.ID) || !strings.Contains(text, tc.want) {
+				t.Fatalf("accepted %s MIME incomplete:\n%s", tc.name, text)
+			}
+		})
+	}
+}

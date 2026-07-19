@@ -114,6 +114,7 @@ func Sign(message []byte, domain, selector string, privateKeyDER []byte) ([]byte
 			"From", "To", "Cc", "Subject", "Date",
 			"Message-ID", "In-Reply-To", "References",
 			"MIME-Version", "Content-Type", "Reply-To",
+			"List-Unsubscribe", "List-Unsubscribe-Post",
 		},
 	}
 

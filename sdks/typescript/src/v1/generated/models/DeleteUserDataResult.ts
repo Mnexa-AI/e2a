@@ -13,6 +13,8 @@
 import { HttpFile } from '../http/http.js';
 
 export class DeleteUserDataResult {
+    'agentSuppressionsDeleted': number;
+    'agentUnsubscribeTokensDeleted': number;
     'agentsDeleted': number;
     'apiKeysDeleted': number;
     /**
@@ -34,6 +36,18 @@ export class DeleteUserDataResult {
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
+        {
+            "name": "agentSuppressionsDeleted",
+            "baseName": "agent_suppressions_deleted",
+            "type": "number",
+            "format": "int64"
+        },
+        {
+            "name": "agentUnsubscribeTokensDeleted",
+            "baseName": "agent_unsubscribe_tokens_deleted",
+            "type": "number",
+            "format": "int64"
+        },
         {
             "name": "agentsDeleted",
             "baseName": "agents_deleted",

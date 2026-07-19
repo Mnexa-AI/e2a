@@ -242,10 +242,11 @@ type Deps struct {
 	// Optional — nil disables that limiter on the /v1 surface.
 	PollLimit RateSnapshot
 	RegLimit  RateSnapshot
-	// DownloadLimit is the per-IP attachment-download limiter (key = client ip).
-	// The download route is a raw chi handler outside the Huma rate-limit
-	// middleware, so it consults this directly. Optional — nil disables it.
-	DownloadLimit RateSnapshot
+	// Raw capability routes sit outside Huma's authenticated middleware and use
+	// separate per-IP budgets so traffic to one surface cannot starve another.
+	// Optional — nil disables the corresponding limiter.
+	DownloadLimit    RateSnapshot
+	UnsubscribeLimit RateSnapshot
 	// GetRepliableMessage loads a message that can be replied to or forwarded —
 	// either an inbound the agent received or an outbound the agent sent — as
 	// long as it is live (not expired) and not held/rejected in review. The
@@ -267,7 +268,21 @@ type Deps struct {
 	// return 501 from the /v1/account/suppressions endpoints.
 	ListSuppressions  func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterAddress string) ([]identity.Suppression, error)
 	RemoveSuppression func(ctx context.Context, userID, address string) (bool, error)
-	DeleteUserData    func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
+	// Agent suppressions are recipient consent blocks scoped to one exact
+	// sending identity. Management is account-admin-only; the handler resolves
+	// live ownership before calling these tenant-bound store methods.
+	AddAgentSuppression    func(ctx context.Context, userID, agentID, address, reason, source string, onAdded identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error)
+	ListAgentSuppressions  func(ctx context.Context, userID, agentID string, limit int, afterCreatedAt time.Time, afterAddress string) ([]identity.AgentSuppression, error)
+	RemoveAgentSuppression func(ctx context.Context, userID, agentID, address string) (bool, error)
+	// Public managed-unsubscribe capabilities. Resolve accepts only a token hash;
+	// the write capability accepts only the exact scope returned by that lookup,
+	// so the unauthenticated route cannot choose an account, agent, or recipient.
+	ResolveUnsubscribeToken           func(ctx context.Context, tokenHash []byte) (*identity.UnsubscribeScope, error)
+	AddAgentSuppressionFromTokenScope func(ctx context.Context, scope identity.UnsubscribeScope, onAdded identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error)
+	// Shared transaction hook for both authenticated manual creation and the
+	// public recipient flow; the store invokes it only for a newly inserted row.
+	AgentSuppressionAddedHook identity.AgentSuppressionTxHook
+	DeleteUserData            func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
 
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.
@@ -477,6 +492,10 @@ func New(deps Deps) *Server {
 		root.Get("/v1/agents/{email}/messages/{id}/attachments/{index}/download", s.handleAttachmentDownload)
 	}
 
+	// Managed unsubscribe is a bearer-capability route, not an authenticated
+	// /v1 management operation. GET is deliberately read-only for link scanners.
+	root.Handle("/u/{token}", http.HandlerFunc(s.handlePublicUnsubscribe))
+
 	root.NotFound(s.routeNotFound)
 	root.MethodNotAllowed(s.routeMethodNotAllowed)
 	return s
@@ -539,6 +558,7 @@ func (s *Server) registerOperations() {
 	s.registerStarterTemplates()
 	s.registerEvents()
 	s.registerAccount()
+	s.registerAgentSuppressions()
 	s.registerAPIKeys()
 	s.registerOutbound()
 	s.registerReviews()

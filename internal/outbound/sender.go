@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log"
 	"net/mail"
 	"strings"
@@ -13,6 +14,19 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/mailfrom"
 )
+
+func appendUnsubscribeFooter(textBody, htmlBody, agentAddress, link string) (string, string) {
+	textBody += "\n\nUnsubscribe from emails sent by " + agentAddress + ": " + link
+	if htmlBody != "" {
+		htmlBody += `<p>Unsubscribe from emails sent by ` + html.EscapeString(agentAddress) + `: <a href="` + html.EscapeString(link) + `">Unsubscribe</a></p>`
+	}
+	return textBody, htmlBody
+}
+
+func addUnsubscribeHeaders(message []byte, link string) []byte {
+	headers := []byte("List-Unsubscribe: <" + sanitizeHeaderValue(link) + ">\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n")
+	return append(headers, message...)
+}
 
 // DKIMKeyLookup returns the DKIM selector and PKCS#1 DER private key
 // bytes for a domain. Empty selector OR empty key means "no key
@@ -58,11 +72,35 @@ type SendRequest struct {
 	// defaults to the agent's own address). Replies land here instead of at the
 	// From address. Must be a single RFC 5322 address, optionally with a display
 	// name; validated at the API edge.
-	ReplyTo          string       `json:"reply_to,omitempty"`
-	ReplyToMessageID string       `json:"reply_to_message_id"`
-	References       []string     `json:"references,omitempty"`
-	ConversationID   string       `json:"conversation_id,omitempty"`
-	Attachments      []Attachment `json:"attachments,omitempty"`
+	ReplyTo          string              `json:"reply_to,omitempty"`
+	ReplyToMessageID string              `json:"reply_to_message_id"`
+	References       []string            `json:"references,omitempty"`
+	ConversationID   string              `json:"conversation_id,omitempty"`
+	Attachments      []Attachment        `json:"attachments,omitempty"`
+	Unsubscribe      *UnsubscribeOptions `json:"unsubscribe,omitempty"`
+}
+
+type UnsubscribeOptions struct {
+	Mode string `json:"mode"`
+	URL  string `json:"-"`
+}
+
+// ManagedUnsubscribeIntent reconstructs the unresolved composition intent
+// persisted on a held message. The recipient-bound URL is minted only when the
+// final recipient set is approved.
+func ManagedUnsubscribeIntent(enabled bool) *UnsubscribeOptions {
+	if !enabled {
+		return nil
+	}
+	return &UnsubscribeOptions{Mode: "managed"}
+}
+
+// SuppressionRemediation returns the shared operator guidance for an address
+// blocked by either account-wide or exact-agent suppression scope.
+func SuppressionRemediation(agentID string) string {
+	agentID = strings.ToLower(strings.TrimSpace(agentID))
+	return " — remove every applicable suppression before retrying; if both scopes contain an address, remove both (account-wide: DELETE /v1/account/suppressions/{address}; agent-scoped: DELETE /v1/agents/" +
+		agentID + "/suppressions/{address}?confirm=DELETE)"
 }
 
 // SendResult contains the result of a successful send, including the
@@ -313,51 +351,22 @@ func applyCorrelationHeader(message []byte, messageID string) []byte {
 // compose runs the full recipient-normalization + From-gating + MIME-compose +
 // DKIM + SES-header stage shared by Send / SendOnce / ComposeForAccept.
 func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*composed, error) {
-	agentAddr := strings.ToLower(agent.EmailAddress())
-	agentAliases := []string{
-		agentAddr,
-		strings.ToLower(fmt.Sprintf("agent@%s", s.fromDomain)),
-	}
-
-	// Normalize and validate all addresses
-	to, err := normalizeAddrs(req.To)
+	to, cc, bcc, envelope, err := NormalizeRecipients(agent, s.fromDomain, req)
 	if err != nil {
-		return nil, &ValidationError{Message: fmt.Sprintf("invalid To address: %v", err)}
+		return nil, err
 	}
-	cc, err := normalizeAddrs(req.CC)
-	if err != nil {
-		return nil, &ValidationError{Message: fmt.Sprintf("invalid CC address: %v", err)}
+	if req.Unsubscribe != nil {
+		if req.Unsubscribe.Mode != "managed" || req.Unsubscribe.URL == "" {
+			return nil, &ValidationError{Message: "managed unsubscribe URL is unavailable"}
+		}
+		if len(envelope) != 1 {
+			return nil, &ValidationError{Message: "managed unsubscribe requires exactly one recipient"}
+		}
+		req.Body, req.HTMLBody = appendUnsubscribeFooter(req.Body, req.HTMLBody, agent.EmailAddress(), req.Unsubscribe.URL)
 	}
-	bcc, err := normalizeAddrs(req.BCC)
-	if err != nil {
-		return nil, &ValidationError{Message: fmt.Sprintf("invalid BCC address: %v", err)}
+	if total := ComposedSize(req.Subject, req.Body, req.HTMLBody, req.Attachments); total > MaxComposedMessageBytes {
+		return nil, &ComposedSizeError{ActualBytes: total, MaxBytes: MaxComposedMessageBytes}
 	}
-
-	// Remove agent's own addresses
-	to = removeAddrs(to, agentAliases)
-	cc = removeAddrs(cc, agentAliases)
-	bcc = removeAddrs(bcc, agentAliases)
-
-	// Dedupe within each field
-	to = dedupe(to)
-	cc = dedupe(cc)
-	bcc = dedupe(bcc)
-
-	// Cross-field dedupe: To > CC > BCC
-	cc = removeAddrs(cc, to)
-	bcc = removeAddrs(bcc, to)
-	bcc = removeAddrs(bcc, cc)
-
-	// Visible-recipient check: at least one address in To or CC
-	if len(to) == 0 && len(cc) == 0 {
-		return nil, &ValidationError{Message: "no valid recipients"}
-	}
-
-	// Build envelope recipients (To + CC + BCC)
-	envelope := make([]string, 0, len(to)+len(cc)+len(bcc))
-	envelope = append(envelope, to...)
-	envelope = append(envelope, cc...)
-	envelope = append(envelope, bcc...)
 
 	// Compose headers
 	displayName := agent.Name
@@ -406,6 +415,9 @@ func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*compo
 	if err != nil {
 		return nil, fmt.Errorf("compose message: %w", err)
 	}
+	if req.Unsubscribe != nil {
+		message = addUnsubscribeHeaders(message, req.Unsubscribe.URL)
+	}
 
 	// Per-domain DKIM signing. Choose the signing
 	// domain from the agent's verified custom domain when available —
@@ -445,6 +457,34 @@ func (s *Sender) compose(agent *identity.AgentIdentity, req SendRequest) (*compo
 		cc:           cc,
 		bcc:          bcc,
 	}, nil
+}
+
+// NormalizeRecipients is the single canonical envelope resolver used both for
+// managed-unsubscribe binding and final MIME composition.
+func NormalizeRecipients(agent *identity.AgentIdentity, fromDomain string, req SendRequest) ([]string, []string, []string, []string, error) {
+	agentAliases := []string{strings.ToLower(agent.EmailAddress()), strings.ToLower(fmt.Sprintf("agent@%s", fromDomain))}
+	to, err := normalizeAddrs(req.To)
+	if err != nil {
+		return nil, nil, nil, nil, &ValidationError{Message: fmt.Sprintf("invalid To address: %v", err)}
+	}
+	cc, err := normalizeAddrs(req.CC)
+	if err != nil {
+		return nil, nil, nil, nil, &ValidationError{Message: fmt.Sprintf("invalid CC address: %v", err)}
+	}
+	bcc, err := normalizeAddrs(req.BCC)
+	if err != nil {
+		return nil, nil, nil, nil, &ValidationError{Message: fmt.Sprintf("invalid BCC address: %v", err)}
+	}
+	to, cc, bcc = removeAddrs(to, agentAliases), removeAddrs(cc, agentAliases), removeAddrs(bcc, agentAliases)
+	to, cc, bcc = dedupe(to), dedupe(cc), dedupe(bcc)
+	cc = removeAddrs(cc, to)
+	bcc = removeAddrs(bcc, to)
+	bcc = removeAddrs(bcc, cc)
+	if len(to) == 0 && len(cc) == 0 {
+		return nil, nil, nil, nil, &ValidationError{Message: "no valid recipients"}
+	}
+	envelope := append(append(append(make([]string, 0, len(to)+len(cc)+len(bcc)), to...), cc...), bcc...)
+	return to, cc, bcc, envelope, nil
 }
 
 // applySESConfigSet prepends the X-SES-CONFIGURATION-SET header when configured,

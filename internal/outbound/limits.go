@@ -2,6 +2,8 @@ package outbound
 
 import (
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -13,6 +15,23 @@ import (
 // provider accepts, so the true ceiling is checked on the fully-composed
 // content. Over → 413 payload_too_large at the API edge.
 const MaxComposedMessageBytes = 10 * 1024 * 1024
+
+// ComposedSizeError reports the final, post-feature-composition size. It is
+// distinct from ordinary request validation so API layers can preserve the
+// canonical 413 payload_too_large contract.
+type ComposedSizeError struct {
+	ActualBytes int
+	MaxBytes    int
+}
+
+func (e *ComposedSizeError) Error() string {
+	return fmt.Sprintf("composed message is %d bytes; maximum is %d bytes", e.ActualBytes, e.MaxBytes)
+}
+
+func IsComposedSizeError(err error) bool {
+	var target *ComposedSizeError
+	return errors.As(err, &target)
+}
 
 // ComposedSize returns the composed byte total of an outbound message: the sum
 // of subject + text + html + DECODED attachment bytes. Attachment Data is

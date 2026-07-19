@@ -81,6 +81,9 @@ func TestCreateOutboundMessageTx_AcceptedRow(t *testing.T) {
 	if p.Domain != "async-accept.example.com" || p.MessageType != "send" {
 		t.Errorf("payload ramp identity = domain %q type %q, want async-accept.example.com/send", p.Domain, p.MessageType)
 	}
+	if p.AgentID != agentID {
+		t.Errorf("payload AgentID = %q, want %q", p.AgentID, agentID)
+	}
 	if len(p.Recipients) != 3 {
 		t.Errorf("recipients = %v, want 3 (to+cc+bcc)", p.Recipients)
 	}
@@ -119,6 +122,9 @@ func TestClaimOutboundForSend_JobOwnership(t *testing.T) {
 		payload, err := store.ClaimOutboundForSend(ctx, msgID, 4242)
 		if err != nil || payload == nil {
 			t.Fatalf("same-job claim %d = (%v, %v), want payload", i+1, payload, err)
+		}
+		if payload.AgentID != agentID {
+			t.Fatalf("same-job claim AgentID = %q, want %q", payload.AgentID, agentID)
 		}
 	}
 	payload, err := store.ClaimOutboundForSend(ctx, msgID, 4343)

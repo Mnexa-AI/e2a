@@ -130,10 +130,12 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	// same semantics as send's accept-time 422 — and the identical approve
 	// succeeds once the suppression is removed. Fails CLOSED on a store error
 	// (retryable 500, hold untouched) — see checkSuppressionCore.
-	if supErr := a.checkSuppressionStrict(ctx, agent.UserID, mergedReq); supErr != nil {
+	if supErr := a.checkSuppressionStrict(ctx, agent.UserID, agent.ID, mergedReq); supErr != nil {
 		return nil, supErr
 	}
-
+	if uerr := prepareManagedUnsubscribe(ctx, a.unsubscribeIssuer, a.fromDomain, agent.UserID, agent, &mergedReq, true); uerr != nil {
+		return nil, uerr
+	}
 	// Transition the hold to review_approved + delivery_status='accepted'
 	// and enqueue an outbound_send job; the SendWorker performs the SMTP submit +
 	// email.sent/failed + metering. The reviewer gets "accepted" back (the send is
@@ -141,7 +143,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	if a.outboundEnq == nil {
 		return nil, &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "outbound delivery queue unavailable"}
 	}
-	sent, handled, aerr := a.approveOutboundAsync(ctx, agent, messageID, userID, preview, edits, idemCompleteTx)
+	sent, handled, aerr := a.approveOutboundAsyncWithRequest(ctx, agent, messageID, userID, preview, edits, mergedReq, idemCompleteTx)
 	if aerr != nil {
 		return nil, approveAsyncError(agent.ID, messageID, aerr)
 	}
@@ -179,7 +181,7 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 	return sent, nil
 }
 
-// approveOutboundAsync composes the (edited) draft and, for a non-self-send,
+// approveOutboundAsyncWithRequest composes the edited draft and, for a non-self-send,
 // transitions the hold to status='sent' + delivery_status='accepted' and enqueues an
 // outbound_send job in one tx (via store.ApproveAndAccept). Returns (sent, true, nil)
 // when queued; (nil, false, nil) when the message is a self-send (the caller uses the
@@ -192,12 +194,13 @@ func (a *API) ApprovePendingCore(ctx context.Context, userID, messageID, expecte
 // resolution is recorded via reviewed_by_user_id + the review_approved event, and
 // delivery_status ('accepted' → 'sent'/'failed') tracks the async send. (The TTL
 // sweep uses review_expired_approved instead — see hitlworker.autoApproveAsync.)
-func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
+func (a *API) approveOutboundAsyncWithRequest(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, edits identity.PendingApprovalEdit, sendReq outbound.SendRequest, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
 	editedByReviewer := edits.Apply(draft)
-	sendReq, err := buildSendRequestFromMessage(draft)
-	if err != nil {
-		return nil, false, err
-	}
+	return a.approveOutboundAsyncComposed(ctx, agent, messageID, userID, draft, editedByReviewer, sendReq, idemCompleteTx)
+}
+
+func (a *API) approveOutboundAsyncComposed(ctx context.Context, agent *identity.AgentIdentity, messageID, userID string, draft *identity.Message, editedByReviewer bool, sendReq outbound.SendRequest, idemCompleteTx ApproveIdemCompleter) (*identity.Message, bool, error) {
+	var err error
 	attachReferencesChain(ctx, a.store, agent.ID, &sendReq)
 	// A held platform test (type="test") targets the agent's own address by
 	// design, so the self-send predicate below would silently reroute its
@@ -231,6 +234,9 @@ func (a *API) approveOutboundAsync(ctx context.Context, agent *identity.AgentIde
 // approveAsyncError maps an approveOutboundAsync failure to an OutboundError,
 // matching the sync approve path's status codes.
 func approveAsyncError(agentID, messageID string, err error) *OutboundError {
+	if sizeErr := composedSizeOutboundError(err); sizeErr != nil {
+		return sizeErr
+	}
 	switch {
 	case errors.Is(err, identity.ErrNotPendingApproval):
 		return &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending approval"}
@@ -243,6 +249,23 @@ func approveAsyncError(agentID, messageID string, err error) *OutboundError {
 		}
 		log.Printf("[api] approve-accept failed: agent=%s msg=%s err=%v", agentID, messageID, err)
 		return &OutboundError{Status: http.StatusInternalServerError, Code: "internal_error", Msg: "send failed"}
+	}
+}
+
+func composedSizeOutboundError(err error) *OutboundError {
+	var sizeErr *outbound.ComposedSizeError
+	if !errors.As(err, &sizeErr) {
+		return nil
+	}
+	return &OutboundError{
+		Status: http.StatusRequestEntityTooLarge,
+		Code:   "payload_too_large",
+		Msg:    sizeErr.Error(),
+		Details: map[string]any{
+			"scope":        "composed_message",
+			"actual_bytes": sizeErr.ActualBytes,
+			"max_bytes":    sizeErr.MaxBytes,
+		},
 	}
 }
 
@@ -316,6 +339,7 @@ func buildSendRequestFromMessage(m *identity.Message) (outbound.SendRequest, err
 		ReplyToMessageID: replyToMessageID,
 		ConversationID:   m.ConversationID,
 		Attachments:      attachments,
+		Unsubscribe:      outbound.ManagedUnsubscribeIntent(m.ManagedUnsubscribe),
 	}, nil
 }
 

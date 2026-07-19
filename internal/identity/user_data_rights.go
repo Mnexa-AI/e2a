@@ -24,7 +24,7 @@ import (
 //   - User session tokens are transient and excluded.
 type UserExport struct {
 	GeneratedAt      time.Time                    `json:"generated_at"`
-	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"2\"."`
+	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"3\"; v3 suppression entries may include agent_email for exact-agent scope."`
 	User             UserExportUser               `json:"user"`
 	Domains          []Domain                     `json:"domains" nullable:"false"`
 	Agents           []AgentIdentity              `json:"agents" nullable:"false"`
@@ -39,10 +39,11 @@ type UserExport struct {
 // SuppressionExportEntry is one suppressed recipient address the account owns.
 // source_message_id is an internal correlation id, deliberately omitted.
 type SuppressionExportEntry struct {
-	Address   string    `json:"address"`
-	Reason    string    `json:"reason,omitempty"`
-	Source    string    `json:"source"`
-	CreatedAt time.Time `json:"created_at"`
+	AgentEmail string    `json:"agent_email,omitempty"`
+	Address    string    `json:"address"`
+	Reason     string    `json:"reason,omitempty"`
+	Source     string    `json:"source"`
+	CreatedAt  time.Time `json:"created_at"`
 } // @name SuppressionExportEntry
 
 // ProtectionEventExportEntry is one row of the protection_events audit log for
@@ -179,7 +180,7 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 
 	return &UserExport{
 		GeneratedAt:      time.Now().UTC(),
-		SchemaVersion:    "2",
+		SchemaVersion:    "3",
 		User:             u,
 		Domains:          domains,
 		Agents:           agents,
@@ -194,8 +195,15 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 // scanSuppressionsForUser loads the user's suppression list for the export.
 func scanSuppressionsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]SuppressionExportEntry, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT address, COALESCE(reason, ''), source, created_at
-		   FROM suppressions WHERE user_id = $1 ORDER BY created_at DESC`, userID)
+		`SELECT agent_email, address, reason, source, created_at
+		   FROM (
+		         SELECT '' AS agent_email, address, COALESCE(reason, '') AS reason, source, created_at
+		           FROM suppressions WHERE user_id = $1
+		         UNION ALL
+		         SELECT agent_id AS agent_email, address, reason, source, created_at
+		           FROM agent_suppressions WHERE user_id = $1
+		        ) all_suppressions
+		  ORDER BY created_at DESC, address DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +211,7 @@ func scanSuppressionsForUser(ctx context.Context, tx pgx.Tx, userID string) ([]S
 	out := []SuppressionExportEntry{}
 	for rows.Next() {
 		var e SuppressionExportEntry
-		if err := rows.Scan(&e.Address, &e.Reason, &e.Source, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.AgentEmail, &e.Address, &e.Reason, &e.Source, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -245,18 +253,20 @@ func scanProtectionEventsForUser(ctx context.Context, tx pgx.Tx, userID string) 
 // {deleted:true, ...}); the /v1 handler sets it. It is always true on a
 // response — a failed delete is an error envelope, never deleted:false.
 type DeleteUserDataResult struct {
-	Deleted                   bool  `json:"deleted" doc:"Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false."`
-	UsageEventsDeleted        int64 `json:"usage_events_deleted"`
-	UsageSummariesDeleted     int64 `json:"usage_summaries_deleted"`
-	MessagesDeleted           int64 `json:"messages_deleted"`
-	AgentsDeleted             int64 `json:"agents_deleted"`
-	DomainsDeleted            int64 `json:"domains_deleted"`
-	APIKeysDeleted            int64 `json:"api_keys_deleted"`
-	SessionsDeleted           int64 `json:"sessions_deleted"`
-	OAuthAuthCodesDeleted     int64 `json:"oauth_auth_codes_deleted,omitempty"`
-	OAuthAccessTokensDeleted  int64 `json:"oauth_access_tokens_deleted,omitempty"`
-	OAuthRefreshTokensDeleted int64 `json:"oauth_refresh_tokens_deleted,omitempty"`
-	UserDeleted               bool  `json:"user_deleted"`
+	Deleted                       bool  `json:"deleted" doc:"Always true — the account no longer exists. A failed delete is an error envelope, never deleted:false."`
+	UsageEventsDeleted            int64 `json:"usage_events_deleted"`
+	UsageSummariesDeleted         int64 `json:"usage_summaries_deleted"`
+	MessagesDeleted               int64 `json:"messages_deleted"`
+	AgentsDeleted                 int64 `json:"agents_deleted"`
+	DomainsDeleted                int64 `json:"domains_deleted"`
+	APIKeysDeleted                int64 `json:"api_keys_deleted"`
+	SessionsDeleted               int64 `json:"sessions_deleted"`
+	AgentSuppressionsDeleted      int64 `json:"agent_suppressions_deleted"`
+	AgentUnsubscribeTokensDeleted int64 `json:"agent_unsubscribe_tokens_deleted"`
+	OAuthAuthCodesDeleted         int64 `json:"oauth_auth_codes_deleted,omitempty"`
+	OAuthAccessTokensDeleted      int64 `json:"oauth_access_tokens_deleted,omitempty"`
+	OAuthRefreshTokensDeleted     int64 `json:"oauth_refresh_tokens_deleted,omitempty"`
+	UserDeleted                   bool  `json:"user_deleted"`
 } // @name DeleteUserDataResult
 
 // DeleteUserData wipes everything tied to a user in a single transaction.
@@ -264,7 +274,8 @@ type DeleteUserDataResult struct {
 // Schema cascades cover most of it (user_sessions, domains, agent_identities,
 // api_keys, usage_summaries all `ON DELETE CASCADE` from users; messages
 // cascade through agent_identities; webhook_deliveries cascade through
-// messages). The one row that doesn't is usage_events: its FK is `ON
+// messages; agent_suppressions and agent_unsubscribe_tokens cascade directly
+// from users). The one row that doesn't is usage_events: its FK is `ON
 // DELETE SET NULL` so analytics survives, which we explicitly override
 // here for full deletion.
 //
@@ -304,6 +315,8 @@ func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainIn
 		{&res.MessagesDeleted, `SELECT count(*) FROM messages m JOIN agent_identities a ON a.id = m.agent_id WHERE a.user_id = $1`},
 		{&res.UsageEventsDeleted, `SELECT count(*) FROM usage_events WHERE user_id = $1`},
 		{&res.UsageSummariesDeleted, `SELECT count(*) FROM usage_summaries WHERE user_id = $1`},
+		{&res.AgentSuppressionsDeleted, `SELECT count(*) FROM agent_suppressions WHERE user_id = $1`},
+		{&res.AgentUnsubscribeTokensDeleted, `SELECT count(*) FROM agent_unsubscribe_tokens WHERE user_id = $1`},
 	}
 	for _, q := range queries {
 		if err := tx.QueryRow(ctx, q.query, userID).Scan(q.dst); err != nil {
@@ -334,7 +347,7 @@ func (s *Store) DeleteUserDataTx(ctx context.Context, userID string, perDomainIn
 
 	// Cascade does the rest: user_sessions, domains, agent_identities
 	// (and through them, messages → webhook_deliveries), api_keys,
-	// usage_summaries.
+	// usage_summaries, agent_suppressions, and agent_unsubscribe_tokens.
 	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("delete: users: %w", err)

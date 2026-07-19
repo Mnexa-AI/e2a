@@ -49,6 +49,23 @@ func TestOIDCRoutesAbsentUnlessWired(t *testing.T) {
 	}
 }
 
+func TestUnsubscribeLimiterHasIndependentProviderFriendlyBudget(t *testing.T) {
+	api := agent.NewAPI(nil, nil, nil, nil, usage.NewNoopUsageTracker(), "", "", "", "", false)
+	const key = "203.0.113.9"
+	for i := 0; i < 120; i++ {
+		if ok, _, _, _, _ := api.DownloadLimitAllow(key); !ok {
+			t.Fatalf("attachment request %d unexpectedly limited", i+1)
+		}
+	}
+	if ok, _, _, _, _ := api.DownloadLimitAllow(key); ok {
+		t.Fatal("attachment limiter should be exhausted")
+	}
+	ok, _, limit, remaining, _ := api.UnsubscribeLimitAllow(key)
+	if !ok || limit != 600 || remaining != 599 {
+		t.Fatalf("unsubscribe snapshot = ok=%v limit=%d remaining=%d, want independent 600/minute budget", ok, limit, remaining)
+	}
+}
+
 func TestOIDCRoutesPresentWhenWired(t *testing.T) {
 	api := agent.NewAPI(nil, nil, nil, nil, usage.NewNoopUsageTracker(), "", "", "", "", false)
 	api.SetOIDCAuth(&auth.OIDCAuth{})

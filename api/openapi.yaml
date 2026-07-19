@@ -230,6 +230,44 @@ components:
         - outbound_scan_sensitivity
       type: object
       x-stability-level: beta
+    AgentSuppressionAddedData:
+      additionalProperties: true
+      properties:
+        address:
+          type: string
+        agent_email:
+          type: string
+        source:
+          description: "How the suppression was created. Known values: unsubscribe, manual."
+          type: string
+      required:
+        - agent_email
+        - address
+        - source
+      type: object
+      x-stability-level: beta
+    AgentSuppressionView:
+      additionalProperties: true
+      properties:
+        address:
+          type: string
+        agent_email:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        reason:
+          type: string
+        source:
+          description: "How the block was created. Known values: unsubscribe, manual."
+          type: string
+      required:
+        - agent_email
+        - address
+        - source
+        - created_at
+      type: object
+      x-stability-level: beta
     AgentView:
       additionalProperties: true
       properties:
@@ -552,6 +590,21 @@ components:
       required:
         - email
       type: object
+    CreateAgentSuppressionRequest:
+      additionalProperties: false
+      properties:
+        address:
+          description: Recipient email address to suppress for this agent. At most 320 Unicode code points.
+          maxLength: 320
+          type: string
+        reason:
+          description: Optional account-supplied reason for the manual block. At most 2000 Unicode code points.
+          maxLength: 2000
+          type: string
+      required:
+        - address
+      type: object
+      x-stability-level: beta
     CreateTemplateRequest:
       additionalProperties: false
       properties:
@@ -581,7 +634,7 @@ components:
         description:
           type: string
         events:
-          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening, review-hold, and agent.suppression_added events are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -595,6 +648,7 @@ components:
               - email.bounced
               - email.complained
               - domain.suppression_added
+              - agent.suppression_added
               - email.flagged
               - email.blocked
               - email.review_requested
@@ -606,6 +660,7 @@ components:
             - email.review_requested
             - email.review_approved
             - email.review_rejected
+            - agent.suppression_added
         filters:
           $ref: "#/components/schemas/WebhookFiltersRequest"
         url:
@@ -629,7 +684,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added, agent.suppression_added. Beta: the screening, review-hold, and agent.suppression_added events are unstable — their payload may change before they are declared stable."
           items:
             type: string
           type: array
@@ -639,6 +694,7 @@ components:
             - email.review_requested
             - email.review_approved
             - email.review_rejected
+            - agent.suppression_added
         filters:
           $ref: "#/components/schemas/WebhookFiltersView"
         id:
@@ -779,6 +835,12 @@ components:
     DeleteUserDataResult:
       additionalProperties: true
       properties:
+        agent_suppressions_deleted:
+          format: int64
+          type: integer
+        agent_unsubscribe_tokens_deleted:
+          format: int64
+          type: integer
         agents_deleted:
           format: int64
           type: integer
@@ -823,6 +885,8 @@ components:
         - domains_deleted
         - api_keys_deleted
         - sessions_deleted
+        - agent_suppressions_deleted
+        - agent_unsubscribe_tokens_deleted
         - user_deleted
       type: object
     DeleteWebhookResult:
@@ -1582,6 +1646,8 @@ components:
           additionalProperties: true
           description: Event-specific payload. Open at the envelope level; use x-e2a-event-data-schemas for stable event payloads.
           type: object
+          x-e2a-beta-event-data-schemas:
+            agent.suppression_added: "#/components/schemas/AgentSuppressionAddedData"
           x-e2a-event-data-schemas:
             domain.sending_failed: "#/components/schemas/DomainSendingFailedData"
             domain.sending_verified: "#/components/schemas/DomainSendingVerifiedData"
@@ -1620,7 +1686,7 @@ components:
           type: string
         data:
           additionalProperties: {}
-          description: "Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas: email.received → EmailReceivedData, email.sent → EmailSentData, email.failed → EmailFailedData, email.delivered → EmailDeliveredData, email.bounced → EmailBouncedData, email.complained → EmailComplainedData, domain.sending_verified → DomainSendingVerifiedData, domain.sending_failed → DomainSendingFailedData, domain.suppression_added → DomainSuppressionAddedData. The beta events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) have open payloads that may change before they are declared stable."
+          description: Event-specific payload. Deliberately open at the envelope level (unknown/beta event types must still parse). The STABLE event types carry frozen payload shapes, published as named component schemas. Beta events, including agent.suppression_added, have payloads that may change before they are declared stable.
           type: object
         delivery_status:
           $ref: "#/components/schemas/DeliveryStatusJSON"
@@ -1635,7 +1701,7 @@ components:
           description: "Event processing state. Open set; tolerate unknown values. Known values: pending, processed, no_match."
           type: string
         type:
-          description: "Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Stable types have frozen data schemas — see the data field."
+          description: "Event type. Open set: new event types may be added over time, so treat as a string and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added, agent.suppression_added. Stable types have frozen data schemas — see the data field."
           type: string
       required:
         - id
@@ -1698,6 +1764,10 @@ components:
             maxLength: 320
             type: string
           type: array
+        unsubscribe:
+          $ref: "#/components/schemas/UnsubscribeOptions"
+          description: "Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."
+          x-stability-level: beta
       required:
         - to
         - text
@@ -2224,6 +2294,22 @@ components:
         - items
         - next_cursor
       type: object
+    PageAgentSuppressionView:
+      additionalProperties: true
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/AgentSuppressionView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+      x-stability-level: beta
     PageAgentView:
       additionalProperties: true
       properties:
@@ -2805,6 +2891,10 @@ components:
         text:
           maxLength: 1048576
           type: string
+        unsubscribe:
+          $ref: "#/components/schemas/UnsubscribeOptions"
+          description: "Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."
+          x-stability-level: beta
       required:
         - text
       type: object
@@ -2937,6 +3027,10 @@ components:
             maxLength: 320
             type: string
           type: array
+        unsubscribe:
+          $ref: "#/components/schemas/UnsubscribeOptions"
+          description: "Beta: opts this message into e2a-managed unsubscribe handling. This field may change before it is declared stable."
+          x-stability-level: beta
       required:
         - to
       type: object
@@ -3092,6 +3186,8 @@ components:
       properties:
         address:
           type: string
+        agent_email:
+          type: string
         created_at:
           format: date-time
           type: string
@@ -3221,6 +3317,7 @@ components:
             - email.bounced
             - email.complained
             - domain.suppression_added
+            - agent.suppression_added
             - email.flagged
             - email.blocked
             - email.review_requested
@@ -3262,6 +3359,19 @@ components:
         - max_recipients
         - provided
       type: object
+    UnsubscribeOptions:
+      additionalProperties: false
+      description: "Beta: per-message opt-in to e2a-managed unsubscribe handling. This schema may change before it is declared stable."
+      properties:
+        mode:
+          description: "Beta: managed requests e2a-hosted unsubscribe handling. This option may change before it is declared stable."
+          enum:
+            - managed
+          type: string
+      required:
+        - mode
+      type: object
+      x-stability-level: beta
     UpdateAgentRequest:
       additionalProperties: false
       properties:
@@ -3320,7 +3430,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable. All other events are stable."
+          description: "Beta: the screening, review-hold, and agent.suppression_added events are unstable — their payload may change before they are declared stable. All other events are stable."
           items:
             enum:
               - email.received
@@ -3334,6 +3444,7 @@ components:
               - email.bounced
               - email.complained
               - domain.suppression_added
+              - agent.suppression_added
               - email.flagged
               - email.blocked
               - email.review_requested
@@ -3345,6 +3456,7 @@ components:
             - email.review_requested
             - email.review_approved
             - email.review_rejected
+            - agent.suppression_added
         filters:
           $ref: "#/components/schemas/WebhookFiltersRequest"
         url:
@@ -3407,7 +3519,7 @@ components:
             $ref: "#/components/schemas/ProtectionEventExportEntry"
           type: array
         schema_version:
-          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "2".
+          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "3"; v3 suppression entries may include agent_email for exact-agent scope.
           type: string
         suppressions:
           items:
@@ -3601,7 +3713,7 @@ components:
         enabled:
           type: boolean
         events:
-          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added. Beta: the screening + review-hold events (email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected) are unstable — their payload may change before they are declared stable."
+          description: "The event types this webhook matches. Open set: new event types may be added over time, so treat these as strings and tolerate unknown values. Known values: email.received, email.sent, email.failed, email.delivered, email.bounced, email.complained, email.flagged, email.blocked, email.review_requested, email.review_approved, email.review_rejected, domain.sending_verified, domain.sending_failed, domain.suppression_added, agent.suppression_added. Beta: the screening, review-hold, and agent.suppression_added events are unstable — their payload may change before they are declared stable."
           items:
             type: string
           type: array
@@ -3611,6 +3723,7 @@ components:
             - email.review_requested
             - email.review_approved
             - email.review_rejected
+            - agent.suppression_added
         filters:
           $ref: "#/components/schemas/WebhookFiltersView"
         id:
@@ -5261,6 +5374,149 @@ paths:
       summary: Restore an agent from the trash
       tags:
         - agents
+  /v1/agents/{email}/suppressions:
+    get:
+      description: "Lists recipient addresses blocked only for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable."
+      operationId: listAgentSuppressions
+      parameters:
+        - in: path
+          name: email
+          required: true
+          schema:
+            type: string
+        - description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor. Continuation requests must not change the other filters.
+            type: string
+        - description: Maximum number of items to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 100
+            description: Maximum number of items to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageAgentSuppressionView"
+          description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+      security:
+        - bearer: []
+      summary: List an agent's suppressed recipients (beta)
+      tags:
+        - agents
+      x-stability-level: beta
+    post:
+      description: "Idempotently creates a manual recipient block for this exact sending agent. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable."
+      operationId: createAgentSuppression
+      parameters:
+        - in: path
+          name: email
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentSuppressionRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSuppressionView"
+          description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+      security:
+        - bearer: []
+      summary: Suppress a recipient for an agent (beta)
+      tags:
+        - agents
+      x-stability-level: beta
+  /v1/agents/{email}/suppressions/{address}:
+    delete:
+      description: "Removes only the exact agent-scoped block. Requires ?confirm=DELETE. Account-scoped credentials only. Beta: agent-scoped suppression management may change before it is declared stable."
+      operationId: deleteAgentSuppression
+      parameters:
+        - in: path
+          name: email
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - description: Must be the literal DELETE — this action is irreversible.
+          explode: false
+          in: query
+          name: confirm
+          required: true
+          schema:
+            description: Must be the literal DELETE — this action is irreversible.
+            enum:
+              - DELETE
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSuppressionResult"
+          description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+      security:
+        - bearer: []
+      summary: Remove an agent recipient suppression (beta)
+      tags:
+        - agents
+      x-stability-level: beta
   /v1/agents/{email}/test:
     post:
       description: "Send a platform-originated test email (From: the platform noreply identity) to the agent's own address over the real external SMTP route, to confirm inbound delivery end to end. Returns 202: status=accepted (the message is durably persisted and queued; message_id is the GET-able e2a message id, and the terminal outcome arrives via GET /v1/messages/{id} or the email.sent / email.failed webhook events — provider_message_id appears only after provider submission) or status=pending_review when held for review. Always branch on body.status."
@@ -6679,6 +6935,8 @@ servers:
   - description: Production
     url: https://api.e2a.dev
 x-e2a-standalone-schema-refs:
+  AgentSuppressionAddedData:
+    $ref: "#/components/schemas/AgentSuppressionAddedData"
   DomainSendingFailedData:
     $ref: "#/components/schemas/DomainSendingFailedData"
   DomainSendingVerifiedData:

@@ -405,8 +405,9 @@ func TestGoldenFixtures(t *testing.T) {
 		})
 	}
 
-	// Coverage gate: every STABLE event type must have a fixture; the beta
-	// events must NOT (their payloads are open/unstable maps by design).
+	// Coverage gate: every STABLE event type must have a catalog fixture; beta
+	// events stay out of this frozen stable catalog. Selected beta events may
+	// have focused fixtures in separate tests while their schemas remain beta.
 	for _, event := range eventpayload.StableEvents {
 		if !seen[event.Type] {
 			t.Errorf("stable event %s has no golden fixture", event.Type)

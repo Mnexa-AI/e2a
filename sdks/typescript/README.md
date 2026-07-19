@@ -91,6 +91,45 @@ double-send. Supply a stable key to also survive a process restart:
 await client.messages.send(address, body, { idempotencyKey: deriveFromEvent(evt) });
 ```
 
+### Managed unsubscribe (beta)
+
+Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe.
+This capability, the agent-scoped suppression management methods, and the raw
+`GET|POST /u/{token}` confirmation flow are beta and may change before stable:
+
+```typescript
+await client.messages.send("sender@example.com", {
+  to: ["recipient@example.net"],
+  subject: "Update",
+  text: "Hello",
+  unsubscribe: { mode: "managed" },
+});
+```
+
+Omitting `unsubscribe` means only that e2a does not add managed unsubscribe
+handling; it does not classify the message as transactional. Managed messages
+must have exactly one normalized envelope recipient across To, CC, and BCC.
+e2a manages the token and confirmation page, adds a visible footer plus
+`List-Unsubscribe` and `List-Unsubscribe-Post`, and signs those headers.
+
+An unsubscribe blocks that recipient only for the exact sending agent; sibling
+agents remain allowed. Account suppressions still block every agent, and a
+future blocked send returns the existing `422 recipient_suppressed` error.
+Account-scoped credentials can manage the exact-agent list:
+
+```typescript
+const blocks = client.agents.listSuppressions("sender@example.com");
+await client.agents.createSuppression("sender@example.com", {
+  address: "recipient@example.net",
+  reason: "recipient opted out",
+});
+await client.agents.deleteSuppression("sender@example.com", "recipient@example.net");
+```
+
+The typed delete supplies the REST API's required `confirm=DELETE` guard.
+New blocks emit the beta `agent.suppression_added` event with
+`agent_email`, `address`, and `source`.
+
 ### Verify a webhook
 
 Each subscription is signed with its own `whsec_…` secret. `constructEvent`
@@ -124,7 +163,9 @@ accepted if any one matches: `constructEvent(body, header, [oldSecret, newSecret
 
 `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
 `client.events`, `client.webhooks`, `client.account` (with
-`client.account.suppressions`), plus `client.info()`. Each method maps to a
+`client.account.suppressions`), plus `client.info()`. Agent-scoped recipient
+blocks are managed through `client.agents.listSuppressions`,
+`createSuppression`, and `deleteSuppression`. Each method maps to a
 `/v1` operation; per-agent methods take the agent `address` as the first
 argument.
 

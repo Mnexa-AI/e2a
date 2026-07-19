@@ -236,6 +236,14 @@ type DomainSuppressionAddedData struct {
 	MessageID string `json:"message_id,omitempty"`
 }
 
+// AgentSuppressionAddedData is the exact agent-recipient consent scope added
+// by either the public unsubscribe flow or account-admin management API.
+type AgentSuppressionAddedData struct {
+	AgentEmail string `json:"agent_email"`
+	Address    string `json:"address"`
+	Source     string `json:"source" doc:"How the suppression was created. Known values: unsubscribe, manual."`
+}
+
 // AttachmentMetadata extracts the per-attachment metadata of a raw RFC 5322
 // message for EmailReceivedData.Attachments — the same extraction the REST
 // message views use (mailparse.Attachments), so the event and the resource
