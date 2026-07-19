@@ -194,14 +194,18 @@ every `/v1` operation not listed here is covered by the GA freeze.
 
 | operationId | Method and path | Surface |
 | --- | --- | --- |
+| `approveReview` | `POST /v1/reviews/{id}/approve` | Reviews |
 | `createTemplate` | `POST /v1/templates` | Templates |
 | `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
 | `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
+| `getReview` | `GET /v1/reviews/{id}` | Reviews |
 | `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
 | `getTemplate` | `GET /v1/templates/{id}` | Templates |
+| `listReviews` | `GET /v1/reviews` | Reviews |
 | `listStarterTemplates` | `GET /v1/starter-templates` | Starter templates |
 | `listTemplates` | `GET /v1/templates` | Templates |
 | `putAgentProtection` | `PUT /v1/agents/{email}/protection` | Protection config |
+| `rejectReview` | `POST /v1/reviews/{id}/reject` | Reviews |
 | `updateTemplate` | `PATCH /v1/templates/{id}` | Templates |
 | `validateTemplate` | `POST /v1/templates/validate` | Templates |
 
@@ -224,8 +228,8 @@ every `/v1` operation not listed here is covered by the GA freeze.
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
   send, `hold_reason`, and the review-detail `protection` evidence) and `(beta)`
   in prose —
-  today: templates, starter templates, and the agent protection config. They
-  are **exempt from the
+  today: templates, starter templates, reviews, and the agent protection
+  config. They are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
@@ -455,12 +459,13 @@ Threads derived from `messages.conversation_id`.
 - `GET …/conversations/{id}` — one thread with participants, labels, and member
   messages.
 
-### Reviews (`/v1/reviews`)
+### Reviews (`/v1/reviews`) (beta)
 
 The unified review queue: every message held in `pending_review` across the
 account's inboxes — outbound drafts awaiting send approval **and** inbound
 messages held by a screening gate. **Account-scoped credentials only**; an agent
 cannot see or resolve its own holds (self-approval would defeat the gate).
+The unified review resource is beta and may change before it is declared stable.
 The product-facing `hold_reason` explanation and the optional technical
 `protection` evidence on detail responses are beta and may change before they
 are declared stable.

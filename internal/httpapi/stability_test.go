@@ -13,14 +13,18 @@ import (
 )
 
 var betaOperationIDs = []string{
+	"approveReview",
 	"createTemplate",
 	"deleteTemplate",
 	"getAgentProtection",
+	"getReview",
 	"getStarterTemplate",
 	"getTemplate",
+	"listReviews",
 	"listStarterTemplates",
 	"listTemplates",
 	"putAgentProtection",
+	"rejectReview",
 	"updateTemplate",
 	"validateTemplate",
 }
@@ -292,7 +296,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 		return sc[extension]
 	}
-	for _, name := range []string{"TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
+	for _, name := range []string{"TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s must not carry duplicate x-stability alias, got %v", name, got)
 		}

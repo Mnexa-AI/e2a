@@ -1,8 +1,12 @@
-# One-time contract correction for hold_reason and review-detail protection
-# evidence added after v1.0.10 by PRs #389–#390. These exact response paths were
-# merged to main before the intended beta markers were applied. Keep each rule
-# fully qualified: the compatibility gate must continue rejecting every other
-# stability downgrade.
+# Reviewed lifecycle reclassification for the gate/scan review resource. The
+# four review operations were emitted stable in v1.0.10; hold_reason and the
+# detail protection evidence then landed through PRs #389–#390. Product has
+# explicitly classified this boundary as beta. Keep every rule fully qualified:
+# the gate must continue rejecting all other stability downgrades.
+POST /v1/reviews/{id}/approve endpoint stability level decreased from `stable` to `beta`
+GET /v1/reviews/{id} endpoint stability level decreased from `stable` to `beta`
+GET /v1/reviews endpoint stability level decreased from `stable` to `beta`
+POST /v1/reviews/{id}/reject endpoint stability level decreased from `stable` to `beta`
 GET /v1/agents/{email}/messages/{id} response property `hold_reason` stability level decreased from `stable` to `beta`
 GET /v1/agents/{email}/messages/{id} response property `protection` stability level decreased from `stable` to `beta`
 GET /v1/agents/{email}/messages/{id} response property `protection/items/` stability level decreased from `stable` to `beta`

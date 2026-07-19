@@ -27,11 +27,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer revision.Close()
-	// PR #390 added these review-detail evidence models after v1.0.10, but
-	// merged them before applying their intended beta marker. This exact
-	// correction mirrors api/oasdiff-ignore-errors.txt; every other stable SDK
-	// schema remains protected by the default freeze.
-	allowedSchemaDemotions := []string{"HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"}
+	// Product explicitly reclassified the gate/scan review boundary as beta.
+	// This exact component set mirrors api/oasdiff-ignore-errors.txt; every
+	// other stable SDK schema remains protected by the default freeze.
+	allowedSchemaDemotions := []string{
+		"ApproveRequest", "HoldReasonView", "PageReviewView", "ProtectionFindingView",
+		"RejectRequest", "RejectResultView", "ReviewView", "ThreatCategoryView",
+	}
 	if err := openapicompat.CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision, allowedSchemaDemotions); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

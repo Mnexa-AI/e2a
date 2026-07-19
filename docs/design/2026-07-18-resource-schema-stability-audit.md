@@ -11,9 +11,9 @@ field/value-level lifecycle annotations. It found one actionable gap:
 1. `hold_reason` and the review-detail `protection` evidence are not yet stable,
    but their fields and component schemas have no machine-readable beta marker.
 
-The unified review operations were described as beta in an earlier design, but
-were released as stable in v1.0.10. They cannot be retroactively downgraded and
-remain stable.
+The unified review operations were described as beta in the original design.
+Although v1.0.10 emitted them without markers, the product decision is to
+reclassify the gate/scan review resource as beta before further evolution.
 
 Templates, starter templates, protection configuration, versioned account-export
 interiors, and experimental webhook event values are already marked correctly.
@@ -22,15 +22,17 @@ remain stable.
 
 ## Contract changes
 
+- Mark `listReviews`, `getReview`, `approveReview`, and `rejectReview` beta;
+  schemas exclusive to those operations inherit beta automatically.
 - Mark `MessageView.hold_reason`, `ReviewView.hold_reason`, and
   `MessageView.protection` as beta fields because their parent schemas are
   shared with stable operations.
 - Mark `HoldReasonView` as a beta component.
 - Mark `ProtectionFindingView` and `ThreatCategoryView` as beta components so
   compatibility tooling can evolve the technical evidence shape.
-- Keep `MessageView`, `ReviewView`, `SendResultView`, and shared error types
-  stable. The review-only `hold_reason` and `protection` fields remain beta
-  without degrading their stable parent resources.
+- Keep `MessageView`, `SendResultView`, and shared error types stable. The
+  review-only `hold_reason` and `protection` fields remain beta without
+  degrading shared stable parent resources.
 
 ## Invariants
 
