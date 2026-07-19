@@ -131,7 +131,7 @@ func TestDeliveryFeedback_FindableByMessageID(t *testing.T) {
 	}
 }
 
-func hasEventType(evs []agent.EventJSON, typ string) bool {
+func hasEventType(evs []agent.EventView, typ string) bool {
 	for i := range evs {
 		if evs[i].Type == typ {
 			return true
@@ -140,7 +140,7 @@ func hasEventType(evs []agent.EventJSON, typ string) bool {
 	return false
 }
 
-func eventTypes(evs []agent.EventJSON) []string {
+func eventTypes(evs []agent.EventView) []string {
 	out := make([]string, 0, len(evs))
 	for i := range evs {
 		out = append(out, evs[i].Type)
