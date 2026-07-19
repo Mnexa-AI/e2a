@@ -226,6 +226,13 @@ type Deps struct {
 	// last row (zero afterCreatedAt = first page).
 	ListReviews          func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]identity.ReviewListItem, error)
 	GetReviewWithContent func(ctx context.Context, userID, messageID string) (*identity.Message, error)
+	// ListProtectionEventsByMessage returns the per-message screening audit
+	// rows (gate + scan producers) behind a hold — the source of the detector
+	// rationale/categories shown on the review detail. Optional; when nil the
+	// detail omits the `protection` breakdown and clients fall back to the coded
+	// review_reason. Callers must have already proven ownership of the message
+	// (the review detail handler does, via GetReviewWithContent).
+	ListProtectionEventsByMessage func(ctx context.Context, messageID string) ([]identity.ProtectionEvent, error)
 	// SendLimit is the per-agent outbound rate limiter (mirrors
 	// sendLimit.AllowWithRetryAfter; key = agent id). Optional.
 	SendLimit func(key string) (ok bool, retryAfter time.Duration)

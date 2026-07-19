@@ -78,7 +78,12 @@ type MessageView struct {
 	// messageViewFromIdentity constructor deliberately leaves it nil so review
 	// context never leaks onto agent-facing message APIs.
 	HoldReason *HoldReasonView `json:"hold_reason,omitempty"`
-	Labels     []string        `json:"labels" nullable:"false"`
+	// Protection is the per-producer screening breakdown behind the hold (the
+	// detector categories + rationale that explain hold_reason). Review surface
+	// only; populated by the review-detail handler, never on the agent /messages
+	// path. Beta.
+	Protection []ProtectionFindingView `json:"protection,omitempty" doc:"Screening breakdown behind the hold — detector categories + rationale (review surface only, beta)."`
+	Labels     []string                `json:"labels" nullable:"false"`
 	// CreatedAt is emitted as a full-precision RFC3339Nano date-time (time.Time),
 	// consistent with every other timestamp in the surface. This is the keyset
 	// pagination ORDERING key, so it must NOT be truncated to whole seconds —

@@ -194,4 +194,9 @@ func TestMessageViewFromIdentity_NoHoldReasonLeak(t *testing.T) {
 	if v.HoldReason != nil {
 		t.Errorf("agent-surface MessageView leaked hold_reason = %#v, want nil", v.HoldReason)
 	}
+	// The screening breakdown is review-only too: the shared constructor must
+	// never populate it (handleGetReview attaches it after ownership is proven).
+	if v.Protection != nil {
+		t.Errorf("agent-surface MessageView leaked protection = %+v, want nil", v.Protection)
+	}
 }

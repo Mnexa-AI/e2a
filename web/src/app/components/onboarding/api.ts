@@ -335,6 +335,15 @@ type MessageViewWire = {
   // Populated only on the review-detail surface; agent message reads never
   // return review context.
   hold_reason?: PendingMessageDetail["hold_reason"];
+  // Screening breakdown (detector categories + rationale) — review detail only.
+  protection?: {
+    source: string;
+    action?: string;
+    detector?: string;
+    score?: number | null;
+    categories?: { name: string; score?: number }[];
+    summary?: string;
+  }[];
   created_at: string;
   auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
@@ -367,6 +376,7 @@ function projectPending(
     status: w.review_status ?? "",
     created_at: w.created_at,
     hold_reason: w.hold_reason,
+    protection: w.protection,
     // Outbound drafts carry an editable `body`; sent outbound and inbound holds
     // carry the content as `parsed` (the draft columns are scrubbed at send).
     // Fall back so the body shows either way.

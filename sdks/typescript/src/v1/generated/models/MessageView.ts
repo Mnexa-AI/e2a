@@ -15,6 +15,7 @@ import { AuthVerdict } from '../models/AuthVerdict.js';
 import { HoldReasonView } from '../models/HoldReasonView.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
+import { ProtectionFindingView } from '../models/ProtectionFindingView.js';
 import { HttpFile } from '../http/http.js';
 
 export class MessageView {
@@ -46,6 +47,10 @@ export class MessageView {
     'id': string;
     'labels': Array<string>;
     'parsed'?: MessageParsedView;
+    /**
+    * Screening breakdown behind the hold — detector categories + rationale (review surface only, beta).
+    */
+    'protection'?: Array<ProtectionFindingView> | null;
     /**
     * Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.
     */
@@ -189,6 +194,12 @@ export class MessageView {
             "name": "parsed",
             "baseName": "parsed",
             "type": "MessageParsedView",
+            "format": ""
+        },
+        {
+            "name": "protection",
+            "baseName": "protection",
+            "type": "Array<ProtectionFindingView>",
             "format": ""
         },
         {

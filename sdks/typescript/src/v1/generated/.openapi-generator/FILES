@@ -95,6 +95,7 @@ models/ProtectionConfigView.ts
 models/ProtectionDirectionRequest.ts
 models/ProtectionDirectionView.ts
 models/ProtectionEventExportEntry.ts
+models/ProtectionFindingView.ts
 models/ProtectionGateRequest.ts
 models/ProtectionGateView.ts
 models/ProtectionHoldsRequest.ts
@@ -128,6 +129,7 @@ models/TemplateSummaryView.ts
 models/TemplateView.ts
 models/TestWebhookRequest.ts
 models/TestWebhookResponse.ts
+models/ThreatCategoryView.ts
 models/TooManyRecipientsDetails.ts
 models/UpdateAgentRequest.ts
 models/UpdateMessageRequest.ts

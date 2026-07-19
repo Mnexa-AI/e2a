@@ -91,6 +91,7 @@ from e2a.v1.generated.models.protection_config_view import ProtectionConfigView
 from e2a.v1.generated.models.protection_direction_request import ProtectionDirectionRequest
 from e2a.v1.generated.models.protection_direction_view import ProtectionDirectionView
 from e2a.v1.generated.models.protection_event_export_entry import ProtectionEventExportEntry
+from e2a.v1.generated.models.protection_finding_view import ProtectionFindingView
 from e2a.v1.generated.models.protection_gate_request import ProtectionGateRequest
 from e2a.v1.generated.models.protection_gate_view import ProtectionGateView
 from e2a.v1.generated.models.protection_holds_request import ProtectionHoldsRequest
@@ -124,6 +125,7 @@ from e2a.v1.generated.models.template_summary_view import TemplateSummaryView
 from e2a.v1.generated.models.template_view import TemplateView
 from e2a.v1.generated.models.test_webhook_request import TestWebhookRequest
 from e2a.v1.generated.models.test_webhook_response import TestWebhookResponse
+from e2a.v1.generated.models.threat_category_view import ThreatCategoryView
 from e2a.v1.generated.models.too_many_recipients_details import TooManyRecipientsDetails
 from e2a.v1.generated.models.update_agent_request import UpdateAgentRequest
 from e2a.v1.generated.models.update_message_request import UpdateMessageRequest

@@ -25,6 +25,7 @@ from e2a.v1.generated.models.auth_verdict import AuthVerdict
 from e2a.v1.generated.models.hold_reason_view import HoldReasonView
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
+from e2a.v1.generated.models.protection_finding_view import ProtectionFindingView
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -51,6 +52,7 @@ class MessageView(BaseModel):
     id: StrictStr
     labels: List[StrictStr]
     parsed: Optional[MessageParsedView] = None
+    protection: Optional[List[ProtectionFindingView]] = Field(default=None, description="Screening breakdown behind the hold — detector categories + rationale (review surface only, beta).")
     raw_message: Optional[StrictStr] = Field(description="Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.")
     read_status: StrictStr
     reply_to: List[StrictStr] = Field(description="The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).")
@@ -62,7 +64,7 @@ class MessageView(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "labels", "parsed", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "labels", "parsed", "protection", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -124,10 +126,22 @@ class MessageView(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of parsed
         if self.parsed:
             _dict['parsed'] = self.parsed.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of each item in protection (list)
+        _items = []
+        if self.protection:
+            for _item_protection in self.protection:
+                if _item_protection:
+                    _items.append(_item_protection.to_dict())
+            _dict['protection'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
+
+        # set to None if protection (nullable) is None
+        # and model_fields_set contains the field
+        if self.protection is None and "protection" in self.model_fields_set:
+            _dict['protection'] = None
 
         # set to None if raw_message (nullable) is None
         # and model_fields_set contains the field
@@ -165,6 +179,7 @@ class MessageView(BaseModel):
             "id": obj.get("id"),
             "labels": obj.get("labels"),
             "parsed": MessageParsedView.from_dict(obj["parsed"]) if obj.get("parsed") is not None else None,
+            "protection": [ProtectionFindingView.from_dict(_item) for _item in obj["protection"]] if obj.get("protection") is not None else None,
             "raw_message": obj.get("raw_message"),
             "read_status": obj.get("read_status"),
             "reply_to": obj.get("reply_to"),
