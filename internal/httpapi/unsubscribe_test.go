@@ -272,7 +272,7 @@ func TestPublicUnsubscribeUnsupportedMethodHasSecurityHeaders(t *testing.T) {
 func TestPublicUnsubscribeRateLimitRunsBeforeTokenResolution(t *testing.T) {
 	var limiterKey string
 	srv, fixture := newPublicUnsubscribeServer(t, func(d *Deps, _ *publicUnsubscribeFixture) {
-		d.DownloadLimit = func(key string) (bool, time.Duration, int, int, int) {
+		d.UnsubscribeLimit = func(key string) (bool, time.Duration, int, int, int) {
 			limiterKey = key
 			return false, 3 * time.Second, 10, 0, 60
 		}
@@ -299,6 +299,27 @@ func TestPublicUnsubscribeRateLimitRunsBeforeTokenResolution(t *testing.T) {
 	defer fixture.mu.Unlock()
 	if fixture.resolveCalls.Load() != 0 || fixture.addCalls != 0 || len(fixture.rows) != 0 || fixture.hookCalls.Load() != 0 {
 		t.Fatalf("limited request did work: resolves=%d adds=%d rows=%d hooks=%d", fixture.resolveCalls.Load(), fixture.addCalls, len(fixture.rows), fixture.hookCalls.Load())
+	}
+}
+
+func TestPublicUnsubscribeLimiterIsIndependentFromAttachmentBucket(t *testing.T) {
+	var attachmentCalls, unsubscribeCalls int
+	srv, fixture := newPublicUnsubscribeServer(t, func(d *Deps, _ *publicUnsubscribeFixture) {
+		d.DownloadLimit = func(string) (bool, time.Duration, int, int, int) {
+			attachmentCalls++
+			return false, time.Minute, 0, 0, 60
+		}
+		d.UnsubscribeLimit = func(string) (bool, time.Duration, int, int, int) {
+			unsubscribeCalls++
+			return true, 0, 600, 599, 60
+		}
+	})
+	resp, _ := doPublicUnsubscribe(t, srv.Client(), http.MethodGet, srv.URL+"/u/"+publicUnsubscribeToken, "", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET with exhausted attachment bucket = %d, want 200", resp.StatusCode)
+	}
+	if attachmentCalls != 0 || unsubscribeCalls != 1 || fixture.resolveCalls.Load() != 1 {
+		t.Fatalf("limiter calls: attachment=%d unsubscribe=%d resolves=%d", attachmentCalls, unsubscribeCalls, fixture.resolveCalls.Load())
 	}
 }
 

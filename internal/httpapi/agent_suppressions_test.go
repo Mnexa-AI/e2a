@@ -10,13 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/identity"
 )
 
 type agentSuppressionFixture struct {
-	mu      sync.Mutex
-	rows    map[string]identity.AgentSuppression
-	listFor []string
+	mu         sync.Mutex
+	rows       map[string]identity.AgentSuppression
+	listFor    []string
+	hookScopes []identity.AgentSuppressionHookScope
+	hookErr    error
 }
 
 func newAgentSuppressionsServer(t *testing.T, mutate func(*Deps, *agentSuppressionFixture)) *httptest.Server {
@@ -44,7 +47,7 @@ func newAgentSuppressionsServer(t *testing.T, mutate func(*Deps, *agentSuppressi
 				return nil, identity.ErrAgentNotFound
 			}
 		},
-		AddAgentSuppression: func(_ context.Context, userID, agentID, address, reason, source string, _ identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error) {
+		AddAgentSuppression: func(ctx context.Context, userID, agentID, address, reason, source string, hook identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error) {
 			fixture.mu.Lock()
 			defer fixture.mu.Unlock()
 			agentID = identity.NormalizeEmail(agentID)
@@ -54,8 +57,17 @@ func newAgentSuppressionsServer(t *testing.T, mutate func(*Deps, *agentSuppressi
 				return existing, false, nil
 			}
 			row := identity.AgentSuppression{AgentEmail: agentID, Address: address, Reason: reason, Source: source, CreatedAt: time.Unix(1700000000, 0).UTC()}
+			if hook != nil {
+				if err := hook(ctx, nil, identity.AgentSuppressionHookScope{UserID: userID, AgentID: agentID, Address: address, Source: source}); err != nil {
+					return identity.AgentSuppression{}, false, err
+				}
+			}
 			fixture.rows[key] = row
 			return row, true, nil
+		},
+		AgentSuppressionAddedHook: func(_ context.Context, _ pgx.Tx, scope identity.AgentSuppressionHookScope) error {
+			fixture.hookScopes = append(fixture.hookScopes, scope)
+			return fixture.hookErr
 		},
 		ListAgentSuppressions: func(_ context.Context, userID, agentID string, limit int, after time.Time, afterAddress string) ([]identity.AgentSuppression, error) {
 			fixture.mu.Lock()
@@ -134,7 +146,9 @@ func TestAgentSuppressionsDoNotEnumerateMissingOrForeignAgents(t *testing.T) {
 
 func TestAgentSuppressionsCreateIsNormalizedIdempotentAndManual(t *testing.T) {
 	var gotSources []string
+	var fixture *agentSuppressionFixture
 	srv := newAgentSuppressionsServer(t, func(d *Deps, f *agentSuppressionFixture) {
+		fixture = f
 		base := d.AddAgentSuppression
 		d.AddAgentSuppression = func(ctx context.Context, userID, agentID, address, reason, source string, hook identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error) {
 			gotSources = append(gotSources, source)
@@ -156,6 +170,29 @@ func TestAgentSuppressionsCreateIsNormalizedIdempotentAndManual(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotSources, []string{"manual", "manual"}) {
 		t.Fatalf("sources = %v; want manual for every management create", gotSources)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	wantScope := identity.AgentSuppressionHookScope{UserID: "u_1", AgentID: "support@example.com", Address: "person@example.net", Source: "manual"}
+	if !reflect.DeepEqual(fixture.hookScopes, []identity.AgentSuppressionHookScope{wantScope}) {
+		t.Fatalf("hook scopes = %+v, want one exact normalized scope %+v", fixture.hookScopes, wantScope)
+	}
+}
+
+func TestAgentSuppressionsCreateHookFailureDoesNotPersist(t *testing.T) {
+	var fixture *agentSuppressionFixture
+	srv := newAgentSuppressionsServer(t, func(_ *Deps, f *agentSuppressionFixture) {
+		fixture = f
+		f.hookErr = errors.New("outbox unavailable")
+	})
+	code, body := sendJSON(t, http.MethodPost, srv.URL+"/v1/agents/support%40example.com/suppressions", "account", map[string]any{"address": "person@example.net"})
+	if code != http.StatusInternalServerError || errCode(body) != "internal_error" {
+		t.Fatalf("POST with failed hook = %d %v, want 500 internal_error", code, body)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.rows) != 0 || len(fixture.hookScopes) != 1 {
+		t.Fatalf("failed hook persisted state: rows=%d hooks=%d", len(fixture.rows), len(fixture.hookScopes))
 	}
 }
 

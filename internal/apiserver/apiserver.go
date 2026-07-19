@@ -84,8 +84,9 @@ type Params struct {
 	EnqueueDelivery func(ctx context.Context, deliveryID string) error
 
 	// AgentSuppressionAddedHook writes the beta suppression event in the same
-	// transaction as a newly inserted token-authorized consent row. Optional
-	// until the event slice is wired by the caller.
+	// transaction as any newly inserted agent suppression, whether it came from
+	// authenticated management or a recipient token. Optional until the event
+	// slice is wired by the caller.
 	AgentSuppressionAddedHook identity.AgentSuppressionTxHook
 }
 
@@ -172,6 +173,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		PollLimit:              p.API.PollLimitAllow,
 		RegLimit:               p.API.RegLimitAllow,
 		DownloadLimit:          p.API.DownloadLimitAllow,
+		UnsubscribeLimit:       p.API.UnsubscribeLimitAllow,
 		RejectPending:          p.API.RejectPendingCore,
 		GetReviewMessage:       p.Store.GetReviewMessage,
 		ApproveInboundReview:   p.API.ApproveInboundReviewCore,

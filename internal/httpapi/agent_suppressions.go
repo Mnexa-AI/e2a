@@ -167,7 +167,7 @@ func (s *Server) handleCreateAgentSuppression(ctx context.Context, in *createAge
 	if address == "" || parseErr != nil || identity.NormalizeEmail(parsed.Address) != address {
 		return nil, NewError(http.StatusBadRequest, "invalid_request", "address must be a valid email address")
 	}
-	sp, _, err := s.deps.AddAgentSuppression(ctx, p.User.ID, ag.ID, address, in.Body.Reason, "manual", nil)
+	sp, _, err := s.deps.AddAgentSuppression(ctx, p.User.ID, ag.ID, address, in.Body.Reason, "manual", s.deps.AgentSuppressionAddedHook)
 	if errors.Is(err, identity.ErrAgentNotFound) {
 		return nil, NewError(http.StatusNotFound, "not_found", "agent not found")
 	}

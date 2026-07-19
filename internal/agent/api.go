@@ -40,6 +40,12 @@ import (
 	"golang.org/x/net/idna"
 )
 
+// Managed one-click requests often originate from centralized mailbox-provider
+// scanners and proxies, so many unrelated recipients can legitimately share one
+// source IP. Keep this budget separate from attachment downloads and high enough
+// for provider fan-in while still bounding anonymous token lookup work.
+const unsubscribeRequestsPerMinute = 600
+
 // writeJSON encodes payload as the response body. Logs encoding errors
 // rather than swallowing them — an Encode failure usually means the
 // client closed the connection mid-response or the payload contains a
@@ -189,6 +195,7 @@ type API struct {
 	feedbackLimit     *ratelimit.Limiter
 	dcrLimit          *ratelimit.Limiter    // OAuth Dynamic Client Registration — anonymous endpoint, per-IP
 	downloadLimit     *ratelimit.Limiter    // attachment byte-download — capability-token route (no bearer), per-IP
+	unsubscribeLimit  *ratelimit.Limiter    // managed unsubscribe — separate capability-token budget, per-IP
 	approvalSigner    *approvaltoken.Signer // optional; if nil, magic-link endpoints return 404
 	notifyEnq         NotifyEnqueuer        // optional; if nil, holdForApproval persists the hold but sends no notification
 	oauthProvider     fosite.OAuth2Provider // optional; if nil, /oauth2/* endpoints return 404
@@ -419,6 +426,13 @@ func (a *API) DownloadLimitAllow(key string) (bool, time.Duration, int, int, int
 	return a.downloadLimit.AllowSnapshot(key)
 }
 
+// UnsubscribeLimitAllow exposes the distinct per-IP managed-unsubscribe
+// limiter. Mailbox providers centralize link scanning and one-click requests,
+// so this has a provider-friendly budget and never consumes attachment quota.
+func (a *API) UnsubscribeLimitAllow(key string) (bool, time.Duration, int, int, int) {
+	return a.unsubscribeLimit.AllowSnapshot(key)
+}
+
 // SetUsageStore wires in the usage store used by handleGetMyLimits to
 // surface the user's current counts (agents, domains, messages this
 // month, storage bytes) alongside the resolved caps. Separate from the
@@ -461,14 +475,15 @@ func NewAPI(store *identity.Store, sender *outbound.Sender, smtpRelay *outbound.
 		publicURL:    publicURL,
 		// Default the API/issuer URL to the web URL; SetAPIURL overrides it
 		// for split web/API-host deployments.
-		apiURL:        publicURL,
-		production:    production,
-		sendLimit:     ratelimit.New(1*time.Minute, 60),  // 60 sends per agent per minute
-		regLimit:      ratelimit.New(1*time.Hour, 200),   // 200 registrations per IP per hour
-		pollLimit:     ratelimit.New(1*time.Minute, 60),  // 60 poll requests per user per minute
-		feedbackLimit: ratelimit.New(1*time.Hour, 10),    // 10 feedback submissions per IP per hour
-		dcrLimit:      ratelimit.New(1*time.Hour, 10),    // 10 OAuth client registrations per IP per hour
-		downloadLimit: ratelimit.New(1*time.Minute, 120), // 120 attachment downloads per IP per minute
+		apiURL:           publicURL,
+		production:       production,
+		sendLimit:        ratelimit.New(1*time.Minute, 60),                           // 60 sends per agent per minute
+		regLimit:         ratelimit.New(1*time.Hour, 200),                            // 200 registrations per IP per hour
+		pollLimit:        ratelimit.New(1*time.Minute, 60),                           // 60 poll requests per user per minute
+		feedbackLimit:    ratelimit.New(1*time.Hour, 10),                             // 10 feedback submissions per IP per hour
+		dcrLimit:         ratelimit.New(1*time.Hour, 10),                             // 10 OAuth client registrations per IP per hour
+		downloadLimit:    ratelimit.New(1*time.Minute, 120),                          // 120 attachment downloads per IP per minute
+		unsubscribeLimit: ratelimit.New(1*time.Minute, unsubscribeRequestsPerMinute), // provider-friendly one-click budget
 	}
 }
 

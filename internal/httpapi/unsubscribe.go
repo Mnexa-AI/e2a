@@ -32,10 +32,10 @@ var (
 func (s *Server) handlePublicUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	setPublicUnsubscribeHeaders(w)
 	// This bearer-capability route sits outside Huma's authenticated limiter.
-	// Reuse the existing raw-capability per-IP budget and apply it before even
-	// hashing/resolving the token, matching attachment download semantics.
-	if s.deps.DownloadLimit != nil {
-		ok, retryAfter, limit, remaining, reset := s.deps.DownloadLimit(clientIP(r))
+	// Apply the dedicated unsubscribe budget before even hashing/resolving the
+	// token, matching attachment download semantics without sharing its bucket.
+	if s.deps.UnsubscribeLimit != nil {
+		ok, retryAfter, limit, remaining, reset := s.deps.UnsubscribeLimit(clientIP(r))
 		w.Header().Set("RateLimit-Limit", strconv.Itoa(limit))
 		w.Header().Set("RateLimit-Remaining", strconv.Itoa(remaining))
 		w.Header().Set("RateLimit-Reset", strconv.Itoa(reset))

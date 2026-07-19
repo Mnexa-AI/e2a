@@ -242,11 +242,11 @@ type Deps struct {
 	// Optional — nil disables that limiter on the /v1 surface.
 	PollLimit RateSnapshot
 	RegLimit  RateSnapshot
-	// DownloadLimit is the existing per-IP raw capability-route limiter (key =
-	// client IP), shared by attachment downloads and managed unsubscribe. Both
-	// routes sit outside Huma's authenticated middleware, so they consult it
-	// directly. Optional — nil disables it.
-	DownloadLimit RateSnapshot
+	// Raw capability routes sit outside Huma's authenticated middleware and use
+	// separate per-IP budgets so traffic to one surface cannot starve another.
+	// Optional — nil disables the corresponding limiter.
+	DownloadLimit    RateSnapshot
+	UnsubscribeLimit RateSnapshot
 	// GetRepliableMessage loads a message that can be replied to or forwarded —
 	// either an inbound the agent received or an outbound the agent sent — as
 	// long as it is live (not expired) and not held/rejected in review. The
@@ -279,8 +279,10 @@ type Deps struct {
 	// so the unauthenticated route cannot choose an account, agent, or recipient.
 	ResolveUnsubscribeToken           func(ctx context.Context, tokenHash []byte) (*identity.UnsubscribeScope, error)
 	AddAgentSuppressionFromTokenScope func(ctx context.Context, scope identity.UnsubscribeScope, onAdded identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error)
-	AgentSuppressionAddedHook         identity.AgentSuppressionTxHook
-	DeleteUserData                    func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
+	// Shared transaction hook for both authenticated manual creation and the
+	// public recipient flow; the store invokes it only for a newly inserted row.
+	AgentSuppressionAddedHook identity.AgentSuppressionTxHook
+	DeleteUserData            func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
 
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.
