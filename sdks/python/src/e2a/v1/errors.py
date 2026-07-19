@@ -23,6 +23,8 @@ import json
 from email.utils import parsedate_to_datetime
 from typing import Any, Mapping, Optional
 
+from pydantic import ValidationError as _PydanticValidationError
+
 from .generated.exceptions import ApiException
 
 __all__ = [
@@ -41,6 +43,7 @@ __all__ = [
     "E2AWebhookSignatureError",
     "is_retryable_status",
     "from_api_exception",
+    "from_validation_error",
     "connection_error",
     "IDEMPOTENCY_IN_FLIGHT_CODE",
     "error_code_from_api_exception",
@@ -94,7 +97,12 @@ class E2AConflictError(E2AError):
 
 
 class E2AValidationError(E2AError):
-    """422 — input validation failure."""
+    """422 — input validation failure.
+
+    Also raised for CLIENT-SIDE (pre-flight) validation failures — e.g. an
+    argument violating a generated ``@validate_call`` constraint like
+    ``limit<=100`` — with ``status=0`` and ``request_id=None`` because no HTTP
+    request was sent (see :func:`from_validation_error`)."""
 
 
 class E2AIdempotencyError(E2AError):
@@ -119,7 +127,7 @@ class E2ARateLimitError(E2AError):
 
 
 class E2AServerError(E2AError):
-    """5xx / 408 — server-side or timeout."""
+    """5xx / 408, or a successful response that violates the API schema."""
 
 
 class E2AConnectionError(E2AError):
@@ -376,6 +384,35 @@ def from_api_exception(exc: ApiException) -> E2AError:
         headers=headers,
         cause=exc,
     )
+
+
+def from_validation_error(exc: _PydanticValidationError) -> E2AValidationError:
+    """Map a CLIENT-SIDE pydantic ``ValidationError`` to a typed
+    :class:`E2AValidationError`.
+
+    The generated ``*Api`` methods are ``@validate_call``-decorated with the
+    OpenAPI parameter constraints (e.g. ``limit`` ``Field(le=100, ge=1)``), so
+    an out-of-range argument raises *before any HTTP request is sent*. Without
+    this mapping the raw ``pydantic_core.ValidationError`` (a ``ValueError``,
+    not an :class:`E2AError`) would leak to callers and break the documented
+    "catch ``E2AError``" contract. ``status=0`` / ``request_id=None`` signal
+    the pre-flight nature (no round-trip — same convention as
+    :func:`connection_error`); ``details`` preserves pydantic's structured
+    per-field errors.
+    """
+    try:
+        details: Any = exc.errors(include_url=False)
+    except Exception:  # pragma: no cover - defensive
+        details = None
+    err = E2AValidationError(
+        code="invalid_request",
+        message=f"client-side validation failed: {exc}",
+        status=0,
+        retryable=False,
+        details=details,
+    )
+    err.__cause__ = exc
+    return err
 
 
 def error_code_from_api_exception(exc: ApiException) -> str:

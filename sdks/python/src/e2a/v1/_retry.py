@@ -23,6 +23,7 @@ import uuid
 from typing import Any, Awaitable, Callable, Optional
 
 import httpx
+from pydantic import ValidationError
 
 from .errors import (
     E2AError,
@@ -31,6 +32,7 @@ from .errors import (
     connection_error,
     error_code_from_api_exception,
     from_api_exception,
+    from_validation_error,
     is_retryable_status,
 )
 from .generated.exceptions import ApiException
@@ -137,6 +139,15 @@ async def request_with_retry(
             can_retry = retryable
         except E2AError:
             raise  # already typed (e.g. a nested helper) — pass through
+        except ValidationError as e:
+            # Client-side pydantic validation: the generated methods'
+            # @validate_call parameter constraints (e.g. limit<=100) reject the
+            # call BEFORE any HTTP request is sent. Surface the SDK's typed
+            # E2AValidationError (status=0, not retryable — pre-flight, there
+            # is nothing to retry) instead of leaking a raw pydantic error.
+            # This is hand-written-layer code on purpose: it survives
+            # regenerating the pydantic-decorated e2a.v1.generated.* classes.
+            raise from_validation_error(e)
         except httpx.HTTPError as e:
             # Non-transport httpx error (InvalidURL, etc.) — not retryable, but
             # surface it as a typed E2AError rather than a raw httpx exception.

@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable, List, Optional, Protocol, Sequence,
 from pydantic import ValidationError
 
 from ._retry import RetryConfig, request_with_retry
-from .errors import E2AError, E2AValidationError
+from .errors import E2AError, E2AServerError, E2AValidationError
 from .generated.api.account_api import AccountApi
 from .generated.api.agents_api import AgentsApi
 from .generated.api.conversations_api import ConversationsApi
@@ -167,6 +167,25 @@ def _coerce(model_cls: Type[T], body: Optional[Body]) -> T:
         ) from e
 
 
+class _TypedApiClient(ApiClient):
+    """Map malformed successful responses before the retry boundary sees them."""
+
+    def response_deserialize(self, response_data: Any, response_types_map: Any = None) -> Any:
+        try:
+            return super().response_deserialize(response_data, response_types_map)
+        except ValidationError as e:
+            headers = response_data.getheaders()
+            request_id = headers.get("x-request-id") if headers else None
+            raise E2AServerError(
+                code="invalid_response",
+                message="e2a API returned a response that does not match the v1 schema",
+                status=int(getattr(response_data, "status", 0) or 0),
+                request_id=request_id,
+                retryable=False,
+                details=e.errors(include_url=False),
+            ) from e
+
+
 class AsyncE2AClient:
     """Async client for the e2a /v1 API.
 
@@ -202,7 +221,7 @@ class AsyncE2AClient:
         )
 
         config = Configuration(host=self._base_url, access_token=key)
-        self._api_client = ApiClient(config)
+        self._api_client = _TypedApiClient(config)
 
         # Per-request timeout (default 30s). The generated httpx transport applies
         # `_request_timeout or 300s` per call; we inject our default when the caller
