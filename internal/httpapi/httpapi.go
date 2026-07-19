@@ -267,7 +267,13 @@ type Deps struct {
 	// return 501 from the /v1/account/suppressions endpoints.
 	ListSuppressions  func(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterAddress string) ([]identity.Suppression, error)
 	RemoveSuppression func(ctx context.Context, userID, address string) (bool, error)
-	DeleteUserData    func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
+	// Agent suppressions are recipient consent blocks scoped to one exact
+	// sending identity. Management is account-admin-only; the handler resolves
+	// live ownership before calling these tenant-bound store methods.
+	AddAgentSuppression    func(ctx context.Context, userID, agentID, address, reason, source string, onAdded identity.AgentSuppressionTxHook) (identity.AgentSuppression, bool, error)
+	ListAgentSuppressions  func(ctx context.Context, userID, agentID string, limit int, afterCreatedAt time.Time, afterAddress string) ([]identity.AgentSuppression, error)
+	RemoveAgentSuppression func(ctx context.Context, userID, agentID, address string) (bool, error)
+	DeleteUserData         func(ctx context.Context, user *identity.User) (*identity.DeleteUserDataResult, error)
 
 	// events (delivery log). EventQuery carries the filters + cursor
 	// position; the closures bind the events pool in main.
@@ -539,6 +545,7 @@ func (s *Server) registerOperations() {
 	s.registerStarterTemplates()
 	s.registerEvents()
 	s.registerAccount()
+	s.registerAgentSuppressions()
 	s.registerAPIKeys()
 	s.registerOutbound()
 	s.registerReviews()
