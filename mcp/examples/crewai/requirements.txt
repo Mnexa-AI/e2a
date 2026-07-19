@@ -1,3 +1,2 @@
-crewai[anthropic]>=0.80.0
-crewai-tools[mcp]>=0.25.0
-email-validator>=2.0
+crewai[anthropic]>=1.13,<2
+mcp>=1,<2

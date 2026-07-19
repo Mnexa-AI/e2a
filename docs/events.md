@@ -36,8 +36,8 @@ const events = await client.events
     type: "email.received",
     since: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
   })
-  .toArray(); // auto-pages via next_cursor
-for (const e of events) console.log(e.id, e.type, e.created_at);
+  .toArray({ limit: 100 }); // auto-pages via next_cursor, bounded in memory
+for (const e of events) console.log(e.id, e.type, e.createdAt);
 ```
 
 In Python:
@@ -46,9 +46,9 @@ In Python:
 from e2a.v1 import AsyncE2AClient
 import os
 
-client = AsyncE2AClient(api_key=os.environ["E2A_API_KEY"])
-for e in client.events.list(type="email.received", limit=20):
-    print(e.id, e.type, e.created_at)
+async with AsyncE2AClient(api_key=os.environ["E2A_API_KEY"]) as client:
+    async for e in client.events.list(type="email.received", limit=20):
+        print(e.id, e.type, e.created_at)
 ```
 
 ## Event types
@@ -72,6 +72,8 @@ for e in client.events.list(type="email.received", limit=20):
 | `domain.sending_failed` | A domain's async SES sending identity reached a failed terminal state | Best-effort |
 
 The review-hold + screening events (`email.flagged`, `email.blocked`, `email.review_requested`, `email.review_approved`, `email.review_rejected`) and `agent.suppression_added` are **beta** — their payloads may change before they are declared stable.
+
+One `email.blocked` asymmetry to know: an **outbound** gate-block refuses the send outright, so no message row exists — its `data.message_id` is a stable rowless soft-ref (`msgblk_…`), the event's top-level `message_id` is absent, and `GET /v1/events?message_id=…` cannot match it (filter by `type` + `agent_email`, or by `conversation_id`, instead). **Inbound** blocks are accept-then-quarantine, reference a real message, and filter normally.
 
 ## Envelope and typed payloads
 
@@ -166,9 +168,10 @@ If your webhook receiver went down for an hour, the steps to reconcile are:
 ```python
 # Pseudocode for the reconciliation flow.
 processed = set(load_processed_event_ids_from_my_db())
-for e in client.events.list(since=outage_start, until=outage_end):
-    if e.id not in processed:
-        client.events.redeliver(e.id, webhook_id="wh_my_handler")
+async with AsyncE2AClient(api_key=os.environ["E2A_API_KEY"]) as client:
+    async for e in client.events.list(since=outage_start, until=outage_end):
+        if e.id not in processed:
+            await client.events.redeliver(e.id, {"webhook_id": "wh_my_handler"})
 ```
 
 ## Replay

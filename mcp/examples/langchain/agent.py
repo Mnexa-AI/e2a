@@ -16,37 +16,43 @@ Run:
 import asyncio
 import os
 import sys
-from datetime import timedelta
 
+from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
 
-SYSTEM_PROMPT = (
-    "You manage email through the e2a tools. Call whoami once to find "
-    "your inbox address. Use list_messages and get_message to read; "
-    "use reply_to_message when replying to an existing thread (preserves "
-    "In-Reply-To and References headers), and send_message to start a new "
-    "thread."
-)
+MCP_URL = os.getenv("E2A_MCP_URL", "https://api.e2a.dev/mcp")
+MODEL = os.getenv("LANGCHAIN_MODEL", "anthropic:claude-sonnet-4-6")
+SYSTEM_PROMPT = """You manage email through the e2a tools.
+Use an agent-scoped e2a key so this runtime can act only as its own inbox.
+Call whoami once to learn that inbox address. Use list_messages and then
+get_message to read mail. Use reply_to_message for an existing thread so the
+In-Reply-To and References headers are preserved; use send_message only for a
+new thread. If send_message or reply_to_message returns pending_review, the
+message was accepted for human review: report that status and Do not retry it.
+Never approve or reject the agent's own held mail. Retry a failed tool call only
+when its structured error says retryable=true, honoring retry_after_seconds.
+"""
 
 
 async def main(prompt: str) -> None:
     client = MultiServerMCPClient(
         {
             "e2a": {
-                "transport": "streamable_http",
-                "url": "https://api.e2a.dev/mcp",
+                "transport": "http",
+                "url": MCP_URL,
                 "headers": {
                     "Authorization": f"Bearer {os.environ['E2A_API_KEY']}",
                 },
-                "timeout": timedelta(seconds=30),
             },
-        }
+        },
+        # MCP isError results become model-visible failed ToolMessages. Transport
+        # failures still raise, which keeps broken auth/connectivity explicit.
+        handle_tool_errors=True,
     )
     tools = await client.get_tools()
     print(f"Loaded {len(tools)} e2a tools: {', '.join(t.name for t in tools)}\n")
 
-    agent = create_react_agent("anthropic:claude-sonnet-4-6", tools, prompt=SYSTEM_PROMPT)
+    agent = create_agent(MODEL, tools=tools, system_prompt=SYSTEM_PROMPT)
     result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
 
     final = result["messages"][-1]

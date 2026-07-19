@@ -4,24 +4,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./loft/Button";
 
 // Copy-paste prompts for driving each workspace surface from a coding
-// agent (Claude Code, Cursor, …) instead of the dashboard. The templates
-// prompt is kept in sync with docs/templates.md ("Using a coding
-// agent?"); the others anchor on the agent-facing doc at e2a.dev/e2a.md.
+// agent (Claude Code, Cursor, …) instead of the dashboard. Each prompt
+// names the desired outcome and points the agent at the hosted MCP server.
 export const AGENT_PROMPTS = {
   templates: {
     blurb:
       "Templates are a one-time setup your coding agent can do headlessly — paste this into Claude Code, Cursor, or any agent connected to e2a.",
-    prompt: `Read https://e2a.dev/templates.md and set up e2a email templates for this project: browse the starter templates, copy the ones we need via from_starter, brand them (accent color is marked <!-- BRAND: accent -->), and wire our transactional sends using template_alias + template_data. Use the e2a MCP tools if connected (otherwise the REST API with $E2A_API_KEY), validate each template before wiring it in, and finish by listing the templates you created plus the send code you added.`,
+    prompt: "Help me set up e2a email templates using https://api.e2a.dev/mcp",
   },
   inboxes: {
     blurb:
       "Creating and wiring an inbox is a one-time setup your coding agent can do headlessly — paste this into Claude Code, Cursor, or any agent connected to e2a.",
-    prompt: `Read https://e2a.dev/e2a.md and set up e2a email for this project's agent: connect over MCP (https://api.e2a.dev/mcp) or the REST API with $E2A_API_KEY, create an agent inbox, and wire inbound delivery into this project (webhook, or WebSocket listen for local dev). Finish by sending a test email to the new inbox and replying to it in-thread to prove the send/receive loop works.`,
+    prompt: "Help me set up an e2a inbox using https://api.e2a.dev/mcp",
   },
   domains: {
     blurb:
       "Domain setup is a one-time task your coding agent can drive end to end — paste this into Claude Code, Cursor, or any agent connected to e2a.",
-    prompt: `Read https://e2a.dev/e2a.md and connect our custom domain to e2a: register it, show me the DNS records to add (or add them yourself if you have access to our DNS provider), poll verification until it passes, then create the agent inboxes we need on the domain. Use the e2a MCP tools if connected, otherwise the REST API with $E2A_API_KEY.`,
+    prompt:
+      "Help me connect a custom domain to e2a using https://api.e2a.dev/mcp",
   },
 } as const;
 
