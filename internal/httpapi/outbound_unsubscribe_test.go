@@ -121,6 +121,33 @@ func TestOutboundUnsubscribeStatusMappingLeavesOtherValidationAt422(t *testing.T
 	}
 }
 
+func TestOutboundUnsubscribeStatusMappingDoesNotMatchSiblingFieldPrefixes(t *testing.T) {
+	routes := []struct {
+		name, path string
+		body       map[string]any
+	}{
+		{"send", sendURL, map[string]any{"to": []string{"a@example.net"}, "subject": "s", "text": "b"}},
+		{"reply", "/v1/agents/support%40acme.com/messages/msg_in1/reply", map[string]any{"text": "reply"}},
+		{"forward", "/v1/agents/support%40acme.com/messages/msg_in1/forward", map[string]any{"to": []string{"next@example.net"}, "text": "fyi"}},
+	}
+	for _, route := range routes {
+		for _, sibling := range []string{"unsubscribe_extra", "unsubscribeMode"} {
+			t.Run(route.name+"/"+sibling, func(t *testing.T) {
+				body := make(map[string]any, len(route.body)+1)
+				for key, value := range route.body {
+					body[key] = value
+				}
+				body[sibling] = true
+				srv := testServer(t)
+				code, response := postJSON(t, srv.URL+route.path, "good", body)
+				if code != 422 || errCode(response) != "invalid_request" {
+					t.Fatalf("field=%s got %d %v", sibling, code, response)
+				}
+			})
+		}
+	}
+}
+
 func TestOutboundUnsubscribeStatusMappingNeverReadsRequestBody(t *testing.T) {
 	body := &unsubscribeReadSpy{}
 	req := httptest.NewRequest(http.MethodPost, "/v1/agents/support%40acme.com/messages", body)

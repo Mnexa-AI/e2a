@@ -335,7 +335,7 @@ func isUnsubscribeOnlyValidation(body []byte) bool {
 		return false
 	}
 	for _, field := range envelope.Error.Details.Fields {
-		if strings.HasPrefix(field.Location, "body.unsubscribe") {
+		if field.Location == "body.unsubscribe" || strings.HasPrefix(field.Location, "body.unsubscribe.") {
 			continue
 		}
 		// UnsubscribeOptions' custom null-object validation is emitted at the
