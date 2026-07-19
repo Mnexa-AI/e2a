@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 
 export const AGENT_DOC_MIRRORS = [
   ["plugins/e2a/docs/e2a.md", "web/public/e2a.md"],
+  ["plugins/e2a/docs/auth.md", "web/public/auth.md"],
+  ["plugins/e2a/docs/sdk.md", "web/public/sdk.md"],
   ["plugins/e2a/docs/templates.md", "web/public/templates.md"],
+  ["plugins/e2a/docs/llms.txt", "web/public/llms.txt"],
 ];
 
 const usage = "usage: node scripts/sync-agent-docs.mjs [--check]";

@@ -209,7 +209,7 @@ Skip this commit only when the inventory proves no reference edits are needed.
 - Regenerate: `web/public/llms.txt`
 - Modify: `plugins/e2a/README.md`
 
-- [ ] **Step 1: Write the failing exact mapping test**
+- [x] **Step 1: Write the failing exact mapping test**
 
 Assert that `AGENT_DOC_MIRRORS` exactly equals:
 
@@ -223,32 +223,32 @@ Assert that `AGENT_DOC_MIRRORS` exactly equals:
 ]
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run `node --test scripts/sync-agent-docs.test.mjs`.
 
 Expected: the mapping assertion fails because only `e2a.md` and
 `templates.md` are mapped.
 
-- [ ] **Step 3: Expand the mapping and add canonical sources**
+- [x] **Step 3: Expand the mapping and add canonical sources**
 
 Add the three mappings in the exact order above. Relocate the current public
 contents without changing bytes, then run `node scripts/sync-agent-docs.mjs`
 to refresh all five committed mirrors.
 
-- [ ] **Step 4: Update the plugin documentation inventory**
+- [x] **Step 4: Update the plugin documentation inventory**
 
 List `e2a.md`, `auth.md`, `sdk.md`, `templates.md`, and `llms.txt` beneath the
 `docs/` entry in `plugins/e2a/README.md`. Keep stable e2a.dev URLs in all
 user-facing instructions.
 
-- [ ] **Step 5: Verify all canonical, public, and build-output copies**
+- [x] **Step 5: Verify all canonical, public, and build-output copies**
 
 Run the Node tests, `--check`, repository integrity, the full web Jest suite,
 and the web production build. Use `cmp` to verify all five canonical files
 against both `web/public/` and `web/out/`.
 
-- [ ] **Step 6: Commit and update PR #575**
+- [x] **Step 6: Commit and update PR #575**
 
 ```bash
 git add docs/superpowers plugins/e2a/docs plugins/e2a/README.md scripts/sync-agent-docs.mjs scripts/sync-agent-docs.test.mjs web/public
