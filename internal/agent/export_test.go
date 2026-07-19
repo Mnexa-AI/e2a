@@ -6,7 +6,9 @@ package agent
 import (
 	"net/http"
 
+	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/outbound"
+	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
 
 // IsSelfSendForTest is the agent_test-package handle for isSelfSend.
@@ -43,4 +45,17 @@ func (a *API) IdempotencyGuardForTest(w http.ResponseWriter, r *http.Request, us
 // inside a synthetic handler.
 func MarkSideEffectCommittedForTest(w http.ResponseWriter) {
 	markSideEffectCommitted(w)
+}
+
+// BuildBlockedOutboundEventForTest exposes buildBlockedOutboundEvent (and the
+// blockAuditID soft-ref it is keyed on) so the external agent_test package can
+// drive the exact event the emit path constructs through a real outbox +
+// production schema. Takes primitives so outboundVerdict stays unexported.
+// Returns the event and the msgblk_ soft-ref.
+func BuildBlockedOutboundEventForTest(agent *identity.AgentIdentity, req outbound.SendRequest, reviewReason, reason string) (webhookpub.Event, string) {
+	softRef := blockAuditID(agent.ID, req)
+	v := outboundVerdict{Applied: "block", ReviewReason: reviewReason, Reason: reason}
+	// Receiver deliberately zero: the builder must stay stateless (pure over
+	// its arguments) — if it ever reads API fields this seam nil-panics.
+	return (&API{}).buildBlockedOutboundEvent(agent, softRef, req, v), softRef
 }
