@@ -217,6 +217,14 @@ func (s *Server) applyEvolutionStance() {
 
 	// Field-level markers on otherwise-stable schemas.
 	//
+	// Review detail reuses MessageView, which is also returned by stable agent
+	// message operations. Keep the product-facing hold_reason stable, but mark
+	// the optional technical evidence field and its component tree beta.
+	markProperty(schemas, "MessageView", "protection", extStabilityLevel, stabilityBeta)
+	for _, schema := range []string{"ProtectionFindingView", "ThreatCategoryView"} {
+		markSchema(schemas, schema, extStabilityLevel, stabilityBeta)
+	}
+	//
 	// The template hooks on send are beta (templates are beta) even though
 	// sendMessage itself is stable.
 	for _, prop := range []string{"template_alias", "template_id", "template_data"} {
@@ -228,6 +236,19 @@ func (s *Server) applyEvolutionStance() {
 	for _, schema := range []string{"CreateWebhookRequest", "UpdateWebhookRequest", "WebhookView", "CreateWebhookResponse"} {
 		markProperty(schemas, schema, "events", extExperimentalValues, webhookpub.ExperimentalEventTypes)
 	}
+}
+
+// markSchema stamps an extension on a named component schema, panicking on a
+// dangling name so a rename can't silently drop a reviewed stability marker.
+func markSchema(schemas map[string]*huma.Schema, schema, ext string, value any) {
+	sc, ok := schemas[schema]
+	if !ok {
+		panic(fmt.Sprintf("httpapi: schema %q missing while applying %s", schema, ext))
+	}
+	if sc.Extensions == nil {
+		sc.Extensions = map[string]any{}
+	}
+	sc.Extensions[ext] = value
 }
 
 // forEachOperation visits every operation in the document.

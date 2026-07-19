@@ -292,7 +292,7 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 		return sc[extension]
 	}
-	for _, name := range []string{"TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest"} {
+	for _, name := range []string{"TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ProtectionFindingView", "ThreatCategoryView"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s must not carry duplicate x-stability alias, got %v", name, got)
 		}
@@ -319,6 +319,14 @@ func TestSpecBetaMarkers(t *testing.T) {
 		if p == nil || p["x-stability-level"] != "beta" {
 			t.Errorf("SendEmailRequest.%s must carry canonical x-stability-level: beta", f)
 		}
+	}
+
+	// Review detail reuses stable MessageView, so its optional technical
+	// evidence needs a field-level marker as well as beta nested components.
+	messageProps := schemaProps(t, doc, "MessageView")
+	protection, _ := messageProps["protection"].(map[string]any)
+	if protection == nil || protection["x-stability-level"] != "beta" {
+		t.Error("MessageView.protection must carry canonical x-stability-level: beta")
 	}
 
 	// Value-level: the screening + review-hold event types, everywhere event

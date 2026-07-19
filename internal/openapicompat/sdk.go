@@ -17,6 +17,14 @@ import (
 // PruneExportInterior. That makes the canonical beta marker authoritative and
 // preserves the account export's versioned-interior exemption.
 func CheckStableSDKSurface(base, revision io.Reader) error {
+	return CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision, nil)
+}
+
+// CheckStableSDKSurfaceWithAllowedSchemaDemotions applies the same stable SDK
+// freeze while permitting an explicit, exact set of schema lifecycle
+// corrections. Callers should use this only when a schema landed after the
+// latest release with a missing beta marker; the default check remains strict.
+func CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision io.Reader, allowedDemotions []string) error {
 	baseSurface, err := readSDKSurface(base)
 	if err != nil {
 		return fmt.Errorf("decode base SDK surface: %w", err)
@@ -24,6 +32,11 @@ func CheckStableSDKSurface(base, revision io.Reader) error {
 	revisionSurface, err := readSDKSurface(revision)
 	if err != nil {
 		return fmt.Errorf("decode revision SDK surface: %w", err)
+	}
+
+	allowed := make(map[string]bool, len(allowedDemotions))
+	for _, name := range allowedDemotions {
+		allowed[name] = true
 	}
 
 	var findings []string
@@ -42,7 +55,7 @@ func CheckStableSDKSurface(base, revision io.Reader) error {
 				"[stable-sdk-schema-removed] stable component schema %q was removed or renamed; generated SDK model names are frozen",
 				name,
 			))
-		case revisionBeta:
+		case revisionBeta && !allowed[name]:
 			findings = append(findings, fmt.Sprintf(
 				"[stable-sdk-schema-stability-decreased] stable component schema %q was marked beta; generated SDK models cannot leave the stable surface",
 				name,

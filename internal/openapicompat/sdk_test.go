@@ -50,6 +50,22 @@ func TestCheckStableSDKSurfaceRejectsStableSchemaDemotion(t *testing.T) {
 	}
 }
 
+func TestCheckStableSDKSurfaceAllowsOnlyNamedSchemaCorrection(t *testing.T) {
+	revision := strings.Replace(sdkSurfaceBase, "StableView:\n      type: object", "StableView:\n      type: object\n      x-stability-level: beta", 1)
+	if err := CheckStableSDKSurfaceWithAllowedSchemaDemotions(
+		strings.NewReader(sdkSurfaceBase), strings.NewReader(revision), []string{"StableView"},
+	); err != nil {
+		t.Fatalf("allowed correction: %v", err)
+	}
+
+	err := CheckStableSDKSurfaceWithAllowedSchemaDemotions(
+		strings.NewReader(sdkSurfaceBase), strings.NewReader(revision), []string{"SomeOtherView"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "stable-sdk-schema-stability-decreased") {
+		t.Fatalf("error = %v, want non-allowlisted demotion rejection", err)
+	}
+}
+
 func TestCheckStableSDKSurfaceAllowsBetaSchemaRename(t *testing.T) {
 	revision := strings.Replace(sdkSurfaceBase, "BetaView:", "RenamedBetaView:", 1)
 	if err := CheckStableSDKSurface(strings.NewReader(sdkSurfaceBase), strings.NewReader(revision)); err != nil {

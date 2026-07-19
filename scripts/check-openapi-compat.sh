@@ -10,6 +10,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 base="$1"
 revision="${2:-$repo_root/api/openapi.yaml}"
 levels="$repo_root/api/oasdiff-levels.txt"
+ignored_errors="$repo_root/api/oasdiff-ignore-errors.txt"
 format="${OASDIFF_FORMAT:-text}"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/e2a-openapi-compat.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -69,6 +70,7 @@ run_oasdiff breaking \
   --fail-on WARN \
   --stability-level stable \
   --severity-levels "$levels" \
+  --err-ignore "$ignored_errors" \
   --format "$format" \
   "$tmpdir/base.yaml" "$tmpdir/revision.yaml"
 

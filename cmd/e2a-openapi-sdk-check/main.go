@@ -27,7 +27,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer revision.Close()
-	if err := openapicompat.CheckStableSDKSurface(base, revision); err != nil {
+	// PR #390 added these review-detail evidence models after v1.0.10, but
+	// merged them before applying their intended beta marker. This exact
+	// correction mirrors api/oasdiff-ignore-errors.txt; every other stable SDK
+	// schema remains protected by the default freeze.
+	allowedSchemaDemotions := []string{"ProtectionFindingView", "ThreatCategoryView"}
+	if err := openapicompat.CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision, allowedSchemaDemotions); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -222,8 +222,9 @@ every `/v1` operation not listed here is covered by the GA freeze.
 - **Beta surfaces are marked `x-stability-level: beta`** in the spec
   for automated compatibility tools
   (operations, schemas, and individual fields — e.g. the `template_*` fields on
-  send) and `(beta)` in prose — today: templates, starter templates, and the agent
-  protection config. They are **exempt from the
+  send and the review-detail `protection` evidence) and `(beta)` in prose —
+  today: templates, starter templates, and the agent protection config. They
+  are **exempt from the
   freeze**: they may change or be removed without a major version. Where only
   specific *values* of a stable field are experimental (the screening +
   review-hold event types `email.flagged`, `email.blocked`,
@@ -459,6 +460,9 @@ The unified review queue: every message held in `pending_review` across the
 account's inboxes — outbound drafts awaiting send approval **and** inbound
 messages held by a screening gate. **Account-scoped credentials only**; an agent
 cannot see or resolve its own holds (self-approval would defeat the gate).
+The product-facing `hold_reason` explanation is stable; the optional technical
+`protection` evidence on detail responses is beta and may change before it is
+declared stable.
 
 - `GET /v1/reviews`, `GET /v1/reviews/{id}` — list the queue / full detail of one
   held message.
