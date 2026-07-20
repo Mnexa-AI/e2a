@@ -192,11 +192,18 @@ accepted if any one matches: `constructEvent(body, header, [oldSecret, newSecret
 
 `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
 `client.events`, `client.webhooks`, `client.account` (with
-`client.account.suppressions`), plus `client.info()`. Agent-scoped recipient
-blocks are managed through `client.agents.listSuppressions`,
-`createSuppression`, and `deleteSuppression`. Each method maps to a
-`/v1` operation; per-agent methods take the agent `address` as the first
-argument.
+`client.account.suppressions` and `client.account.apiKeys`), plus
+`client.info()`. Agent-scoped recipient blocks are managed through
+`client.agents.listSuppressions`, `createSuppression`, and
+`deleteSuppression`. Each method maps to a `/v1` operation; per-agent methods
+take the agent `address` as the first argument.
+
+Two more, both account-scoped: `client.reviews` — the human-review queue for
+messages held in `pending_review` (outbound drafts awaiting send approval,
+and inbound messages held by a screening gate), addressed by message id
+alone via `list`/`get`/`approve`/`reject`; and `client.templates` (beta) —
+reusable `{{variable}}` email templates plus the read-only starter catalog,
+referenced from `messages.send` via `template_id`/`template_alias`.
 
 ### `new E2AClient(options?)`
 

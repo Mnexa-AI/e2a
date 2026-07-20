@@ -232,10 +232,18 @@ During a rotation you can pass a list of secrets — accepted if any matches:
 
 `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
 `client.events`, `client.webhooks`, `client.account` (with
-`client.account.suppressions`), plus `await client.info()`. Agent-scoped
-recipient blocks are managed through `client.agents.list_suppressions`,
-`create_suppression`, and `delete_suppression`. Each method maps to
-a `/v1` operation; per-agent methods take the agent `address` first.
+`client.account.suppressions` and `client.account.api_keys`), plus
+`await client.info()`. Agent-scoped recipient blocks are managed through
+`client.agents.list_suppressions`, `create_suppression`, and
+`delete_suppression`. Each method maps to a `/v1` operation; per-agent
+methods take the agent `address` first.
+
+Two more, both account-scoped: `client.reviews` — the human-review queue for
+messages held in `pending_review` (outbound drafts awaiting send approval,
+and inbound messages held by a screening gate), addressed by message id
+alone via `list`/`get`/`approve`/`reject`; and `client.templates` (beta) —
+reusable `{{variable}}` email templates plus the read-only starter catalog,
+referenced from `messages.send` via `template_id`/`template_alias`.
 
 The sync `E2AClient` exposes the **same resource tree** — drop the `await`.
 It mirrors the async client dynamically (every async method is bridged, not
