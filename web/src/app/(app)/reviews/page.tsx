@@ -68,15 +68,8 @@ function PendingContent() {
     await mutate(pendingMessagesKey);
   }, [router, selectedId]);
 
-  const selected = messages.find((m) => m.id === selectedId) ?? null;
-
   return (
     <PageShell
-      crumbs={
-        selected
-          ? ["Pending", (selected.subject || selectedId).slice(0, 28) + "…"]
-          : ["Pending"]
-      }
       eyebrow="Review · Message holds"
       title={<>Pending review</>}
       subtitle={
@@ -154,7 +147,7 @@ export default function PendingPage() {
   return (
     <Suspense
       fallback={
-        <PageShell crumbs={["Pending"]}>
+        <PageShell>
           <div
             className="text-[13px] py-12 text-center"
             style={{ color: "var(--fg-muted)" }}

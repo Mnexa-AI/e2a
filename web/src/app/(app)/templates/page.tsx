@@ -151,7 +151,6 @@ export default function TemplatesPage() {
 
   return (
     <PageShell
-      crumbs={["Templates"]}
       eyebrow="Workspace"
       title={
         <span className="inline-flex items-center gap-2.5">

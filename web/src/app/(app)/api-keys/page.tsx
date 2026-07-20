@@ -179,7 +179,6 @@ export default function APIKeysPage() {
 
   return (
     <PageShell
-      crumbs={["API keys"]}
       eyebrow="Workspace"
       title={<>API keys</>}
       subtitle="API keys authenticate your inboxes when sending or replying to emails via the API. One key works across all your inboxes."

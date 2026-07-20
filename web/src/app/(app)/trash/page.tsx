@@ -53,7 +53,6 @@ export default function TrashPage() {
 
   return (
     <PageShell
-      crumbs={["Trash"]}
       eyebrow="Workspace"
       title={<>Trash</>}
       subtitle={

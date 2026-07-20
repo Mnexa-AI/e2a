@@ -71,7 +71,6 @@ export default function DomainsPage() {
   if (!loading && domains.length === 0 && !error) {
     return (
       <PageShell
-        crumbs={["Domains"]}
         eyebrow="Workspace"
         title={<>Domains</>}
         subtitle="Add a domain to create branded inbox addresses."
@@ -124,7 +123,6 @@ export default function DomainsPage() {
 
   return (
     <PageShell
-      crumbs={["Domains"]}
       eyebrow="Workspace"
       title={<>Domains</>}
       subtitle="Manage your domains. Verified domains can host inbox addresses."

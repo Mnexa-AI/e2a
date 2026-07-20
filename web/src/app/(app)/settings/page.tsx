@@ -11,7 +11,6 @@ export default function SettingsPage() {
 
   return (
     <PageShell
-      crumbs={["Settings"]}
       eyebrow="Account"
       title={<>Settings</>}
       subtitle="Account profile, data export, and account deletion."

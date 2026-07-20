@@ -20,7 +20,7 @@ function ReviewRedirect() {
     );
   }, [router, params]);
   return (
-    <PageShell crumbs={["Pending", "Review"]}>
+    <PageShell>
       <div
         className="text-[13px] py-12 text-center"
         style={{ color: "var(--fg-muted)" }}

@@ -151,7 +151,6 @@ export default function WebhooksPage() {
 
   return (
     <PageShell
-      crumbs={["Webhooks"]}
       eyebrow="Workspace"
       title={<>Webhooks</>}
       subtitle={

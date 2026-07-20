@@ -399,7 +399,6 @@ function TemplateEditPageInner() {
 
   return (
     <PageShell
-      crumbs={["Templates", "Edit"]}
       eyebrow="Workspace"
       title={
         <span className="inline-flex items-center gap-2.5">

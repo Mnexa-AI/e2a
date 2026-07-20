@@ -7,7 +7,6 @@
 // full set of emails enumerated at build time.
 
 import { usePathname, useSearchParams } from "next/navigation";
-import { Topbar } from "../../../components/loft/Topbar";
 import { AgentHeader, type AgentTab } from "../../../components/messages/AgentHeader";
 import { useAgents } from "../../../components/hooks/useAgents";
 
@@ -31,27 +30,11 @@ export default function AgentLayout({
   const email = searchParams.get("email") ?? "";
   const tab = detectTab(pathname ?? "");
 
-  // Topbar lives in the outer shell so the breadcrumb updates
-  // instantly on email change without waiting for the agent fetch.
   // The inner content remounts via `key={email}` whenever the URL's
   // email param changes — that's the canonical React way to reset
   // useState across a dependency boundary without setState-in-effect.
   return (
     <div className="flex flex-col" data-app-surface>
-      <Topbar
-        crumbs={[
-          { label: "Inboxes", href: "/inboxes" },
-          // The inbox crumb links back to THIS inbox's message list, so a
-          // detail/settings view's breadcrumb returns here — not the
-          // top-level list.
-          {
-            label: email || "—",
-            href: email
-              ? `/inboxes/messages?email=${encodeURIComponent(email)}`
-              : "/inboxes",
-          },
-        ]}
-      />
       <AgentLayoutContent key={email} email={email} tab={tab}>
         {children}
       </AgentLayoutContent>
