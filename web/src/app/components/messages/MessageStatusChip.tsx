@@ -76,7 +76,10 @@ export function deriveStatusChip(m: MessageStatusInput): MessageStatusSpec | nul
   }
 }
 
-export function MessageStatusChip(props: MessageStatusInput) {
+export function MessageStatusChip({
+  className,
+  ...props
+}: MessageStatusInput & { className?: string }) {
   const spec = deriveStatusChip(props);
   if (!spec) return null;
 
@@ -88,7 +91,7 @@ export function MessageStatusChip(props: MessageStatusInput) {
         : null;
 
   return (
-    <Chip tone={spec.tone}>
+    <Chip tone={spec.tone} className={className}>
       {spec.dot && dotTone && <Dot tone={dotTone} />}
       {spec.label}
     </Chip>

@@ -28,7 +28,7 @@ export function ThreadRow({
   const pending = thread.state === "pending";
   const latest = thread.messages[thread.messages.length - 1];
   const latestStatus =
-    latest.direction === "outbound"
+    latest?.direction === "outbound"
       ? deriveStatusChip({
           direction: "outbound",
           delivery_status: latest.status,
@@ -111,6 +111,7 @@ export function ThreadRow({
       {/* Right meta: attention status + timestamp. */}
       {latestStatus?.attention && (
         <MessageStatusChip
+          className="shrink-0 whitespace-nowrap"
           direction="outbound"
           delivery_status={latest.status}
           review_status={latest.review_status}

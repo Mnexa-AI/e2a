@@ -201,6 +201,7 @@ export function ThreadBubble({
           </span>
           {!isInbound && (
             <MessageStatusChip
+              className="shrink-0 whitespace-nowrap"
               direction="outbound"
               delivery_status={message.status}
               review_status={message.review_status}

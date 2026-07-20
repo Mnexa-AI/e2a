@@ -47,7 +47,7 @@ describe("ThreadRow delivery status", () => {
   it("renders Queued when the latest outbound message was accepted", () => {
     renderRow(thread([message("msg_1", "outbound", "accepted")]));
 
-    expect(screen.getByText("Queued")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toHaveClass("shrink-0", "whitespace-nowrap");
   });
 
   it("omits Delivered for a settled latest outbound message", () => {
@@ -79,5 +79,11 @@ describe("ThreadRow delivery status", () => {
     );
 
     expect(screen.getByText("Pending")).toBeInTheDocument();
+  });
+
+  it("renders safely when a thread has no messages", () => {
+    const value = thread([message("msg_7", "inbound", "")]);
+
+    expect(() => renderRow({ ...value, messages: [] })).not.toThrow();
   });
 });
