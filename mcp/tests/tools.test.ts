@@ -141,6 +141,7 @@ function makeStubClient(
       conversationId: "conv_x",
       headerFrom: "alice@example.com",
       envelopeFrom: "bounce@example.com",
+      verifiedDomain: "example.com",
       authentication: {
         spf: { status: "pass", domain: "example.com", aligned: true },
         dkim: [],
@@ -701,6 +702,7 @@ describe("e2a MCP server", () => {
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
     expect(parsed.id).toBe("msg_abc");
     expect(parsed.header_from).toBe("alice@example.com");
+    expect(parsed.verified_domain).toBe("example.com");
     expect(parsed.envelope_from).toBe("bounce@example.com");
     expect(parsed.authentication).toMatchObject({ dmarc: { status: "pass" } });
     expect(parsed).not.toHaveProperty("from_");

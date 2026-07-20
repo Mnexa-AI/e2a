@@ -25,6 +25,7 @@ function makeNotification(overrides: Partial<EmailReceivedData> = {}): EmailRece
     direction: "inbound",
     header_from: "alice@example.com",
     envelope_from: "bounce@example.com",
+    verified_domain: null,
     authentication: null,
     to: ["bot@agents.e2a.dev"],
     cc: [],

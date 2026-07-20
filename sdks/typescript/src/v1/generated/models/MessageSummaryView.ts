@@ -10,11 +10,9 @@
  * Do not edit the class manually.
  */
 
-import { Authentication } from '../models/Authentication.js';
 import { HttpFile } from '../http/http.js';
 
 export class MessageSummaryView {
-    'authentication': Authentication | null;
     'cc'?: Array<string>;
     'conversationId'?: string;
     'createdAt': Date;
@@ -57,6 +55,10 @@ export class MessageSummaryView {
     'sizeBytes'?: number;
     'subject': string;
     'to': Array<string>;
+    /**
+    * RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+    */
+    'verifiedDomain': string | null;
     'webhookError'?: string;
     'webhookStatus'?: string;
 
@@ -65,12 +67,6 @@ export class MessageSummaryView {
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
-        {
-            "name": "authentication",
-            "baseName": "authentication",
-            "type": "Authentication",
-            "format": ""
-        },
         {
             "name": "cc",
             "baseName": "cc",
@@ -195,6 +191,12 @@ export class MessageSummaryView {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
+            "type": "string",
             "format": ""
         },
         {

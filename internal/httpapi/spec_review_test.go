@@ -152,6 +152,10 @@ func typeIsNullable(props map[string]any, field string) bool {
 	if !ok {
 		return false
 	}
+	return schemaIsNullable(p)
+}
+
+func schemaIsNullable(p map[string]any) bool {
 	switch ty := p["type"].(type) {
 	case []any:
 		for _, v := range ty {
@@ -162,6 +166,13 @@ func typeIsNullable(props map[string]any, field string) bool {
 	case string:
 		if ty == "null" {
 			return true
+		}
+	}
+	if branches, ok := p["anyOf"].([]any); ok {
+		for _, branch := range branches {
+			if schema, ok := branch.(map[string]any); ok && schemaIsNullable(schema) {
+				return true
+			}
 		}
 	}
 	return false

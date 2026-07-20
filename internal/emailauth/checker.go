@@ -12,7 +12,6 @@ import (
 
 	"blitiri.com.ar/go/spf"
 	"github.com/emersion/go-msgauth/dkim"
-	"golang.org/x/net/publicsuffix"
 )
 
 var defaultDMARCEvaluator = newDMARCEvaluator(netTXTResolver{resolver: net.DefaultResolver})
@@ -108,76 +107,8 @@ func aggregateLegacyDKIM(results []DKIMResult) CheckResult {
 	return CheckResult{Status: results[0].Status, Detail: results[0].Detail}
 }
 
-// checkDMARC derives a DMARC verdict from the SPF/DKIM results plus identifier
-// alignment (RFC 7489): DMARC passes when an authenticated identifier is
-// ALIGNED with the From-header domain — i.e. a passing DKIM whose d= aligns, or
-// a passing SPF whose envelope (MAIL FROM) domain aligns. We use relaxed
-// alignment (organizational-domain match, the DMARC default) and do NOT fetch
-// the _dmarc policy record: the policy governs what to DO on failure
-// (quarantine/reject — Slice 7's job), not the pass/fail verdict, which is what
-// the trust primitive needs. No aligned pass while some auth was attempted →
-// fail; nothing attempted / no From domain → none.
-func checkDMARC(rawMessage []byte, envelopeSender string, spf, dkim CheckResult, dkimDomain string) CheckResult {
-	fromDomain := fromHeaderDomain(rawMessage)
-	if fromDomain == "" {
-		return CheckResult{Status: StatusNone, Detail: "no From-header domain to align against"}
-	}
-	if dkim.Status == StatusPass && aligned(dkimDomain, fromDomain) {
-		return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("dkim-aligned (d=%s, from=%s)", dkimDomain, fromDomain)}
-	}
-	if spf.Status == StatusPass && aligned(extractDomain(envelopeSender), fromDomain) {
-		return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("spf-aligned (mailfrom=%s, from=%s)", extractDomain(envelopeSender), fromDomain)}
-	}
-	if spf.Status == StatusNone && dkim.Status == StatusNone {
-		return CheckResult{Status: StatusNone, Detail: "no SPF or DKIM to align"}
-	}
-	return CheckResult{Status: StatusFail, Detail: "no aligned authenticated identifier for " + fromDomain}
-}
-
-// aligned reports relaxed (organizational-domain) alignment between two
-// domains, the DMARC default. Exact match aligns; otherwise their eTLD+1 must
-// match (so mail.example.com aligns with example.com).
-//
-// Guards (adversarial review): trailing dots are normalized so the absolute
-// form acme.com. aligns with acme.com; a domain that is ITSELF a public suffix
-// (e.g. github.io, co.uk) never aligns — there is no organization to attribute
-// it to, so a bare-suffix From with a matching d= must not earn a pass.
-//
-// LIMITATION (relaxed alignment, by design): two distinct tenants under a
-// non-PSL shared parent (e.g. a.wordpress.com vs b.wordpress.com) share an
-// eTLD+1 and therefore align. This is the standard relaxed-DMARC shared-hosting
-// gap; strict alignment (a deferred _dmarc-policy fetch) would close it.
-func aligned(a, b string) bool {
-	a, b = normDomain(a), normDomain(b)
-	if a == "" || b == "" {
-		return false
-	}
-	if isPublicSuffix(a) || isPublicSuffix(b) {
-		return false
-	}
-	if a == b {
-		return true
-	}
-	oa, ob := orgDomain(a), orgDomain(b)
-	return oa != "" && oa == ob
-}
-
 func normDomain(d string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
-}
-
-// isPublicSuffix reports whether d is itself a public suffix (ICANN or private),
-// i.e. it has no registrable label of its own.
-func isPublicSuffix(d string) bool {
-	suffix, _ := publicsuffix.PublicSuffix(d)
-	return suffix == d
-}
-
-func orgDomain(d string) string {
-	if e, err := publicsuffix.EffectiveTLDPlusOne(d); err == nil {
-		return e
-	}
-	return d
 }
 
 type AuthorIdentity struct {
@@ -215,10 +146,6 @@ func ParseAuthorIdentity(rawMessage []byte) AuthorIdentity {
 }
 
 // fromHeaderDomain extracts the unambiguous RFC 5322 Author Domain.
-func fromHeaderDomain(rawMessage []byte) string {
-	return ParseAuthorIdentity(rawMessage).Domain
-}
-
 func checkSPF(remoteIP net.IP, senderEmail string) SPFResult {
 	if remoteIP == nil {
 		return SPFResult{Status: StatusNone, Detail: "no remote IP available"}

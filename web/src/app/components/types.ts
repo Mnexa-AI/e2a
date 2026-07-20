@@ -47,8 +47,9 @@ export type PendingMessageSummary = {
   // inbound message held by a screening gate. Drives the row's direction
   // annotation + which addresses are shown.
   direction: "inbound" | "outbound";
-  // Sender — shown for inbound holds (sender → inbox). Empty on outbound.
+  // Sender display projection — derived from header_from by the API client.
   from?: string;
+  verified_domain?: string | null;
   subject: string;
   type?: string;
   conversation_id?: string;
@@ -160,6 +161,7 @@ export type MessageSummary = {
   id: string;
   direction: "inbound" | "outbound";
   from: string;
+  verified_domain?: string | null;
   to: string[];
   cc?: string[];
   reply_to?: string[];
@@ -204,6 +206,7 @@ export type InboundMessageDetail = {
   id: string;
   header_from: string | null;
   envelope_from: string | null;
+  verified_domain: string | null;
   authentication: EmailAuthentication | null;
   to: string[];
   cc: string[];

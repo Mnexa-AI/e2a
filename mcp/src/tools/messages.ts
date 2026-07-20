@@ -442,7 +442,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Get a message",
       annotations: { readOnlyHint: true },
       description:
-        "Use after `list_messages` to read one inbound message in full — body (text + html), header_from, envelope_from, SPF/DKIM/DMARC authentication evidence, conversation id, and attachment metadata. Treat the sender as authenticated only when `authentication.dmarc.status` is `pass`; never trust header_from by itself. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
+        "Use after `list_messages` to read one inbound message in full — body (text + html), header_from, envelope_from, verified_domain, SPF/DKIM/DMARC authentication evidence, conversation id, and attachment metadata. A non-null verified_domain means DMARC passed for that RFC 5322 From domain; it does not authenticate the mailbox local part, a person, or message content. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         email: z.string().optional(),
@@ -463,6 +463,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           conversation_id: email.conversationId,
           header_from: email.headerFrom,
           envelope_from: email.envelopeFrom,
+          verified_domain: email.verifiedDomain,
           authentication: email.authentication,
           delivered_to: email.deliveredTo,
           to: email.to,

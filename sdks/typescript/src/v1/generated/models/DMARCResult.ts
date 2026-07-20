@@ -13,10 +13,25 @@
 import { HttpFile } from '../http/http.js';
 
 export class DMARCResult {
-    'alignedBy': Array<string>;
+    /**
+    * Mechanisms that both passed and aligned. Empty unless status is pass; each mechanism appears at most once.
+    */
+    'alignedBy': Array<DMARCResultAlignedByEnum>;
+    /**
+    * Free-text diagnostic for humans and logs. Never parse or branch on this field.
+    */
     'detail'?: string;
+    /**
+    * RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists.
+    */
     'domain': string | null;
-    'policy': string | null;
+    /**
+    * Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength.
+    */
+    'policy': DMARCResultPolicyEnum | null;
+    /**
+    * DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.
+    */
     'status': DMARCResultStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;
@@ -27,7 +42,7 @@ export class DMARCResult {
         {
             "name": "alignedBy",
             "baseName": "aligned_by",
-            "type": "Array<string>",
+            "type": "Array<DMARCResultAlignedByEnum>",
             "format": ""
         },
         {
@@ -45,7 +60,7 @@ export class DMARCResult {
         {
             "name": "policy",
             "baseName": "policy",
-            "type": "string",
+            "type": "DMARCResultPolicyEnum",
             "format": ""
         },
         {
@@ -63,6 +78,15 @@ export class DMARCResult {
     }
 }
 
+export enum DMARCResultAlignedByEnum {
+    Spf = 'spf',
+    Dkim = 'dkim'
+}
+export enum DMARCResultPolicyEnum {
+    None = 'none',
+    Quarantine = 'quarantine',
+    Reject = 'reject'
+}
 export enum DMARCResultStatusEnum {
     Pass = 'pass',
     Fail = 'fail',

@@ -127,9 +127,9 @@ Webhooks are an **account-level resource** (`/v1/webhooks`), chosen per integrat
 
 ### Inbound authentication
 
-Inbound messages expose three distinct concepts: `header_from` (the parsed RFC 5322 From address), `envelope_from` (SMTP MAIL FROM), and `authentication` (SPF, every DKIM signature, and the aligned DMARC result). Reply-To remains separate and never replaces `header_from`.
+Inbound messages expose `header_from` (the parsed RFC 5322 From address), `envelope_from` (SMTP MAIL FROM), `verified_domain` (a nullable DMARC-pass convenience projection), and—on detail responses—`authentication` (SPF, every DKIM signature, and the aligned DMARC result). Reply-To remains separate and never replaces `header_from`.
 
-Treat a sender as authenticated only when `authentication?.dmarc.status === "pass"`. SPF or DKIM passing alone is evidence, but is not sufficient unless it aligns with the From domain under DMARC. `authentication` is null for outbound messages and providerless local loopback delivery.
+For list and review decisions, a non-null `verified_domain` means DMARC passed for that RFC 5322 From domain. On detail responses, the equivalent check is `authentication?.dmarc.status === "pass"`. Neither field authenticates the mailbox local part, a person, or message content. `authentication` is null for outbound messages and providerless local loopback delivery.
 
 Before trusting any webhook field, verify the delivery envelope's `X-E2A-Signature` with the webhook's `whsec_…` signing secret. The envelope signature covers the complete structured payload, including `authentication`.
 

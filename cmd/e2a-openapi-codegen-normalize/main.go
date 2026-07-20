@@ -31,7 +31,7 @@ func main() {
 
 	components, _ := document["components"].(map[string]any)
 	schemas, _ := components["schemas"].(map[string]any)
-	for _, name := range []string{"MessageView", "MessageSummaryView", "EmailReceivedData"} {
+	for _, name := range []string{"MessageView", "Message", "EmailReceivedData"} {
 		schema, _ := schemas[name].(map[string]any)
 		properties, _ := schema["properties"].(map[string]any)
 		property, _ := properties["authentication"].(map[string]any)

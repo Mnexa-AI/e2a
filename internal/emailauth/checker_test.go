@@ -92,13 +92,13 @@ func TestMapDKIMResultsFailsClosedWhenSignatureTagsDoNotCorrelate(t *testing.T) 
 	}
 }
 
-func TestFromHeaderDomainRejectsMultipleFromFieldsAndAddresses(t *testing.T) {
+func TestParseAuthorIdentityRejectsMultipleFromFieldsAndAddresses(t *testing.T) {
 	for _, raw := range []string{
 		"From: ceo@trusted.example\r\nFrom: signed@trusted.example\r\n\r\nbody",
 		"From: ceo@trusted.example, signed@trusted.example\r\n\r\nbody",
 	} {
-		if got := fromHeaderDomain([]byte(raw)); got != "" {
-			t.Fatalf("fromHeaderDomain(%q) = %q, want empty", raw, got)
+		if got := ParseAuthorIdentity([]byte(raw)); got.Domain != "" || got.Address != "" {
+			t.Fatalf("ParseAuthorIdentity(%q) = %+v, want empty", raw, got)
 		}
 	}
 }
@@ -342,52 +342,5 @@ func TestExtractDomain(t *testing.T) {
 		if got != tt.domain {
 			t.Errorf("extractDomain(%q) = %q, want %q", tt.email, got, tt.domain)
 		}
-	}
-}
-
-// TestCheckDMARC covers the alignment verdict (relaxed org-domain) without
-// needing live SPF/DKIM: it drives checkDMARC directly with crafted inputs.
-func TestCheckDMARC(t *testing.T) {
-	from := func(d string) []byte {
-		return []byte("From: Sender <s@" + d + ">\r\nTo: a@b.com\r\nSubject: x\r\n\r\nhi")
-	}
-	pass := CheckResult{Status: StatusPass}
-	none := CheckResult{Status: StatusNone}
-
-	tests := []struct {
-		name       string
-		raw        []byte
-		envelope   string
-		spf, dkim  CheckResult
-		dkimDomain string
-		wantStatus CheckStatus
-	}{
-		{"dkim aligned exact", from("acme.com"), "bounce@x.com", none, pass, "acme.com", StatusPass},
-		{"dkim aligned subdomain (relaxed org)", from("acme.com"), "bounce@x.com", none, pass, "mail.acme.com", StatusPass},
-		{"dkim pass but unaligned", from("acme.com"), "bounce@x.com", none, pass, "evil.com", StatusFail},
-		{"spf aligned", from("acme.com"), "notify@acme.com", pass, none, "", StatusPass},
-		{"spf pass but unaligned envelope", from("acme.com"), "bounce@sendgrid.net", pass, none, "", StatusFail},
-		{"spf aligned via org domain", from("acme.com"), "bounce@mail.acme.com", pass, none, "", StatusPass},
-		{"neither aligned → fail", from("acme.com"), "x@other.com", pass, pass, "other.com", StatusFail},
-		{"nothing attempted → none", from("acme.com"), "x@other.com", none, none, "", StatusNone},
-		{"no From domain → none", []byte("To: a@b.com\r\n\r\nhi"), "x@acme.com", pass, none, "", StatusNone},
-		// Hardening (adversarial review): a From that is itself a public suffix
-		// must NOT self-align even with a matching d= (no org to attribute to).
-		{"public-suffix From does not self-align", from("github.io"), "x@y.com", none, pass, "github.io", StatusFail},
-		// Trailing-dot (absolute form) From: net/mail rejects it → conservative
-		// none (not a spoof). normDomain still strips trailing dots on any
-		// identifier that does reach alignment (e.g. a d= value).
-		{"trailing-dot From → conservative none", from("acme.com."), "x@y.com", none, pass, "acme.com", StatusNone},
-		// Documented relaxed-alignment limitation: distinct tenants under a
-		// non-PSL shared parent align (a.wordpress.com ~ b.wordpress.com).
-		{"shared non-PSL parent aligns (known relaxed gap)", from("a.wordpress.com"), "x@y.com", none, pass, "b.wordpress.com", StatusPass},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := checkDMARC(tc.raw, tc.envelope, tc.spf, tc.dkim, tc.dkimDomain)
-			if got.Status != tc.wantStatus {
-				t.Errorf("DMARC = %q (%s), want %q", got.Status, got.Detail, tc.wantStatus)
-			}
-		})
 	}
 }

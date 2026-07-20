@@ -411,13 +411,16 @@ components:
       additionalProperties: true
       properties:
         dkim:
+          description: One result per DKIM signature, in message header order. An unsigned message carries an empty array.
           items:
             $ref: "#/components/schemas/DKIMResult"
           type: array
         dmarc:
           $ref: "#/components/schemas/DMARCResult"
+          description: DMARC evaluation of the RFC 5322 Author Domain against aligned SPF and DKIM evidence.
         spf:
           $ref: "#/components/schemas/SPFResult"
+          description: SPF evidence for the SMTP peer and RFC 5321 identity.
       required:
         - spf
         - dkim
@@ -713,20 +716,25 @@ components:
       additionalProperties: true
       properties:
         aligned:
+          description: Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass.
           type:
             - boolean
             - "null"
         detail:
+          description: Free-text diagnostic for humans and logs. Never parse or branch on this field.
           type: string
         domain:
+          description: DKIM signing domain from the signature d= tag; null when it could not be parsed.
           type:
             - string
             - "null"
         selector:
+          description: DKIM selector from the signature s= tag; null when it could not be parsed.
           type:
             - string
             - "null"
         status:
+          description: Result for this DKIM signature. policy means e2a deliberately refused the signature, such as one using the unsafe l= body-length tag.
           enum:
             - pass
             - fail
@@ -746,20 +754,32 @@ components:
       additionalProperties: true
       properties:
         aligned_by:
+          description: Mechanisms that both passed and aligned. Empty unless status is pass; each mechanism appears at most once.
           items:
+            enum:
+              - spf
+              - dkim
             type: string
           type: array
         detail:
+          description: Free-text diagnostic for humans and logs. Never parse or branch on this field.
           type: string
         domain:
+          description: RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists.
           type:
             - string
             - "null"
         policy:
+          description: Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength.
+          enum:
+            - none
+            - quarantine
+            - reject
           type:
             - string
             - "null"
         status:
+          description: DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.
           enum:
             - pass
             - fail
@@ -1314,12 +1334,18 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+          type:
+            - string
+            - "null"
       required:
         - message_id
         - agent_email
         - direction
         - header_from
         - envelope_from
+        - verified_domain
         - to
         - cc
         - reply_to
@@ -1982,7 +2008,13 @@ components:
             - array
             - "null"
         authentication:
-          $ref: "#/components/schemas/Authentication"
+          anyOf:
+            - $ref: "#/components/schemas/Authentication"
+            - maxProperties: 0
+              minProperties: 1
+              type:
+                - object
+                - "null"
         bcc:
           items:
             type: string
@@ -2016,7 +2048,9 @@ components:
         email_message_id:
           type: string
         envelope_from:
-          type: string
+          type:
+            - string
+            - "null"
         expires_at:
           format: date-time
           type: string
@@ -2025,7 +2059,9 @@ components:
         flagged:
           type: boolean
         header_from:
-          type: string
+          type:
+            - string
+            - "null"
         html:
           type: string
         id:
@@ -2087,6 +2123,11 @@ components:
             - "null"
         type:
           type: string
+        verified_domain:
+          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+          type:
+            - string
+            - "null"
         webhook_attempts:
           format: int64
           type: integer
@@ -2100,6 +2141,7 @@ components:
         - direction
         - header_from
         - envelope_from
+        - verified_domain
         - authentication
         - delivered_to
         - subject
@@ -2131,14 +2173,6 @@ components:
     MessageSummaryView:
       additionalProperties: true
       properties:
-        authentication:
-          anyOf:
-            - $ref: "#/components/schemas/Authentication"
-            - maxProperties: 0
-              minProperties: 1
-              type:
-                - object
-                - "null"
         cc:
           items:
             type: string
@@ -2208,6 +2242,11 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+          type:
+            - string
+            - "null"
         webhook_error:
           type: string
         webhook_status:
@@ -2217,7 +2256,7 @@ components:
         - direction
         - header_from
         - envelope_from
-        - authentication
+        - verified_domain
         - to
         - delivered_to
         - subject
@@ -2240,7 +2279,7 @@ components:
               type:
                 - object
                 - "null"
-          description: SMTP authentication evidence; null for outbound and providerless delivery.
+          description: Inbound SMTP authentication evidence. Null only when no inbound SMTP authentication evaluation exists for this delivery, such as outbound or providerless loopback delivery.
         body:
           $ref: "#/components/schemas/MessageBodyView"
         cc:
@@ -2333,6 +2372,11 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content.
+          type:
+            - string
+            - "null"
         webhook_error:
           type: string
         webhook_status:
@@ -2341,6 +2385,7 @@ components:
         - id
         - header_from
         - envelope_from
+        - verified_domain
         - authentication
         - to
         - cc
@@ -3033,14 +3078,22 @@ components:
             - inbound
             - outbound
           type: string
+        envelope_from:
+          description: SMTP MAIL FROM address when known; null for outbound, null reverse path, and providerless loopback delivery.
+          type:
+            - string
+            - "null"
         flag_reason:
           type: string
           x-stability-level: beta
         flagged:
           type: boolean
           x-stability-level: beta
-        from:
-          type: string
+        header_from:
+          description: Parsed RFC 5322 From address; never replaced by Reply-To.
+          type:
+            - string
+            - "null"
         hold_reason:
           $ref: "#/components/schemas/HoldReasonView"
           description: Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
@@ -3057,11 +3110,18 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+          type:
+            - string
+            - "null"
       required:
         - id
         - agent_email
         - direction
-        - from
+        - header_from
+        - envelope_from
+        - verified_domain
         - to
         - subject
         - review_status
@@ -3084,23 +3144,26 @@ components:
       additionalProperties: true
       properties:
         aligned:
+          description: Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass.
           type:
             - boolean
             - "null"
         detail:
+          description: Free-text diagnostic for humans and logs. Never parse or branch on this field.
           type: string
         domain:
+          description: RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available.
           type:
             - string
             - "null"
         status:
+          description: SPF evaluation result. Only pass can contribute to DMARC alignment.
           enum:
             - pass
             - fail
             - none
             - neutral
             - softfail
-            - policy
             - temperror
             - permerror
           type: string

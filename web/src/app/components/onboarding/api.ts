@@ -172,7 +172,7 @@ type MessageSummaryWire = {
   direction: "inbound" | "outbound";
   header_from: string | null;
   envelope_from: string | null;
-  authentication: import("../types").EmailAuthentication | null;
+  verified_domain: string | null;
   to?: string[] | null;
   cc?: string[] | null;
   reply_to?: string[] | null;
@@ -201,6 +201,7 @@ function projectSummary(w: MessageSummaryWire): import("../types").MessageSummar
     id: w.id,
     direction: w.direction,
     from: w.header_from ?? "",
+    verified_domain: w.verified_domain,
     to: w.to ?? [],
     cc: w.cc ?? undefined,
     reply_to: w.reply_to ?? undefined,
@@ -333,6 +334,7 @@ export type MessageViewWire = {
   id: string;
   header_from: string | null;
   envelope_from: string | null;
+  verified_domain: string | null;
   authentication: import("../types").EmailAuthentication | null;
   to?: string[] | null;
   cc?: string[] | null;
@@ -406,6 +408,7 @@ export function projectInbound(
     id: w.id,
     header_from: w.header_from,
     envelope_from: w.envelope_from,
+    verified_domain: w.verified_domain,
     authentication: w.authentication,
     to: w.to ?? [],
     cc: w.cc ?? [],
@@ -635,7 +638,9 @@ type ReviewWire = {
   id: string;
   agent_email: string;
   direction: "inbound" | "outbound";
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  verified_domain: string | null;
   to?: string[] | null;
   subject: string;
   conversation_id?: string;
@@ -655,7 +660,8 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
     id: r.id,
     agent_email: r.agent_email,
     direction: r.direction,
-    from: r.from,
+    from: r.header_from ?? "",
+    verified_domain: r.verified_domain,
     subject: r.subject,
     conversation_id: r.conversation_id,
     to: r.to ?? [],

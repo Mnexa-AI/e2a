@@ -32,7 +32,7 @@ class Message(BaseModel):
     agent_email: StrictStr
     approval_expires_at: Optional[datetime] = None
     attachments: Optional[List[AttachmentMetaView]] = None
-    authentication: Authentication
+    authentication: Optional[Authentication]
     bcc: Optional[List[StrictStr]] = None
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
@@ -44,11 +44,11 @@ class Message(BaseModel):
     direction: StrictStr
     edited: Optional[StrictBool] = None
     email_message_id: Optional[StrictStr] = None
-    envelope_from: StrictStr
+    envelope_from: Optional[StrictStr]
     expires_at: datetime
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    header_from: StrictStr
+    header_from: Optional[StrictStr]
     html: Optional[StrictStr] = None
     id: StrictStr
     labels: Optional[List[StrictStr]] = None
@@ -71,11 +71,12 @@ class Message(BaseModel):
     text: Optional[StrictStr] = None
     to: Optional[List[StrictStr]] = None
     type: Optional[StrictStr] = None
+    verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.")
     webhook_attempts: Optional[StrictInt] = None
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "authentication", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "envelope_from", "expires_at", "flag_reason", "flagged", "header_from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "webhook_attempts", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "authentication", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "envelope_from", "expires_at", "flag_reason", "flagged", "header_from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "verified_domain", "webhook_attempts", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -138,6 +139,11 @@ class Message(BaseModel):
         if self.attachments is None and "attachments" in self.model_fields_set:
             _dict['attachments'] = None
 
+        # set to None if authentication (nullable) is None
+        # and model_fields_set contains the field
+        if self.authentication is None and "authentication" in self.model_fields_set:
+            _dict['authentication'] = None
+
         # set to None if bcc (nullable) is None
         # and model_fields_set contains the field
         if self.bcc is None and "bcc" in self.model_fields_set:
@@ -147,6 +153,16 @@ class Message(BaseModel):
         # and model_fields_set contains the field
         if self.cc is None and "cc" in self.model_fields_set:
             _dict['cc'] = None
+
+        # set to None if envelope_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.envelope_from is None and "envelope_from" in self.model_fields_set:
+            _dict['envelope_from'] = None
+
+        # set to None if header_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.header_from is None and "header_from" in self.model_fields_set:
+            _dict['header_from'] = None
 
         # set to None if labels (nullable) is None
         # and model_fields_set contains the field
@@ -162,6 +178,11 @@ class Message(BaseModel):
         # and model_fields_set contains the field
         if self.to is None and "to" in self.model_fields_set:
             _dict['to'] = None
+
+        # set to None if verified_domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.verified_domain is None and "verified_domain" in self.model_fields_set:
+            _dict['verified_domain'] = None
 
         return _dict
 
@@ -217,6 +238,7 @@ class Message(BaseModel):
             "text": obj.get("text"),
             "to": obj.get("to"),
             "type": obj.get("type"),
+            "verified_domain": obj.get("verified_domain"),
             "webhook_attempts": obj.get("webhook_attempts"),
             "webhook_error": obj.get("webhook_error"),
             "webhook_status": obj.get("webhook_status")

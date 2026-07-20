@@ -452,6 +452,7 @@ func (w *Worker) publishLoopbackOutcomeEventsTx(
 		Direction:      "inbound",
 		ConversationID: inboundMsg.ConversationID,
 		HeaderFrom:     stringPointer(agent.EmailAddress()),
+		VerifiedDomain: nil,
 		To:             []string{agent.EmailAddress()},
 		CC:             []string{},
 		ReplyTo:        replyTo,

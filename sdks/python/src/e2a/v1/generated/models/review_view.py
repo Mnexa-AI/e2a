@@ -32,16 +32,18 @@ class ReviewView(BaseModel):
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
     direction: StrictStr
+    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address when known; null for outbound, null reverse path, and providerless loopback delivery.")
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    from_: StrictStr = Field(alias="from")
+    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address; never replaced by Reply-To.")
     hold_reason: Optional[HoldReasonView] = Field(default=None, description="Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.")
     id: StrictStr = Field(description="The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.")
     review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")
     subject: StrictStr
     to: List[StrictStr]
+    verified_domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "review_status", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "envelope_from", "flag_reason", "flagged", "header_from", "hold_reason", "id", "review_status", "subject", "to", "verified_domain"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -92,6 +94,21 @@ class ReviewView(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if envelope_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.envelope_from is None and "envelope_from" in self.model_fields_set:
+            _dict['envelope_from'] = None
+
+        # set to None if header_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.header_from is None and "header_from" in self.model_fields_set:
+            _dict['header_from'] = None
+
+        # set to None if verified_domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.verified_domain is None and "verified_domain" in self.model_fields_set:
+            _dict['verified_domain'] = None
+
         return _dict
 
     @classmethod
@@ -108,14 +125,16 @@ class ReviewView(BaseModel):
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
             "direction": obj.get("direction"),
+            "envelope_from": obj.get("envelope_from"),
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
-            "from": obj.get("from"),
+            "header_from": obj.get("header_from"),
             "hold_reason": HoldReasonView.from_dict(obj["hold_reason"]) if obj.get("hold_reason") is not None else None,
             "id": obj.get("id"),
             "review_status": obj.get("review_status"),
             "subject": obj.get("subject"),
-            "to": obj.get("to")
+            "to": obj.get("to"),
+            "verified_domain": obj.get("verified_domain")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

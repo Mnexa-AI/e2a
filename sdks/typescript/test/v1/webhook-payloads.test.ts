@@ -46,6 +46,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.agent_email).toBe("support@agents.example.com");
     expect(d.direction).toBe("inbound");
     expect(d.header_from).toBe("alice@customer.example.com");
+    expect(d.verified_domain).toBe("customer.example.com");
     expect(d.envelope_from).toBe("bounce@customer.example.com");
     expect(d.to).toEqual(["support@agents.example.com"]);
     expect(d.delivered_to).toBe("support@agents.example.com");
@@ -141,6 +142,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
       expect(d.delivered_to).toBe("support@agents.example.com");
       // Required nullable authentication/identity fields remain present.
       expect(d.header_from).toBeNull();
+      expect(d.verified_domain).toBeNull();
       expect(d.envelope_from).toBeNull();
       expect(d.authentication).toBeNull();
       expect(d.to).toEqual(["support@agents.example.com"]);

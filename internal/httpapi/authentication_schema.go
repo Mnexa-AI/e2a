@@ -8,7 +8,7 @@ import "github.com/danielgtaylor/huma/v2"
 // present and null for outbound and providerless deliveries.
 func (s *Server) applyAuthenticationNullability() {
 	registry := s.API.OpenAPI().Components.Schemas
-	for _, component := range []string{"MessageView", "MessageSummaryView", "EmailReceivedData"} {
+	for _, component := range []string{"MessageView", "Message", "EmailReceivedData"} {
 		schema := registry.Map()[component]
 		if schema == nil {
 			panic("authentication schema owner is missing: " + component)
@@ -33,5 +33,19 @@ func (s *Server) applyAuthenticationNullability() {
 				},
 			},
 		}
+	}
+
+	// identity.Message keeps database fields as strings, but its public export
+	// JSON marshaler emits null when either identity is unavailable.
+	message := registry.Map()["Message"]
+	if message == nil {
+		panic("message schema is missing")
+	}
+	for _, field := range []string{"header_from", "envelope_from"} {
+		property := message.Properties[field]
+		if property == nil {
+			panic("message identity property is missing: " + field)
+		}
+		property.Nullable = true
 	}
 }

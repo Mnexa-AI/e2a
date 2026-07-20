@@ -25,7 +25,8 @@ type MessageView struct {
 	ID             string                    `json:"id"`
 	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
 	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address when known."`
-	Authentication *emailauth.Authentication `json:"authentication" doc:"SMTP authentication evidence; null for outbound and providerless delivery."`
+	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content."`
+	Authentication *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Null only when no inbound SMTP authentication evaluation exists for this delivery, such as outbound or providerless loopback delivery."`
 	To             []string                  `json:"to" nullable:"false"`
 	CC             []string                  `json:"cc" nullable:"false"`
 	ReplyTo        []string                  `json:"reply_to" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here)."`
@@ -158,6 +159,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		ID:             m.ID,
 		HeaderFrom:     messageHeaderFrom(m),
 		EnvelopeFrom:   nullableMessageString(m.EnvelopeFrom),
+		VerifiedDomain: m.Authentication.VerifiedDomain(),
 		Authentication: m.Authentication,
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
@@ -249,16 +251,16 @@ type MessageSummaryView struct {
 	ID string `json:"id"`
 	// Deliberately a CLOSED enum despite being response-side: direction is a
 	// binary invariant of the model, not an evolving vocabulary.
-	Direction      string                    `json:"direction" enum:"inbound,outbound"`
-	HeaderFrom     *string                   `json:"header_from" nullable:"true"`
-	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true"`
-	Authentication *emailauth.Authentication `json:"authentication"`
-	To             []string                  `json:"to" nullable:"false"`
-	CC             []string                  `json:"cc,omitempty" nullable:"false"`
-	ReplyTo        []string                  `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
-	Recipient      string                    `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
-	Subject        string                    `json:"subject"`
-	ConversationID string                    `json:"conversation_id,omitempty"`
+	Direction      string   `json:"direction" enum:"inbound,outbound"`
+	HeaderFrom     *string  `json:"header_from" nullable:"true"`
+	EnvelopeFrom   *string  `json:"envelope_from" nullable:"true"`
+	VerifiedDomain *string  `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content."`
+	To             []string `json:"to" nullable:"false"`
+	CC             []string `json:"cc,omitempty" nullable:"false"`
+	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
+	Recipient      string   `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
+	Subject        string   `json:"subject"`
+	ConversationID string   `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
 	Status        string `json:"read_status"`
 	HITLStatus    string `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field."`
@@ -306,7 +308,7 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		Direction:      m.Direction,
 		HeaderFrom:     messageHeaderFrom(&m),
 		EnvelopeFrom:   nullableMessageString(m.EnvelopeFrom),
-		Authentication: m.Authentication,
+		VerifiedDomain: m.Authentication.VerifiedDomain(),
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
 		ReplyTo:        inboundReplyToView(&m),

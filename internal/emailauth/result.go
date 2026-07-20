@@ -31,34 +31,47 @@ const (
 )
 
 type SPFResult struct {
-	Status  Status  `json:"status" enum:"pass,fail,none,neutral,softfail,policy,temperror,permerror"`
-	Domain  *string `json:"domain" nullable:"true"`
-	Aligned *bool   `json:"aligned" nullable:"true"`
-	Detail  string  `json:"detail,omitempty"`
+	Status  Status  `json:"status" enum:"pass,fail,none,neutral,softfail,temperror,permerror" doc:"SPF evaluation result. Only pass can contribute to DMARC alignment."`
+	Domain  *string `json:"domain" nullable:"true" doc:"RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available."`
+	Aligned *bool   `json:"aligned" nullable:"true" doc:"Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass."`
+	Detail  string  `json:"detail,omitempty" doc:"Free-text diagnostic for humans and logs. Never parse or branch on this field."`
 }
 
 type DKIMResult struct {
-	Status   Status  `json:"status" enum:"pass,fail,none,neutral,policy,temperror,permerror"`
-	Domain   *string `json:"domain" nullable:"true"`
-	Selector *string `json:"selector" nullable:"true"`
-	Aligned  *bool   `json:"aligned" nullable:"true"`
-	Detail   string  `json:"detail,omitempty"`
+	Status   Status  `json:"status" enum:"pass,fail,none,neutral,policy,temperror,permerror" doc:"Result for this DKIM signature. policy means e2a deliberately refused the signature, such as one using the unsafe l= body-length tag."`
+	Domain   *string `json:"domain" nullable:"true" doc:"DKIM signing domain from the signature d= tag; null when it could not be parsed."`
+	Selector *string `json:"selector" nullable:"true" doc:"DKIM selector from the signature s= tag; null when it could not be parsed."`
+	Aligned  *bool   `json:"aligned" nullable:"true" doc:"Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass."`
+	Detail   string  `json:"detail,omitempty" doc:"Free-text diagnostic for humans and logs. Never parse or branch on this field."`
 }
 
 type DMARCResult struct {
-	Status    Status               `json:"status" enum:"pass,fail,none,temperror,permerror"`
-	Domain    *string              `json:"domain" nullable:"true"`
-	Policy    *DMARCPolicy         `json:"policy" nullable:"true"`
-	AlignedBy []AlignmentMechanism `json:"aligned_by" nullable:"false"`
-	Detail    string               `json:"detail,omitempty"`
+	Status Status  `json:"status" enum:"pass,fail,none,temperror,permerror" doc:"DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain."`
+	Domain *string `json:"domain" nullable:"true" doc:"RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists."`
+	// Closed response enum: exhaustive DMARC policy classification.
+	Policy *DMARCPolicy `json:"policy" nullable:"true" enum:"none,quarantine,reject" doc:"Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength."`
+	// Closed response item enum: DMARC alignment has exactly two mechanisms.
+	AlignedBy []AlignmentMechanism `json:"aligned_by" nullable:"false" enum:"spf,dkim" doc:"Mechanisms that both passed and aligned. Empty unless status is pass; each mechanism appears at most once."`
+	Detail    string               `json:"detail,omitempty" doc:"Free-text diagnostic for humans and logs. Never parse or branch on this field."`
 }
 
 type Authentication struct {
-	SPF   SPFResult    `json:"spf"`
-	DKIM  []DKIMResult `json:"dkim" nullable:"false"`
-	DMARC DMARCResult  `json:"dmarc"`
+	SPF   SPFResult    `json:"spf" doc:"SPF evidence for the SMTP peer and RFC 5321 identity."`
+	DKIM  []DKIMResult `json:"dkim" nullable:"false" doc:"One result per DKIM signature, in message header order. An unsigned message carries an empty array."`
+	DMARC DMARCResult  `json:"dmarc" doc:"DMARC evaluation of the RFC 5322 Author Domain against aligned SPF and DKIM evidence."`
 }
 
 func (a *Authentication) Passed() bool {
 	return a != nil && a.DMARC.Status == StatusPass
+}
+
+// VerifiedDomain returns the RFC 5322 Author Domain only when DMARC passed.
+// It is a convenience decision projection; DMARC still authenticates a domain,
+// never a mailbox local part, individual human, or message content.
+func (a *Authentication) VerifiedDomain() *string {
+	if !a.Passed() || a.DMARC.Domain == nil || *a.DMARC.Domain == "" {
+		return nil
+	}
+	domain := *a.DMARC.Domain
+	return &domain
 }

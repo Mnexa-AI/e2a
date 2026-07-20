@@ -137,8 +137,8 @@ export interface Authentication {
  *  notification — it does NOT carry the message body. `message_id` + `delivered_to`
  *  are the fetch keys; pass the event to {@link E2AClient.webhooks.fetchMessage}
  *  (or call `client.messages.get(delivered_to, message_id)`) to retrieve the full
- *  message (body + attachment bytes). Trust the sender only when
- *  `authentication?.dmarc.status === "pass"`. */
+ *  message (body + attachment bytes). A non-null `verified_domain` means
+ *  DMARC passed for that RFC 5322 From domain. */
 export interface EmailReceivedData {
   message_id: string;
   /** The receiving agent's email — its id and address (an agent's id IS its email). */
@@ -150,6 +150,8 @@ export interface EmailReceivedData {
   header_from: string | null;
   /** SMTP MAIL FROM; null for a null reverse path or providerless delivery. */
   envelope_from: string | null;
+  /** RFC 5322 From domain when DMARC passed; null otherwise. */
+  verified_domain: string | null;
   /** SMTP authentication evidence; null for providerless delivery. */
   authentication: Authentication | null;
   to: string[];

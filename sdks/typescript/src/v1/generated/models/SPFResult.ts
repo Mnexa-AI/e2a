@@ -13,9 +13,21 @@
 import { HttpFile } from '../http/http.js';
 
 export class SPFResult {
+    /**
+    * Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass.
+    */
     'aligned': boolean | null;
+    /**
+    * Free-text diagnostic for humans and logs. Never parse or branch on this field.
+    */
     'detail'?: string;
+    /**
+    * RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available.
+    */
     'domain': string | null;
+    /**
+    * SPF evaluation result. Only pass can contribute to DMARC alignment.
+    */
     'status': SPFResultStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;
@@ -62,7 +74,6 @@ export enum SPFResultStatusEnum {
     None = 'none',
     Neutral = 'neutral',
     Softfail = 'softfail',
-    Policy = 'policy',
     Temperror = 'temperror',
     Permerror = 'permerror'
 }

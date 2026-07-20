@@ -21,9 +21,16 @@ export class ReviewView {
     'conversationId'?: string;
     'createdAt': Date;
     'direction': ReviewViewDirectionEnum;
+    /**
+    * SMTP MAIL FROM address when known; null for outbound, null reverse path, and providerless loopback delivery.
+    */
+    'envelopeFrom': string | null;
     'flagReason'?: string;
     'flagged'?: boolean;
-    'from_': string;
+    /**
+    * Parsed RFC 5322 From address; never replaced by Reply-To.
+    */
+    'headerFrom': string | null;
     /**
     * Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
     */
@@ -38,6 +45,10 @@ export class ReviewView {
     'reviewStatus': string;
     'subject': string;
     'to': Array<string>;
+    /**
+    * RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+    */
+    'verifiedDomain': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -69,6 +80,12 @@ export class ReviewView {
             "format": ""
         },
         {
+            "name": "envelopeFrom",
+            "baseName": "envelope_from",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "flagReason",
             "baseName": "flag_reason",
             "type": "string",
@@ -81,8 +98,8 @@ export class ReviewView {
             "format": ""
         },
         {
-            "name": "from_",
-            "baseName": "from",
+            "name": "headerFrom",
+            "baseName": "header_from",
             "type": "string",
             "format": ""
         },
@@ -114,6 +131,12 @@ export class ReviewView {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
+            "type": "string",
             "format": ""
         }    ];
 

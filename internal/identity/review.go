@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/tokencanopy/e2a/internal/emailauth"
 )
 
 // ReviewListItem is one row of the human review queue (GET /v1/reviews):
@@ -15,6 +17,9 @@ type ReviewListItem struct {
 	AgentID        string
 	Direction      string // inbound | outbound
 	Sender         string
+	HeaderFrom     string
+	EnvelopeFrom   string
+	Authentication *emailauth.Authentication
 	To             []string
 	Subject        string
 	ConversationID string
@@ -41,8 +46,10 @@ type ReviewListItem struct {
 // excludes). SECURITY: account-scoped reviewer flow only; the user join is the
 // tenant-isolation guard.
 func (s *Store) ListReviews(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]ReviewListItem, error) {
-	q := `SELECT m.id, m.agent_id, m.direction, m.sender, m.to_recipients,
-	        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
+	q := `SELECT m.id, m.agent_id, m.direction, m.sender,
+		        COALESCE(m.header_from, ''), COALESCE(m.envelope_from, ''),
+		        m.authentication, m.auth_verdict, m.to_recipients,
+		        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
 	        COALESCE(m.status, ''), m.created_at,
 	        COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''),
 	        COALESCE(m.review_reason, '')
@@ -69,11 +76,18 @@ func (s *Store) ListReviews(ctx context.Context, userID string, limit int, after
 	var out []ReviewListItem
 	for rows.Next() {
 		var it ReviewListItem
-		if err := rows.Scan(&it.ID, &it.AgentID, &it.Direction, &it.Sender, &it.To,
+		var authentication, legacyVerdict []byte
+		if err := rows.Scan(&it.ID, &it.AgentID, &it.Direction, &it.Sender,
+			&it.HeaderFrom, &it.EnvelopeFrom, &authentication, &legacyVerdict, &it.To,
 			&it.Subject, &it.ConversationID, &it.Status, &it.CreatedAt,
 			&it.Flagged, &it.FlagReason, &it.ReviewReason); err != nil {
 			return nil, err
 		}
+		message := Message{Direction: it.Direction}
+		if err := unmarshalAuthentication(authentication, legacyVerdict, &message); err != nil {
+			return nil, err
+		}
+		it.Authentication = message.Authentication
 		out = append(out, it)
 	}
 	return out, rows.Err()

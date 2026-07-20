@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -26,11 +26,11 @@ class DKIMResult(BaseModel):
     """
     DKIMResult
     """ # noqa: E501
-    aligned: Optional[StrictBool]
-    detail: Optional[StrictStr] = None
-    domain: Optional[StrictStr]
-    selector: Optional[StrictStr]
-    status: StrictStr
+    aligned: Optional[StrictBool] = Field(description="Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass.")
+    detail: Optional[StrictStr] = Field(default=None, description="Free-text diagnostic for humans and logs. Never parse or branch on this field.")
+    domain: Optional[StrictStr] = Field(description="DKIM signing domain from the signature d= tag; null when it could not be parsed.")
+    selector: Optional[StrictStr] = Field(description="DKIM selector from the signature s= tag; null when it could not be parsed.")
+    status: StrictStr = Field(description="Result for this DKIM signature. policy means e2a deliberately refused the signature, such as one using the unsafe l= body-length tag.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["aligned", "detail", "domain", "selector", "status"]
 

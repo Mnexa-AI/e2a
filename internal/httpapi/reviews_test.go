@@ -61,6 +61,17 @@ func TestReviews_ListReturnsBothDirections(t *testing.T) {
 	for _, it := range items {
 		m, _ := it.(map[string]any)
 		dirs[m["direction"].(string)] = true
+		for _, field := range []string{"header_from", "envelope_from", "verified_domain"} {
+			if _, ok := m[field]; !ok {
+				t.Errorf("review summary missing %s: %v", field, m)
+			}
+		}
+		if _, exists := m["from"]; exists {
+			t.Errorf("review summary contains retired from: %v", m)
+		}
+		if _, exists := m["authentication"]; exists {
+			t.Errorf("review summary must omit full authentication evidence: %v", m)
+		}
 		if m["review_status"] != "pending_review" {
 			t.Errorf("item missing review_status: %v", m)
 		}

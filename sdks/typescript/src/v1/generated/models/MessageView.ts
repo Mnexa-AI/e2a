@@ -21,7 +21,7 @@ import { HttpFile } from '../http/http.js';
 export class MessageView {
     'attachments': Array<AttachmentMetaView>;
     /**
-    * SMTP authentication evidence; null for outbound and providerless delivery.
+    * Inbound SMTP authentication evidence. Null only when no inbound SMTP authentication evaluation exists for this delivery, such as outbound or providerless loopback delivery.
     */
     'authentication': Authentication | null;
     'body'?: MessageBodyView;
@@ -83,6 +83,10 @@ export class MessageView {
     'sizeBytes'?: number;
     'subject': string;
     'to': Array<string>;
+    /**
+    * RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content.
+    */
+    'verifiedDomain': string | null;
     'webhookError'?: string;
     'webhookStatus'?: string;
 
@@ -257,6 +261,12 @@ export class MessageView {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
+            "type": "string",
             "format": ""
         },
         {

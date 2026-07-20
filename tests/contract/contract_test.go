@@ -197,6 +197,7 @@ func (e *testEnv) injectInboundMessage(t *testing.T, agentEmail, from, subject s
 			Direction:      "inbound",
 			HeaderFrom:     &from,
 			EnvelopeFrom:   &from,
+			VerifiedDomain: authentication.VerifiedDomain(),
 			To:             to,
 			CC:             []string{},
 			ReplyTo:        []string{},

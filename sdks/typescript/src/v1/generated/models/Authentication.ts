@@ -16,8 +16,17 @@ import { SPFResult } from '../models/SPFResult.js';
 import { HttpFile } from '../http/http.js';
 
 export class Authentication {
+    /**
+    * One result per DKIM signature, in message header order. An unsigned message carries an empty array.
+    */
     'dkim': Array<DKIMResult>;
+    /**
+    * DMARC evaluation of the RFC 5322 Author Domain against aligned SPF and DKIM evidence.
+    */
     'dmarc': DMARCResult;
+    /**
+    * SPF evidence for the SMTP peer and RFC 5321 identity.
+    */
     'spf': SPFResult;
 
     static readonly discriminator: string | undefined = undefined;

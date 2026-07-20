@@ -9,10 +9,11 @@ import (
 )
 
 func TestMessageViewCanonicalAuthenticationShape(t *testing.T) {
+	domain := "example.com"
 	authentication := &emailauth.Authentication{
 		SPF:   emailauth.SPFResult{Status: emailauth.StatusNone},
 		DKIM:  []emailauth.DKIMResult{},
-		DMARC: emailauth.DMARCResult{Status: emailauth.StatusNone, AlignedBy: []emailauth.AlignmentMechanism{}},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &domain, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedByDKIM}},
 	}
 	view := messageViewFromIdentity(&identity.Message{
 		ID: "msg_auth", Direction: "inbound", HeaderFrom: "alice@example.com", EnvelopeFrom: "bounce@example.com", Authentication: authentication,
@@ -24,6 +25,9 @@ func TestMessageViewCanonicalAuthenticationShape(t *testing.T) {
 	var got map[string]any
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
+	}
+	if got["verified_domain"] != "example.com" {
+		t.Fatalf("verified_domain = %#v, want example.com", got["verified_domain"])
 	}
 	for _, key := range []string{"header_from", "envelope_from", "authentication"} {
 		if _, ok := got[key]; !ok {
@@ -46,6 +50,30 @@ func TestMessageViewCanonicalAuthenticationShape(t *testing.T) {
 	}
 	if value, ok := outboundShape["authentication"]; !ok || value != nil {
 		t.Fatalf("outbound authentication = %#v, present=%v", value, ok)
+	}
+}
+
+func TestMessageSummaryCarriesDecisionWithoutAuthenticationEvidence(t *testing.T) {
+	domain := "example.com"
+	authentication := &emailauth.Authentication{
+		SPF: emailauth.SPFResult{Status: emailauth.StatusNone}, DKIM: []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &domain, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedByDKIM}},
+	}
+	b, err := json.Marshal(messageSummaryFromIdentity(identity.Message{
+		ID: "msg_summary", Direction: "inbound", HeaderFrom: "alice@example.com", Authentication: authentication,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["verified_domain"] != domain {
+		t.Fatalf("verified_domain = %#v, want %q", got["verified_domain"], domain)
+	}
+	if _, exists := got["authentication"]; exists {
+		t.Fatalf("summary must omit full authentication evidence: %s", b)
 	}
 }
 

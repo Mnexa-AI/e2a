@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -26,10 +26,10 @@ class SPFResult(BaseModel):
     """
     SPFResult
     """ # noqa: E501
-    aligned: Optional[StrictBool]
-    detail: Optional[StrictStr] = None
-    domain: Optional[StrictStr]
-    status: StrictStr
+    aligned: Optional[StrictBool] = Field(description="Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass.")
+    detail: Optional[StrictStr] = Field(default=None, description="Free-text diagnostic for humans and logs. Never parse or branch on this field.")
+    domain: Optional[StrictStr] = Field(description="RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available.")
+    status: StrictStr = Field(description="SPF evaluation result. Only pass can contribute to DMARC alignment.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["aligned", "detail", "domain", "status"]
 

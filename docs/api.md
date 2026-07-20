@@ -645,6 +645,7 @@ content via `GET /v1/agents/{email}/messages/{id}`:
     "conversation_id": "conv_xyz",
     "header_from": "alice@example.com",
     "envelope_from": "bounce@example.com",
+    "verified_domain": "example.com",
     "authentication": {
       "spf": {"status": "pass", "domain": "example.com", "aligned": true},
       "dkim": [],
@@ -664,8 +665,8 @@ On connect, all unread messages are drained as `email.received` events
 automatically. Live events carry the same marshaled event envelope as the
 webhook delivery — identical fields and event id; byte layout may differ
 (JSON key order/escaping is not contractual). Reconnect drain reuses the
-durable event envelope, including the persisted `header_from`, `envelope_from`,
-and structured `authentication` evidence.
+durable event envelope, including `header_from`, `envelope_from`, the derived
+`verified_domain`, and structured `authentication` evidence.
 
 ### Connection lifecycle & close codes
 

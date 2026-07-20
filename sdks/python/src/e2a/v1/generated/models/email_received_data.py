@@ -43,8 +43,9 @@ class EmailReceivedData(BaseModel):
     reply_to: List[StrictStr]
     subject: StrictStr
     to: List[StrictStr]
+    verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "attachments", "authentication", "cc", "conversation_id", "delivered_to", "direction", "envelope_from", "header_from", "message_id", "received_at", "reply_to", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent_email", "attachments", "authentication", "cc", "conversation_id", "delivered_to", "direction", "envelope_from", "header_from", "message_id", "received_at", "reply_to", "subject", "to", "verified_domain"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -117,6 +118,11 @@ class EmailReceivedData(BaseModel):
         if self.header_from is None and "header_from" in self.model_fields_set:
             _dict['header_from'] = None
 
+        # set to None if verified_domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.verified_domain is None and "verified_domain" in self.model_fields_set:
+            _dict['verified_domain'] = None
+
         return _dict
 
     @classmethod
@@ -142,7 +148,8 @@ class EmailReceivedData(BaseModel):
             "received_at": obj.get("received_at"),
             "reply_to": obj.get("reply_to"),
             "subject": obj.get("subject"),
-            "to": obj.get("to")
+            "to": obj.get("to"),
+            "verified_domain": obj.get("verified_domain")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

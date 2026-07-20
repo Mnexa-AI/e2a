@@ -13,10 +13,25 @@
 import { HttpFile } from '../http/http.js';
 
 export class DKIMResult {
+    /**
+    * Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass.
+    */
     'aligned': boolean | null;
+    /**
+    * Free-text diagnostic for humans and logs. Never parse or branch on this field.
+    */
     'detail'?: string;
+    /**
+    * DKIM signing domain from the signature d= tag; null when it could not be parsed.
+    */
     'domain': string | null;
+    /**
+    * DKIM selector from the signature s= tag; null when it could not be parsed.
+    */
     'selector': string | null;
+    /**
+    * Result for this DKIM signature. policy means e2a deliberately refused the signature, such as one using the unsafe l= body-length tag.
+    */
     'status': DKIMResultStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;

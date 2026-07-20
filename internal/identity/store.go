@@ -323,6 +323,7 @@ type Message struct {
 	// remain separate from ReplyTo and from the legacy Sender projection.
 	HeaderFrom        string                    `json:"header_from"`
 	EnvelopeFrom      string                    `json:"envelope_from"`
+	VerifiedDomain    *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated."`
 	Authentication    *emailauth.Authentication `json:"authentication"`
 	Recipient         string                    `json:"delivered_to"`
 	Subject           string                    `json:"subject"`
@@ -462,6 +463,31 @@ type Message struct {
 	ReviewReason string   `json:"review_reason,omitempty"`
 	ScanScore    *float64 `json:"scan_score,omitempty"`
 	ScanAction   string   `json:"scan_action,omitempty"`
+}
+
+// MarshalJSON preserves the database-friendly string representation while
+// exposing unavailable inbound identity fields as JSON null. These fields are
+// required-but-nullable in the public export contract.
+func (m Message) MarshalJSON() ([]byte, error) {
+	type messageAlias Message
+	var headerFrom, envelopeFrom *string
+	if m.HeaderFrom != "" {
+		headerFrom = &m.HeaderFrom
+	}
+	if m.EnvelopeFrom != "" {
+		envelopeFrom = &m.EnvelopeFrom
+	}
+	return json.Marshal(struct {
+		messageAlias
+		HeaderFrom     *string `json:"header_from"`
+		EnvelopeFrom   *string `json:"envelope_from"`
+		VerifiedDomain *string `json:"verified_domain"`
+	}{
+		messageAlias:   messageAlias(m),
+		HeaderFrom:     headerFrom,
+		EnvelopeFrom:   envelopeFrom,
+		VerifiedDomain: m.Authentication.VerifiedDomain(),
+	})
 }
 
 // InboundAuth is the canonical authentication evidence captured once during
@@ -2000,11 +2026,11 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 	m := &Message{}
 	var authentication, authVerdict []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, direction, sender, COALESCE(header_from, ''), COALESCE(envelope_from, ''), authentication, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), created_at, expires_at
+		`SELECT id, agent_id, direction, sender, COALESCE(header_from, ''), COALESCE(envelope_from, ''), authentication, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), COALESCE(method, ''), created_at, expires_at
 		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()
 		   AND deleted_at IS NULL
 		   AND status NOT IN (`+heldInboundStatuses+`)`, id,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.CreatedAt, &m.ExpiresAt)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.Method, &m.CreatedAt, &m.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -2106,14 +2132,18 @@ func unmarshalAuthentication(authenticationJSON, legacyVerdictJSON []byte, m *Me
 		m.Authentication = &authentication
 		return nil
 	}
-	if m.Direction == "inbound" && len(legacyVerdictJSON) > 0 {
+	if m.Direction == "inbound" && m.Method != "loopback" {
+		detail := "inbound SMTP authentication evidence unavailable"
+		if len(legacyVerdictJSON) > 0 {
+			detail = "authentication evidence predates RFC 9989 evaluation"
+		}
 		m.Authentication = &emailauth.Authentication{
 			SPF:  emailauth.SPFResult{Status: emailauth.StatusNone},
 			DKIM: []emailauth.DKIMResult{},
 			DMARC: emailauth.DMARCResult{
 				Status:    emailauth.StatusPermError,
 				AlignedBy: []emailauth.AlignmentMechanism{},
-				Detail:    "authentication evidence predates RFC 9989 evaluation",
+				Detail:    detail,
 			},
 		}
 	}
@@ -3786,12 +3816,12 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 		   UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
 		   WHERE id = $1 AND agent_id = $2 AND (expires_at > now() OR deleted_at IS NOT NULL)
 		     AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`))
-		   RETURNING id, agent_id, direction, sender, COALESCE(header_from, '') AS header_from, COALESCE(envelope_from, '') AS envelope_from, authentication, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, '') AS inbox_status, raw_message, auth_headers, auth_verdict, COALESCE(flagged, false) AS flagged, COALESCE(flag_reason, '') AS flag_reason, created_at, expires_at, deleted_at, labels, COALESCE(delivery_status, '') AS delivery_status, COALESCE(delivery_detail, '') AS delivery_detail, COALESCE(sent_as, '') AS sent_as, COALESCE(body_text, '') AS body_text, COALESCE(body_html, '') AS body_html, COALESCE(status, '') AS status
+		   RETURNING id, agent_id, direction, sender, COALESCE(header_from, '') AS header_from, COALESCE(envelope_from, '') AS envelope_from, authentication, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, '') AS inbox_status, raw_message, auth_headers, auth_verdict, COALESCE(flagged, false) AS flagged, COALESCE(flag_reason, '') AS flag_reason, created_at, expires_at, deleted_at, labels, COALESCE(delivery_status, '') AS delivery_status, COALESCE(delivery_detail, '') AS delivery_detail, COALESCE(sent_as, '') AS sent_as, COALESCE(body_text, '') AS body_text, COALESCE(body_html, '') AS body_html, COALESCE(status, '') AS status, COALESCE(method, '') AS method
 		 )
-		 SELECT upd.id, upd.agent_id, upd.direction, upd.sender, upd.header_from, upd.envelope_from, upd.authentication, upd.recipient, upd.to_recipients, upd.cc, upd.reply_to, upd.subject, upd.email_message_id, upd.conversation_id, upd.inbox_status, upd.raw_message, upd.auth_headers, upd.auth_verdict, upd.flagged, upd.flag_reason, upd.created_at, upd.expires_at, upd.deleted_at, upd.labels, upd.delivery_status, upd.delivery_detail, upd.sent_as, upd.body_text, upd.body_html, upd.status, COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
+		 SELECT upd.id, upd.agent_id, upd.direction, upd.sender, upd.header_from, upd.envelope_from, upd.authentication, upd.recipient, upd.to_recipients, upd.cc, upd.reply_to, upd.subject, upd.email_message_id, upd.conversation_id, upd.inbox_status, upd.raw_message, upd.auth_headers, upd.auth_verdict, upd.flagged, upd.flag_reason, upd.created_at, upd.expires_at, upd.deleted_at, upd.labels, upd.delivery_status, upd.delivery_detail, upd.sent_as, upd.body_text, upd.body_html, upd.status, upd.method, COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
 		 FROM upd LEFT JOIN webhook_deliveries wd ON wd.message_id = upd.id`,
 		messageID, agentID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.DeletedAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.CreatedAt, &m.ExpiresAt, &m.DeletedAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.Method, &m.WebhookStatus, &m.WebhookError)
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,7 @@
     "conversation_id": "conv_9f8e7d6c",
     "header_from": "alice@customer.example.com",
     "envelope_from": "bounce@customer.example.com",
+    "verified_domain": "customer.example.com",
     "to": [
       "support@agents.example.com"
     ],

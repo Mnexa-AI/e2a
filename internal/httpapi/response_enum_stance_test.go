@@ -34,6 +34,8 @@ var closedResponseEnumAllowlist = map[string]string{
 	"SPFResult.status":             "normalized exhaustive RFC 7208 result classification",
 	"DKIMResult.status":            "normalized exhaustive RFC 8601 DKIM result classification",
 	"DMARCResult.status":           "normalized exhaustive RFC 7489/9989 DMARC result classification",
+	"DMARCResult.policy":           "normalized exhaustive DMARC policy classification",
+	"DMARCResult.aligned_by[]":     "model invariant: DMARC aligns through SPF and/or DKIM only",
 	"LimitExceededErrorBody.code":  "single-value discriminator constant of the typed 402 envelope",
 	"RateLimitedErrorBody.code":    "single-value discriminator constant of the typed 429 envelope",
 }

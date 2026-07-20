@@ -54,6 +54,7 @@ def test_email_received():
     assert d["agent_email"] == "support@agents.example.com"
     assert d["direction"] == "inbound"
     assert d["header_from"] == "alice@customer.example.com"
+    assert d["verified_domain"] == "customer.example.com"
     assert d["envelope_from"] == "bounce@customer.example.com"
     assert d["to"] == ["support@agents.example.com"]
     assert d["delivered_to"] == "support@agents.example.com"
@@ -183,6 +184,7 @@ def test_email_received_minimal():
     assert d["delivered_to"] == "support@agents.example.com"
     # Required nullable authentication/identity fields remain present.
     assert d["header_from"] is None
+    assert d["verified_domain"] is None
     assert d["envelope_from"] is None
     assert d["authentication"] is None
     assert d["to"] == ["support@agents.example.com"]

@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Any, ClassVar, Dict, List
 from e2a.v1.generated.models.dkim_result import DKIMResult
 from e2a.v1.generated.models.dmarc_result import DMARCResult
@@ -29,9 +29,9 @@ class Authentication(BaseModel):
     """
     Authentication
     """ # noqa: E501
-    dkim: List[DKIMResult]
-    dmarc: DMARCResult
-    spf: SPFResult
+    dkim: List[DKIMResult] = Field(description="One result per DKIM signature, in message header order. An unsigned message carries an empty array.")
+    dmarc: DMARCResult = Field(description="DMARC evaluation of the RFC 5322 Author Domain against aligned SPF and DKIM evidence.")
+    spf: SPFResult = Field(description="SPF evidence for the SMTP peer and RFC 5321 identity.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["dkim", "dmarc", "spf"]
 

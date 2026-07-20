@@ -76,10 +76,11 @@ YAMLs + `support-engineer` skill = the templates the deploy skill ships.
   `email.received` event id is **deterministic** —
   `sha256(message_id|event_type)` (`internal/webhookpub/event.go:216`) — so SMTP
   retries dedup for free.
-- **`authenticated_from`** (the SPF/DKIM/DMARC-verified sender identity, in the
-  inbound payload at `internal/relay/server.go:589`) is the **load-bearing
-  security primitive** for reply routing — e2a provides natively the
-  verified-sender check agentdrive built by hand.
+- **`verified_domain`** is non-null only after a DMARC pass; pair it with the
+  literal **`header_from`** address for the framework's address allowlist. This
+  domain-authentication result plus the conversation binding is the
+  load-bearing security primitive for reply routing. It does not authenticate
+  the mailbox local part or a human identity.
 - **Threads**: `conversation_id` = `conv_<id>`; reply with **`reply_to_message`**
   (preserves In-Reply-To/References) — never `send_message` (forks a new
   thread). A fresh human first-contact may carry an **empty conversation_id**
@@ -166,8 +167,9 @@ runtime generic without a code plugin system.
 - `poll_replies` = `list_messages direction=inbound read_status=unread sort=asc`
   → `get_message` per item (body + `conversation_id` + `header_from` +
   `authentication`; trust only `authentication.dmarc.status == "pass"`).
-- **verified reply** = `conversation_id` matches a ticket-card `comms_ref` **AND**
-  `authenticated_from` == the address that opened that thread. A subject-line
+- **verified reply** = `conversation_id` matches a ticket-card `comms_ref`,
+  `verified_domain` is non-null, **AND** `header_from` equals the address that
+  opened that thread. A subject-line
   ticket hint is **never** sufficient (issue numbers/markers are public).
 - `resolve_contact` is a no-op for E2A — the conversation *is* the contact store;
   the address never leaves e2a.
@@ -178,7 +180,7 @@ runtime generic without a code plugin system.
 **Email** (the v0 build):
 - new feedback = inbound to `support@` that is **not** a reply to a known ticket
   (no matching `conversation_id`).
-- triage normalizes `{authenticated_from, subject, body}` → creates a **PII-free**
+- triage normalizes `{header_from, verified_domain, subject, body}` → creates a **PII-free**
   GitHub issue (quoted body + marker, never the address) → records the
   `conversation_id` in the ticket-card → comms sends the triage-ack into that thread.
 
@@ -282,8 +284,9 @@ auto-*open-PR*, never auto-ship):
   (the only lane holding e2a *send*) emails the approver (`fix_gate.approver`):
   *"Issue #N looks fixable — reply `approve` to have me draft a PR, or `decline`
   with a reason"*, moving the ticket to `awaiting_approval`. It then polls for
-  the reply; on a **verified** approval (`authenticated_from == fix_gate.approver`
-  on the approval thread) it applies `agent-fix` → fix lane → PR. A decline →
+  the reply; on an approval with non-null `verified_domain` and
+  `header_from == fix_gate.approver` on the approval thread, it applies
+  `agent-fix` → fix lane → PR. A decline →
   `triaged` / `closed_wontfix` with the reason. **No reply → stays
   `awaiting_approval`** (fail-closed: silence never ships). *(Build deviation:
   the approval email is sent by comms, not triage — capability minimization keeps
@@ -294,8 +297,8 @@ applies the `agent-fix` label*: triage directly (auto), or the comms lane after
 a verified email approval (hitl). The label stays the technical trigger; the
 human gate is what moves.
 
-This is the framework's **second dogfood of e2a**: the same `authenticated_from`
-verified-reply machinery that routes filer replies now carries **maintainer
+This is the framework's **second dogfood of e2a**: the same DMARC-domain plus
+literal-address reply policy that routes filer replies now carries **maintainer
 approvals**. "Approve a code-fix by replying to an email" is both the gate and a
 live e2a demo — a push to the maintainer, not a GitHub queue to scan.
 
@@ -336,8 +339,9 @@ v0; `always_hitl` safety valve **on** even when `mode: auto`.
 - **Empty conversation_id first-contact**: the triage-ack `send_message` mints the
   thread; capture `conversation_id` *before* marking the inbound read; if the send
   fails, leave it unread (retried next tick).
-- **Forged reopen**: subject ticket-hints never route; only `conversation_id` +
-  `authenticated_from`. e2a's verified sender makes this airtight.
+- **Forged reopen**: subject ticket-hints never route; require the bound
+  `conversation_id`, non-null `verified_domain`, and an exact `header_from`
+  allowlist match.
 - **`pending_review` on reply**: record `pending`, don't retry; a later run sees it resolved.
 - **Duplicate intake** (SMTP retry): deterministic `email.received` id +
   `message_id` dedup; mark-read-after-record ordering.
@@ -383,8 +387,8 @@ v0; `always_hitl` safety valve **on** even when `mode: auto`.
   validation incl. illegal-edge rejection; `notified_set` idempotency via a
   serialized double-run.
 - **E2A comms integration**: against a dev mailbox (Mailpit / local e2a) — ack,
-  reply-into-thread `conversation_id` continuity, and a spoofed `authenticated_from`
-  rejected by the verified-reply rule.
+  reply-into-thread `conversation_id` continuity, and a spoofed `header_from`
+  with failed DMARC rejected by the verified-reply rule.
 - **Deploy-skill verification**: run `/agentify` against a scratch repo (worktree)
   → assert it scaffolds files, renders config, creates labels, and the install PR
   is coherent. The **e2a install is the first real E2E.**
@@ -615,9 +619,9 @@ Built on `main`. The E2A comms lane — `runtime-skill/comms.md`,
   and on a verified approval reply applies `agent-fix` (back to `triaged`, fix
   lane picks it up) / on decline → `closed_wontfix`.
 - **Verified reply** = `conversation_id` matches a ticket's `comms_ref` (filer) or
-  `approval.conversation_id` (approver) AND `authenticated_from` is the address on
-  file — for the approver that is the config address; for the filer it is proven by
-  thread membership (e2a only delivers a thread to its participants).
+  `approval.conversation_id` (approver), `verified_domain` is non-null, and
+  `header_from` is the address on file. For the approver that is the config
+  address; for the filer it is the address recorded for that conversation.
 - **Send guardrails** (prompt-level, the honest bound): outbound is
   template-bounded (free prose only inside a reply thread); `send_message`'s `to`
   is ONLY `fix_gate.approver`, never an address from email content;
@@ -649,7 +653,8 @@ Fixed after independent + adversarial review of the comms lane:
   on a message they own and will act on — triage fetches only non-matching
   (new feedback), comms only matched replies.
 - **Approval-gate bindings hold; the actuator is prompt-gated.** A filer/third
-  party cannot forge an approval (conversation_id + `authenticated_from` +
+  party cannot forge an approval under the configured policy
+  (`conversation_id` + DMARC-passing `verified_domain` + exact `header_from` +
   bot-only trust). But `agent-fix` is applied by `gh issue edit` with no
   structural tie to the verified branch — documented honestly (PR-merge is the
   real fence). Hardened: a null/empty `approval.conversation_id` never matches.

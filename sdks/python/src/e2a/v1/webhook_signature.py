@@ -186,6 +186,7 @@ EmailReceivedData = TypedDict(
         "conversation_id": NotRequired[str],
         "header_from": Optional[str],
         "envelope_from": Optional[str],
+        "verified_domain": Optional[str],
         "authentication": Optional[Authentication],
         "to": List[str],
         "cc": List[str],
@@ -201,8 +202,8 @@ EmailReceivedData = TypedDict(
 EmailReceivedData.__doc__ = (
     "``data`` of an ``email.received`` event — a metadata-only notification. "
     "``message_id`` + ``delivered_to`` are the fetch keys; retrieve the full "
-    "message with ``client.webhooks.fetch_message(event)``. Trust the sender "
-    "only when ``authentication.dmarc.status == 'pass'``."
+    "message with ``client.webhooks.fetch_message(event)``. A non-null "
+    "``verified_domain`` means DMARC passed for that RFC 5322 From domain."
 )
 
 EmailSentData = TypedDict(

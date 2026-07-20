@@ -253,6 +253,7 @@ func BuildNotification(msg *identity.Message) []byte {
 			ConversationID: msg.ConversationID,
 			HeaderFrom:     nullableString(msg.HeaderFrom),
 			EnvelopeFrom:   nullableString(msg.EnvelopeFrom),
+			VerifiedDomain: msg.Authentication.VerifiedDomain(),
 			To:             to,
 			CC:             cc,
 			ReplyTo:        replyTo,

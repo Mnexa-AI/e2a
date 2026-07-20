@@ -159,7 +159,7 @@ import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
 import { DKIMResult    , DKIMResultStatusEnum   } from '../models/DKIMResult.js';
-import { DMARCResult    , DMARCResultStatusEnum   } from '../models/DMARCResult.js';
+import { DMARCResult, DMARCResultAlignedByEnum    , DMARCResultPolicyEnum  , DMARCResultStatusEnum   } from '../models/DMARCResult.js';
 import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
@@ -197,8 +197,8 @@ import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
-import { MessageSummaryView        , MessageSummaryViewDirectionEnum                  } from '../models/MessageSummaryView.js';
-import { MessageView          , MessageViewDirectionEnum                      } from '../models/MessageView.js';
+import { MessageSummaryView       , MessageSummaryViewDirectionEnum                   } from '../models/MessageSummaryView.js';
+import { MessageView          , MessageViewDirectionEnum                       } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentSuppressionView } from '../models/PageAgentSuppressionView.js';
@@ -238,7 +238,7 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { RenderedTemplateView } from '../models/RenderedTemplateView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { RetryAfterDetails } from '../models/RetryAfterDetails.js';
-import { ReviewView   , ReviewViewDirectionEnum           } from '../models/ReviewView.js';
+import { ReviewView   , ReviewViewDirectionEnum             } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SPFResult   , SPFResultStatusEnum   } from '../models/SPFResult.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
@@ -290,6 +290,8 @@ let enumsMap: Set<string> = new Set<string>([
     "CreateAPIKeyRequestScopeEnum",
     "CreateWebhookRequestEventsEnum",
     "DKIMResultStatusEnum",
+    "DMARCResultAlignedByEnum",
+    "DMARCResultPolicyEnum",
     "DMARCResultStatusEnum",
     "EmailBouncedDataBounceTypeEnum",
     "LimitExceededErrorBodyCodeEnum",

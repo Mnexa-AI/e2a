@@ -672,6 +672,7 @@ func buildEmailReceivedPayload(
 		ConversationID: conversationID,
 		HeaderFrom:     optionalString(headerFrom),
 		EnvelopeFrom:   optionalString(envelopeFrom),
+		VerifiedDomain: authentication.VerifiedDomain(),
 		To:             to,
 		CC:             cc,
 		ReplyTo:        replyTo,

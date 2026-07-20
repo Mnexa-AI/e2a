@@ -18,7 +18,7 @@ export class Message {
     'agentEmail': string;
     'approvalExpiresAt'?: Date;
     'attachments'?: Array<AttachmentMetaView> | null;
-    'authentication': Authentication;
+    'authentication': Authentication | null;
     'bcc'?: Array<string> | null;
     'cc'?: Array<string> | null;
     'conversationId'?: string;
@@ -30,11 +30,11 @@ export class Message {
     'direction': string;
     'edited'?: boolean;
     'emailMessageId'?: string;
-    'envelopeFrom': string;
+    'envelopeFrom': string | null;
     'expiresAt': Date;
     'flagReason'?: string;
     'flagged'?: boolean;
-    'headerFrom': string;
+    'headerFrom': string | null;
     'html'?: string;
     'id': string;
     'labels'?: Array<string> | null;
@@ -60,6 +60,10 @@ export class Message {
     'text'?: string;
     'to'?: Array<string> | null;
     'type'?: string;
+    /**
+    * DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+    */
+    'verifiedDomain': string | null;
     'webhookAttempts'?: number;
     'webhookError'?: string;
     'webhookStatus'?: string;
@@ -318,6 +322,12 @@ export class Message {
         {
             "name": "type",
             "baseName": "type",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
             "type": "string",
             "format": ""
         },

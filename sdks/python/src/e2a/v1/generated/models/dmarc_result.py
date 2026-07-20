@@ -17,7 +17,7 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
@@ -26,11 +26,11 @@ class DMARCResult(BaseModel):
     """
     DMARCResult
     """ # noqa: E501
-    aligned_by: List[StrictStr]
-    detail: Optional[StrictStr] = None
-    domain: Optional[StrictStr]
-    policy: Optional[StrictStr]
-    status: StrictStr
+    aligned_by: List[StrictStr] = Field(description="Mechanisms that both passed and aligned. Empty unless status is pass; each mechanism appears at most once.")
+    detail: Optional[StrictStr] = Field(default=None, description="Free-text diagnostic for humans and logs. Never parse or branch on this field.")
+    domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists.")
+    policy: Optional[StrictStr] = Field(description="Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength.")
+    status: StrictStr = Field(description="DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["aligned_by", "detail", "domain", "policy", "status"]
 

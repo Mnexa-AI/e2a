@@ -47,6 +47,10 @@ export class EmailReceivedData {
     'replyTo': Array<string>;
     'subject': string;
     'to': Array<string>;
+    /**
+    * DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+    */
+    'verifiedDomain': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -135,6 +139,12 @@ export class EmailReceivedData {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
+            "type": "string",
             "format": ""
         }    ];
 

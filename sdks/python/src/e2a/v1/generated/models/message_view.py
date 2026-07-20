@@ -34,7 +34,7 @@ class MessageView(BaseModel):
     MessageView
     """ # noqa: E501
     attachments: List[AttachmentMetaView]
-    authentication: Optional[Authentication] = Field(description="SMTP authentication evidence; null for outbound and providerless delivery.")
+    authentication: Optional[Authentication] = Field(description="Inbound SMTP authentication evidence. Null only when no inbound SMTP authentication evaluation exists for this delivery, such as outbound or providerless loopback delivery.")
     body: Optional[MessageBodyView] = None
     cc: List[StrictStr]
     conversation_id: StrictStr
@@ -61,10 +61,11 @@ class MessageView(BaseModel):
     size_bytes: Optional[StrictInt] = Field(default=None, description="RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from attachments[].size_bytes, which is one attachment's DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes).")
     subject: StrictStr
     to: List[StrictStr]
+    verified_domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content.")
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "authentication", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "envelope_from", "flag_reason", "flagged", "header_from", "hold_reason", "id", "labels", "parsed", "protection", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "authentication", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "envelope_from", "flag_reason", "flagged", "header_from", "hold_reason", "id", "labels", "parsed", "protection", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "verified_domain", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -163,6 +164,11 @@ class MessageView(BaseModel):
         if self.raw_message is None and "raw_message" in self.model_fields_set:
             _dict['raw_message'] = None
 
+        # set to None if verified_domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.verified_domain is None and "verified_domain" in self.model_fields_set:
+            _dict['verified_domain'] = None
+
         return _dict
 
     @classmethod
@@ -203,6 +209,7 @@ class MessageView(BaseModel):
             "size_bytes": obj.get("size_bytes"),
             "subject": obj.get("subject"),
             "to": obj.get("to"),
+            "verified_domain": obj.get("verified_domain"),
             "webhook_error": obj.get("webhook_error"),
             "webhook_status": obj.get("webhook_status")
         })

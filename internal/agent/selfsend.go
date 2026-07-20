@@ -232,6 +232,7 @@ func buildLoopbackReceivedEvent(agent *identity.AgentIdentity, msg *identity.Mes
 		ConversationID: req.ConversationID,
 		HeaderFrom:     stringPointer(agent.EmailAddress()),
 		EnvelopeFrom:   nil,
+		VerifiedDomain: nil,
 		To:             []string{agent.EmailAddress()},
 		CC:             []string{},
 		ReplyTo:        replyToList(req.ReplyTo),
