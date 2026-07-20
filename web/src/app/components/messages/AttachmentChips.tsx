@@ -9,6 +9,8 @@
 import { useState } from "react";
 import { getAttachment } from "../onboarding/api";
 import { findCidRefs } from "./inlineImages";
+import { AttachmentViewer } from "./AttachmentViewer";
+import { canPreview } from "./attachmentPreview";
 import type { AttachmentMeta } from "../types";
 
 function fmtBytes(n: number): string {
@@ -34,15 +36,18 @@ function AttachmentChip({
   email,
   messageId,
   att,
+  onPreview,
 }: {
   email: string;
   messageId: string;
   att: AttachmentMeta;
+  // Set for types the in-app viewer can render; absent means download-on-click.
+  onPreview?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
 
-  const onClick = async () => {
+  const download = async () => {
     setBusy(true);
     setError(false);
     try {
@@ -59,12 +64,20 @@ function AttachmentChip({
     }
   };
 
+  // Previewable attachments open the viewer (which offers Download); the rest
+  // download straight away, since there's nothing to show.
+  const onClick = onPreview ?? download;
+
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={busy}
-      title={error ? "Download failed — try again" : `Download ${att.filename || "attachment"}`}
+      title={
+        error
+          ? "Download failed — try again"
+          : `${onPreview ? "Preview" : "Download"} ${att.filename || "attachment"}`
+      }
       data-testid="attachment-chip"
       className="flex items-center"
       style={{
@@ -106,7 +119,12 @@ export function AttachmentChips({
   messageId: string;
   attachments: AttachmentMeta[];
 }) {
+  // Which attachment the viewer is showing, by index (null = closed).
+  const [previewing, setPreviewing] = useState<number | null>(null);
+
   if (attachments.length === 0) return null;
+  const active = attachments.find((a) => a.index === previewing);
+
   return (
     <div
       className="flex items-center"
@@ -114,8 +132,26 @@ export function AttachmentChips({
       style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}
     >
       {attachments.map((a) => (
-        <AttachmentChip key={a.index} email={email} messageId={messageId} att={a} />
+        <AttachmentChip
+          key={a.index}
+          email={email}
+          messageId={messageId}
+          att={a}
+          onPreview={
+            canPreview(a.content_type)
+              ? () => setPreviewing(a.index)
+              : undefined
+          }
+        />
       ))}
+      {active && (
+        <AttachmentViewer
+          email={email}
+          messageId={messageId}
+          att={active}
+          onClose={() => setPreviewing(null)}
+        />
+      )}
     </div>
   );
 }

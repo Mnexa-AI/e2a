@@ -7,8 +7,9 @@ import type { AttachmentMeta } from "../types";
 
 jest.mock("../onboarding/api", () => ({
   getAttachment: jest.fn(),
+  loadAttachmentObjectUrl: jest.fn(),
 }));
-import { getAttachment } from "../onboarding/api";
+import { getAttachment, loadAttachmentObjectUrl } from "../onboarding/api";
 
 const inlineImg: AttachmentMeta = {
   index: 0,
@@ -22,6 +23,12 @@ const pdf: AttachmentMeta = {
   filename: "report.pdf",
   content_type: "application/pdf",
   size_bytes: 200000,
+};
+const archive: AttachmentMeta = {
+  index: 2,
+  filename: "logs.zip",
+  content_type: "application/zip",
+  size_bytes: 4096,
 };
 
 describe("downloadableAttachments", () => {
@@ -64,7 +71,27 @@ describe("AttachmentChips", () => {
     expect(chip).toHaveTextContent("195 KB");
   });
 
-  it("fetches a download url on click", async () => {
+  // A renderable attachment previews in-app; downloading is then an explicit
+  // choice inside the viewer rather than the only way to look at the file.
+  it("opens the in-app viewer for a previewable attachment", async () => {
+    (loadAttachmentObjectUrl as jest.Mock).mockResolvedValue({
+      url: "blob:http://localhost/abc",
+      revoke: jest.fn(),
+    });
+    render(
+      <AttachmentChips email="a@x.dev" messageId="msg_1" attachments={[pdf]} />,
+    );
+    fireEvent.click(screen.getByTestId("attachment-chip"));
+    await waitFor(() =>
+      expect(screen.getByTestId("attachment-viewer")).toBeInTheDocument(),
+    );
+    // Previewing must not fall through to the download path.
+    expect(getAttachment).not.toHaveBeenCalled();
+  });
+
+  // Nothing to render → clicking still downloads, as it always did. Pins that
+  // the viewer didn't swallow the download path for unrenderable types.
+  it("downloads directly for an attachment it cannot preview", async () => {
     (getAttachment as jest.Mock).mockResolvedValue({
       download_url: "https://api.e2a.dev/v1/…/download?token=t",
     });
@@ -73,13 +100,14 @@ describe("AttachmentChips", () => {
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => {});
     render(
-      <AttachmentChips email="a@x.dev" messageId="msg_1" attachments={[pdf]} />,
+      <AttachmentChips email="a@x.dev" messageId="msg_1" attachments={[archive]} />,
     );
     fireEvent.click(screen.getByTestId("attachment-chip"));
     await waitFor(() =>
-      expect(getAttachment).toHaveBeenCalledWith("a@x.dev", "msg_1", 1),
+      expect(getAttachment).toHaveBeenCalledWith("a@x.dev", "msg_1", 2),
     );
     expect(clickSpy).toHaveBeenCalled();
+    expect(screen.queryByTestId("attachment-viewer")).not.toBeInTheDocument();
     clickSpy.mockRestore();
   });
 });

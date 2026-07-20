@@ -9,16 +9,16 @@
 // the list. Replaces the old master-detail PendingDetailPanel.
 //
 // The body/recipients fetch is lazy — it fires only when the row is
-// expanded (GET /v1/agents/{address}/messages/{id}). Approve/reject reuse
-// the diff-only edit helpers so untouched fields keep their agent-authored
-// original.
+// expanded (GET /v1/reviews/{id}). Approve/reject reuse the diff-only
+// edit helpers so untouched fields keep their agent-authored original.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
-import { pendingMessageKey } from "../../../../lib/swrKeys";
+import { messageDetailKey } from "../../../../lib/swrKeys";
 import {
   approvePendingMessage,
-  getPendingMessage,
+  getReviewDetailWire,
+  projectPending,
   rejectPendingMessage,
 } from "../../../components/onboarding/api";
 import type {
@@ -89,27 +89,26 @@ export function PendingRow({
   // and "& send" wording are outbound-only.
   const isInbound = summary.direction === "inbound";
 
-  // Lazy: only fetch the body/recipients once the row is open. Shares the
-  // pendingMessageKey cache with invalidateMessageDetail so resolving
-  // from anywhere refetches.
-  const { data: msg, error: fetchError, isLoading } = useSWR<PendingMessageDetail>(
-    expanded ? pendingMessageKey(agentEmail, id) : null,
-    () => getPendingMessage(agentEmail, id),
-    {
-      keepPreviousData: false,
-      onSuccess: (data) => {
-        if (editing) return;
-        setSubject(data.subject ?? "");
-        setBodyText(data.body_text ?? "");
-        setBodyHTML(data.body_html ?? "");
-        setTo(joinCSV(data.to));
-        setCC(joinCSV(data.cc));
-        setBCC(joinCSV(data.bcc));
-      },
-    },
+  // Lazy: only fetch the body/recipients once the row is open. Caches the
+  // RAW wire under the shared per-message key — the focus page reads the
+  // same entry, so both must agree on the shape (see lib/swrKeys.ts) —
+  // and projects below. Uses the review endpoint, the only one that
+  // carries `hold_reason`/`protection`.
+  const { data: wire, error: fetchError, isLoading } = useSWR(
+    expanded ? messageDetailKey(id) : null,
+    () => getReviewDetailWire(id),
+    { keepPreviousData: false },
+  );
+
+  const msg: PendingMessageDetail | undefined = useMemo(
+    () => (wire ? projectPending(agentEmail, wire) : undefined),
+    [wire, agentEmail],
   );
 
   const [editing, setEditing] = useState(false);
+  // Flips once the reviewer opens the editor or types, so a background
+  // revalidation can't stomp an in-progress edit.
+  const hasUserEditedRef = useRef(false);
   const [showDetails, setShowDetails] = useState(false);
   const [showScreeningDetails, setShowScreeningDetails] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -127,10 +126,27 @@ export function PendingRow({
   const [actionError, setActionError] = useState("");
   const [hovered, setHovered] = useState(false);
 
+  // Seed the editor from the loaded draft. This is an EFFECT, not SWR's
+  // onSuccess, because onSuccess does not fire when the value is served from
+  // cache — and this row shares its per-message entry with the focus page, so
+  // a warm entry is the common case. Seeding only on a real fetch left the
+  // fields empty, and diffApproveEdits then read "" as a deliberate edit and
+  // sent it: approving blanked the subject, body and recipients.
+  useEffect(() => {
+    if (hasUserEditedRef.current || !msg) return;
+    setSubject(msg.subject ?? "");
+    setBodyText(msg.body_text ?? "");
+    setBodyHTML(msg.body_html ?? "");
+    setTo(joinCSV(msg.to));
+    setCC(joinCSV(msg.cc));
+    setBCC(joinCSV(msg.bcc));
+  }, [msg]);
+
   // Collapsing resets the transient edit/reject UI so reopening starts
   // clean (and an in-progress edit on a different row can't leak here).
   useEffect(() => {
     if (!expanded) {
+      hasUserEditedRef.current = false;
       setEditing(false);
       setRejectOpen(false);
       setShowDetails(false);
@@ -148,14 +164,12 @@ export function PendingRow({
     setApproving(true);
     setActionError("");
     try {
-      const overrides = diffApproveEdits(msg, {
-        subject,
-        bodyText,
-        bodyHTML,
-        to,
-        cc,
-        bcc,
-      });
+      // Only an open editor can override anything. Untouched, the
+      // agent-authored draft is sent exactly as written — belt and braces
+      // alongside the seeding effect above.
+      const overrides = editing
+        ? diffApproveEdits(msg, { subject, bodyText, bodyHTML, to, cc, bcc })
+        : {};
       await approvePendingMessage(agentEmail, id, overrides);
       onResolved();
     } catch (err) {
@@ -474,7 +488,10 @@ export function PendingRow({
                   {!isInbound &&
                     (!editing ? (
                     <button
-                      onClick={() => setEditing(true)}
+                      onClick={() => {
+                        hasUserEditedRef.current = true;
+                        setEditing(true);
+                      }}
                       disabled={busy}
                       className="text-[13px] px-3 py-1.5 transition cursor-pointer disabled:opacity-50 hover:bg-[var(--bg-elev)]"
                       style={{

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import Home from "./page";
 
 jest.mock("next/link", () => {
@@ -43,10 +43,17 @@ describe("Landing page", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: /Give your agent an email address/i,
+        name: /Every agent gets its own inbox/i,
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Anyone can send an email/i)).toBeInTheDocument();
+    // The two claims the hero leads on: open source, and an agent that works
+    // like a member of the team rather than a script you call.
+    expect(
+      screen.getByText(/first open-source email service built for AI agents/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/put it to work like anyone else on the team/i),
+    ).toBeInTheDocument();
   });
 
   it("renders the e2a wordmark", () => {
@@ -54,10 +61,12 @@ describe("Landing page", () => {
     expect(screen.getAllByText("e2a").length).toBeGreaterThan(0);
   });
 
-  it("shows docs dropdown items on hover", () => {
+  // The nav groups into Quick start / Product / Resources — a flat row of
+  // every link wrapped onto two lines once the social icons joined it.
+  it("shows resources dropdown items on hover", () => {
     render(<Home />);
-    const docsButton = screen.getByText(/^Docs/).closest("div")!;
-    fireEvent.mouseEnter(docsButton);
+    const resources = screen.getByText(/^Resources/).closest("div")!;
+    fireEvent.mouseEnter(resources);
     expect(screen.getByText("API Reference")).toBeInTheDocument();
     expect(screen.getAllByText("Python SDK").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("TypeScript SDK").length).toBeGreaterThanOrEqual(
@@ -66,25 +75,110 @@ describe("Landing page", () => {
     expect(screen.getAllByText("CLI").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("hides docs dropdown on mouse leave", () => {
+  it("hides resources dropdown on mouse leave", () => {
     render(<Home />);
-    const docsButton = screen.getByText(/^Docs/).closest("div")!;
-    fireEvent.mouseEnter(docsButton);
+    const resources = screen.getByText(/^Resources/).closest("div")!;
+    fireEvent.mouseEnter(resources);
     expect(screen.getByText("API Reference")).toBeInTheDocument();
-    fireEvent.mouseLeave(docsButton);
+    fireEvent.mouseLeave(resources);
     expect(screen.queryByText("API Reference")).not.toBeInTheDocument();
   });
 
-  it("shows the how it works section", () => {
+  // Everything in Resources leaves the landing page, so all of it opens in a
+  // new tab — including the internal routes, which would otherwise navigate
+  // away and lose the visitor's place.
+  it("opens every Resources link in a new tab", () => {
+    render(<Home />);
+    const resources = screen.getByText(/^Resources/).closest("div")!;
+    fireEvent.mouseEnter(resources);
+    // Scoped to the dropdown: the footer carries its own Blog/CLI links, and
+    // an unscoped query picks those up instead (they render later in the DOM).
+    for (const name of ["API Reference", "Blog", "Plugin", "CLI"]) {
+      const link = within(resources as HTMLElement).getByRole("link", { name });
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    }
+  });
+
+  // Regression: the menus opened on hover only, so a keyboard user could
+  // reach the button but never its contents. That was a reachability
+  // REGRESSION, not just a pre-existing gap — Human-in-the-loop, Use cases
+  // and Blog used to be top-level links and are now inside these menus.
+  it("opens a nav menu from the keyboard and closes it with Escape", async () => {
+    render(<Home />);
+    const button = screen.getByRole("button", { name: /^Product/ });
+
+    // Nothing is open to start with.
+    expect(screen.queryByRole("link", { name: "Use cases" })).not.toBeInTheDocument();
+
+    // Tabbing to the button reveals the menu...
+    fireEvent.focus(button);
+    expect(screen.getByRole("link", { name: "Use cases" })).toBeInTheDocument();
+
+    // ...and Escape dismisses it without touching a mouse.
+    fireEvent.keyDown(button, { key: "Escape" });
+    expect(screen.queryByRole("link", { name: "Use cases" })).not.toBeInTheDocument();
+  });
+
+  it("toggles a nav menu on click, for touch and pointer users", () => {
+    render(<Home />);
+    const button = screen.getByRole("button", { name: /^Resources/ });
+    fireEvent.click(button);
+    expect(screen.getByText("API Reference")).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(screen.queryByText("API Reference")).not.toBeInTheDocument();
+  });
+
+  it("groups the on-page sections under Product", () => {
+    render(<Home />);
+    const product = screen.getByText(/^Product/).closest("div")!;
+    fireEvent.mouseEnter(product);
+    expect(
+      screen.getByRole("link", { name: "Human-in-the-loop" }),
+    ).toHaveAttribute("href", "#hitl");
+    expect(screen.getByRole("link", { name: "Use cases" })).toHaveAttribute(
+      "href",
+      "#use-cases",
+    );
+  });
+
+  it("links Token Canopy's channels from the header", () => {
+    render(<Home />);
+    for (const [name, href] of [
+      ["Token Canopy on X", "https://x.com/TokenCanopy"],
+      ["Token Canopy on LinkedIn", "https://www.linkedin.com/company/tokencanopy/"],
+      ["Token Canopy on Discord", "https://discord.gg/EQTK2REXPb"],
+    ] as const) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+  });
+
+  // Onboarding is agent-native: the first thing the page asks you to do is
+  // install the plugin into a coding agent, not install an SDK. The SDK/CLI
+  // exist, but as the "wiring e2a into your own service" escape hatch.
+  it("leads onboarding with the plugin, not the SDK", () => {
     render(<Home />);
     expect(
-      screen.getByRole("heading", { name: /Up and running in three steps/i }),
+      screen.getByRole("heading", {
+        name: /Install the plugin\. Your agent has an inbox\./i,
+      }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Register your agent")).toBeInTheDocument();
-    expect(screen.getByText("Connect your agent")).toBeInTheDocument();
     expect(
-      screen.getByText("Receive, reply, stay in thread"),
+      screen.getByText(/claude plugin install e2a@e2a/),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Any MCP client" }),
+    ).toBeInTheDocument();
+  });
+
+  // The SDK path exists, but as the step AFTER onboarding — for people
+  // already running an agent framework, not as the way in.
+  it("offers the SDK path for existing agent frameworks, after the quick start", () => {
+    render(<Home />);
+    expect(
+      screen.getByRole("heading", { name: /Already have an agent framework\?/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/LangChain, Google ADK/)).toBeInTheDocument();
   });
 
   it("shows the use cases section", () => {
@@ -156,7 +250,9 @@ describe("Footer", () => {
   it("renders footer links", () => {
     render(<Home />);
     expect(screen.getAllByText("API Docs").length).toBeGreaterThan(0);
-    expect(screen.getByText("Claude Skill")).toBeInTheDocument();
+    // Links the plugin directory, not one SKILL.md inside it — the plugin is
+    // what onboarding installs, and it serves Claude Code, Codex and Cursor.
+    expect(screen.getAllByText("Plugin").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Feedback").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Apache 2.0").length).toBeGreaterThan(0);
   });

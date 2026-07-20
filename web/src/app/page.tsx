@@ -4,31 +4,43 @@ import Link from "next/link";
 import { useState } from "react";
 import { useAuth } from "./components/AuthProvider";
 import { Eyebrow } from "@e2a/ui";
-import { AGENTS_DOMAIN } from "../lib/site";
+import { TokenCanopyBadge } from "./components/loft/TokenCanopyBadge";
 
-type Tab = "cli" | "claude" | "python" | "webhook";
+// Onboarding surfaces, in the order an agent-native user meets them: install
+// the plugin in your coding agent, or point any MCP runtime at the hosted
+// server. SDKs/CLI/webhooks are the escape hatch below, not a tab — they're
+// how you'd wire e2a into your own service, not how you give an agent an inbox.
+type Tab = "claude" | "codex" | "cursor" | "mcp";
 
-// Intentionally NOT using AGENTS_DOMAIN_DISPLAY from lib/site — the
-// in-app onboarding fallback "agents.example.com" hints at the
-// shared-subdomain pattern, which makes sense once a user is signed
-// in and choosing between shared / custom. The landing page shows
-// this in a CLI sample where a neutral placeholder ("your-domain.com")
-// reads better as a fill-in. Keep these two fallbacks distinct.
-const exampleAgentDomain = AGENTS_DOMAIN || "your-domain.com";
+// The two SDKs shown side by side in the "build agent systems" section.
+type SdkTab = "python" | "ts";
 
-const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
-  { label: "How it works", href: "#how-it-works" },
+// Nav is three grouped menus rather than a flat row: at seven top-level
+// items plus four social icons it wrapped onto two lines at common widths.
+// Quick start stays a direct link — it's the one thing a first visit is for.
+// `newTab` is for INTERNAL routes we still want opened in a new tab, so a
+// visitor reading the landing page keeps their place instead of navigating
+// away. External links always open in one.
+type NavItem = {
+  label: string;
+  href: string;
+  external?: boolean;
+  newTab?: boolean;
+};
+
+const PRODUCT_LINKS: NavItem[] = [
+  { label: "Build agent systems", href: "#build" },
   { label: "Human-in-the-loop", href: "#hitl" },
   { label: "Use cases", href: "#use-cases" },
-  { label: "Blog", href: "/blog" },
 ];
 
-const DOCS_LINKS: { label: string; href: string; external?: boolean }[] = [
-  { label: "API Reference", href: "/api-docs" },
-  { label: "Claude Code skill", href: "https://github.com/tokencanopy/e2a/blob/main/plugins/e2a/skills/e2a/SKILL.md", external: true },
+const RESOURCE_LINKS: NavItem[] = [
+  { label: "API Reference", href: "/api-docs", newTab: true },
+  { label: "Plugin", href: "https://github.com/tokencanopy/e2a/tree/main/plugins/e2a", external: true },
   { label: "Python SDK", href: "https://pypi.org/project/e2a/", external: true },
   { label: "TypeScript SDK", href: "https://www.npmjs.com/package/@e2a/sdk", external: true },
   { label: "CLI", href: "https://www.npmjs.com/package/@e2a/cli", external: true },
+  { label: "Blog", href: "/blog", newTab: true },
 ];
 
 const USE_CASES: { eyebrow: string; title: string; desc: string }[] = [
@@ -40,6 +52,36 @@ const USE_CASES: { eyebrow: string; title: string; desc: string }[] = [
   { eyebrow: "Procurement", title: "Procurement", desc: "Coordinate with vendors, chase POs, and manage supplier threads with partners who still run on email." },
 ];
 
+// Token Canopy's channels, not e2a's — the accounts are the umbrella brand's,
+// so they sit beside the "by Token Canopy" credit rather than in with the
+// product's own docs/package links. Paths are the official brand marks.
+const SOCIAL_LINKS: { label: string; href: string; aria: string; path: string }[] = [
+  {
+    label: "GitHub",
+    href: "https://github.com/tokencanopy/e2a",
+    aria: "View source on GitHub",
+    path: "M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.27-.01-1.16-.02-2.1-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.95 10.95 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z",
+  },
+  {
+    label: "X",
+    href: "https://x.com/TokenCanopy",
+    aria: "Token Canopy on X",
+    path: "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z",
+  },
+  {
+    label: "LinkedIn",
+    href: "https://www.linkedin.com/company/tokencanopy/",
+    aria: "Token Canopy on LinkedIn",
+    path: "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z",
+  },
+  {
+    label: "Discord",
+    href: "https://discord.gg/EQTK2REXPb",
+    aria: "Token Canopy on Discord",
+    path: "M20.317 4.37a19.79 19.79 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z",
+  },
+];
+
 const FOOTER_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "GitHub", href: "https://github.com/tokencanopy/e2a", external: true },
   { label: "API Docs", href: "/api-docs" },
@@ -47,14 +89,14 @@ const FOOTER_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "Python SDK", href: "https://pypi.org/project/e2a/", external: true },
   { label: "TypeScript SDK", href: "https://www.npmjs.com/package/@e2a/sdk", external: true },
   { label: "CLI", href: "https://www.npmjs.com/package/@e2a/cli", external: true },
-  { label: "Claude Skill", href: "https://github.com/tokencanopy/e2a/blob/main/plugins/e2a/skills/e2a/SKILL.md", external: true },
+  { label: "Plugin", href: "https://github.com/tokencanopy/e2a/tree/main/plugins/e2a", external: true },
   { label: "Feedback", href: "/feedback" },
 ];
 
 export default function Home() {
   const { user, loading: checkingAuth } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("cli");
-  const [docsOpen, setDocsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("claude");
+  const [sdkTab, setSdkTab] = useState<SdkTab>("python");
 
   return (
     <div
@@ -82,97 +124,38 @@ export default function Home() {
             >
               e2a
             </Link>
-            <span
-              className="hidden md:inline font-mono text-[11px]"
-              style={{ color: "var(--fg-subtle)", letterSpacing: "0.04em" }}
-            >
-              v1.0
-            </span>
+            {/* Umbrella brand, in the nav's brand zone beside the wordmark —
+                the same product-then-parent lockup the footer and the app
+                rail use. Hidden on phones, where the nav has no room. */}
+            <TokenCanopyBadge className="hidden md:inline-flex" />
           </div>
 
           <div className="flex items-center gap-1 text-[13px]">
             <div className="hidden md:flex items-center gap-1">
-              {NAV_LINKS.map((l) =>
-                l.href.startsWith("#") ? (
-                  <a
-                    key={l.label}
-                    href={l.href}
-                    className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
-                    style={{ color: "var(--fg-muted)" }}
-                  >
-                    {l.label}
-                  </a>
-                ) : (
-                  <Link
-                    key={l.label}
-                    href={l.href}
-                    className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
-                    style={{ color: "var(--fg-muted)" }}
-                  >
-                    {l.label}
-                  </Link>
-                ),
-              )}
-              <div
-                className="relative"
-                onMouseEnter={() => setDocsOpen(true)}
-                onMouseLeave={() => setDocsOpen(false)}
-              >
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
-                  style={{ color: "var(--fg-muted)" }}
-                >
-                  Docs <span className="text-[10px]">▾</span>
-                </button>
-                {docsOpen && (
-                  <div
-                    className="absolute top-full left-0 min-w-[180px] py-1.5 z-50"
-                    style={{
-                      background: "var(--bg-panel)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--r-md)",
-                      boxShadow: "var(--sh-2)",
-                    }}
-                  >
-                    {DOCS_LINKS.map((d) =>
-                      d.external ? (
-                        <a
-                          key={d.label}
-                          href={d.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block px-4 py-1.5 text-[13px] transition hover:bg-[var(--bg-elev)]"
-                          style={{ color: "var(--fg-muted)" }}
-                        >
-                          {d.label}
-                        </a>
-                      ) : (
-                        <Link
-                          key={d.label}
-                          href={d.href}
-                          className="block px-4 py-1.5 text-[13px] transition hover:bg-[var(--bg-elev)]"
-                          style={{ color: "var(--fg-muted)" }}
-                        >
-                          {d.label}
-                        </Link>
-                      ),
-                    )}
-                  </div>
-                )}
-              </div>
               <a
-                href="https://github.com/tokencanopy/e2a"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="View source on GitHub"
-                className="inline-flex items-center px-2.5 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
+                href="#quickstart"
+                className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
                 style={{ color: "var(--fg-muted)" }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.27-.01-1.16-.02-2.1-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.95 10.95 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" />
-                </svg>
+                Quick start
               </a>
+              <NavMenu label="Product" items={PRODUCT_LINKS} />
+              <NavMenu label="Resources" items={RESOURCE_LINKS} />
+              {SOCIAL_LINKS.map((s) => (
+                <a
+                  key={s.label}
+                  href={s.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={s.aria}
+                  className="inline-flex items-center px-2 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
+                  style={{ color: "var(--fg-muted)" }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d={s.path} />
+                  </svg>
+                </a>
+              ))}
               <span
                 className="mx-1.5"
                 style={{ width: 1, height: 18, background: "var(--border)" }}
@@ -181,15 +164,12 @@ export default function Home() {
                 <span className="px-3 text-[12px]" style={{ color: "var(--fg-subtle)" }}>
                   ...
                 </span>
-              ) : user ? (
-                <Link
-                  href="/inboxes"
-                  className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
-                  style={{ color: "var(--fg-muted)" }}
-                >
-                  Go to Dashboard
-                </Link>
-              ) : (
+              ) : user ? null : (
+                /* Signed out, "Sign in" is the secondary path for people who
+                   already have an account; the primary CTA beside it starts a
+                   new one. Signed IN there is no such pair — both would just
+                   be doors into the app — so the primary becomes the only
+                   one and points at the dashboard. */
                 <a
                   href="/api/auth/login"
                   className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
@@ -200,7 +180,7 @@ export default function Home() {
               )}
             </div>
             <Link
-              href="/get-started"
+              href={user ? "/inboxes" : "/get-started"}
               className="ml-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 font-medium transition"
               style={{
                 background: "var(--fg)",
@@ -208,7 +188,7 @@ export default function Home() {
                 borderRadius: "var(--r-md)",
               }}
             >
-              Start building
+              {user ? "Go to Dashboard" : "Start building"}
               <span className="font-mono">→</span>
             </Link>
           </div>
@@ -256,7 +236,7 @@ export default function Home() {
                 style={{ background: "var(--success)" }}
               />
             </span>
-            Now generally available · free to start
+            Open source · Apache 2.0 · free to start
           </p>
           <h1
             className="mx-auto mb-6 leading-[1.05]"
@@ -269,14 +249,14 @@ export default function Home() {
               color: "var(--fg)",
             }}
           >
-            Give your agent an email address.{" "}
+            Every agent gets{" "}
             <em
               style={{
                 fontStyle: "italic",
                 color: "var(--accent-strong)",
               }}
             >
-              In under two minutes.
+              its own inbox.
             </em>
           </h1>
           <p
@@ -287,7 +267,10 @@ export default function Home() {
               maxWidth: 540,
             }}
           >
-            Anyone can send an email — so your agent should have one. Signed identity, conversation threading, and a human-in-the-loop gate. No mail server. No public URL.
+            The first open-source email service built for AI agents. Give each
+            one a real, authenticated address — then put it to work like anyone
+            else on the team: it takes requests, replies in thread, and checks
+            with you before anything ships.
           </p>
           <div className="inline-flex flex-wrap items-center justify-center gap-2.5">
             <Link
@@ -321,12 +304,10 @@ export default function Home() {
             style={{ color: "var(--fg-subtle)", letterSpacing: "0.02em" }}
           >
             <span>
-              <span style={{ color: "var(--fg-muted)" }}>$</span>&nbsp;npm i -g @e2a/cli
+              <span style={{ color: "var(--fg-muted)" }}>$</span>&nbsp;claude plugin install e2a@e2a
             </span>
             <span style={{ color: "var(--border-strong)" }}>·</span>
-            <span>
-              <span style={{ color: "var(--fg-muted)" }}>$</span>&nbsp;pip install e2a
-            </span>
+            <span>OAuth, no API key</span>
             <span style={{ color: "var(--border-strong)" }}>·</span>
             <span>Apache 2.0</span>
           </div>
@@ -353,111 +334,9 @@ export default function Home() {
       {/* Divider */}
       <div style={{ height: 1, background: "var(--border)" }} />
 
-      {/* How it works */}
-      <section id="how-it-works" className="px-6 md:px-8 py-12 md:py-16">
-        <div className="max-w-[1080px] mx-auto">
-          <div className="text-center mb-11">
-            <Eyebrow>01 · How it works</Eyebrow>
-            <h2
-              className="mx-auto mt-3 mb-2"
-              style={{
-                fontFamily: "var(--f-editorial)",
-                fontWeight: 400,
-                fontSize: "clamp(28px, 4vw, 38px)",
-                letterSpacing: "-0.01em",
-                color: "var(--fg)",
-              }}
-            >
-              Up and running in three steps.
-            </h2>
-            <p
-              className="mx-auto max-w-[460px] text-[14px]"
-              style={{ color: "var(--fg-muted)" }}
-            >
-              No mail server to configure. No custom inbox to build.
-            </p>
-          </div>
-          <div
-            className="grid grid-cols-1 md:grid-cols-3 overflow-hidden"
-            style={{
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-lg)",
-            }}
-          >
-            {[
-              {
-                num: "01",
-                title: "Register your agent",
-                desc: AGENTS_DOMAIN
-                  ? `Sign in at e2a.dev/get-started, pick a slug, and you've got my-agent@${AGENTS_DOMAIN}. Or BYO domain — verify by DNS TXT. (Also creatable via MCP or the SDK.)`
-                  : "Sign in at e2a.dev/get-started and bring your own domain — register it once and verify the DNS records. (Also creatable via MCP or the SDK.)",
-                tag: "e2a.dev/get-started",
-              },
-              {
-                num: "02",
-                title: "Connect your agent",
-                desc: "CLI, Python or TypeScript SDK, or the Claude Code skill. Local agents use WebSocket, cloud agents use webhooks — same delivery contract.",
-                tag: "pip install e2a",
-              },
-              {
-                num: "03",
-                title: "Receive, reply, stay in thread",
-                desc: "Inbound mail arrives signed: sender identity, SPF/DKIM verdict, and a conversation_id that survives the email ↔ structured-data boundary.",
-                tag: "on_message(msg)",
-              },
-            ].map((step, i) => (
-              <div
-                key={step.num}
-                className="px-7 py-8"
-                style={{
-                  borderLeft: i > 0 ? "1px solid var(--border)" : "none",
-                  borderTop:
-                    i > 0
-                      ? "1px solid var(--border)"
-                      : "none",
-                }}
-              >
-                <div
-                  className="font-mono text-[11px] font-semibold uppercase mb-4"
-                  style={{
-                    color: "var(--accent-strong)",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  STEP {step.num}
-                </div>
-                <div
-                  className="text-[18px] font-semibold mb-2"
-                  style={{ color: "var(--fg)", letterSpacing: "-0.01em" }}
-                >
-                  {step.title}
-                </div>
-                <div
-                  className="text-[13px] leading-[1.6] mb-4"
-                  style={{ color: "var(--fg-muted)" }}
-                >
-                  {step.desc}
-                </div>
-                <span
-                  className="inline-flex font-mono text-[12px] px-2.5 py-1"
-                  style={{
-                    color: "var(--fg)",
-                    background: "var(--bg-elev)",
-                    border: "1px solid var(--border-sub)",
-                    borderRadius: "var(--r-sm)",
-                  }}
-                >
-                  {step.tag}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Quick start */}
       <section
+        id="quickstart"
         className="px-6 md:px-8 py-12 md:py-16"
         style={{
           background: "var(--bg-elev)",
@@ -467,7 +346,7 @@ export default function Home() {
       >
         <div className="max-w-[1080px] mx-auto">
           <div className="text-center mb-7">
-            <Eyebrow>02 · Quick start</Eyebrow>
+            <Eyebrow>01 · Quick start</Eyebrow>
             <h2
               className="mt-3 mb-2"
               style={{
@@ -478,13 +357,16 @@ export default function Home() {
                 color: "var(--fg)",
               }}
             >
-              A few lines of code.
+              Install the plugin. Your agent has an inbox.
             </h2>
             <p
-              className="mx-auto max-w-[460px] text-[14px]"
+              className="mx-auto max-w-[520px] text-[14px]"
               style={{ color: "var(--fg-muted)" }}
             >
-              Pick your interface. Everything else is already wired up.
+              The plugin registers the hosted MCP server and an operate-well
+              skill, so your agent can send, receive, reply in-thread, and hold
+              mail for review out of the box. First tool use runs an OAuth flow
+              in your browser — no API key to paste.
             </p>
           </div>
 
@@ -497,7 +379,7 @@ export default function Home() {
                 borderRadius: "var(--r-md)",
               }}
             >
-              {(["cli", "claude", "python", "webhook"] as Tab[]).map((tab) => (
+              {(["claude", "codex", "cursor", "mcp"] as Tab[]).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -510,92 +392,270 @@ export default function Home() {
                     borderRadius: "var(--r-sm)",
                   }}
                 >
-                  {tab === "cli"
-                    ? "CLI"
-                    : tab === "claude"
-                      ? "Claude Code"
-                      : tab === "python"
-                        ? "Python"
-                        : "Webhook"}
+                  {tab === "claude"
+                    ? "Claude Code"
+                    : tab === "codex"
+                      ? "Codex"
+                      : tab === "cursor"
+                        ? "Cursor"
+                        : "Any MCP client"}
                 </button>
               ))}
             </div>
           </div>
 
           <CodeBlock>
-            {activeTab === "cli" && (
-              <>
-                <Line c="comment"># install</Line>
-                <Line>
-                  <Tok c="accent">npm install</Tok> -g @e2a/cli
-                </Line>
-                <Line>&nbsp;</Line>
-                <Line c="comment"># sign in (register your agent at e2a.dev/get-started)</Line>
-                <Line>e2a login</Line>
-                <Line>&nbsp;</Line>
-                <Line c="comment"># listen for inbound email, forward to your local server</Line>
-                <Line>
-                  e2a listen <Tok c="flag">--agent</Tok> my-agent@{exampleAgentDomain} <Tok c="flag">--forward</Tok> http://localhost:3000
-                </Line>
-              </>
-            )}
             {activeTab === "claude" && (
               <>
-                <Line c="comment"># connect Claude Code to e2a over MCP (OAuth in the browser)</Line>
-                <Line>claude mcp add <Tok c="flag">--transport</Tok> http <Tok c="flag">--scope</Tok> user \</Line>
-                <Line>&nbsp;&nbsp;e2a https://api.e2a.dev/mcp</Line>
+                <Line c="comment"># add the marketplace, then install the plugin</Line>
+                <Line>
+                  <Tok c="accent">claude</Tok> plugin marketplace add tokencanopy/e2a
+                </Line>
+                <Line>
+                  <Tok c="accent">claude</Tok> plugin install e2a@e2a
+                </Line>
                 <Line>&nbsp;</Line>
-                <Line c="comment"># then just ask Claude in plain language:</Line>
+                <Line c="comment"># then just ask, in plain language:</Line>
                 <Line c="comment">#   &quot;Create an email agent and listen for new mail.&quot;</Line>
-                <Line>&nbsp;</Line>
-                <Line c="comment"># works with Cursor, Codex, Windsurf — any MCP-aware agent</Line>
+                <Line c="comment">#   &quot;Reply to Dana&apos;s thread and hold it for my approval.&quot;</Line>
               </>
             )}
-            {activeTab === "python" && (
+            {activeTab === "codex" && (
               <>
+                <Line c="comment"># add the marketplace</Line>
                 <Line>
-                  <Tok c="keyword">from</Tok> e2a.v1 <Tok c="keyword">import</Tok> AsyncE2AClient
+                  <Tok c="accent">codex</Tok> plugin marketplace add tokencanopy/e2a
                 </Line>
                 <Line>&nbsp;</Line>
-                <Line c="comment"># conversation_id threads multi-turn replies</Line>
+                <Line c="comment"># then launch codex, run /plugins, and install e2a</Line>
                 <Line>
-                  <Tok c="keyword">async with</Tok> <Tok c="fn">AsyncE2AClient</Tok>(api_key=<Tok c="string">&quot;e2a_…&quot;</Tok>) <Tok c="keyword">as</Tok> client:
+                  <Tok c="accent">codex</Tok>
                 </Line>
                 <Line>
-                  &nbsp;&nbsp;<Tok c="keyword">async for</Tok> n <Tok c="keyword">in</Tok> client.<Tok c="fn">listen</Tok>(<Tok c="string">{`"my-agent@${exampleAgentDomain}"`}</Tok>):
-                </Line>
-                <Line>
-                  &nbsp;&nbsp;&nbsp;&nbsp;msg = <Tok c="keyword">await</Tok> client.messages.<Tok c="fn">get</Tok>(n.delivered_to, n.message_id)
-                </Line>
-                <Line>
-                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="fn">print</Tok>(msg.subject, n.conversation_id)
-                </Line>
-                <Line>
-                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(n.delivered_to, n.message_id, {`{`}<Tok c="string">&quot;text&quot;</Tok>: <Tok c="string">&quot;Got it, on it.&quot;</Tok>{`}`})
+                  <Tok c="flag">/plugins</Tok>
                 </Line>
               </>
             )}
-            {activeTab === "webhook" && (
+            {activeTab === "cursor" && (
               <>
-                <Line c="comment"># 1. create the agent</Line>
-                <Line>curl -X POST https://api.e2a.dev/v1/agents \</Line>
-                <Line>&nbsp;&nbsp;-H <Tok c="string">{`"Authorization: Bearer $E2A_API_KEY"`}</Tok> \</Line>
-                <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"email":"my-agent@agents.e2a.dev"}'`}</Tok></Line>
+                <Line c="comment"># .cursor/mcp.json — or ~/.cursor/mcp.json for every project</Line>
+                <Line>{`{`}</Line>
+                <Line>
+                  &nbsp;&nbsp;<Tok c="string">&quot;mcpServers&quot;</Tok>: {`{`}
+                </Line>
+                <Line>
+                  &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="string">&quot;e2a&quot;</Tok>: {`{`}
+                </Line>
+                <Line>
+                  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<Tok c="string">&quot;url&quot;</Tok>:{" "}
+                  <Tok c="accent">&quot;https://api.e2a.dev/mcp&quot;</Tok>
+                </Line>
+                <Line>&nbsp;&nbsp;&nbsp;&nbsp;{`}`}</Line>
+                <Line>&nbsp;&nbsp;{`}`}</Line>
+                <Line>{`}`}</Line>
                 <Line>&nbsp;</Line>
-                <Line c="comment"># 2. subscribe a webhook to receive inbound mail</Line>
-                <Line>curl -X POST https://api.e2a.dev/v1/webhooks \</Line>
-                <Line>&nbsp;&nbsp;-H <Tok c="string">{`"Authorization: Bearer $E2A_API_KEY"`}</Tok> \</Line>
-                <Line>&nbsp;&nbsp;-d <Tok c="string">{`'{"url":"https://your-app.com/inbox","events":["email.received"]}'`}</Tok></Line>
+                <Line c="comment"># Cursor opens your browser to authorize on first use —</Line>
+                <Line c="comment"># no API key to paste</Line>
+              </>
+            )}
+            {activeTab === "mcp" && (
+              <>
+                <Line c="comment"># Zed, Goose, Windsurf, Claude Desktop, raw mcp.json —</Line>
+                <Line c="comment"># point straight at the hosted server</Line>
+                <Line>
+                  <Tok c="accent">https://api.e2a.dev/mcp</Tok>
+                </Line>
                 <Line>&nbsp;</Line>
-                <Line c="comment"># e2a POSTs verified payloads to your endpoint with HMAC signature</Line>
+                <Line c="comment"># your agent gets the inbox toolset:</Line>
+                <Line c="comment">#   list_messages · send_message · reply_to_message · …</Line>
+                <Line>&nbsp;</Line>
+                <Line c="comment"># hosts with OAuth connectors: add it and authorize in the</Line>
+                <Line c="comment"># browser — no key pasted</Line>
               </>
             )}
           </CodeBlock>
+
+        </div>
+      </section>
+
+      {/* Build agent systems — the SDK path, for people running their own agent
+          framework rather than a coding agent. Deliberately AFTER the plugin
+          quick start: this is the "now make it production" step, not the way
+          in. */}
+      <section id="build" className="px-6 md:px-8 py-14 md:py-[72px]">
+        <div className="max-w-[1080px] mx-auto grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-14 items-center">
+          <div>
+            <Eyebrow>02 · Build agent systems</Eyebrow>
+            <h2
+              className="mt-3.5 mb-4 leading-[1.1]"
+              style={{
+                fontFamily: "var(--f-editorial)",
+                fontWeight: 400,
+                fontSize: "clamp(30px, 4.5vw, 44px)",
+                letterSpacing: "-0.01em",
+                color: "var(--fg)",
+              }}
+            >
+              Already have an{" "}
+              <em style={{ color: "var(--accent-strong)" }}>agent framework?</em>
+            </h2>
+            <p
+              className="mb-3.5 leading-[1.6]"
+              style={{ fontSize: 15, color: "var(--fg-muted)" }}
+            >
+              The SDKs are plain async clients, so an inbox drops into whatever
+              you already run — LangChain, Google ADK, the OpenAI Agents SDK.
+              Same hosted MCP server, or go straight at the API.
+            </p>
+            <p
+              className="mb-5 leading-[1.65]"
+              style={{ fontSize: 13, color: "var(--fg-muted)" }}
+            >
+              TypeScript and Python SDKs with one-call webhook verification and a
+              WebSocket <code className="font-mono">listen()</code> stream, a CLI
+              that bridges inbound mail to a local handler, and HMAC-signed
+              webhooks for cloud runtimes. Conversation threading survives the
+              email ↔ structured-data boundary, so multi-turn replies keep their
+              session.
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link
+                href="/blog/email-agent-with-google-adk"
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-[14px] font-medium"
+                style={{
+                  background: "var(--accent-fill)",
+                  color: "var(--accent-fg)",
+                  borderRadius: "var(--r-md)",
+                }}
+              >
+                Google ADK walkthrough
+                <span className="font-mono">→</span>
+              </Link>
+              <a
+                href="https://github.com/tokencanopy/e2a/tree/main/examples/adk-cloud-webhook"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-4 py-2.5 text-[14px] font-medium"
+                style={{
+                  background: "var(--bg-panel)",
+                  color: "var(--fg)",
+                  border: "1px solid var(--border-strong)",
+                  borderRadius: "var(--r-md)",
+                }}
+              >
+                Runnable example
+              </a>
+            </div>
+          </div>
+
+          <div>
+            {/* Both SDKs, same shape: listen → filter to email.received →
+                hand the thread key to your agent → reply in thread. */}
+            <div className="flex mb-3">
+              <div
+                className="inline-flex gap-0.5 p-1"
+                style={{
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                }}
+              >
+                {(["python", "ts"] as SdkTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setSdkTab(tab)}
+                    className="px-3.5 py-1.5 text-[12px] font-medium transition"
+                    style={{
+                      background: sdkTab === tab ? "var(--fg)" : "transparent",
+                      color: sdkTab === tab ? "var(--bg)" : "var(--fg-muted)",
+                      borderRadius: "var(--r-sm)",
+                    }}
+                  >
+                    {tab === "python" ? "Python" : "TypeScript"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <CodeBlock>
+            {sdkTab === "python" && (
+              <>
+            <Line c="comment"># pip install e2a</Line>
+            <Line>&nbsp;</Line>
+            <Line>
+              <Tok c="keyword">from</Tok> e2a.v1 <Tok c="keyword">import</Tok> AsyncE2AClient
+            </Line>
+            <Line>&nbsp;</Line>
+            <Line c="comment"># conversation_id threads multi-turn replies —</Line>
+            <Line c="comment"># bind it to your framework&apos;s session id</Line>
+            <Line>
+              <Tok c="keyword">async with</Tok> <Tok c="fn">AsyncE2AClient</Tok>(api_key=<Tok c="string">&quot;e2a_…&quot;</Tok>) <Tok c="keyword">as</Tok> client:
+            </Line>
+            <Line>
+              &nbsp;&nbsp;<Tok c="keyword">async for</Tok> event <Tok c="keyword">in</Tok> client.<Tok c="fn">listen</Tok>(<Tok c="string">&quot;support@acme.dev&quot;</Tok>):
+            </Line>
+            <Line>
+              &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">if</Tok> event.type != <Tok c="string">&quot;email.received&quot;</Tok>: <Tok c="keyword">continue</Tok>
+            </Line>
+            <Line>
+              &nbsp;&nbsp;&nbsp;&nbsp;d = event.data
+            </Line>
+            <Line>
+              &nbsp;&nbsp;&nbsp;&nbsp;reply = <Tok c="keyword">await</Tok> agent.<Tok c="fn">run</Tok>(d[<Tok c="string">&quot;conversation_id&quot;</Tok>])
+            </Line>
+            <Line>
+              &nbsp;&nbsp;&nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(d[<Tok c="string">&quot;delivered_to&quot;</Tok>], d[<Tok c="string">&quot;message_id&quot;</Tok>], {`{`}<Tok c="string">&quot;text&quot;</Tok>: reply{`}`})
+            </Line>
+              </>
+            )}
+            {sdkTab === "ts" && (
+              <>
+            <Line c="comment">{"// npm i @e2a/sdk"}</Line>
+            <Line>&nbsp;</Line>
+            <Line>
+              <Tok c="keyword">import</Tok> {`{`} E2AClient, isEmailReceived {`}`} <Tok c="keyword">from</Tok> <Tok c="string">&quot;@e2a/sdk&quot;</Tok>;
+            </Line>
+            <Line>&nbsp;</Line>
+            <Line c="comment">{"// conversation_id threads multi-turn replies —"}</Line>
+            <Line c="comment">{"// bind it to your framework's session id"}</Line>
+            <Line>
+              <Tok c="keyword">const</Tok> client = <Tok c="keyword">new</Tok> <Tok c="fn">E2AClient</Tok>({`{`} apiKey: <Tok c="string">&quot;e2a_…&quot;</Tok> {`}`});
+            </Line>
+            <Line>&nbsp;</Line>
+            <Line>
+              <Tok c="keyword">for await</Tok> (<Tok c="keyword">const</Tok> event <Tok c="keyword">of</Tok> client.<Tok c="fn">listen</Tok>(<Tok c="string">&quot;support@acme.dev&quot;</Tok>)) {`{`}
+            </Line>
+            <Line>
+              &nbsp;&nbsp;<Tok c="keyword">if</Tok> (!<Tok c="fn">isEmailReceived</Tok>(event)) <Tok c="keyword">continue</Tok>;
+            </Line>
+            <Line>
+              &nbsp;&nbsp;<Tok c="keyword">const</Tok> d = event.data;
+            </Line>
+            <Line>
+              &nbsp;&nbsp;<Tok c="keyword">const</Tok> reply = <Tok c="keyword">await</Tok> agent.<Tok c="fn">run</Tok>(d.conversation_id);
+            </Line>
+            <Line>
+              &nbsp;&nbsp;<Tok c="keyword">await</Tok> client.messages.<Tok c="fn">reply</Tok>(d.delivered_to, d.message_id, {`{`} text: reply {`}`});
+            </Line>
+            <Line>{`}`}</Line>
+              </>
+            )}
+            </CodeBlock>
+          </div>
         </div>
       </section>
 
       {/* Human-in-the-loop */}
-      <section id="hitl" className="px-6 md:px-8 py-14 md:py-[72px]">
+      <section
+        id="hitl"
+        className="px-6 md:px-8 py-14 md:py-[72px]"
+        style={{
+          background: "var(--bg-elev)",
+          borderTop: "1px solid var(--border)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
         <div className="max-w-[1080px] mx-auto grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-14 items-center">
           <div>
             <Eyebrow>03 · Human-in-the-loop</Eyebrow>
@@ -658,7 +718,7 @@ export default function Home() {
             <Line>&nbsp;</Line>
             <Line c="comment">{"// review held messages with an account-scoped key"}</Line>
             <Line>
-              <Tok c="keyword">const</Tok> held = <Tok c="keyword">await</Tok> client.reviews.<Tok c="fn">list</Tok>().<Tok c="fn">toArray</Tok>();
+              <Tok c="keyword">const</Tok> held = <Tok c="keyword">await</Tok> client.reviews.<Tok c="fn">list</Tok>().<Tok c="fn">toArray</Tok>({`{`} limit: <Tok c="accent">50</Tok> {`}`});
             </Line>
             <Line c="dim">&nbsp;&nbsp;msg_abc123  customer@acme.io   <Tok c="warn">in 47m</Tok></Line>
             <Line c="dim">&nbsp;&nbsp;msg_def456  legal@stripe.com   <Tok c="warn">in 2h 12m</Tok></Line>
@@ -676,11 +736,6 @@ export default function Home() {
       <section
         id="use-cases"
         className="px-6 md:px-8 py-12 md:py-16"
-        style={{
-          background: "var(--bg-elev)",
-          borderTop: "1px solid var(--border)",
-          borderBottom: "1px solid var(--border)",
-        }}
       >
         <div className="max-w-[1080px] mx-auto">
           <div className="text-center mb-10">
@@ -756,8 +811,15 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="px-6 md:px-8 py-14 md:py-[72px] text-center">
+      {/* CTA — continues the alternation: 04 Use cases is light, so the
+          closing section takes the elevated background. */}
+      <section
+        className="px-6 md:px-8 py-14 md:py-[72px] text-center"
+        style={{
+          background: "var(--bg-elev)",
+          borderTop: "1px solid var(--border)",
+        }}
+      >
         <div className="max-w-[720px] mx-auto">
           <h2
             className="mb-3.5 leading-[1.05]"
@@ -825,19 +887,17 @@ export default function Home() {
         style={{ borderTop: "1px solid var(--border)" }}
       >
         <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-3.5">
+          {/* Product and who makes it. The tagline that used to sit between
+              them is gone — the hero above already says what e2a is, so in
+              the footer it was just noise between the two names. */}
+          <div className="flex items-center gap-3 flex-wrap">
             <span
               className="font-mono font-bold text-[15px]"
               style={{ color: "var(--fg)", letterSpacing: "-0.02em" }}
             >
               e2a
             </span>
-            <span
-              className="font-mono text-[12px]"
-              style={{ color: "var(--fg-muted)" }}
-            >
-              · Email for agents
-            </span>
+            <TokenCanopyBadge />
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[12px]">
             {FOOTER_LINKS.map((l) =>
@@ -879,6 +939,93 @@ export default function Home() {
 // reusable primitives. The shared InkConsole primitive takes a `lines`
 // array; here we want JSX children so syntax highlighting reads inline.
 // ─────────────────────────────────────────────────────────────────────────
+
+// A nav dropdown. Each menu owns its open state so adding one doesn't mean
+// threading another boolean through the page component.
+//
+// Opens on hover, click, AND focus — hover alone left everything inside
+// unreachable by keyboard, and unreliable on touch devices that get the
+// desktop layout. Focus/blur are on the wrapper (React bubbles them), so
+// tabbing into the button opens the menu and tabbing past the last link
+// closes it; Escape dismisses without a pointer.
+function NavMenu({ label, items }: { label: string; items: NavItem[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={(e) => {
+        // Only close when focus actually leaves the menu, not when it moves
+        // between the button and its own links.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen((o) => !o)}
+        className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
+        style={{ color: "var(--fg-muted)" }}
+      >
+        {label} <span className="text-[10px]">▾</span>
+      </button>
+      {open && (
+        <div
+          className="absolute top-full left-0 min-w-[190px] py-1.5 z-50"
+          style={{
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-md)",
+            boxShadow: "var(--sh-2)",
+          }}
+        >
+          {items.map((d) =>
+            d.external ? (
+              <a
+                key={d.label}
+                href={d.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block px-4 py-1.5 text-[13px] transition hover:bg-[var(--bg-elev)]"
+                style={{ color: "var(--fg-muted)" }}
+              >
+                {d.label}
+              </a>
+            ) : d.href.startsWith("#") ? (
+              <a
+                key={d.label}
+                href={d.href}
+                className="block px-4 py-1.5 text-[13px] transition hover:bg-[var(--bg-elev)]"
+                style={{ color: "var(--fg-muted)" }}
+              >
+                {d.label}
+              </a>
+            ) : (
+              <Link
+                key={d.label}
+                href={d.href}
+                target={d.newTab ? "_blank" : undefined}
+                rel={d.newTab ? "noopener noreferrer" : undefined}
+                className="block px-4 py-1.5 text-[13px] transition hover:bg-[var(--bg-elev)]"
+                style={{ color: "var(--fg-muted)" }}
+              >
+                {d.label}
+              </Link>
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CodeBlock({
   children,

@@ -6,15 +6,15 @@
     <title>e2a API Docs</title>
     <!--
       Fonts: this iframe loads from /scalar.html, so it doesn't share
-      the Next.js next/font setup with the parent app. We pull Geist +
-      Instrument Serif + JetBrains Mono from Google Fonts so the API
+      the Next.js next/font setup with the parent app. We pull Inter +
+      Fraunces + JetBrains Mono from Google Fonts so the API
       reference uses the same letterforms as the rest of the site.
     -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:ital,opsz@0,9..144;1,9..144&family=JetBrains+Mono:wght@400;500;600&display=swap"
     />
     <style>
       body { margin: 0; padding: 0; background: #FAF7F2; }
@@ -27,7 +27,7 @@
       /*
        * Loft-themed Redoc. The palette mirrors
        * web/src/app/globals.css — cream surface + ink right panel +
-       * ember accents. Hex values are inlined rather than referenced via
+       * canopy-green actions + gold spark accents. Hex values are inlined rather than referenced via
        * CSS variables because Redoc reads its config at boot from this
        * JS literal, before any CSS has applied.
        */
@@ -35,7 +35,7 @@
         scrollYOffset: 0,
         theme: {
           colors: {
-            primary:   { main: '#B84A20' },               /* --accent-fill */
+            primary:   { main: '#2B4033' },               /* --accent-fill (canopy) */
             success:   { main: '#3B8A4A' },               /* --success */
             warning:   { main: '#B97A1C' },               /* --warn-strong */
             error:     { main: '#A8341B' },               /* --danger-strong */
@@ -43,7 +43,7 @@
             border:    { dark: '#E3DCCD', light: '#EDE7DA' },        /* --border / --border-sub */
             http: {
               get:    '#3B8A4A',
-              post:   '#B84A20',
+              post:   '#2B4033',
               put:    '#B97A1C',
               delete: '#A8341B',
               patch:  '#7D5BAA',
@@ -52,9 +52,9 @@
           typography: {
             fontSize:   '14px',
             lineHeight: '1.55',
-            fontFamily: '"Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+            fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
             headings: {
-              fontFamily: '"Instrument Serif", Georgia, serif',
+              fontFamily: '"Fraunces", Georgia, serif',
               fontWeight: '400',
               lineHeight: '1.2',
             },
@@ -65,8 +65,8 @@
               backgroundColor: '#F2ECE2',                 /* --bg-elev */
             },
             links: {
-              color: '#A84218',                           /* --accent-strong */
-              hover: '#8C3614',
+              color: '#8A5214',                           /* --accent-strong (gold spark) */
+              hover: '#6E400F',
               textDecoration: 'underline',
             },
           },

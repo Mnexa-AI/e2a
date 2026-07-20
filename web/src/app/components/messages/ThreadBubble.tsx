@@ -7,17 +7,22 @@
 // per-message from the detail endpoint (the list/summary payload carries
 // no body); recipients/subject come from the summary row itself.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { MessageStatusChip } from "./MessageStatusChip";
 import { EmailHtmlBody } from "./EmailHtmlBody";
 import { AttachmentChips, downloadableAttachments } from "./AttachmentChips";
-import { getMessageDetail, deleteMessage } from "../onboarding/api";
+import {
+  getMessageDetailWire,
+  projectMessageDetail,
+  deleteMessage,
+} from "../onboarding/api";
 import {
   invalidateAgentMessages,
   invalidateAgentTrash,
   invalidateAgentUnread,
+  messageDetailKey,
 } from "../../../lib/swrKeys";
 import type { AttachmentMeta, MessageSummary } from "../types";
 import type { Counterparty } from "./threading";
@@ -100,11 +105,12 @@ export function ThreadBubble({
   // the stale caches once the read-flip has happened.
   const wasUnreadInbound = isInbound && message.read_status === "unread";
 
-  // Fetch this message's body. Keyed per (agent, id, direction) so each
-  // message caches independently and shares with the focus page's cache.
-  const { data: detail, isLoading } = useSWR(
-    ["thread-msg-body", agentEmail, message.id, message.direction] as const,
-    () => getMessageDetail(agentEmail, message.id, message.direction),
+  // Fetch this message's body, cached as the RAW wire under the shared
+  // per-message key so this bubble and the focus page read one entry in
+  // one shape (see lib/swrKeys.ts). Projected below.
+  const { data: wire, isLoading } = useSWR(
+    messageDetailKey(message.id),
+    () => getMessageDetailWire(agentEmail, message.id),
     {
       // After the read-flip, the thread list (bold rows) and the Inboxes
       // unread badge both hold stale unread state. Revalidate them so the
@@ -116,6 +122,12 @@ export function ThreadBubble({
         }
       },
     },
+  );
+
+  const detail = useMemo(
+    () =>
+      wire ? projectMessageDetail(agentEmail, wire, message.direction) : undefined,
+    [wire, agentEmail, message.direction],
   );
 
   // Resolve both representations: a rich HTML body (rendered sanitized in a
@@ -135,8 +147,10 @@ export function ThreadBubble({
         detail.data.body?.text ||
         decodeRawBody(detail.data.raw_message) ||
         "";
-      attachments = detail.data.attachments ?? [];
     }
+    // Sent mail carries attachments too — they're on the detail wire for both
+    // directions, and were previously read only on the inbound branch.
+    attachments = detail.data.attachments ?? [];
   }
   const showBody = htmlBody.trim() !== "" || textBody.trim() !== "";
   // Attachments not embedded inline in the body (PDFs, docs, non-inline images)

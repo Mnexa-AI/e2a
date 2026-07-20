@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes } from "react";
 export type ButtonVariant = "primary" | "ghost" | "mono";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  /** Visual style. `primary` = ember fill, `ghost` = bordered, `mono` = ink/console. */
+  /** Visual style. `primary` = canopy fill, `ghost` = bordered, `mono` = ink/console. */
   variant?: ButtonVariant;
 };
 

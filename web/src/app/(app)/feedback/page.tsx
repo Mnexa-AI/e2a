@@ -4,8 +4,8 @@ import { useState } from "react";
 import { FEEDBACK_EMAIL } from "../../../lib/site";
 import { PageShell } from "../../components/loft/PageShell";
 
-// Restyled to match the rest of the app — PageShell wrapping, ember
-// selected category, ember submit CTA, the Loft input + button rhythm
+// Restyled to match the rest of the app — PageShell wrapping, accent
+// selected category, canopy submit CTA, the Loft input + button rhythm
 // shared with /api-keys and /settings.
 //
 // Test selectors (text/placeholders) are stable so page.test.tsx keeps
@@ -46,7 +46,6 @@ export default function FeedbackPage() {
   if (status === "sent") {
     return (
       <PageShell
-        crumbs={["Feedback"]}
         eyebrow="Workspace"
         title={<>Send us feedback</>}
         maxWidth={640}
@@ -103,7 +102,6 @@ export default function FeedbackPage() {
 
   return (
     <PageShell
-      crumbs={["Feedback"]}
       eyebrow="Workspace"
       title={<>Send us feedback</>}
       subtitle={

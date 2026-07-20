@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
 import { ThemeToggle } from "./ThemeToggle";
+import { TokenCanopyGlyph } from "./TokenCanopyBadge";
 
 type IconKey = "plus" | "grid" | "clock" | "globe" | "key" | "settings" | "msg" | "shield" | "card" | "doc" | "trash";
 
@@ -164,7 +165,7 @@ function isActive(
 
 // BottomNavLink renders a single bottom-of-sidebar entry (Settings,
 // Send feedback) with the same active-state treatment the main
-// NAV_ITEMS loop applies — ember inset shadow + elevated background +
+// NAV_ITEMS loop applies — accent inset shadow + elevated background +
 // non-muted text + aria-current=page. The two visually-similar links
 // previously diverged: Settings had the full active treatment inlined
 // (4× redundant `isActive(...)` calls), Feedback had no active
@@ -233,8 +234,10 @@ export function Sidebar({
       }}
     >
       {/*
-        Logo block — sits at the same `--chrome-h` as the page Topbar so the
-        two bottom borders form one continuous divider across the viewport.
+        Brand block — the app's single identity anchor, and the only place
+        either brand is stated: umbrella (Token Canopy) over product (e2a).
+        The page Topbar it used to align with is gone; its only content was a
+        breadcrumb repeating the nav's active tab and the page's own H1.
         Padding is horizontal-only; min-h + flex centering handle the rest.
       */}
       <Link
@@ -245,31 +248,24 @@ export function Sidebar({
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <div
-          className="flex items-center justify-center font-mono font-bold text-[12px]"
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 7,
-            background: "var(--fg)",
-            color: "var(--bg)",
-            letterSpacing: "-0.04em",
-          }}
-        >
-          e2a
-        </div>
-        <div>
+        <TokenCanopyGlyph size={30} />
+        <div className="min-w-0">
+          {/* Umbrella brand, stated first and carrying the only mark. */}
           <div
-            className="font-mono font-bold text-[14px] leading-none"
-            style={{ color: "var(--fg)", letterSpacing: "-0.02em" }}
+            className="text-[13.5px] font-semibold leading-none truncate"
+            style={{ color: "var(--fg)", letterSpacing: "0.005em" }}
+          >
+            Token Canopy
+          </div>
+          {/* Product, named beneath it. Set in mono because that is e2a's
+              own voice throughout the app (ids, addresses, the logo tile),
+              which keeps it reading as a distinct thing rather than a
+              tagline under the brand. */}
+          <div
+            className="font-mono text-[12px] mt-1 leading-none truncate"
+            style={{ color: "var(--fg-muted)", letterSpacing: "-0.01em" }}
           >
             e2a
-          </div>
-          <div
-            className="text-[11px] mt-0.5"
-            style={{ color: "var(--fg-muted)" }}
-          >
-            Email for AI agents
           </div>
         </div>
       </Link>

@@ -380,7 +380,6 @@ export default function BillingPage() {
 
   return (
     <PageShell
-      crumbs={["Billing"]}
       eyebrow="Plan & usage"
       title="Billing"
       subtitle="Your current resource caps and month-to-date usage."

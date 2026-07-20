@@ -331,7 +331,8 @@ func (a *API) magicReject(w http.ResponseWriter, r *http.Request, messageID, use
 // These pages are served stand-alone by the Go binary and are most often
 // opened from a phone email client, so they need to be self-contained:
 // inline SVG brand mark, inline CSS, no external font loads, no JS. The
-// Loft visual tokens (cream surfaces, ember accents, ink consoles, the
+// Loft visual tokens (cream surfaces, canopy-green actions, gold spark
+// accents, ink consoles, the
 // 6px / 10px radii, etc.) are inlined to match web/src/app/globals.css —
 // keep them in sync if the design system shifts.
 
@@ -363,17 +364,17 @@ const loftCommonCSS = `
   --fg-subtle: #9A9082;
   --border: #E5DED3;
   --border-sub: #EFE9DD;
-  --accent: #E26534;
-  --accent-soft: #FBE9DF;
-  --accent-strong: #A84218;
-  --accent-fill: #B84A20;
+  --accent: #C17D2B;
+  --accent-soft: #F6EAD3;
+  --accent-strong: #8A5214;
+  --accent-fill: #2B4033;
   --danger-bg: #FBE3E0;
   --danger-strong: #A82020;
   --success: #0F7A4D;
   --success-bg: #DFF3E8;
-  --f-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
-  --f-editorial: "Instrument Serif", Georgia, serif;
+  --f-editorial: "Fraunces", Georgia, serif;
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 10px;
@@ -569,7 +570,7 @@ form { margin: 0; display: contents; }
   background: var(--accent-fill);
   color: #fff;
 }
-.btn-primary:hover { background: #9A3D1A; }
+.btn-primary:hover { background: #223529; }
 .btn-danger {
   background: var(--bg-panel);
   color: var(--danger-strong);

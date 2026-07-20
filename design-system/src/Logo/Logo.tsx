@@ -7,7 +7,7 @@ export type LogoProps = {
   /** `wordmark` = the "e2a" lockup; `mark` = the boxed "2" monogram. */
   variant?: LogoVariant;
   /**
-   * `color` — foreground + ember accent, theme-aware.
+   * `color` — foreground + gold spark accent, theme-aware.
    * `mono`  — single `currentColor` (inherits text color).
    * `ink`   — light lockup on the dark ink panel.
    */
@@ -20,7 +20,7 @@ export type LogoProps = {
   style?: CSSProperties;
 };
 
-// Shared with the brand SVGs in web/public — Geist first, then graceful fallbacks.
+// Shared with the brand SVGs in web/public — the UI face (Inter) first, then fallbacks.
 const FONT =
   "var(--f-ui), 'Inter', ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif";
 

@@ -1,10 +1,7 @@
 import type { ReactNode } from "react";
-import { Topbar } from "./Topbar";
 import { Eyebrow } from "./Eyebrow";
 
 export type PageShellProps = {
-  crumbs?: string[];
-  topbarRight?: ReactNode;
   eyebrow?: string;
   title?: ReactNode;
   subtitle?: ReactNode;
@@ -12,18 +9,16 @@ export type PageShellProps = {
   children: ReactNode;
   maxWidth?: number | string;
   /**
-   * When true, render the H1 in Instrument Serif italic at marketing-hero
+   * When true, render the H1 in Fraunces italic at marketing-hero
    * scale (44px, 400). Reserve this for editorial / onboarding moments
    * (currently `/` and `/get-started`). Dashboard pages should leave it
-   * off so the H1 renders in Geist bold — see globals.css for the policy
+   * off so the H1 renders in Inter bold — see globals.css for the policy
    * note.
    */
   editorial?: boolean;
 };
 
 export function PageShell({
-  crumbs,
-  topbarRight,
   eyebrow,
   title,
   subtitle,
@@ -35,9 +30,6 @@ export function PageShell({
   const hasHeader = Boolean(eyebrow || title || subtitle || actions);
   return (
     <div className="flex flex-col">
-      {crumbs && crumbs.length > 0 && (
-        <Topbar crumbs={crumbs} right={topbarRight} />
-      )}
       <div
         className="px-6 md:px-8 lg:px-12 py-8 md:py-10 mx-auto w-full"
         style={{ maxWidth }}

@@ -186,3 +186,45 @@ describe("PendingRow", () => {
     expect(JSON.parse(call![1].body as string).reason).toBe("tone off");
   });
 });
+
+// Regression: approving a row whose detail came from the SWR cache must not
+// blank the message.
+//
+// The form fields were seeded only in SWR's `onSuccess`, which does NOT fire
+// when the value is served from cache — and the review queue now shares its
+// per-message cache entry with the focus page, so a warm entry is the common
+// case, not a corner. With the fields left empty, `diffApproveEdits` saw ""
+// against the real subject/body/recipients and emitted them as CHANGES;
+// the server treats a present field as "use this value", including empty
+// string, so approving would have sent a message with no subject, no body
+// and no recipients.
+describe("PendingRow approve from a warm cache", () => {
+  it("sends no overrides when the reviewer never opened the editor", async () => {
+    const { render: rawRender } = jest.requireActual("@testing-library/react");
+    const { mutate } = jest.requireActual("swr");
+    const { messageDetailKey } = jest.requireActual("../../../../lib/swrKeys");
+
+    stage();
+    // Pre-populate the shared entry, exactly as the focus page would have.
+    await mutate(messageDetailKey("msg_1"), detailWire, { revalidate: false });
+
+    const user = userEvent.setup();
+    rawRender(
+      <PendingRow summary={summary} expanded onToggle={() => {}} onResolved={() => {}} />,
+    );
+
+    await screen.findByText(/Hello, your refund is on the way\./);
+    await user.click(screen.getByRole("button", { name: /approve & send/i }));
+
+    const approveCall = mockFetch.mock.calls.find(
+      ([url, init]: [string, { method?: string }]) =>
+        url === `${detailURL}/approve` && init?.method === "POST",
+    );
+    expect(approveCall).toBeDefined();
+    const body = JSON.parse((approveCall![1] as { body: string }).body || "{}");
+    // No destructive overrides: the agent-authored draft goes out as written.
+    expect(body.subject).toBeUndefined();
+    expect(body.text).toBeUndefined();
+    expect(body.to).toBeUndefined();
+  });
+});

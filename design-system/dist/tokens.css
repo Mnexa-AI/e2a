@@ -4,8 +4,8 @@
  *  single source of truth for the design language. Light values live on
  *  :root; the `.dark` class (set on <html>) overrides them.
  *
- *  Fonts are referenced by family name (Geist, JetBrains Mono, Instrument
- *  Serif). The library does not bundle the font files — consumers load them
+ *  Fonts are referenced by family name (Inter, JetBrains Mono, Fraunces).
+ *  The library does not bundle the font files — consumers load them
  *  (e.g. next/font, @fontsource, or a <link>). System fallbacks apply
  *  otherwise, so components still render correctly without them.
  */
@@ -35,12 +35,21 @@
   --border-sub:    #EFE9DD;
   --border-strong: #D5CCBC;
 
-  /* ── Accent · Ember ── */
-  --accent:           #E26534;
-  --accent-soft:      #FBE9DF;
-  --accent-strong:    #A84218;
-  --accent-fill:      #B84A20;
-  --accent-fill-hov:  #9A3D1A;
+  /* ── Canopy · brand + primary action (Token Canopy green) ── */
+  --canopy:      #2B4033;
+  --canopy-hov:  #223529;
+  --canopy-deep: #1E2E24;
+  --canopy-fg:   #F2ECE2;
+  --canopy-soft: #E7EDE4;
+  --canopy-line: #3C5545;
+  --moss:        #5C6F51;
+
+  /* ── Accent · Spark (warm gold); fills stay canopy green ── */
+  --accent:           #C17D2B;
+  --accent-soft:      #F6EAD3;
+  --accent-strong:    #8A5214;
+  --accent-fill:      #2B4033;
+  --accent-fill-hov:  #223529;
   --accent-fg:        #FFFFFF;
 
   /* ── Agent-context on ink ── */
@@ -54,7 +63,7 @@
   --success: #0F7A4D;  --success-bg: #DFF3E8; --success-strong: #0B5C3A;
 
   /* ── Avatar palette (deterministic by hash → 1..8) ── */
-  --av-1:#A84218; --av-2:#0F7A4D; --av-3:#0050D6; --av-4:#7A4FE0;
+  --av-1:#8A5214; --av-2:#0F7A4D; --av-3:#0050D6; --av-4:#7A4FE0;
   --av-5:#B43E8F; --av-6:#8F5F00; --av-7:#4A4A4A; --av-8:#1A1714;
 
   /* ── Radii ── */
@@ -69,12 +78,12 @@
   --sh-pop: 0 24px 48px -16px rgba(26,23,20,.18), 0 4px 12px rgba(26,23,20,.06);
 
   /* ── Focus ── */
-  --focus-ring: 0 0 0 3px rgba(226,101,52,0.30);
+  --focus-ring: 0 0 0 3px rgba(138,82,20,0.32);
 
   /* ── Type families ── */
-  --f-ui:        "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-ui:        "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --f-mono:      "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
-  --f-editorial: "Instrument Serif", Georgia, serif;
+  --f-editorial: "Fraunces", Georgia, serif;
 
   /* ── Type scale (semantic) ── */
   --fs-display: 36px;  --fw-display: 700;  --tracking-display: -0.02em;
@@ -114,12 +123,20 @@
   --border-sub:    #25221E;
   --border-strong: #3A352E;
 
-  --accent:          #F08055;
-  --accent-soft:     #3A1B0E;
-  --accent-strong:   #F5A07E;
-  --accent-fill:     #E26534;
-  --accent-fill-hov: #F08055;
-  --accent-fg:       #13110E;
+  --canopy:      #223328;
+  --canopy-hov:  #2A3E30;
+  --canopy-deep: #18241D;
+  --canopy-fg:   #E6EDE4;
+  --canopy-soft: #1C2A20;
+  --canopy-line: #33493A;
+  --moss:        #7E9270;
+
+  --accent:          #D9A05B;
+  --accent-soft:     #2E2213;
+  --accent-strong:   #E7B77A;
+  --accent-fill:     #35543F;
+  --accent-fill-hov: #3F624A;
+  --accent-fg:       #FFFFFF;
 
   --info: #79B4FF; --info-bg: #0F2046; --info-strong: #A6CCFF;
   --warn: #E4A82F; --warn-bg: #2E1F00; --warn-strong: #F2C257;
@@ -130,5 +147,5 @@
   --sh-2:   0 2px 8px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5);
   --sh-pop: 0 24px 48px -16px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
 
-  --focus-ring: 0 0 0 3px rgba(240,128,85,0.45);
+  --focus-ring: 0 0 0 3px rgba(217,160,91,0.42);
 }

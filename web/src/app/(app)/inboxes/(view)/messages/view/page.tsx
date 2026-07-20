@@ -19,8 +19,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import {
   approvePendingMessage,
-  getMessageDetail,
+  getMessageDetailWire,
+  projectMessageDetail,
   rejectPendingMessage,
+  type LoadedMessageDetail,
 } from "../../../../../components/onboarding/api";
 import type {
   InboundMessageDetail,
@@ -44,12 +46,10 @@ import {
   invalidateAgents,
   invalidateMessageDetail,
   invalidatePendingList,
-  pendingMessageKey,
+  messageDetailKey,
 } from "../../../../../../lib/swrKeys";
 
-type LoadedMessage =
-  | { direction: "outbound"; data: PendingMessageDetail }
-  | { direction: "inbound"; data: InboundMessageDetail };
+type LoadedMessage = LoadedMessageDetail;
 
 // Decode base64 `raw_message` and pull out the body part — everything
 // after the first blank line is the body in RFC 5322 framing. Honest
@@ -168,16 +168,14 @@ function FocusContent({
   // user deliberately cleared.
   const hasUserEditedRef = useRef(false);
 
-  // Single agent-scoped fetch (GET /v1/agents/{address}/messages/{id}).
-  // The detail MessageView has no `direction`, so we pass the threaded
-  // direction (from the list row's MessageSummaryView) into
-  // `getMessageDetail` to pick the right projection. Opts out of
+  // Single agent-scoped fetch (GET /v1/agents/{address}/messages/{id}),
+  // cached as the RAW wire under the shared per-message key. Opts out of
   // `keepPreviousData` so navigating between focus pages (different
   // `?id=`) doesn't briefly render the previous message under the new
   // URL.
   const detailSWR = useSWR(
-    email && id ? pendingMessageKey(email, id) : null,
-    () => getMessageDetail(email, id, threadedDirection),
+    email && id ? messageDetailKey(id) : null,
+    () => getMessageDetailWire(email, id),
     {
       shouldRetryOnError: false,
       keepPreviousData: false,
@@ -190,7 +188,17 @@ function FocusContent({
     },
   );
 
-  const msg: LoadedMessage | null = detailSWR.data ?? null;
+  // The wire has no `direction` — it can't be recovered from the payload —
+  // so the authoritative value threaded in via `?direction=` selects the
+  // projection. Cheap and pure, so it re-derives on any cache write
+  // (including one made by another surface sharing this key).
+  const msg: LoadedMessage | null = useMemo(
+    () =>
+      detailSWR.data
+        ? projectMessageDetail(email, detailSWR.data, threadedDirection)
+        : null,
+    [detailSWR.data, email, threadedDirection],
+  );
 
   const error: string = detailSWR.error
     ? detailSWR.error.message || "Failed to load message"
@@ -208,8 +216,7 @@ function FocusContent({
   // message changes — including the cache-hit case where data resolves
   // synchronously on mount. The hasUserEditedRef guard prevents
   // window-focus revalidation from stomping in-progress edits.
-  const outboundData =
-    detailSWR.data?.direction === "outbound" ? detailSWR.data.data : null;
+  const outboundData = msg?.direction === "outbound" ? msg.data : null;
   useEffect(() => {
     if (hasUserEditedRef.current) return;
     if (!outboundData) return;
@@ -494,6 +501,7 @@ function FocusContent({
         <div className="flex flex-col gap-4">
           <BodyCard
             msg={msg}
+            inboxEmail={email}
             isPending={isPending}
             editingDraft={editingDraft}
             draftBody={draftBody}
@@ -557,6 +565,7 @@ function FocusContent({
 
 function BodyCard({
   msg,
+  inboxEmail,
   isPending,
   editingDraft,
   draftBody,
@@ -565,6 +574,10 @@ function BodyCard({
   onCancelEdit,
 }: {
   msg: LoadedMessage;
+  // The inbox being viewed (?email=). On outbound rows this is the agent that
+  // owns the message, and the address the attachment endpoint is keyed by —
+  // the detail wire's own `from` is empty on outbound, so it can't supply it.
+  inboxEmail: string;
   // Threaded HITL-pending flag (the detail MessageView can't tell us —
   // its `status` is the delivery rollup, not the HITL lifecycle).
   isPending: boolean;
@@ -589,11 +602,12 @@ function BodyCard({
   }, [msg]);
 
   const isOutbound = msg.direction === "outbound";
-  // Inbound attachments: inline images (cid-referenced) render in the body; the
-  // rest surface as download chips. The owning agent is the delivered-to
-  // recipient — the email the attachment endpoint is keyed by.
-  const attachments = msg.direction === "inbound" ? msg.data.attachments ?? [] : [];
-  const agentEmail = msg.direction === "inbound" ? msg.data.recipient : "";
+  // Attachments on BOTH directions: inline images (cid-referenced) render in
+  // the body, the rest surface as chips. The owning agent — the address the
+  // attachment endpoint is keyed by — is the delivered-to recipient on inbound
+  // and the inbox being viewed on outbound.
+  const attachments = msg.data.attachments ?? [];
+  const agentEmail = msg.direction === "inbound" ? msg.data.recipient : inboxEmail;
   const chipAttachments = downloadableAttachments(attachments, bodyHtml);
   // A non-pending outbound row with no body_text is a sent/scrubbed
   // draft — its body is no longer available. Keyed off the threaded

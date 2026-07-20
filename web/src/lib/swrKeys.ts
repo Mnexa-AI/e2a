@@ -51,10 +51,27 @@ export const agentMessagesKey = (
 export const agentUnreadKey = (email: string) =>
   ["agent-unread", email] as const;
 
-// Agent-scoped in /v1: the detail fetch is GET /v1/agents/{address}/
-// messages/{id}, so the cache key carries the owning agent's email.
-export const pendingMessageKey = (email: string, id: string) =>
-  ["pending-message", email, id] as const;
+// One cache entry per message, keyed by id ALONE — message ids are
+// globally unique, so the id is the identity; the owning agent's email is
+// a fetch parameter, not part of it.
+//
+// INVARIANT: the value under this key is always the raw MessageViewWire,
+// never a projection. Several surfaces read the same message through
+// different endpoints (the mail surfaces via GET /v1/agents/{address}/
+// messages/{id}, the review queue via the superset GET /v1/reviews/{id}),
+// and they used to cache their own projected shapes under a shared key —
+// so whichever rendered first decided the shape and the other crashed
+// dereferencing a field that wasn't there. Caching the wire keeps the
+// shape uniform no matter which endpoint filled the entry; each surface
+// projects at the point of use (see projectMessageDetail / projectPending
+// in components/onboarding/api.ts).
+//
+// The endpoints return different SUPERSETS of the same message: only the
+// review read carries `hold_reason`/`protection`. A wire written by the
+// agent-scoped read therefore lacks them, and the review surfaces fall
+// back to the summary row's `hold_reason` — degraded, never broken.
+export const messageDetailKey = (id: string) =>
+  ["message-detail", id] as const;
 
 // ── Invalidation helpers ─────────────────────────────────
 
@@ -71,23 +88,15 @@ export function invalidatePendingList() {
   return mutate(pendingMessagesKey);
 }
 
-// After approve / reject of a specific message, the focus-page
-// detail needs to refetch (status changes from pending_approval to
-// sent/rejected, body may be scrubbed).
-//
-// Caveat: this only mutates the outbound (`pending-message`) key
-// because every mutation we ship today goes against a pending-
-// approval outbound row. If we ever start mutating inbound rows
-// (e.g. mark-as-unread), this helper needs a second mutate for
-// `inbound-message`.
-//
-// Matches by message id regardless of which agent's email keyed the
-// fetch, so callers that don't have the agent address in scope (the
-// pending page's blanket refresh) can still drop the right entry.
+// After approve / reject of a specific message, every surface showing
+// that message's detail needs to refetch (status changes from
+// pending_review to sent/rejected, body may be scrubbed, and the hold
+// context goes away). One key per message means one entry to drop,
+// whichever surface filled it.
 export function invalidateMessageDetail(id: string) {
   return mutate(
     (key) =>
-      Array.isArray(key) && key[0] === "pending-message" && key[2] === id,
+      Array.isArray(key) && key[0] === "message-detail" && key[1] === id,
   );
 }
 

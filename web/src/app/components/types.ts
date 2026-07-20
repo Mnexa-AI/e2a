@@ -96,7 +96,9 @@ export type PendingMessageDetail = PendingMessageSummary & {
   email_message_id?: string;
   body_text?: string;
   body_html?: string;
-  attachments?: PendingAttachment[];
+  // Attachment METADATA as returned by the detail endpoints (not the
+  // base64-carrying PendingAttachment used when SENDING).
+  attachments?: AttachmentMeta[];
   edited?: boolean;
   reviewed_at?: string;
   // Set on approved/rejected rows. Null on worker-triggered transitions

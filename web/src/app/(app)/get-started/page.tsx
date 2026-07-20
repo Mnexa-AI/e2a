@@ -38,7 +38,7 @@ function isStep(value: string | null): value is Step {
 
 const PAGE_HEADER = {
   eyebrow: "Onboarding · est. 3 minutes",
-  // Plain Geist heading to match the rest of the (app) pages —
+  // Plain Inter heading to match the rest of the (app) pages —
   // editorial italic stays on marketing/landing surfaces only.
   title: "Set up your first inbox.",
   subtitle:
@@ -172,7 +172,7 @@ export default function GetStartedPage() {
 
   if (bootstrapping) {
     return (
-      <PageShell crumbs={["Get started"]}>
+      <PageShell>
         <p
           className="py-10 text-center text-[13px]"
           style={{ color: "var(--fg-muted)" }}
@@ -185,7 +185,6 @@ export default function GetStartedPage() {
 
   return (
     <PageShell
-      crumbs={["Get started"]}
       eyebrow={PAGE_HEADER.eyebrow}
       title={PAGE_HEADER.title}
       subtitle={PAGE_HEADER.subtitle}

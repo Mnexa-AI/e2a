@@ -148,7 +148,6 @@ export default function DashboardPage() {
 
   return (
     <PageShell
-      crumbs={["Inboxes"]}
       eyebrow="Workspace"
       title={<>Inboxes</>}
       subtitle={
