@@ -19,6 +19,7 @@ import type { MessageSummary } from "../../../../components/types";
 import { ThreadList } from "../../../../components/messages/ThreadList";
 import { ThreadDetail } from "../../../../components/messages/ThreadDetail";
 import { groupIntoThreads } from "../../../../components/messages/threading";
+import { inboxPolling } from "../../../../../lib/livePolling";
 import { agentMessagesKey } from "../../../../../lib/swrKeys";
 
 // Sync the URL fragment into React state. useSyncExternalStore is the
@@ -66,7 +67,7 @@ function AgentInboxContent() {
     // during a ?email=A → ?email=B switch. Disable here so the page
     // flashes a brief loading state instead of mis-attributing
     // messages to the new agent.
-    { keepPreviousData: false },
+    { ...inboxPolling, keepPreviousData: false },
   );
 
   // "Load older" appends additional pages keyed by the prior page's

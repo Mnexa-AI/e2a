@@ -2,7 +2,7 @@
 // callout fires when a thread has a pending draft, empty state, "load
 // older" button.
 
-import { render, screen, waitFor, within } from "../../../../../test-utils/swr";
+import { act, render, screen, waitFor, within } from "../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import AgentInboxPage from "./page";
 import type { MessageSummary } from "../../../../components/types";
@@ -134,6 +134,27 @@ describe("AgentInboxPage", () => {
     expect(screen.getAllByText("PR #2841 merged").length).toBeGreaterThan(0);
     // Synthetic thread key — used by the URL fragment when selected.
     expect(screen.getByTestId("thread-row").dataset.threadKey).toBe("orphan:msg_solo");
+  });
+
+  it("polls the active inbox for new messages", async () => {
+    setSearchParams({ email: "support@acme.io" });
+    mockMessages([ORPHAN_INBOUND]);
+
+    render(<AgentInboxPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-row")).toBeInTheDocument();
+    });
+    const initialFetchCount = mockFetch.mock.calls.length;
+
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.length).toBeGreaterThan(initialFetchCount);
+    });
   });
 
   it("pending callout appears in the thread detail when a thread is pending", async () => {
