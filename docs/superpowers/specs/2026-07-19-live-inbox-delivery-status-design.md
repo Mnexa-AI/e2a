@@ -43,7 +43,9 @@ not distinguish those states.
   deduplication, previous-data retention, and bounded retries.
 - The active inbox uses `agentMessagesKey(email, "all", "all")` and fetches the
   newest 100 mixed inbound and outbound summaries.
-- The sidebar and Review page share `pendingMessagesKey`, so one SWR refresh
+- The authenticated app layout mounts one `PendingPollingOwner` for
+  `pendingMessagesKey`. The sidebar's `usePendingCount` hook and the Review
+  page are passive subscribers to that same cache key, so the owner's refresh
   updates both consumers.
 - Inbox cards use one `agentUnreadKey(email)` probe per mounted card. These
   probes exist only while the Inboxes page is mounted.
@@ -65,18 +67,24 @@ Add shared web constants for the two agreed refresh cadences:
 - Shared Pending Review query: 10 seconds.
 - Mounted inbox-card unread probes: 15 seconds.
 
-Apply `refreshInterval` only at these SWR call sites. Set
-`refreshWhenHidden: false` and `refreshWhenOffline: false` explicitly so the
-contract is visible in code rather than relying on library defaults. Existing
-`revalidateOnFocus` and `revalidateOnReconnect` behavior remains enabled.
+Apply `refreshInterval` to the active-inbox and unread-probe queries, and mount
+one `PendingPollingOwner` inside the authenticated app layout to own
+`pendingPolling`. Set `refreshWhenHidden: false` and
+`refreshWhenOffline: false` explicitly so the contract is visible in code
+rather than relying on library defaults. Existing `revalidateOnFocus` and
+`revalidateOnReconnect` behavior remains enabled.
 
-The Review page and `usePendingCount` must continue using the same SWR key and
-fetcher. SWR therefore coalesces them into one cache entry and one request per
-interval when both are mounted.
+The Review page and the sidebar's `usePendingCount` continue using the same
+`pendingMessagesKey` and fetcher, but neither consumer owns a polling timer.
+They are passive same-key subscribers to the authenticated-layout
+`PendingPollingOwner`. This single explicit owner, rather than identical SWR
+options on multiple subscribers, guarantees one pending polling source.
 
-Background refresh errors retain the last successful cached result. Existing
-initial-load and visible-page error states remain unchanged; polling does not
-clear already-rendered messages or counts.
+Background refresh errors retain the last successful cached result. In
+particular, cached pending messages and counts and cached unread badge data
+remain visible during a transient revalidation error. Existing initial-load
+and visible-page error states remain unchanged; polling does not clear
+already-rendered messages or counts.
 
 ### 2. Canonical status derivation
 

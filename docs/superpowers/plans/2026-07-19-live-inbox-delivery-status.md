@@ -6,6 +6,16 @@
 
 **Architecture:** Add scoped SWR polling options only to the three live dashboard queries, leaving static resources untouched and preserving focus/reconnect revalidation. Extend the existing message-status component into the canonical review/delivery mapping, then consume it in compact thread rows and outbound conversation messages.
 
+> **Implementation outcome/correction:** Pending polling has one explicit owner:
+> `PendingPollingOwner`, mounted once in the authenticated app layout. The
+> sidebar's `usePendingCount` and the Review page are passive subscribers to
+> the same `pendingMessagesKey`; they do not each configure polling, and
+> identical subscriber options are not relied on to guarantee one request.
+> Transient revalidation errors retain cached pending counts/messages and
+> unread badge data, so those successful values remain visible. The task steps
+> below preserve the original TDD history; where they describe polling on both
+> pending consumers, this outcome note records the reviewed final architecture.
+
 **Tech Stack:** Next.js 16 App Router, React 19, TypeScript, SWR 2, Jest 30, React Testing Library, `@e2a/ui` Loft components.
 
 ---
