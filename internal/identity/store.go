@@ -2134,11 +2134,24 @@ func unmarshalAuthentication(authenticationJSON, legacyVerdictJSON []byte, m *Me
 	}
 	if m.Direction == "inbound" && m.Method != "loopback" {
 		detail := "inbound SMTP authentication evidence unavailable"
+		spf := emailauth.SPFResult{Status: emailauth.StatusPermError, Detail: detail}
 		if len(legacyVerdictJSON) > 0 {
 			detail = "authentication evidence predates RFC 9989 evaluation"
+			legacy := m.Auth
+			if legacy == nil {
+				legacy = &emailauth.AuthVerdict{}
+				if err := json.Unmarshal(legacyVerdictJSON, legacy); err != nil {
+					return fmt.Errorf("unmarshal legacy authentication evidence: %w", err)
+				}
+			}
+			spf.Status = legacySPFStatus(legacy.SPF.Status)
+			spf.Detail = legacy.SPF.Detail
+			if spf.Detail == "" {
+				spf.Detail = detail
+			}
 		}
 		m.Authentication = &emailauth.Authentication{
-			SPF:  emailauth.SPFResult{Status: emailauth.StatusNone},
+			SPF:  spf,
 			DKIM: []emailauth.DKIMResult{},
 			DMARC: emailauth.DMARCResult{
 				Status:    emailauth.StatusPermError,
@@ -2148,6 +2161,24 @@ func unmarshalAuthentication(authenticationJSON, legacyVerdictJSON []byte, m *Me
 		}
 	}
 	return nil
+}
+
+// legacySPFStatus keeps persisted SPF evidence inside the current closed enum.
+// Legacy rows do not retain enough context to reconstruct alignment, so callers
+// must still use the synthetic DMARC permerror as the fail-closed decision.
+func legacySPFStatus(status emailauth.Status) emailauth.Status {
+	switch status {
+	case emailauth.StatusPass,
+		emailauth.StatusFail,
+		emailauth.StatusNone,
+		emailauth.StatusNeutral,
+		emailauth.StatusSoftFail,
+		emailauth.StatusTempError,
+		emailauth.StatusPermError:
+		return status
+	default:
+		return emailauth.StatusPermError
+	}
 }
 
 // GetInboundByEmailMessageID looks up an inbound message by its RFC 5322
