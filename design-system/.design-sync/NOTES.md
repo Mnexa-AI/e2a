@@ -22,9 +22,14 @@ Durable, human-readable notes for future syncs. Committed.
   ```
   (Re-stage `.ds-sync/` first per storybook §2.4 if it's missing — it's gitignored.)
 - **Shape:** storybook. Reference built into `.design-sync/sb-reference` from `.storybook/`.
-- **Own-source-repo build:** there is no `node_modules/@e2a/ui`, so the converter
-  runs with `--entry ./dist/index.js` (the built barrel) and `--node-modules ./node_modules`.
-  Always `npm run build` before the converter so `dist/` is fresh.
+- **Own-source-repo build (generic case — does not apply in this monorepo):**
+  outside a monorepo layout, where `@e2a/ui` isn't hoisted into a shared
+  `node_modules`, the converter would instead run with
+  `--entry ./dist/index.js` and `--node-modules ./node_modules` (this
+  package's own). **In this repo, use the monorepo command above
+  (`--node-modules ../node_modules`) instead** — React is hoisted to the
+  repo-root `node_modules`, not `design-system/node_modules`. Always
+  `npm run build` before the converter so `dist/` is fresh.
 - **CSS is flattened at build time.** `scripts/flatten-css.mjs` (wired into tsup
   `onSuccess`) inlines `src/tokens.css` into `dist/styles.css` so the shipped
   stylesheet is self-contained (no relative `@import` the converter would drop).
