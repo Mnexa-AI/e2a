@@ -75,7 +75,7 @@ type EmailReceivedData struct {
 	To             []string                  `json:"to" nullable:"false"`
 	CC             []string                  `json:"cc" nullable:"false"`
 	ReplyTo        []string                  `json:"reply_to" nullable:"false"`
-	Authentication *emailauth.Authentication `json:"authentication" doc:"SMTP authentication evidence; null for providerless delivery."`
+	Authentication *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	// DeliveredTo is the agent address this copy was delivered to — a SCALAR
 	// by construction: the relay emits one event per per-agent delivery, so
 	// unlike the peer To/CC lists (the message's parsed headers) this is

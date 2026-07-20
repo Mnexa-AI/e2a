@@ -324,7 +324,7 @@ type Message struct {
 	HeaderFrom        string                    `json:"header_from"`
 	EnvelopeFrom      string                    `json:"envelope_from"`
 	VerifiedDomain    *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated."`
-	Authentication    *emailauth.Authentication `json:"authentication"`
+	Authentication    *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	Recipient         string                    `json:"delivered_to"`
 	Subject           string                    `json:"subject"`
 	EmailMessageID    string                    `json:"email_message_id,omitempty"`

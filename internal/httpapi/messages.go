@@ -26,7 +26,7 @@ type MessageView struct {
 	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
 	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address when known."`
 	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content."`
-	Authentication *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Null only when no inbound SMTP authentication evaluation exists for this delivery, such as outbound or providerless loopback delivery."`
+	Authentication *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	To             []string                  `json:"to" nullable:"false"`
 	CC             []string                  `json:"cc" nullable:"false"`
 	ReplyTo        []string                  `json:"reply_to" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here)."`

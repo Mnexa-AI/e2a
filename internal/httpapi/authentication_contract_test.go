@@ -1,6 +1,9 @@
 package httpapi
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAuthenticationContractFinalSchema(t *testing.T) {
 	doc := renderSpec(t)
@@ -55,6 +58,24 @@ func TestAuthenticationContractFinalSchema(t *testing.T) {
 			property, _ := raw.(map[string]any)
 			if property["description"] == nil {
 				t.Errorf("%s.%s needs a description", component, field)
+			}
+		}
+	}
+}
+
+func TestAuthenticationFieldsDocumentTheDeveloperTrustRule(t *testing.T) {
+	doc := renderSpec(t)
+
+	for _, component := range []string{"MessageView", "Message", "EmailReceivedData"} {
+		property, _ := schemaProps(t, doc, component)["authentication"].(map[string]any)
+		description, _ := property["description"].(string)
+		for _, phrase := range []string{
+			"Only dmarc.status=pass authenticates the RFC 5322 From domain",
+			"does not authenticate the mailbox local part, a person, or message content",
+			"Null means there was no authenticating inbound SMTP peer",
+		} {
+			if !strings.Contains(description, phrase) {
+				t.Errorf("%s.authentication description %q missing %q", component, description, phrase)
 			}
 		}
 	}

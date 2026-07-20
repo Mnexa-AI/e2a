@@ -31,7 +31,7 @@ class EmailReceivedData(BaseModel):
     """ # noqa: E501
     agent_email: StrictStr = Field(description="The receiving agent's email — its id and address (an agent's id IS its email).")
     attachments: Optional[List[AttachmentMetaView]] = None
-    authentication: Optional[Authentication] = Field(description="SMTP authentication evidence; null for providerless delivery.")
+    authentication: Optional[Authentication] = Field(description="Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.")
     cc: List[StrictStr]
     conversation_id: Optional[StrictStr] = None
     delivered_to: StrictStr = Field(description="The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message.")

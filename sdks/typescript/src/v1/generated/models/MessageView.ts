@@ -21,7 +21,7 @@ import { HttpFile } from '../http/http.js';
 export class MessageView {
     'attachments': Array<AttachmentMetaView>;
     /**
-    * Inbound SMTP authentication evidence. Null only when no inbound SMTP authentication evaluation exists for this delivery, such as outbound or providerless loopback delivery.
+    * Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
     */
     'authentication': Authentication | null;
     'body'?: MessageBodyView;

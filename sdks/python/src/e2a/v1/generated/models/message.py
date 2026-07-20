@@ -32,7 +32,7 @@ class Message(BaseModel):
     agent_email: StrictStr
     approval_expires_at: Optional[datetime] = None
     attachments: Optional[List[AttachmentMetaView]] = None
-    authentication: Optional[Authentication]
+    authentication: Optional[Authentication] = Field(description="Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.")
     bcc: Optional[List[StrictStr]] = None
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
