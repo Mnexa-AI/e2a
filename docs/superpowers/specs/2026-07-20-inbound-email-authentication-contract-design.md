@@ -137,8 +137,8 @@ The DMARC verdict is a closed response enum with exactly these values:
 - `temperror`: a transient failure prevented a conclusive result.
 - `permerror`: an unrecoverable evaluation error prevented a valid result.
 
-SPF evidence additionally permits `neutral`, `softfail`, and `policy`. DKIM
-evidence additionally permits `neutral` and `policy`, matching the registered
+SPF evidence additionally permits `neutral` and `softfail`. DKIM evidence
+additionally permits `neutral` and `policy`, matching the registered
 Authentication-Results vocabularies. These mechanism-specific statuses never
 count as an aligned pass. All three status sets are closed response enums for
 the GA contract; adding a new value requires an additive compatibility review.
@@ -149,7 +149,7 @@ the GA contract; adding a new value requires an additive compatibility review.
 interface SPFResult {
   status:
     | "pass" | "fail" | "none" | "neutral" | "softfail"
-    | "policy" | "temperror" | "permerror";
+    | "temperror" | "permerror";
   domain: string | null;
   aligned: boolean | null;
   detail?: string;
@@ -214,7 +214,7 @@ message.authentication?.dmarc.status === "pass"
 - The `authentication` JSON property is required on every message response.
 - SMTP inbound messages carry a non-null authentication object whose `spf`,
   `dkim`, and `dmarc` properties are all required.
-- Outbound and authenticated loopback messages carry `authentication: null`.
+- Outbound and providerless loopback messages carry `authentication: null`.
   Loopback identity is application provenance, not email authentication.
 - Every external inbound event carries a non-null authentication object.
   Loopback `email.received` events carry `authentication: null`.

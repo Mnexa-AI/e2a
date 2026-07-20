@@ -123,6 +123,13 @@ beta event types must still parse. The stable mapping is:
 
 Notes:
 
+- For `email.received`, trust the RFC 5322 From domain only when
+  `verified_domain` is non-null, equivalently when
+  `authentication?.dmarc.status === "pass"`. Only then compare `header_from`
+  with an address allowlist. This authenticates domain-authorized use of the
+  From domain, not the mailbox local part, a person, or message content. Verify
+  a webhook delivery's `X-E2A-Signature` before trusting any payload field;
+  WebSocket events arrive over an authenticated transport.
 - The delivery-outcome events (`email.delivered`/`bounced`/`complained`) carry **no `status` field** — the event type IS the outcome.
 - `email.failed` is **message-level** (its `to`/`cc`/`bcc` lists carry the recipients — never one event per recipient) and fires **at most once per message** across both emission paths: the send worker and the SES `Reject` delivery-feedback path derive the same deterministic event id, so duplicate SNS deliveries and cross-path double emission collapse in the outbox.
 - `delivered_to` is always a **scalar**: on `email.received` it's the one per-agent copy (the relay emits one event per delivery); on the delivery-outcome events it's the one recipient the outcome is about. The peer `to`/`cc` lists are the message's parsed headers.

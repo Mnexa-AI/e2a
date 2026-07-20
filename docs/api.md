@@ -407,10 +407,10 @@ single message.
   not that the recipient's server did. Delivery/bounce/complaint are per-recipient
   async outcomes reported later via SNS and the corresponding webhook events.
 - `GET …/messages/{id}` — fetch one message (inbound or outbound), including the
-  raw message and inbound auth headers. Reading an unread inbound message flips it
-  to `read`. A soft-deleted message remains readable by this direct GET and carries
-  `deleted_at` until it is permanently purged (30 days after deletion by default;
-  the trash retention window is deployment-configurable).
+  raw message and structured inbound authentication evidence. Reading an unread
+  inbound message flips it to `read`. A soft-deleted message remains readable by
+  this direct GET and carries `deleted_at` until it is permanently purged (30 days
+  after deletion by default; the trash retention window is deployment-configurable).
   Ordinary message lists, conversations, reply targets, and forward targets hide
   trashed messages; use `GET …/messages?deleted=true` to enumerate the trash.
 - `PATCH …/messages/{id}` — apply a labels delta (`add_labels` / `remove_labels`).
@@ -419,6 +419,15 @@ single message.
 - `GET …/messages/{id}/attachments/{index}` — attachment metadata + a short-lived
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
+
+For sender-trust decisions, a non-null `verified_domain` means DMARC passed for
+that RFC 5322 From domain. On detail responses the equivalent check is
+`authentication?.dmarc.status === "pass"`. Only after that check should an
+application compare `header_from` with an address allowlist. Neither result
+authenticates the mailbox local part, a person, or message content. Before
+trusting any field from a webhook, first verify the delivery envelope's
+`X-E2A-Signature`; authenticated REST and WebSocket transports need no separate
+payload-signature step.
 
 **Managed unsubscribe (beta).** Send, reply, and forward accept the optional strict
 object `"unsubscribe":{"mode":"managed"}`. Omission means only that e2a does
