@@ -213,6 +213,26 @@ export function ThreadBubble({
           >
             {senderEmail}
           </span>
+          {isInbound && (
+            <span
+              role="status"
+              title={message.verified_domain
+                ? "DMARC passed for the RFC 5322 From domain; this does not authenticate the person or message content."
+                : "No DMARC-authenticated From domain is available for this message."}
+              style={{
+                fontFamily: "var(--f-mono)",
+                fontSize: 10,
+                fontWeight: 600,
+                color: message.verified_domain ? "var(--accent-strong)" : "var(--warn-strong)",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              {message.verified_domain
+                ? `DMARC verified · ${message.verified_domain}`
+                : "DMARC not verified"}
+            </span>
+          )}
           {!isInbound && (
             <MessageStatusChip
               className="shrink-0 whitespace-nowrap"

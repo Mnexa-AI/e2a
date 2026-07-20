@@ -223,6 +223,45 @@ describe("AgentMessageFocusPage", () => {
     expect(screen.getByText(/Attached is the renewal contract/)).toBeInTheDocument();
   });
 
+  it("renders DMARC fail as a danger state in the inbound headers", async () => {
+    setSearchParams({ email: AGENT_EMAIL, id: "msg_dmarc_fail", direction: "inbound", headers: "1" });
+    mockDetail({
+      ...INBOUND_DETAIL,
+      id: "msg_dmarc_fail",
+      authentication: {
+        ...INBOUND_DETAIL.authentication,
+        dmarc: {
+          status: "fail",
+          domain: "stripe.com",
+          policy: "reject",
+          aligned_by: [],
+        },
+      },
+    });
+
+    render(<AgentMessageFocusPage />);
+
+    const verdict = await screen.findByText("DMARC: fail");
+    expect(verdict).toHaveStyle({ color: "var(--danger-strong)" });
+  });
+
+  it("renders missing SMTP authentication as an explicit warning", async () => {
+    setSearchParams({ email: AGENT_EMAIL, id: "msg_providerless", direction: "inbound", headers: "1" });
+    mockDetail({
+      ...INBOUND_DETAIL,
+      id: "msg_providerless",
+      authentication: null,
+      verified_domain: null,
+    });
+
+    render(<AgentMessageFocusPage />);
+
+    const verdict = await screen.findByText(
+      "DMARC: not evaluated — no authenticating inbound SMTP peer",
+    );
+    expect(verdict).toHaveStyle({ color: "var(--warn-strong)" });
+  });
+
   it("prefers the backend-parsed text over the raw MIME body for inbound", async () => {
     // Regression (#294): inbound rows carry the clean body in `parsed.text`
     // (text/plain or HTML→text, quoted-printable decoded). The bug rendered the

@@ -775,6 +775,28 @@ function scrubHeaderValue(raw: string): string {
   return stripped.length > 200 ? stripped.slice(0, 197) + "…" : stripped;
 }
 
+function dmarcHeaderLine(status: "pass" | "fail" | "none" | "temperror" | "permerror"): InkLine {
+  switch (status) {
+    case "pass":
+      return { c: "accent", text: "DMARC: pass" };
+    case "fail":
+      return { c: "plain", fg: "var(--danger-strong)", text: "DMARC: fail" };
+    case "temperror":
+    case "permerror":
+      return { c: "plain", fg: "var(--warn-strong)", text: `DMARC: ${status}` };
+    case "none":
+      return { c: "comment", text: "DMARC: none" };
+  }
+}
+
+function dmarcNotEvaluatedLine(): InkLine {
+  return {
+    c: "plain",
+    fg: "var(--warn-strong)",
+    text: "DMARC: not evaluated — no authenticating inbound SMTP peer",
+  };
+}
+
 function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
   const lines: InkLine[] = [
     { c: "comment", text: "# captured at receive-time" },
@@ -807,7 +829,7 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
   }
   if (d.authentication) {
     const { spf, dkim, dmarc } = d.authentication;
-    lines.push({ c: dmarc.status === "pass" ? "accent" : "plain", text: `DMARC: ${dmarc.status}` });
+    lines.push(dmarcHeaderLine(dmarc.status));
     lines.push({ c: "plain", text: `SPF: ${spf.status}${spf.domain ? ` · ${spf.domain}` : ""}` });
     for (const signature of dkim) {
       lines.push({
@@ -815,6 +837,8 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
         text: `DKIM: ${signature.status}${signature.domain ? ` · ${signature.domain}` : ""}${signature.selector ? ` · ${signature.selector}` : ""}`,
       });
     }
+  } else {
+    lines.push(dmarcNotEvaluatedLine());
   }
   return lines;
 }
@@ -860,9 +884,11 @@ function buildOutboundHeaderLines(d: PendingMessageDetail): InkLine[] {
       ),
     });
   }
-  if (d.inbound?.authentication) {
+  if (d.inbound) {
 	lines.push({ c: "comment", text: "# parent inbound auth" });
-	lines.push({ c: "plain", text: `DMARC: ${d.inbound.authentication.dmarc.status}` });
+	lines.push(d.inbound.authentication
+	  ? dmarcHeaderLine(d.inbound.authentication.dmarc.status)
+	  : dmarcNotEvaluatedLine());
   }
   return lines;
 }
