@@ -443,7 +443,7 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient,
 		        m.subject, m.email_message_id, m.provider_message_id,
 		        COALESCE(m.method, ''), COALESCE(m.message_type, ''),
-		        m.raw_message, m.auth_headers, m.conversation_id,
+		        m.raw_message, m.auth_headers, COALESCE(m.header_from, ''), COALESCE(m.envelope_from, ''), m.authentication, m.auth_verdict, m.conversation_id,
 		        COALESCE(m.inbox_status, ''),
 		        m.created_at, m.expires_at,
 		        m.to_recipients, m.cc, m.bcc, m.reply_to,
@@ -463,11 +463,12 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 	for rows.Next() {
 		var m Message
 		var authHeadersJSON []byte
+		var authentication, authVerdict []byte
 		var attachmentsJSON []byte
 		if err := rows.Scan(
 			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient,
 			&m.Subject, &m.EmailMessageID, &m.ProviderMessageID, &m.Method, &m.Type,
-			&m.RawMessage, &authHeadersJSON, &m.ConversationID, &m.DeliveryStatus,
+			&m.RawMessage, &authHeadersJSON, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &authVerdict, &m.ConversationID, &m.DeliveryStatus,
 			&m.CreatedAt, &m.ExpiresAt,
 			&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
 			&m.Status, &m.ApprovalExpiresAt, &m.ReviewedAt, &m.RejectionReason,
@@ -477,6 +478,12 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 		}
 		if len(authHeadersJSON) > 0 {
 			_ = json.Unmarshal(authHeadersJSON, &m.AuthHeaders)
+		}
+		if err := unmarshalAuthVerdict(authVerdict, &m); err != nil {
+			return nil, err
+		}
+		if err := unmarshalAuthentication(authentication, authVerdict, &m); err != nil {
+			return nil, err
 		}
 		// size_bytes: the RAW MIME length of the stored message (same value
 		// the message list/detail views carry, and the dominant term of

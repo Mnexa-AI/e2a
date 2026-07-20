@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"encoding/json"
-
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -466,11 +464,7 @@ func TestCreateAndGetInboundMessage(t *testing.T) {
 	}
 }
 
-// TestInboundMessageRoundTripsAuthVerdict asserts the structured inbound
-// auth verdict (messages.auth_verdict, migration 032) persists and reads
-// back through the message read paths, and that an outbound message has no
-// verdict (nil Auth).
-func TestInboundMessageRoundTripsAuthVerdict(t *testing.T) {
+func TestInboundMessageRoundTripsAuthentication(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -479,42 +473,60 @@ func TestInboundMessageRoundTripsAuthVerdict(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "authverdict.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "bot@authverdict.example.com", "authverdict.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	verdict := emailauth.AuthVerdict{
-		SPF:   emailauth.CheckResult{Status: emailauth.StatusPass, Detail: "spf-pass detail"},
-		DKIM:  emailauth.CheckResult{Status: emailauth.StatusFail, Detail: "dkim-fail detail"},
-		DMARC: emailauth.CheckResult{Status: emailauth.StatusNone, Detail: "no alignment"},
+	spfDomain, dkimDomain, selector := "mail.example.com", "example.com", "s1"
+	policy := emailauth.DMARCPolicyReject
+	spfAligned, dkimAligned := true, true
+	authentication := &emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &spfDomain, Aligned: &spfAligned},
+		DKIM:  []emailauth.DKIMResult{{Status: emailauth.StatusPass, Domain: &dkimDomain, Selector: &selector, Aligned: &dkimAligned}},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &dkimDomain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF, emailauth.AlignedByDKIM}},
 	}
-	verdictJSON, err := json.Marshal(verdict)
-	if err != nil {
-		t.Fatalf("marshal verdict: %v", err)
+	authData := identity.InboundAuth{
+		HeaderFrom:     "alice@example.com",
+		EnvelopeFrom:   "bounce@mail.example.com",
+		Authentication: authentication,
 	}
-
-	in, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@authverdict.example.com", "<av1@gmail.com>", "Hello", "", "unread", nil, nil, verdictJSON, false, "", nil, nil, nil, identity.InboundScreening{})
+	in, err := store.CreateInboundMessageAuthenticated(ctx, "", a.ID, authData, "bot@authverdict.example.com", "<av1@gmail.com>", "Hello", "", "unread", nil, false, "", nil, nil, nil, identity.InboundScreening{})
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
+
+	assertCanonical := func(label string, got *identity.Message) {
+		t.Helper()
+		if got.HeaderFrom != authData.HeaderFrom || got.EnvelopeFrom != authData.EnvelopeFrom {
+			t.Fatalf("%s identities = (%q, %q), want (%q, %q)", label, got.HeaderFrom, got.EnvelopeFrom, authData.HeaderFrom, authData.EnvelopeFrom)
+		}
+		if !reflect.DeepEqual(got.Authentication, authentication) {
+			t.Fatalf("%s authentication = %#v, want %#v", label, got.Authentication, authentication)
+		}
+	}
+
+	gotInbound, err := store.GetInboundMessage(ctx, in.ID)
+	if err != nil {
+		t.Fatalf("GetInboundMessage: %v", err)
+	}
+	assertCanonical("inbound", gotInbound)
 
 	got, err := store.GetMessageWithContent(ctx, in.ID, a.ID)
 	if err != nil {
 		t.Fatalf("GetMessageWithContent: %v", err)
 	}
-	if got.Auth == nil {
-		t.Fatalf("inbound Auth is nil, want populated verdict")
+	assertCanonical("detail", got)
+	listed, err := store.GetMessagesByAgent(ctx, identity.MessageListFilter{AgentID: a.ID, Direction: "inbound", Status: "all", Limit: 10})
+	if err != nil || len(listed) != 1 || !reflect.DeepEqual(listed[0].Authentication, authentication) {
+		t.Fatalf("list round trip = %#v, err=%v", listed, err)
 	}
-	if got.Auth.SPF.Status != emailauth.StatusPass {
-		t.Errorf("SPF.Status = %q, want %q", got.Auth.SPF.Status, emailauth.StatusPass)
+	reviewed, err := store.GetReviewWithContent(ctx, user.ID, in.ID)
+	if err != nil {
+		t.Fatalf("GetReviewWithContent: %v", err)
 	}
-	if got.Auth.DKIM.Status != emailauth.StatusFail {
-		t.Errorf("DKIM.Status = %q, want %q", got.Auth.DKIM.Status, emailauth.StatusFail)
-	}
-	if got.Auth.DMARC.Status != emailauth.StatusNone {
-		t.Errorf("DMARC.Status = %q, want %q", got.Auth.DMARC.Status, emailauth.StatusNone)
-	}
-	if got.Auth.SPF.Detail != "spf-pass detail" {
-		t.Errorf("SPF.Detail = %q", got.Auth.SPF.Detail)
+	assertCanonical("review", reviewed)
+	exported, err := store.ExportUserData(ctx, user.ID)
+	if err != nil || len(exported.Messages) != 1 || !reflect.DeepEqual(exported.Messages[0].Authentication, authentication) {
+		t.Fatalf("export round trip = %#v, err=%v", exported.Messages, err)
 	}
 
-	// Outbound rows never carry a verdict — Auth must stay nil.
+	// Outbound rows never carry inbound authentication evidence.
 	out, err := store.CreateOutboundMessage(ctx, a.ID, []string{"bob@gmail.com"}, nil, nil, "Re: Hello", "reply", "smtp", "<prov@authverdict.example.com>", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
@@ -523,8 +535,34 @@ func TestInboundMessageRoundTripsAuthVerdict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMessageWithContent outbound: %v", err)
 	}
-	if gotOut.Auth != nil {
-		t.Errorf("outbound Auth = %+v, want nil", gotOut.Auth)
+	if gotOut.Authentication != nil {
+		t.Errorf("outbound Authentication = %+v, want nil", gotOut.Authentication)
+	}
+}
+
+func TestLegacyInboundAuthenticationFailsClosed(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "legacy-auth@example.com", "Owner", "google-legacy-auth")
+	store.ClaimOrCreateDomain(ctx, "legacy-auth.example.com", user.ID)
+	agent, _ := store.CreateAgent(ctx, "bot@legacy-auth.example.com", "legacy-auth.example.com", "", "https://example.com/webhook", "", user.ID)
+
+	legacy := []byte(`{"spf":{"status":"pass"},"dkim":{"status":"pass"},"dmarc":{"status":"pass"}}`)
+	message, err := store.CreateInboundMessage(ctx, "", agent.ID, "spoof@trusted.example", agent.ID, "<legacy@example.com>", "Legacy", "", "unread", nil, nil, legacy, false, "", nil, nil, nil, identity.InboundScreening{})
+	if err != nil {
+		t.Fatalf("CreateInboundMessage: %v", err)
+	}
+	got, err := store.GetInboundMessage(ctx, message.ID)
+	if err != nil {
+		t.Fatalf("GetInboundMessage: %v", err)
+	}
+	if got.Authentication == nil || got.Authentication.DMARC.Status != emailauth.StatusPermError {
+		t.Fatalf("legacy authentication = %#v, want fail-closed permerror", got.Authentication)
+	}
+	if got.Authentication.Passed() {
+		t.Fatal("legacy authentication must never be promoted to a pass")
 	}
 }
 
