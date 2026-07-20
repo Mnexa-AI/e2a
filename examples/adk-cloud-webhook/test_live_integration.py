@@ -104,6 +104,7 @@ class LiveWebhookIntegrationTest(unittest.TestCase):
                     "direction": "inbound",
                     "header_from": bot,
                     "envelope_from": None,
+                    "verified_domain": None,
                     "authentication": None,
                     "to": [bot],
                     "cc": [],

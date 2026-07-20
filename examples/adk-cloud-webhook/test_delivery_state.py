@@ -2,7 +2,7 @@ import ast
 from pathlib import Path
 import unittest
 
-from delivery_state import EventDeduper, conversation_id_for
+from delivery_state import EventDeduper, conversation_id_for, sender_user_id
 
 
 class ConversationIDTest(unittest.TestCase):
@@ -15,6 +15,15 @@ class ConversationIDTest(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(first, "conv_0123456789ab")
+
+
+class SenderUserIDTest(unittest.TestCase):
+    def test_uses_header_from(self) -> None:
+        self.assertEqual(sender_user_id("Alice@Example.com", "msg_1"), "Alice@Example.com")
+
+    def test_missing_header_from_is_isolated_per_message(self) -> None:
+        self.assertEqual(sender_user_id(None, "msg_1"), "unknown-sender:msg_1")
+        self.assertNotEqual(sender_user_id(None, "msg_1"), sender_user_id(None, "msg_2"))
 
 
 class EventDeduperTest(unittest.IsolatedAsyncioTestCase):
@@ -49,8 +58,12 @@ class EventDeduperTest(unittest.IsolatedAsyncioTestCase):
 class WebhookExampleContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        source = Path(__file__).with_name("webhook.py").read_text()
-        cls.tree = ast.parse(source)
+        cls.source = Path(__file__).with_name("webhook.py").read_text()
+        cls.tree = ast.parse(cls.source)
+
+    def test_current_event_sender_field_is_used(self) -> None:
+        self.assertIn('data.get("header_from")', self.source)
+        self.assertNotIn('data["from"]', self.source)
 
     def test_reply_uses_event_id_as_idempotency_key(self) -> None:
         reply_calls = [
