@@ -2,7 +2,7 @@
 // callout fires when a thread has a pending draft, empty state, "load
 // older" button.
 
-import { render, screen, waitFor, within } from "../../../../../test-utils/swr";
+import { act, render, screen, waitFor, within } from "../../../../../test-utils/swr";
 import userEvent from "@testing-library/user-event";
 import AgentInboxPage from "./page";
 import type { MessageSummary } from "../../../../components/types";
@@ -134,6 +134,136 @@ describe("AgentInboxPage", () => {
     expect(screen.getAllByText("PR #2841 merged").length).toBeGreaterThan(0);
     // Synthetic thread key — used by the URL fragment when selected.
     expect(screen.getByTestId("thread-row").dataset.threadKey).toBe("orphan:msg_solo");
+  });
+
+  it("polls the active inbox for new messages", async () => {
+    setSearchParams({ email: "support@acme.io" });
+    mockMessages([ORPHAN_INBOUND]);
+
+    render(<AgentInboxPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-row")).toBeInTheDocument();
+    });
+    const initialFetchCount = mockFetch.mock.calls.length;
+
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.length).toBeGreaterThan(initialFetchCount);
+    });
+  });
+
+  it("retains cached inbox rows when background polling fails", async () => {
+    setSearchParams({ email: "support@acme.io" });
+    let messageRequestCount = 0;
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/v1/agents/") && url.includes("/messages")) {
+        messageRequestCount += 1;
+        if (messageRequestCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({ items: [ORPHAN_INBOUND], next_cursor: null }),
+              ),
+          });
+        }
+        return Promise.reject(new Error("refresh failed"));
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+
+    render(<AgentInboxPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-row")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("refresh failed")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("thread-row")).toBeInTheDocument();
+  });
+
+  it("clears pagination state when switching agents", async () => {
+    const agentACurrent = {
+      ...ORPHAN_INBOUND,
+      id: "msg_agent_a_current",
+      subject: "Agent A current",
+    };
+    const agentAOlder = {
+      ...ORPHAN_INBOUND,
+      id: "msg_agent_a_older",
+      subject: "Agent A older",
+    };
+    const agentBCurrent = {
+      ...ORPHAN_INBOUND,
+      id: "msg_agent_b_current",
+      subject: "Agent B current",
+    };
+    setSearchParams({ email: "agent-a@acme.io" });
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/v1/agents/agent-a%40acme.io/messages")) {
+        const page = url.includes("cursor=cursor-a")
+          ? { items: [agentAOlder], next_cursor: "cursor-a-more" }
+          : { items: [agentACurrent], next_cursor: "cursor-a" };
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify(page)),
+        });
+      }
+      if (url.includes("/v1/agents/agent-b%40acme.io/messages")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({ items: [agentBCurrent], next_cursor: null }),
+            ),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    const { rerender } = render(<AgentInboxPage />);
+    await waitFor(() => {
+      expect(screen.getByText("Agent A current")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /load older/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Agent A older")).toBeInTheDocument();
+    });
+
+    setSearchParams({ email: "agent-b@acme.io" });
+    rerender(<AgentInboxPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Agent B current")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Agent A current")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent A older")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load older/i })).not.toBeInTheDocument();
   });
 
   it("pending callout appears in the thread detail when a thread is pending", async () => {

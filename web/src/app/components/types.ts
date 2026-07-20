@@ -141,8 +141,9 @@ export type MessageSummary = {
   recipient: string;
   subject: string;
   conversation_id?: string;
-  // Delivery rollup (from v1 delivery_status): queued | sent | delivered
-  // | bounced | complained | deferred | failed. Empty on a held draft.
+  // Delivery rollup (from v1 delivery_status): accepted | sending | sent |
+  // delivered | deferred | bounced | complained | failed. The UI labels
+  // accepted as "Queued". Empty on a held draft.
   status: string;
   // Review lifecycle (from v1 review_status): pending_review | sent |
   // review_rejected | review_expired_approved | review_expired_rejected.

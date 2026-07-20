@@ -32,9 +32,7 @@ function PendingContent() {
     data: messages = [],
     error: swrError,
     isLoading,
-  } = useSWR<PendingMessageSummary[]>(pendingMessagesKey, () =>
-    listPendingMessages(),
-  );
+  } = useSWR<PendingMessageSummary[]>(pendingMessagesKey, listPendingMessages);
   const loading = isLoading && messages.length === 0;
   const error = swrError
     ? swrError instanceof Error

@@ -9,16 +9,15 @@
 //      error) maps to `null` for back-compat with the old hook's
 //      contract — callers can distinguish "unknown" from "zero".
 //
-// Refresh wiring (focus / reconnect / dedup) lives in SWRProvider's
-// config, not here. Mutation sites that drop the count (approve,
-// reject) call `invalidatePendingList()` from lib/swrKeys.ts.
+// Live refresh is owned once by PendingPollingOwner; this hook only
+// subscribes to that shared cache. Mutation sites that drop the count
+// (approve, reject) call `invalidatePendingList()` from lib/swrKeys.ts.
 
 import useSWR from "swr";
 import { listPendingMessages } from "../onboarding/api";
 import { pendingMessagesKey } from "../../../lib/swrKeys";
 
 export function usePendingCount(): number | null {
-  const { data, error } = useSWR(pendingMessagesKey, () => listPendingMessages());
-  if (error) return null;
-  return data ? data.length : null;
+  const { data } = useSWR(pendingMessagesKey, listPendingMessages);
+  return data !== undefined ? data.length : null;
 }

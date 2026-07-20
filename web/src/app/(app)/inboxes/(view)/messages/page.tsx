@@ -19,6 +19,7 @@ import type { MessageSummary } from "../../../../components/types";
 import { ThreadList } from "../../../../components/messages/ThreadList";
 import { ThreadDetail } from "../../../../components/messages/ThreadDetail";
 import { groupIntoThreads } from "../../../../components/messages/threading";
+import { inboxPolling } from "../../../../../lib/livePolling";
 import { agentMessagesKey } from "../../../../../lib/swrKeys";
 
 // Sync the URL fragment into React state. useSyncExternalStore is the
@@ -42,15 +43,19 @@ function useUrlHash(): string {
 export default function AgentInboxPage() {
   return (
     <Suspense fallback={null}>
-      <AgentInboxContent />
+      <AgentInboxRoute />
     </Suspense>
   );
 }
 
-function AgentInboxContent() {
-  const router = useRouter();
+function AgentInboxRoute() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
+  return <AgentInboxContent key={email} email={email} />;
+}
+
+function AgentInboxContent({ email }: { email: string }) {
+  const router = useRouter();
 
   // Initial 100-row window. SWR keys by email so navigating between
   // agents fetches independently; mutations on the focus page call
@@ -66,7 +71,7 @@ function AgentInboxContent() {
     // during a ?email=A → ?email=B switch. Disable here so the page
     // flashes a brief loading state instead of mis-attributing
     // messages to the new agent.
-    { keepPreviousData: false },
+    { ...inboxPolling, keepPreviousData: false },
   );
 
   // "Load older" appends additional pages keyed by the prior page's
@@ -221,7 +226,7 @@ function AgentInboxContent() {
           Loading inbox…
         </div>
       )}
-      {!error && initialPage && (
+      {initialPage && (
         <div className="flex-1 flex flex-col">
           {selected ? (
             <ThreadDetail

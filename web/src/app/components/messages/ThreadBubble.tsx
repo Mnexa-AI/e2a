@@ -9,8 +9,8 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { Chip, Dot } from "@e2a/ui";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
+import { MessageStatusChip } from "./MessageStatusChip";
 import { EmailHtmlBody } from "./EmailHtmlBody";
 import { AttachmentChips, downloadableAttachments } from "./AttachmentChips";
 import { getMessageDetail, deleteMessage } from "../onboarding/api";
@@ -199,10 +199,13 @@ export function ThreadBubble({
           >
             {senderEmail}
           </span>
-          {pending && (
-            <Chip tone="warn">
-              <Dot tone="warn" /> Pending
-            </Chip>
+          {!isInbound && (
+            <MessageStatusChip
+              className="shrink-0 whitespace-nowrap"
+              direction="outbound"
+              delivery_status={message.status}
+              review_status={message.review_status}
+            />
           )}
           <span className="flex-1" />
           <span

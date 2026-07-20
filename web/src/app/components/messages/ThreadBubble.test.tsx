@@ -110,3 +110,68 @@ describe("ThreadBubble marks-read cache refresh", () => {
     expect(mockInvalidateUnread).not.toHaveBeenCalled();
   });
 });
+
+describe("ThreadBubble outbound delivery status", () => {
+  it.each([
+    ["accepted", "Queued"],
+    ["sending", "Sending"],
+    ["deferred", "Delayed"],
+    ["sent", "Sent"],
+    ["delivered", "Delivered"],
+    ["failed", "Failed"],
+    ["bounced", "Bounced"],
+    ["complained", "Complaint"],
+  ] as const)("renders %s as %s", async (status, label) => {
+    const id = `msg_status_${status}`;
+    mockGet.mockResolvedValue({
+      direction: "outbound",
+      data: { body_text: `${status} body`, body_html: "" },
+    } as never);
+    const m: MessageSummary = {
+      ...msg(id),
+      direction: "outbound",
+      from: "support@acme.dev",
+      to: ["james@x.com"],
+      recipient: "james@x.com",
+      status,
+    };
+
+    render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
+
+    expect(await screen.findByText(label)).toHaveClass("shrink-0", "whitespace-nowrap");
+  });
+
+  it.each([
+    ["pending_review", "Pending review"],
+    ["review_rejected", "Rejected"],
+  ] as const)("renders review status %s as %s", async (review_status, label) => {
+    const id = `msg_review_${review_status}`;
+    mockGet.mockResolvedValue({
+      direction: "outbound",
+      data: { body_text: `${review_status} body`, body_html: "" },
+    } as never);
+    const m: MessageSummary = {
+      ...msg(id),
+      direction: "outbound",
+      from: "support@acme.dev",
+      to: ["james@x.com"],
+      recipient: "james@x.com",
+      status: "",
+      review_status,
+    };
+
+    render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
+
+    expect(await screen.findByText(label)).toHaveClass("shrink-0", "whitespace-nowrap");
+  });
+
+  it("does not render an outbound delivery chip on an inbound message", async () => {
+    inbound({ parsed: { text: "inbound body" }, raw_message: "" });
+    const m = { ...msg("msg_status_inbound"), status: "failed" };
+
+    render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
+
+    await screen.findByText("inbound body");
+    expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+  });
+});
