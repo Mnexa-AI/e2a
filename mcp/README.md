@@ -168,12 +168,20 @@ shows the set your scope allows, with per-tool descriptions.
 
 ### Human-in-the-loop approval
 
+`list_reviews`/`get_review` only surface **outbound** holds. A held
+**inbound** message (a content-screening hold) is surfaced instead by the
+`email.review_requested` webhook (which carries its `message_id`) — but it's
+resolved with these same `approve_review`/`reject_review` tools, which branch
+on the message's direction: approving an inbound hold releases it to the
+agent's inbox (no send, no draft, override fields ignored); rejecting one
+drops it so it never reaches the agent.
+
 | Tool | Description |
 | --- | --- |
 | `list_reviews` | List outbound mail awaiting human approval (the review queue), soonest-expiring first. |
 | `get_review` | Get the full draft (subject, recipients, body) of a held message under review. |
-| `approve_review` | Send a held message, optionally with reviewer edits (subject / body / recipients). Account-scoped — never agent self-approval. |
-| `reject_review` | Discard a held message; the optional `reason` is stored for audit. Account-scoped. |
+| `approve_review` | Outbound: send a held message, optionally with reviewer edits (subject / body / recipients). Inbound: release the screening hold to the agent's inbox (overrides ignored). Account-scoped — never agent self-approval. |
+| `reject_review` | Outbound: discard a held message. Inbound: drop the screening hold so it never reaches the agent. The optional `reason` is stored for audit. Account-scoped. |
 
 ### Domains
 
