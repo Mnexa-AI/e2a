@@ -81,6 +81,28 @@ func TestDKIMResultsRetainEverySignatureAndRefuseOnlyLengthLimitedSignature(t *t
 	}
 }
 
+func TestMapDKIMResultsFailsClosedWhenSignatureTagsDoNotCorrelate(t *testing.T) {
+	verifications := []*dkim.Verification{{Domain: "trusted.example", Err: nil}}
+	got := mapDKIMResults(verifications, nil, nil)
+	if len(got) != 1 {
+		t.Fatalf("len(results) = %d, want 1: %+v", len(got), got)
+	}
+	if got[0].Status == StatusPass {
+		t.Fatalf("mismatched signature metadata must not pass: %+v", got[0])
+	}
+}
+
+func TestFromHeaderDomainRejectsMultipleFromFieldsAndAddresses(t *testing.T) {
+	for _, raw := range []string{
+		"From: ceo@trusted.example\r\nFrom: signed@trusted.example\r\n\r\nbody",
+		"From: ceo@trusted.example, signed@trusted.example\r\n\r\nbody",
+	} {
+		if got := fromHeaderDomain([]byte(raw)); got != "" {
+			t.Fatalf("fromHeaderDomain(%q) = %q, want empty", raw, got)
+		}
+	}
+}
+
 func TestAuthenticationPassRequiresDMARCAlignment(t *testing.T) {
 	r := &fakeTXTResolver{records: map[string][]string{
 		"_dmarc.trusted.com": {"v=DMARC1; p=reject"},

@@ -67,7 +67,14 @@ func Check(remoteIP net.IP, senderEmail string, rawMessage []byte) *AuthVerdict 
 // CheckAuthentication evaluates and retains the complete SPF, DKIM, and DMARC
 // evidence for an inbound message.
 func CheckAuthentication(ctx context.Context, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
-	return checkWithEvaluator(ctx, defaultDMARCEvaluator, remoteIP, envelopeFrom, rawMessage)
+	return CheckAuthenticationForAuthor(ctx, remoteIP, envelopeFrom, rawMessage, ParseAuthorIdentity(rawMessage))
+}
+
+// CheckAuthenticationForAuthor evaluates authentication using an AuthorIdentity
+// that was parsed once by the caller. This keeps the header_from projection and
+// DMARC decision on the same security-critical interpretation of From.
+func CheckAuthenticationForAuthor(ctx context.Context, remoteIP net.IP, envelopeFrom string, rawMessage []byte, author AuthorIdentity) *Authentication {
+	return checkWithEvaluatorForAuthor(ctx, defaultDMARCEvaluator, remoteIP, envelopeFrom, rawMessage, author)
 }
 
 func checkWithResolver(ctx context.Context, resolver TXTResolver, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
@@ -75,11 +82,15 @@ func checkWithResolver(ctx context.Context, resolver TXTResolver, remoteIP net.I
 }
 
 func checkWithEvaluator(ctx context.Context, evaluator *dmarcEvaluator, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
+	return checkWithEvaluatorForAuthor(ctx, evaluator, remoteIP, envelopeFrom, rawMessage, ParseAuthorIdentity(rawMessage))
+}
+
+func checkWithEvaluatorForAuthor(ctx context.Context, evaluator *dmarcEvaluator, remoteIP net.IP, envelopeFrom string, rawMessage []byte, author AuthorIdentity) *Authentication {
 	authentication := &Authentication{
 		SPF:  checkSPF(remoteIP, envelopeFrom),
 		DKIM: checkDKIM(rawMessage),
 	}
-	evaluator.evaluateAuthentication(ctx, fromHeaderDomain(rawMessage), authentication)
+	evaluator.evaluateAuthentication(ctx, author.Domain, authentication)
 	log.Printf("Email auth for %s from %s: SPF=%s DKIM=%d DMARC=%s", envelopeFrom, remoteIP, authentication.SPF.Status, len(authentication.DKIM), authentication.DMARC.Status)
 	return authentication
 
@@ -169,18 +180,43 @@ func orgDomain(d string) string {
 	return d
 }
 
-// fromHeaderDomain extracts the domain of the RFC 5322 From header (the
-// identifier DMARC aligns against). Empty if absent/unparseable.
-func fromHeaderDomain(rawMessage []byte) string {
+type AuthorIdentity struct {
+	Address string
+	Domain  string
+}
+
+// ParseAuthorIdentity returns the single RFC 5322 author mailbox used by both
+// public header_from projection and DMARC evaluation. Ambiguous From fields
+// fail closed: neither repeated fields nor a multi-address field identifies a
+// single author mailbox.
+func ParseAuthorIdentity(rawMessage []byte) AuthorIdentity {
 	msg, err := mail.ReadMessage(bytes.NewReader(rawMessage))
 	if err != nil {
-		return ""
+		return AuthorIdentity{}
 	}
-	addr, err := mail.ParseAddress(msg.Header.Get("From"))
-	if err != nil {
-		return ""
+	var fields []string
+	for name, values := range msg.Header {
+		if strings.EqualFold(name, "From") {
+			fields = append(fields, values...)
+		}
 	}
-	return extractDomain(addr.Address)
+	if len(fields) != 1 {
+		return AuthorIdentity{}
+	}
+	addresses, err := mail.ParseAddressList(fields[0])
+	if err != nil || len(addresses) != 1 {
+		return AuthorIdentity{}
+	}
+	domain := extractDomain(addresses[0].Address)
+	if domain == "" {
+		return AuthorIdentity{}
+	}
+	return AuthorIdentity{Address: addresses[0].Address, Domain: domain}
+}
+
+// fromHeaderDomain extracts the unambiguous RFC 5322 Author Domain.
+func fromHeaderDomain(rawMessage []byte) string {
+	return ParseAuthorIdentity(rawMessage).Domain
 }
 
 func checkSPF(remoteIP net.IP, senderEmail string) SPFResult {
@@ -241,6 +277,30 @@ func mapDKIMResults(verifications []*dkim.Verification, tags []map[string]string
 	count := len(verifications)
 	if len(tags) > count {
 		count = len(tags)
+	}
+	if len(tags) != len(verifications) {
+		results := make([]DKIMResult, 0, count)
+		for i := 0; i < count; i++ {
+			result := DKIMResult{
+				Status: StatusPermError,
+				Detail: "DKIM signatures could not be correlated with parsed signature metadata",
+			}
+			if i < len(verifications) && verifications[i] != nil && verifications[i].Domain != "" {
+				result.Domain = stringPtr(normDomain(verifications[i].Domain))
+			}
+			if i < len(tags) {
+				if result.Domain == nil {
+					if domain := normDomain(tags[i]["d"]); domain != "" {
+						result.Domain = stringPtr(domain)
+					}
+				}
+				if selector := strings.TrimSpace(tags[i]["s"]); selector != "" {
+					result.Selector = stringPtr(selector)
+				}
+			}
+			results = append(results, result)
+		}
+		return results
 	}
 	results := make([]DKIMResult, 0, count)
 	for i := 0; i < count; i++ {
@@ -361,6 +421,9 @@ func dkimSignatureTags(rawMessage []byte) []map[string]string {
 				currentHeader.WriteString(strings.TrimLeft(line[colon+1:], " \t"))
 			}
 		}
+	}
+	if scanner.Err() != nil {
+		return nil
 	}
 	flush()
 	return signatures

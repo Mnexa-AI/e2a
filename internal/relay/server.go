@@ -323,12 +323,13 @@ type postPersistHook func(ctx context.Context, tx pgx.Tx, messageID string) erro
 func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook postPersistHook) error {
 	// Recompute the connection-derived context from the raw bytes — identical whether
 	// we are in the live session or replaying a persisted intake row.
-	threadInfo := extractThreadInfo(in.Body)
+	author := emailauth.ParseAuthorIdentity(in.Body)
+	threadInfo := extractThreadInfoWithAuthor(in.Body, author)
 	envelopeFrom := extractEmail(in.EnvelopeFrom)
 	headerFrom := threadInfo.From
 	// SPF/DKIM/DMARC against the TRUE envelope MAIL FROM (RFC 7208), not the From
 	// header — else SPF-alignment is a tautology (adversarial review F5).
-	authentication := emailauth.CheckAuthentication(ctx, in.RemoteIP, envelopeFrom, in.Body)
+	authentication := emailauth.CheckAuthenticationForAuthor(ctx, in.RemoteIP, envelopeFrom, in.Body, author)
 	log.Printf("[%s] [%s] email auth from %s (envelope %s): SPF=%s DKIM=%d DMARC=%s", in.TraceID, headerFrom, in.RemoteIP, envelopeFrom, authentication.SPF.Status, len(authentication.DKIM), authentication.DMARC.Status)
 
 	agent, err := srv.resolveAgent(ctx, in.Recipient)
@@ -801,6 +802,10 @@ type threadInfo struct {
 
 // extractThreadInfo parses threading headers from a raw RFC 2822 message.
 func extractThreadInfo(body []byte) threadInfo {
+	return extractThreadInfoWithAuthor(body, emailauth.ParseAuthorIdentity(body))
+}
+
+func extractThreadInfoWithAuthor(body []byte, author emailauth.AuthorIdentity) threadInfo {
 	msg, err := mail.ReadMessage(bytes.NewReader(body))
 	if err != nil {
 		return threadInfo{}
@@ -811,11 +816,9 @@ func extractThreadInfo(body []byte) threadInfo {
 			refs = append(refs, ref)
 		}
 	}
-	// Extract From header email address
-	fromHeader := ""
-	if addr, err := mail.ParseAddress(msg.Header.Get("From")); err == nil {
-		fromHeader = addr.Address
-	}
+	// Use the same single-author parser as DMARC. Ambiguous From fields are not
+	// projected as a sender identity.
+	fromHeader := author.Address
 	return threadInfo{
 		MessageID:  msg.Header.Get("Message-Id"),
 		Subject:    decodeMIMEHeader(msg.Header.Get("Subject")),
