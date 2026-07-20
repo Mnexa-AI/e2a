@@ -336,7 +336,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "List messages (inbox or sent)",
       annotations: { readOnlyHint: true },
       description:
-        "List the agent's messages, newest first by default. Use `direction` to pick the folder: `inbound` (the Inbox — received mail, the default), `outbound` (the Sent folder — mail this agent sent, including held drafts), or `all` (both). Filter received mail by `read_status` (unread/read/all; default unread — applies to inbound only; sent mail has no read-state). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest first) to drain in arrival order. **Search filters** (`from_`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole folder. Returns summaries only — use `get_message` for the full body.",
+        "List the agent's messages, newest first by default. Use `direction` to pick the folder: `inbound` (the Inbox — received mail, the default), `outbound` (the Sent folder — mail this agent sent, including held drafts), or `all` (both). Filter received mail by `read_status` (unread/read/all; default unread — applies to inbound only; sent mail has no read-state). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest first) to drain in arrival order. **Search filters** (`from_`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole folder. In inbound summaries, `header_from` is the claimed RFC 5322 From address; a non-null `verified_domain` means DMARC passed for that From domain. It does not authenticate the mailbox local part, a person, or message content. Returns summaries only — use `get_message` for the full body and SPF/DKIM/DMARC evidence.",
       inputSchema: strictInputSchema({
         direction: z
           .enum(["inbound", "outbound", "all"])
@@ -357,7 +357,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .max(200)
           .optional()
           .describe(
-            "Case-insensitive substring on the sender address. Example: `acme.com` matches every message from any `*@acme.com` sender.",
+            "Case-insensitive substring on the claimed RFC 5322 From address. This is not an authenticated-sender filter; inspect `verified_domain` or full DMARC evidence before trusting the domain. Example: `acme.com` matches claimed addresses at `*@acme.com`.",
           ),
         subject_contains: z
           .string()

@@ -403,6 +403,21 @@ describe("e2a MCP server", () => {
     }
   });
 
+  it("documents claimed sender and DMARC trust semantics on list_messages", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((candidate) => candidate.name === "list_messages");
+    const description = tool?.description ?? "";
+    const properties = (tool?.inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    })?.properties ?? {};
+
+    expect(description).toContain("verified_domain");
+    expect(description).toMatch(/DMARC passed/i);
+    expect(description).toMatch(/does not authenticate.*person.*message content/i);
+    expect(properties.from_?.description).toMatch(/claimed RFC 5322 From/i);
+    expect(properties.from_?.description).toMatch(/not an authenticated-sender filter/i);
+  });
+
   // ── §6a scope/tier gating ──────────────────────────────────────────
   // account scope sees the full surface; agent scope sees only the runtime tier.
 
@@ -676,6 +691,29 @@ describe("e2a MCP server", () => {
     const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(payload.messages).toEqual([{ message_id: "m1" }]);
     expect(payload.next_cursor).toBe("c_next");
+  });
+
+  it("list_messages returns trust fields with REST-style snake_case names", async () => {
+    (stub.listMessages as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      items: [{
+        id: "m1",
+        headerFrom: "alice@example.com",
+        envelopeFrom: "bounce@example.net",
+        verifiedDomain: "example.com",
+      }],
+      next_cursor: undefined,
+    });
+
+    const res = await client.callTool({ name: "list_messages", arguments: {} });
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.messages).toEqual([{
+      id: "m1",
+      header_from: "alice@example.com",
+      envelope_from: "bounce@example.net",
+      verified_domain: "example.com",
+    }]);
+    expect(payload.messages[0]).not.toHaveProperty("headerFrom");
+    expect(payload.messages[0]).not.toHaveProperty("verifiedDomain");
   });
 
   it("list_messages omits next_cursor on the last page", async () => {
