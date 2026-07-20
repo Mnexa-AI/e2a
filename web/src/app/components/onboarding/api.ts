@@ -318,8 +318,16 @@ export async function getInboxUnread(
   return { count, more: Boolean(page.next_cursor) };
 }
 
-// Wire shape of MessageView (GET /v1/agents/{address}/messages/{id}).
-type MessageViewWire = {
+// Wire shape of MessageView, returned by BOTH message-detail endpoints
+// (GET /v1/agents/{address}/messages/{id} and GET /v1/reviews/{id}).
+//
+// This raw wire — never a projection — is what the SWR cache holds under
+// messageDetailKey(id). Two surfaces fetch the same message through
+// different endpoints, so caching a projection meant one surface could
+// read the other's shape and crash on a missing field. Caching the wire
+// and projecting at the point of use makes the shape uniform by
+// construction. See lib/swrKeys.ts.
+export type MessageViewWire = {
   id: string;
   from: string;
   to?: string[] | null;
@@ -359,7 +367,7 @@ type MessageViewWire = {
 // (attachments, the parent inbound context, the reviewer identity) come
 // through undefined — the UI degrades gracefully, hiding those
 // affordances.
-function projectPending(
+export function projectPending(
   email: string,
   w: MessageViewWire,
 ): PendingMessageDetail {
@@ -382,72 +390,87 @@ function projectPending(
     // Fall back so the body shows either way.
     body_text: w.body?.text ?? w.parsed?.text,
     body_html: w.body?.html ?? w.parsed?.html,
+    attachments: w.attachments ?? [],
   };
 }
 
-// Held-message detail for the review queue: GET /v1/reviews/{id}
-// (account-scoped; id is globally unique so no agent address is needed).
-// `email` is retained only for the SWR cache key. Built from the
-// MessageView the endpoint returns.
-export async function getPendingMessage(
-  email: string,
-  id: string,
-): Promise<PendingMessageDetail> {
-  const w = await request<MessageViewWire>(
-    "/v1/reviews/" + encodeURIComponent(id),
-  );
-  return projectPending(email, w);
+// Projects a MessageView into the inbound InboundMessageDetail shape the
+// received-mail surfaces read.
+export function projectInbound(
+  w: MessageViewWire,
+): InboundMessageDetail {
+  return {
+    id: w.id,
+    from: w.from,
+    to: w.to ?? [],
+    cc: w.cc ?? [],
+    reply_to: w.reply_to ?? [],
+    recipient: w.delivered_to,
+    subject: w.subject,
+    conversation_id: w.conversation_id ?? "",
+    status: w.delivery_status ?? "",
+    created_at: w.created_at,
+    auth_headers: w.auth_headers ?? {},
+    parsed: w.parsed,
+    body: w.body,
+    attachments: w.attachments ?? [],
+    raw_message: w.raw_message ?? "",
+  };
 }
 
-// Combined detail fetch for the focus page. `/v1` returns one MessageView
-// for both directions, and that detail shape has NO `direction` field —
-// it also drops `from`/`status` to empty strings on outbound rows, so the
-// direction CANNOT be recovered from the detail payload. The authoritative
-// direction lives on the MessageSummaryView list row, so the focus page
-// threads it in (via the `?direction=` query param) and passes it here.
-// When the caller can't supply a direction (a deep link with no param),
-// we fall back to inbound — the safe default that never offers
+// A MessageView projected for whichever direction the caller knows it to
+// be. `/v1` returns one MessageView for both directions, and that detail
+// shape has NO `direction` field — it also drops `from`/`status` to empty
+// strings on outbound rows, so the direction CANNOT be recovered from the
+// payload. The authoritative direction lives on the MessageSummaryView
+// list row, so callers thread it in (the focus page via its `?direction=`
+// query param). When the caller can't supply one (a deep link with no
+// param), we fall back to inbound — the safe default that never offers
 // approve/reject on a message we can't prove is a held outbound draft.
-// Returns both projections under a discriminated `direction` so the focus
-// page can keep its existing inbound/outbound branches.
-export async function getMessageDetail(
+export type LoadedMessageDetail =
+  | { direction: "outbound"; data: PendingMessageDetail }
+  | { direction: "inbound"; data: InboundMessageDetail };
+
+export function projectMessageDetail(
+  email: string,
+  w: MessageViewWire,
+  direction: "inbound" | "outbound" = "inbound",
+): LoadedMessageDetail {
+  return direction === "outbound"
+    ? { direction: "outbound", data: projectPending(email, w) }
+    : { direction: "inbound", data: projectInbound(w) };
+}
+
+// ── Message-detail fetchers ──────────────────────────────
+//
+// Both return the RAW wire so every per-message SWR entry holds one
+// uniform shape; callers project with the helpers above. See the
+// MessageViewWire comment for why.
+
+// Agent-scoped read: GET /v1/agents/{address}/messages/{id}. Carries the
+// server-side side effect of flipping an inbound message's inbox_status
+// unread → read, which is why the mail surfaces use this rather than the
+// review endpoint.
+export async function getMessageDetailWire(
   email: string,
   id: string,
-  direction: "inbound" | "outbound" = "inbound",
-):
-  | Promise<
-      | { direction: "outbound"; data: PendingMessageDetail }
-      | { direction: "inbound"; data: InboundMessageDetail }
-    > {
-  const w = await request<MessageViewWire>(
+): Promise<MessageViewWire> {
+  return request<MessageViewWire>(
     "/v1/agents/" +
       encodeURIComponent(email) +
       "/messages/" +
       encodeURIComponent(id),
   );
-  if (direction === "outbound") {
-    return { direction: "outbound", data: projectPending(email, w) };
-  }
-  return {
-    direction: "inbound",
-    data: {
-      id: w.id,
-      from: w.from,
-      to: w.to ?? [],
-      cc: w.cc ?? [],
-      reply_to: w.reply_to ?? [],
-      recipient: w.delivered_to,
-      subject: w.subject,
-      conversation_id: w.conversation_id ?? "",
-      status: w.delivery_status ?? "",
-      created_at: w.created_at,
-      auth_headers: w.auth_headers ?? {},
-      parsed: w.parsed,
-      body: w.body,
-      attachments: w.attachments ?? [],
-      raw_message: w.raw_message ?? "",
-    },
-  };
+}
+
+// Review-scoped read: GET /v1/reviews/{id} (account-scoped; id is
+// globally unique so no agent address is needed). Superset of the
+// agent-scoped read — it additionally populates `hold_reason` and
+// `protection` — but it does NOT flip unread → read.
+export async function getReviewDetailWire(
+  id: string,
+): Promise<MessageViewWire> {
+  return request<MessageViewWire>("/v1/reviews/" + encodeURIComponent(id));
 }
 
 // ── Attachments ──────────────────────────────────────────
@@ -523,6 +546,37 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 // iframe's CSP already allows `img-src data:`. Base64 in the browser is a
 // memory concern only — never the agent-context concern the API's inline cap
 // guards, so any size is fine to render here.
+// Load one attachment's bytes as a `blob:` object URL for the in-app viewer.
+//
+// blob:, not data:, for two reasons. Chrome refuses to render a PDF from a
+// data: URL in an iframe, so the PDF path needs one; and the data:-only rule
+// documented on loadInlineAttachmentUrl is a DOMPurify/CSP constraint for
+// images INSIDE the sandboxed email iframe, which the viewer sits outside of.
+//
+// The blob is typed from the attachment METADATA, not the response's
+// Content-Type: the download endpoint serves bytes for saving (it sets
+// Content-Disposition: attachment), and an octet-stream response type would
+// leave the browser with nothing to render.
+//
+// Callers MUST call revoke() when done — an object URL pins its bytes in
+// memory for the lifetime of the document otherwise.
+export async function loadAttachmentObjectUrl(
+  email: string,
+  messageId: string,
+  meta: AttachmentMeta,
+): Promise<{ url: string; revoke: () => void }> {
+  const a = await getAttachment(email, messageId, meta.index);
+  const res = await fetch(sameOriginPath(a.download_url), {
+    credentials: "include",
+  });
+  if (!res.ok) throw new ApiError("attachment fetch failed", res.status);
+  const blob = new Blob([await res.arrayBuffer()], {
+    type: meta.content_type || "application/octet-stream",
+  });
+  const url = URL.createObjectURL(blob);
+  return { url, revoke: () => URL.revokeObjectURL(url) };
+}
+
 export async function loadInlineAttachmentUrl(
   email: string,
   messageId: string,

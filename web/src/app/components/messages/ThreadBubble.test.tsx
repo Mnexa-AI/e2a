@@ -5,21 +5,28 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import { ThreadBubble } from "./ThreadBubble";
-import { getMessageDetail } from "../onboarding/api";
+import { getMessageDetailWire } from "../onboarding/api";
 import {
   invalidateAgentMessages,
   invalidateAgentUnread,
 } from "../../../lib/swrKeys";
 import type { MessageSummary } from "../types";
 
+// The fetcher returns the RAW wire — the bubble projects it — so these
+// mocks resolve wire shapes. The projector itself stays real: mocking it
+// would let a projection regression pass unnoticed.
 jest.mock("../onboarding/api", () => ({
-  getMessageDetail: jest.fn(),
+  ...jest.requireActual("../onboarding/api"),
+  getMessageDetailWire: jest.fn(),
 }));
 jest.mock("../../../lib/swrKeys", () => ({
+  ...jest.requireActual("../../../lib/swrKeys"),
   invalidateAgentMessages: jest.fn(),
   invalidateAgentUnread: jest.fn(),
 }));
-const mockGet = getMessageDetail as jest.MockedFunction<typeof getMessageDetail>;
+const mockGet = getMessageDetailWire as jest.MockedFunction<
+  typeof getMessageDetailWire
+>;
 const mockInvalidateMessages =
   invalidateAgentMessages as jest.MockedFunction<typeof invalidateAgentMessages>;
 const mockInvalidateUnread =
@@ -42,8 +49,14 @@ function msg(id: string): MessageSummary {
 }
 const CP = { email: "james@x.com", name: "James" };
 
-function inbound(data: Record<string, unknown>) {
-  mockGet.mockResolvedValue({ direction: "inbound", data } as never);
+function inbound(wire: Record<string, unknown>) {
+  mockGet.mockResolvedValue(wire as never);
+}
+
+// Outbound bodies reach the bubble through projectPending, which reads
+// `body.text` off the wire (not a pre-projected `body_text`).
+function outbound(text: string) {
+  mockGet.mockResolvedValue({ body: { text, html: "" } } as never);
 }
 
 afterEach(() => {
@@ -99,10 +112,7 @@ describe("ThreadBubble marks-read cache refresh", () => {
   });
 
   it("does not invalidate for outbound messages", async () => {
-    mockGet.mockResolvedValue({
-      direction: "outbound",
-      data: { body_text: "sent body", body_html: "" },
-    } as never);
+    outbound("sent body");
     const m: MessageSummary = { ...msg("msg_outbound"), direction: "outbound", read_status: "" };
     render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
     await waitFor(() => expect(screen.getByText("sent body")).toBeInTheDocument());
@@ -123,10 +133,7 @@ describe("ThreadBubble outbound delivery status", () => {
     ["complained", "Complaint"],
   ] as const)("renders %s as %s", async (status, label) => {
     const id = `msg_status_${status}`;
-    mockGet.mockResolvedValue({
-      direction: "outbound",
-      data: { body_text: `${status} body`, body_html: "" },
-    } as never);
+    outbound(`${status} body`);
     const m: MessageSummary = {
       ...msg(id),
       direction: "outbound",
@@ -146,10 +153,7 @@ describe("ThreadBubble outbound delivery status", () => {
     ["review_rejected", "Rejected"],
   ] as const)("renders review status %s as %s", async (review_status, label) => {
     const id = `msg_review_${review_status}`;
-    mockGet.mockResolvedValue({
-      direction: "outbound",
-      data: { body_text: `${review_status} body`, body_html: "" },
-    } as never);
+    outbound(`${review_status} body`);
     const m: MessageSummary = {
       ...msg(id),
       direction: "outbound",

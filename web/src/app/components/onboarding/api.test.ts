@@ -9,7 +9,13 @@ import {
   listAgentMessages,
   listPendingMessages,
   getInboxUnread,
+  getMessageDetailWire,
+  getReviewDetailWire,
+  projectInbound,
+  projectMessageDetail,
+  projectPending,
   UNREAD_BADGE_CAP,
+  type MessageViewWire,
 } from "./api";
 
 const mockFetch = jest.fn();
@@ -127,6 +133,183 @@ describe("message projection (v1 contract)", () => {
     await listPendingMessages();
     const urls = mockFetch.mock.calls.map((c) => c[0] as string);
     expect(urls).toEqual(["/v1/reviews"]);
+  });
+});
+
+// Every per-message SWR entry holds ONE shape — the raw MessageViewWire —
+// because two surfaces read the same message through two different
+// endpoints under one shared cache key (see lib/swrKeys.ts). That
+// invariant only holds if (a) both fetchers return the wire unprojected
+// and (b) the projectors stay pure functions applied at the point of use.
+// The tests below pin both halves; the cross-surface render tests in
+// inboxes/(view)/messages/view/page.test.tsx pin the consequence.
+
+// A MessageView as the REVIEW read returns it (GET /v1/reviews/{id}) —
+// the superset: it alone carries hold_reason + protection.
+const REVIEW_WIRE: MessageViewWire = {
+  id: "msg_1",
+  from: "",
+  to: ["customer@bigco.com"],
+  cc: ["cc@bigco.com"],
+  reply_to: [],
+  delivered_to: "customer@bigco.com",
+  subject: "Re: refund",
+  conversation_id: "conv_1",
+  review_status: "pending_review",
+  delivery_status: "",
+  created_at: "2026-01-01T00:00:00Z",
+  hold_reason: {
+    type: "scan",
+    code: "outbound_scan",
+    summary: "Content screening found a potential risk.",
+  },
+  protection: [{ source: "scan", detector: "gemini" }],
+  body: { text: "Hello, your refund is on the way.", html: "<p>refund</p>" },
+};
+
+// A MessageView as the AGENT-SCOPED read returns it
+// (GET /v1/agents/{address}/messages/{id}) for an inbound row.
+const INBOUND_WIRE: MessageViewWire = {
+  id: "msg_in",
+  from: "james@x.com",
+  to: ["support@acme.dev"],
+  delivered_to: "support@acme.dev",
+  subject: "Hi",
+  conversation_id: "conv_in",
+  delivery_status: "received",
+  read_status: "unread",
+  created_at: "2026-01-01T00:00:00Z",
+  auth_headers: { "Received-SPF": "pass" },
+  parsed: { text: "plain body" },
+  attachments: [],
+  raw_message: "cmF3",
+};
+
+describe("message-detail projectors (shared-cache invariant)", () => {
+  it("projectPending maps the review wire onto the review surfaces' shape", () => {
+    const d = projectPending("support@acme.dev", REVIEW_WIRE);
+    // agent_email is a fetch parameter, not a wire field — the review read
+    // is account-scoped and never echoes the owning inbox back.
+    expect(d.agent_email).toBe("support@acme.dev");
+    // A held draft's lifecycle state is review_status; delivery_status is
+    // empty until it's approved and sent. Reading the delivery rollup here
+    // is what made the whole queue think nothing was pending.
+    expect(d.status).toBe("pending_review");
+    expect(d.body_text).toBe("Hello, your refund is on the way.");
+    expect(d.body_html).toBe("<p>refund</p>");
+    // hold_reason/protection exist ONLY on the review read — dropping them
+    // in the projection silently removes the "Why this message was held"
+    // banner and the screening disclosure.
+    expect(d.hold_reason?.code).toBe("outbound_scan");
+    expect(d.protection?.[0].detector).toBe("gemini");
+  });
+
+  it("projectPending falls back to parsed.* for a message whose draft body was scrubbed", () => {
+    // Outbound drafts carry `body`; once sent (or for an inbound hold) the
+    // draft columns are scrubbed and the content is only in `parsed`.
+    // Without the fallback the review row renders "(empty body)".
+    const d = projectPending("support@acme.dev", {
+      ...REVIEW_WIRE,
+      body: undefined,
+      parsed: { text: "scrubbed-path text", html: "<p>scrubbed</p>" },
+    });
+    expect(d.body_text).toBe("scrubbed-path text");
+    expect(d.body_html).toBe("<p>scrubbed</p>");
+  });
+
+  it("projectInbound maps delivered_to → recipient and delivery_status → status", () => {
+    const d = projectInbound(INBOUND_WIRE);
+    // The wire field is `delivered_to`; the app type calls it `recipient`.
+    // They are NOT the same name, so a passthrough would leave the
+    // attachment endpoint without an agent address to key by.
+    expect(d.recipient).toBe("support@acme.dev");
+    expect(d.status).toBe("received");
+    expect(d.auth_headers).toEqual({ "Received-SPF": "pass" });
+    expect(d.parsed?.text).toBe("plain body");
+  });
+
+  it("projectInbound defaults absent list/scalar fields instead of leaking undefined", () => {
+    // The focus page and ThreadBubble index into these without guards
+    // (cc.join, attachments.map, auth_headers entries) — undefined here is
+    // a crash there.
+    const d = projectInbound({
+      id: "msg_bare",
+      from: "a@x.com",
+      delivered_to: "support@acme.dev",
+      subject: "",
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    expect(d.to).toEqual([]);
+    expect(d.cc).toEqual([]);
+    expect(d.reply_to).toEqual([]);
+    expect(d.attachments).toEqual([]);
+    expect(d.auth_headers).toEqual({});
+    expect(d.conversation_id).toBe("");
+    expect(d.raw_message).toBe("");
+  });
+
+  it("projectMessageDetail wraps by the caller-supplied direction", () => {
+    const out = projectMessageDetail("support@acme.dev", REVIEW_WIRE, "outbound");
+    expect(out.direction).toBe("outbound");
+    // Outbound rows read the draft body; the discriminated union is what
+    // lets the focus page narrow safely.
+    expect(out.direction === "outbound" && out.data.body_text).toBe(
+      "Hello, your refund is on the way.",
+    );
+
+    const inb = projectMessageDetail("support@acme.dev", INBOUND_WIRE, "inbound");
+    expect(inb.direction).toBe("inbound");
+    expect(inb.direction === "inbound" && inb.data.recipient).toBe(
+      "support@acme.dev",
+    );
+  });
+
+  it("projectMessageDetail falls back to inbound when no direction is supplied", () => {
+    // MessageView has NO direction field and blanks from/status on outbound
+    // rows, so direction can't be recovered from the payload — callers
+    // thread it in. A deep link that can't supply one must land on the
+    // inbound projection: the safe shape that never offers approve/reject
+    // on a message we can't prove is a held outbound draft. Defaulting to
+    // outbound instead would surface Approve & send on arbitrary mail.
+    const d = projectMessageDetail("support@acme.dev", REVIEW_WIRE);
+    expect(d.direction).toBe("inbound");
+  });
+});
+
+describe("message-detail fetchers return the RAW wire", () => {
+  // Both fetchers write into the same SWR entry. If either projects before
+  // caching, the other surface reads a shape it doesn't expect — the
+  // original crash (`msg.data` undefined → 500 error boundary). These
+  // assert on wire-only field names that no projection preserves.
+
+  it("getMessageDetailWire hits the agent-scoped path and returns the wire unprojected", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      url === "/v1/agents/support%40acme.dev/messages/msg_in"
+        ? okJson(INBOUND_WIRE)
+        : notFound(),
+    );
+    const w = await getMessageDetailWire("support@acme.dev", "msg_in");
+    // Wire-only names survive: a projection would have renamed
+    // delivered_to → recipient and wrapped the result in {direction,data}.
+    expect(w.delivered_to).toBe("support@acme.dev");
+    expect(w).not.toHaveProperty("data");
+    expect(w).not.toHaveProperty("recipient");
+    expect(w).not.toHaveProperty("body_text");
+  });
+
+  it("getReviewDetailWire hits /v1/reviews/{id} and preserves hold_reason on the wire", async () => {
+    // The review read is account-scoped (id is globally unique) and is the
+    // ONLY endpoint carrying hold_reason/protection — it must not be
+    // flattened into the review-surface shape before it reaches the cache.
+    mockFetch.mockImplementation((url: string) =>
+      url === "/v1/reviews/msg_1" ? okJson(REVIEW_WIRE) : notFound(),
+    );
+    const w = await getReviewDetailWire("msg_1");
+    expect(w.hold_reason?.code).toBe("outbound_scan");
+    expect(w.review_status).toBe("pending_review");
+    expect(w.delivered_to).toBe("customer@bigco.com");
+    expect(w).not.toHaveProperty("agent_email");
+    expect(w).not.toHaveProperty("body_text");
   });
 });
 
