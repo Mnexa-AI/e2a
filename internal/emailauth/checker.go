@@ -14,16 +14,8 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// CheckStatus represents the result of an authentication check.
-type CheckStatus string
-
-const (
-	StatusPass      CheckStatus = "pass"
-	StatusFail      CheckStatus = "fail"
-	StatusNone      CheckStatus = "none"
-	StatusTempError CheckStatus = "temperror"
-	StatusPermError CheckStatus = "permerror"
-)
+// CheckStatus is retained while legacy callers migrate to Status.
+type CheckStatus = Status
 
 // CheckResult holds the outcome of a single authentication check.
 type CheckResult struct {

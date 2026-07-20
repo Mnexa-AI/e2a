@@ -1,10 +1,45 @@
 package emailauth
 
 import (
+	"encoding/json"
 	"net"
 	"strings"
 	"testing"
 )
+
+func TestAuthenticationJSONShape(t *testing.T) {
+	spfDomain, dkimDomain, selector := "mail.example.com", "example.com", "s1"
+	policy := DMARCPolicyReject
+	spfAligned, dkimAligned := true, true
+	a := Authentication{
+		SPF:  SPFResult{Status: StatusPass, Domain: &spfDomain, Aligned: &spfAligned},
+		DKIM: []DKIMResult{{Status: StatusPass, Domain: &dkimDomain, Selector: &selector, Aligned: &dkimAligned}},
+		DMARC: DMARCResult{
+			Status:    StatusPass,
+			Domain:    &dkimDomain,
+			Policy:    &policy,
+			AlignedBy: []AlignmentMechanism{AlignedBySPF, AlignedByDKIM},
+		},
+	}
+	b, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["spf"] == nil || got["dkim"] == nil || got["dmarc"] == nil {
+		t.Fatalf("shape = %s", b)
+	}
+}
+
+func TestNonPassAlignmentIsNull(t *testing.T) {
+	r := SPFResult{Status: StatusFail}
+	if r.Aligned != nil {
+		t.Fatalf("aligned = %v, want nil", *r.Aligned)
+	}
+}
 
 func TestCheckNoRemoteIP(t *testing.T) {
 	result := Check(nil, "alice@example.com", []byte("From: alice@example.com\r\n\r\nHello"))
