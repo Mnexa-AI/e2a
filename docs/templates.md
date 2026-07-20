@@ -29,8 +29,8 @@ a rendered preview with an HTML/text tab switch and light/dark toggle).
 
 ## Syntax
 
-Template syntax is intentionally minimal — **flat variables only**, no loops,
-no conditionals, no partials:
+Template syntax is intentionally minimal — variable interpolation only, no
+loops, no conditionals, no partials:
 
 | Form | Behavior |
 |---|---|
@@ -38,7 +38,9 @@ no conditionals, no partials:
 | `{{{variable}}}` | Raw insertion (HTML part): the value is inserted **without escaping**. For pre-rendered HTML fragments only — see the warning below. |
 
 Missing variables render as **empty strings**. Variable names match
-`[A-Za-z][A-Za-z0-9_]*`-style flat identifiers (e.g. `order_id`, `items_html`).
+`[A-Za-z_][A-Za-z0-9_.]*`-style identifiers (e.g. `order_id`, `items_html`) —
+a dot path (e.g. `{{user.name}}`) resolves into a nested object, matching how
+`template_data`/`template_variables` are passed as nested JSON.
 
 **Reserved-section note:** anything that is not a `{{…}}` / `{{{…}}}` slot is
 literal template text and is emitted verbatim — including `{` and `}`
