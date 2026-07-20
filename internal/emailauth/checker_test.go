@@ -92,6 +92,19 @@ func TestMapDKIMResultsFailsClosedWhenSignatureTagsDoNotCorrelate(t *testing.T) 
 	}
 }
 
+func TestOversizedHeaderCannotBypassDKIMBodyLengthRefusal(t *testing.T) {
+	raw := []byte("X-Oversized: " + strings.Repeat("a", 1024*1024+1) + "\r\n" +
+		"DKIM-Signature: v=1; d=trusted.example; s=test; l=0\r\n\r\nunsigned body")
+	tags := dkimSignatureTags(raw)
+	if tags != nil {
+		t.Fatalf("signature tags = %#v, want nil after scanner failure", tags)
+	}
+	got := mapDKIMResults([]*dkim.Verification{{Domain: "trusted.example"}}, tags, nil)
+	if len(got) != 1 || got[0].Status != StatusPermError {
+		t.Fatalf("oversized-header result = %+v, want one permerror", got)
+	}
+}
+
 func TestParseAuthorIdentityRejectsMultipleFromFieldsAndAddresses(t *testing.T) {
 	for _, raw := range []string{
 		"From: ceo@trusted.example\r\nFrom: signed@trusted.example\r\n\r\nbody",

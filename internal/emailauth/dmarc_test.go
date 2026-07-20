@@ -42,6 +42,33 @@ func TestEvaluateDMARCAlignedDKIM(t *testing.T) {
 	}
 }
 
+func TestEvaluateDMARCRejectsBarePublicSuffixAuthor(t *testing.T) {
+	r := &fakeTXTResolver{records: map[string][]string{
+		"_dmarc.github.io": {"v=DMARC1; p=reject"},
+	}}
+	domain := "github.io"
+	got := evaluateDMARC(context.Background(), r, domain, SPFResult{Status: StatusNone}, []DKIMResult{{Status: StatusPass, Domain: &domain}})
+	if got.Status == StatusPass {
+		t.Fatalf("bare public suffix authenticated: %+v", got)
+	}
+}
+
+func TestEvaluateDMARCDoesNotAlignPrivateSuffixTenants(t *testing.T) {
+	r := &fakeTXTResolver{records: map[string][]string{
+		"_dmarc.github.io": {"v=DMARC1; p=reject"},
+	}}
+	dkimDomain := "attacker.github.io"
+	got := evaluateDMARC(context.Background(), r, "victim.github.io", SPFResult{Status: StatusNone}, []DKIMResult{{Status: StatusPass, Domain: &dkimDomain}})
+	if got.Status != StatusFail {
+		t.Fatalf("cross-tenant DMARC status = %q, want fail: %+v", got.Status, got)
+	}
+	for _, lookup := range r.lookups {
+		if lookup == "_dmarc.io" {
+			t.Fatalf("DMARC tree walk crossed the private public-suffix boundary: %v", r.lookups)
+		}
+	}
+}
+
 func TestEvaluateDMARCParentPolicyAndAlignmentModes(t *testing.T) {
 	tests := []struct {
 		name       string

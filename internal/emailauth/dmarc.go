@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
@@ -84,6 +86,10 @@ func (e *dmarcEvaluator) evaluate(ctx context.Context, headerFromDomain string, 
 	result := DMARCResult{Status: StatusNone, AlignedBy: []AlignmentMechanism{}}
 	if !validDomainName(headerFromDomain) {
 		result.Detail = "no valid From-header domain"
+		return result
+	}
+	if isPublicSuffixDomain(headerFromDomain) {
+		result.Detail = "From-header domain is a public suffix"
 		return result
 	}
 	result.Domain = stringPtr(headerFromDomain)
@@ -168,6 +174,9 @@ func (e *dmarcEvaluator) evaluateAuthentication(ctx context.Context, headerFromD
 func (e *dmarcEvaluator) domainsAlign(ctx context.Context, authenticatedDomain, authorDomain string, strict bool, authorOrgDomain string) (bool, *dmarcWalk) {
 	authenticatedDomain, authorDomain = normDomain(authenticatedDomain), normDomain(authorDomain)
 	if authenticatedDomain == "" || authorDomain == "" {
+		return false, nil
+	}
+	if isPublicSuffixDomain(authenticatedDomain) || isPublicSuffixDomain(authorDomain) {
 		return false, nil
 	}
 	if authenticatedDomain == authorDomain {
@@ -297,11 +306,17 @@ func dmarcTreeTargets(domain string) []string {
 	if len(labels) == 1 {
 		return targets
 	}
+	suffix, _ := publicsuffix.PublicSuffix(domain)
+	suffixLabels := strings.Split(normDomain(suffix), ".")
+	last := len(labels) - len(suffixLabels)
+	if suffix == "" || last < 0 {
+		last = len(labels) - 1
+	}
 	start := 1
 	if len(labels) > dmarcMaxQueries {
 		start = len(labels) - (dmarcMaxQueries - 1)
 	}
-	for i := start; i < len(labels) && len(targets) < dmarcMaxQueries; i++ {
+	for i := start; i <= last && len(targets) < dmarcMaxQueries; i++ {
 		targets = append(targets, strings.Join(labels[i:], "."))
 	}
 	return targets
@@ -309,17 +324,26 @@ func dmarcTreeTargets(domain string) []string {
 
 func organizationalDomain(start string, entries []dmarcWalkEntry) string {
 	for _, entry := range entries {
-		if entry.record.PSD == "n" {
+		if entry.record.PSD == "n" && !isPublicSuffixDomain(entry.domain) {
 			return entry.domain
 		}
 		if entry.record.PSD == "y" && entry.domain != start {
 			return directChild(start, entry.domain)
 		}
 	}
-	if len(entries) > 0 {
-		return entries[len(entries)-1].domain
+	if organizational, err := publicsuffix.EffectiveTLDPlusOne(start); err == nil {
+		return normDomain(organizational)
 	}
 	return start
+}
+
+func isPublicSuffixDomain(domain string) bool {
+	domain = normDomain(domain)
+	if domain == "" {
+		return false
+	}
+	suffix, _ := publicsuffix.PublicSuffix(domain)
+	return normDomain(suffix) == domain
 }
 
 func directChild(start, parent string) string {
