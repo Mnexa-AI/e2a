@@ -143,5 +143,12 @@ method, path, and property; the SDK check independently permits only the exact
 review-only component schemas. This is not a general exception mechanism—
 fixture tests continue to reject all other stable-to-beta changes.
 
-`api/oasdiff-ignore-warnings.txt` is intentionally empty apart from comments;
-there are no reviewed stable response-property removal exceptions.
+The ignore files also contain one fully qualified pre-GA authentication
+contract correction: the four exact response projections that removed the
+misleading required `from` field, and the six exact projections that removed
+the legacy `auth` / `auth_headers` fields. Those removals replace ambiguous
+identity and authentication semantics with `header_from`, `verified_domain`,
+and `authentication` before the announced GA tag. They are not wildcard
+exceptions; the SDK-name checker likewise permits only the corresponding
+retired `AuthVerdict` and `CheckResult` models. Every other stable response
+property or generated model removal remains blocked.

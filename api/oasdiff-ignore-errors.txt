@@ -29,3 +29,12 @@ GET /v1/agents/{email}/messages/{id} response property `flag_reason` stability l
 GET /v1/agents/{email}/messages/{id} response property `flagged` stability level decreased from `stable` to `beta`
 POST /v1/agents/{email}/messages/{id}/restore response property `flag_reason` stability level decreased from `stable` to `beta`
 POST /v1/agents/{email}/messages/{id}/restore response property `flagged` stability level decreased from `stable` to `beta`
+
+# Reviewed pre-GA authentication-contract correction. `from` mixed Header-From
+# and Reply-To semantics; `header_from` now names the literal identity. This
+# exception is deliberately limited to the four exact response projections
+# that removed the misleading required field before the announced GA tag.
+GET /v1/agents/{email}/conversations/{id} removed the required property `messages/items/from` from the response with the `200` status
+GET /v1/agents/{email}/messages removed the required property `items/items/from` from the response with the `200` status
+GET /v1/agents/{email}/messages/{id} removed the required property `from` from the response with the `200` status
+POST /v1/agents/{email}/messages/{id}/restore removed the required property `from` from the response with the `200` status

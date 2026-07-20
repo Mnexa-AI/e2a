@@ -1,2 +1,10 @@
-# No reviewed warning exceptions. Keep this file present because the pinned
-# compatibility command always passes it to oasdiff.
+# Reviewed pre-GA authentication-contract correction. The legacy aggregate
+# `auth` and nested HMAC `auth_headers` projections were replaced by the
+# canonical `authentication` evidence object. Keep every removal fully
+# qualified; no other stable response-property removal is exempt.
+GET /v1/agents/{email}/conversations/{id} removed the optional property `messages/items/auth` from the response with the `200` status
+GET /v1/agents/{email}/messages removed the optional property `items/items/auth` from the response with the `200` status
+GET /v1/agents/{email}/messages/{id} removed the optional property `auth` from the response with the `200` status
+GET /v1/agents/{email}/messages/{id} removed the optional property `auth_headers` from the response with the `200` status
+POST /v1/agents/{email}/messages/{id}/restore removed the optional property `auth` from the response with the `200` status
+POST /v1/agents/{email}/messages/{id}/restore removed the optional property `auth_headers` from the response with the `200` status
