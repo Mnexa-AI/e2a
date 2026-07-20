@@ -17,7 +17,10 @@ make test-unit          # Go unit tests only (no DB needed)
 make test-integration   # Go integration tests (needs Postgres on :5433)
 make test-e2e           # Go e2e tests (needs Postgres on :5433)
 make cover-check        # run tests with coverage + enforce per-package floors (.testcoverage.yml; needs Postgres)
-make docker-up          # start local Postgres + Mailpit via docker compose
+make docker-up          # docker compose up -d: full local stack (Postgres, Mailpit,
+                        # dockerized API/SMTP, dashboard, MCP). For `make run` below,
+                        # start only `docker compose up -d postgres mailpit` instead —
+                        # the dockerized API/SMTP would otherwise conflict on :8080/:2525
 make migrate            # apply SQL migrations to local DB
 ```
 

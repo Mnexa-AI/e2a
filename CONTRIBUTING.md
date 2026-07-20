@@ -101,8 +101,10 @@ git clone https://github.com/<you>/e2a.git
 cd e2a
 cp config.example.yaml config.yaml
 
-# 2. start Postgres (:5433) + Mailpit (:1025 SMTP, :8025 UI)
-make docker-up
+# 2. start Postgres (:5433) + Mailpit (:1025 SMTP, :8025 UI) only
+#    (plain `make docker-up` also starts the dockerized API on :8080/:2525,
+#    which conflicts with the host binary started in step 4)
+docker compose up -d postgres mailpit
 
 # 3. point outbound at Mailpit so HITL approvals + test-email work
 #    Edit config.yaml under `outbound_smtp:`:

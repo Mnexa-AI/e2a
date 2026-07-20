@@ -411,7 +411,7 @@ make test-unit           # Go unit tests only (no DB)
 make test-integration    # integration tests (needs Postgres)
 make test-e2e            # e2e tests (needs Postgres)
 make cover-check         # tests + per-package coverage floors (needs Postgres)
-make docker-up           # start local Postgres + Mailpit via docker compose
+docker compose up -d postgres mailpit  # local Postgres + Mailpit only
 make migrate             # apply SQL migrations to local DB
 ```
 
@@ -427,11 +427,12 @@ cd e2a
 docker compose up -d
 ```
 
-Postgres comes up first (migrations run automatically), then the API server, then the dashboard. Three host ports:
+Postgres comes up first (migrations run automatically), then the API server, then the dashboard. Four host ports:
 
 - `:8080` — HTTP API
 - `:2525` — SMTP relay
 - `:3000` — Dashboard (Caddy + Next.js, proxies `/api/*` to the API server)
+- `:8765` — Local MCP HTTP endpoint (what `claude mcp add` expects)
 
 Health check:
 
