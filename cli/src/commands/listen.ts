@@ -343,11 +343,10 @@ export async function forwardMessage(
       headers["Authorization"] = `Bearer ${forwardToken}`;
     }
   } else {
-    // Generic forward — POST the full v1 MessageView as JSON. NOTE: in 3.0 this
-    // is the SDK's camelCase model shape (id, createdAt, …), not the
-    // legacy snake_case wire JSON; --forward consumers updating to the 3.0 CLI
-    // should read the v1 field names.
-    fetchBody = JSON.stringify(full);
+    // Generic forward — POST the full v1 MessageView as JSON. It uses the SDK's
+    // camelCase model shape (id, createdAt, …), with the generated `from_`
+    // property restored to the wire-stable `from` spelling used by CLI JSON.
+    fetchBody = JSON.stringify(withWireFrom(full));
     if (forwardToken) {
       headers["Authorization"] = `Bearer ${forwardToken}`;
     }

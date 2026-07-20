@@ -37,8 +37,6 @@ management (domains, webhooks, review queues) lives in the MCP tools, the SDKs
 
 Usage:
   e2a login                         Log in via browser (account-scoped key)
-        --with-key [<key>]         Headless: validate + save a key (from the arg,
-                                   $E2A_API_KEY, or stdin) — no browser needed
   e2a whoami [--json]               Show key identity: user, scope, bound agent, plan
   e2a agents list                   List owned inboxes (account key)
   e2a agents create <email> [--name <n>]   Create an inbox (account key)
@@ -139,7 +137,7 @@ function hasFlag(args: string[], flag: string): boolean {
 // message id.
 const BOOLEAN_FLAGS = new Set(["--json", "--text", "--once", "--help", "--version"]);
 
-function getPositionals(args: string[]): string[] {
+function getPositionals(args: string[], exactCount?: number, usage?: string): string[] {
   const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -148,6 +146,10 @@ function getPositionals(args: string[]): string[] {
       continue;
     }
     positionals.push(arg);
+  }
+  if (exactCount !== undefined && positionals.length !== exactCount) {
+    process.stderr.write((usage || "invalid number of arguments") + "\n");
+    process.exit(EXIT.USAGE);
   }
   return positionals;
 }
@@ -297,29 +299,36 @@ async function main() {
 
   switch (command) {
     case "login":
-      checkFlags(args, ["--with-key"]);
-      await login({
-        withKey: hasFlag(args, "--with-key"),
-        // Unchecked on purpose: bare `--with-key` (no value) means "take the
-        // key from $E2A_API_KEY or stdin".
-        key: getFlag(args, "--with-key"),
-      });
+      checkFlags(args, []);
+      getPositionals(args, 0, "usage: e2a login");
+      await login();
       break;
     case "agents": {
       const sub = args[0];
       const rest = args.slice(1);
       if (sub === "list") {
         checkFlags(rest, ["--json"]);
+        getPositionals(rest, 0, "usage: e2a agents list [--json]");
         await agentsList({ json: hasFlag(rest, "--json") });
       } else if (sub === "create") {
         checkFlags(rest, ["--name", "--json"]);
-        await agentsCreate(getPositionals(rest)[0], {
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a agents create <email> [--name <n>] [--json]",
+        );
+        await agentsCreate(email, {
           name: getFlagChecked(rest, "--name"),
           json: hasFlag(rest, "--json"),
         });
       } else if (sub === "get") {
         checkFlags(rest, ["--json"]);
-        await agentsGet(getPositionals(rest)[0], { json: hasFlag(rest, "--json") });
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a agents get <email> [--json]",
+        );
+        await agentsGet(email, { json: hasFlag(rest, "--json") });
       } else {
         process.stderr.write("Usage: e2a agents [list|create <email>|get <email>]\n");
         process.exit(EXIT.USAGE);
@@ -331,6 +340,11 @@ async function main() {
       const rest = args.slice(1);
       if (sub === "create") {
         checkFlags(rest, ["--name", "--agent", "--json"]);
+        getPositionals(
+          rest,
+          0,
+          "usage: e2a keys create [--agent <inbox>] [--name <n>] [--json]",
+        );
         await keysCreate({
           name: getFlagChecked(rest, "--name"),
           agent: getFlagChecked(rest, "--agent"),
@@ -338,10 +352,11 @@ async function main() {
         });
       } else if (sub === "list") {
         checkFlags(rest, ["--json"]);
+        getPositionals(rest, 0, "usage: e2a keys list [--json]");
         await keysList({ json: hasFlag(rest, "--json") });
       } else if (sub === "delete") {
         checkFlags(rest, []);
-        await keysDelete(getPositionals(rest)[0]);
+        await keysDelete(getPositionals(rest, 1, "usage: e2a keys delete <key-id>")[0]);
       } else {
         process.stderr.write("Usage: e2a keys [create [--agent <inbox>]|list|delete <id>]\n");
         process.exit(EXIT.USAGE);
@@ -353,10 +368,20 @@ async function main() {
       const rest = args.slice(1);
       if (sub === "get") {
         checkFlags(rest, ["--json"]);
-        await protectionGet(getPositionals(rest)[0], { json: hasFlag(rest, "--json") });
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a protection get <agent-email> [--json]",
+        );
+        await protectionGet(email, { json: hasFlag(rest, "--json") });
       } else if (sub === "set") {
         checkFlags(rest, ["--outbound-review", "--inbound-review", "--suppress-notifications", "--json"]);
-        await protectionSet(getPositionals(rest)[0], {
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a protection set <agent-email> [options]",
+        );
+        await protectionSet(email, {
           outboundReview: getFlagChecked(rest, "--outbound-review"),
           inboundReview: getFlagChecked(rest, "--inbound-review"),
           suppressNotifications: getFlagChecked(rest, "--suppress-notifications"),
@@ -372,6 +397,7 @@ async function main() {
     }
     case "whoami":
       checkFlags(args, ["--json"]);
+      getPositionals(args, 0, "usage: e2a whoami [--json]");
       await whoami({ json: hasFlag(args, "--json") });
       break;
     case "send":
@@ -379,6 +405,7 @@ async function main() {
         "--to", "--subject", "--body", "--body-file", "--html-file", "--attach",
         "--conversation-id", "--conversation", "--reply-to", "--agent", "--idempotency-key", "--json",
       ]);
+      getPositionals(args, 0, "usage: e2a send [options]");
       await send({
         to: getFlagsChecked(args, "--to"),
         attach: getFlagsChecked(args, "--attach"),
@@ -400,7 +427,7 @@ async function main() {
       checkFlags(args, [
         "--body", "--body-file", "--html-file", "--attach", "--reply-to", "--agent", "--idempotency-key", "--json",
       ]);
-      await reply(getPositionals(args)[0], {
+      await reply(getPositionals(args, 1, "usage: e2a reply <message-id> [options]")[0], {
         attach: getFlagsChecked(args, "--attach"),
         body: getFlagChecked(args, "--body"),
         bodyFile: getFlagChecked(args, "--body-file"),
@@ -419,6 +446,7 @@ async function main() {
           "--direction", "--since", "--conversation", "--conversation-id",
           "--read-status", "--limit", "--agent", "--json",
         ]);
+        getPositionals(rest, 0, "usage: e2a messages list [options]");
         await messagesList({
           agent: getFlagChecked(rest, "--agent"),
           direction: getFlagChecked(rest, "--direction"),
@@ -430,7 +458,7 @@ async function main() {
         });
       } else if (sub === "get") {
         checkFlags(rest, ["--text", "--json", "--agent"]);
-        await messagesGet(getPositionals(rest)[0], {
+        await messagesGet(getPositionals(rest, 1, "usage: e2a messages get <id> [options]")[0], {
           agent: getFlagChecked(rest, "--agent"),
           text: hasFlag(rest, "--text"),
           json: hasFlag(rest, "--json"),
@@ -446,6 +474,7 @@ async function main() {
         "--agent", "--forward", "--forward-token", "--json",
         "--conversation", "--conversation-id", "--once", "--until", "--text",
       ]);
+      getPositionals(args, 0, "usage: e2a listen [options]");
       await listen({
         agent: getFlagChecked(args, "--agent"),
         json: hasFlag(args, "--json"),

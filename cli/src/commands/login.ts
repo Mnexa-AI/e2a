@@ -1,9 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { E2AClient } from "@e2a/sdk/v1";
-import { loadConfig, saveConfig, type Config } from "../config.js";
-import { EXIT, fail } from "../exit.js";
+import { loadConfig, saveConfig } from "../config.js";
 
 /**
  * Render the URL's host for human-facing log lines. Falls back to the raw
@@ -237,20 +235,8 @@ async function waitForBrowserLogin(apiUrl: string, timeoutMs = LOGIN_TIMEOUT_MS)
   }
 }
 
-export interface LoginOptions {
-  /** Headless mode: validate a pasted/piped/env key instead of the browser. */
-  withKey?: boolean;
-  /** Explicit key value for --with-key (else $E2A_API_KEY, else stdin). */
-  key?: string;
-}
-
-export async function login(opts: LoginOptions = {}): Promise<void> {
+export async function login(): Promise<void> {
   const config = loadConfig();
-
-  if (opts.withKey) {
-    await loginWithKey(config, opts.key);
-    return;
-  }
 
   // Preflight: hit the deployment's public info endpoint before opening
   // the browser. Two wins —
@@ -320,49 +306,4 @@ export async function login(opts: LoginOptions = {}): Promise<void> {
       `No agents found yet. Run: e2a agents create <name>@<shared-domain> — or visit ${config.api_url.replace(/\/+$/, "")}/get-started\n`,
     );
   }
-}
-
-/**
- * Read the key for --with-key: explicit value → piped stdin → $E2A_API_KEY.
- * Stdin outranks the env on purpose: `echo $NEW_KEY | e2a login --with-key`
- * is a key ROTATION, and the box doing it very likely still has the old key
- * exported — env-first would silently "rotate" to the stale key.
- */
-async function resolveWithKeyInput(explicit?: string): Promise<string> {
-  if (explicit) return explicit;
-  if (!process.stdin.isTTY) {
-    let data = "";
-    for await (const chunk of process.stdin) data += chunk;
-    const key = data.trim();
-    if (key) return key;
-  }
-  if (process.env.E2A_API_KEY) return process.env.E2A_API_KEY;
-  return fail(
-    EXIT.USAGE,
-    "usage: e2a login --with-key <key>  (or pipe the key on stdin / set E2A_API_KEY)",
-  );
-}
-
-/**
- * Headless login: no browser, no local callback server — validate the key
- * against GET /v1/account (which also reveals its scope and bound inbox) and
- * persist it. This is the path for CI boxes and SSH sessions, where the
- * browser flow's 127.0.0.1 callback can never complete.
- */
-export async function loginWithKey(config: Config, explicitKey?: string): Promise<void> {
-  const key = await resolveWithKeyInput(explicitKey);
-  const client = new E2AClient({ apiKey: key, baseUrl: config.api_url });
-  const account = await client.account.get(); // throws E2AAuthError → exit 4
-
-  saveConfig({
-    api_key: key,
-    key_scope: account.scope,
-    ...(account.agentEmail ? { agent_email: account.agentEmail } : {}),
-  });
-
-  process.stdout.write(`Logged in to ${hostLabel(config.api_url)} with a ${account.scope}-scoped key.\n`);
-  if (account.agentEmail) {
-    process.stdout.write(`Bound agent: ${account.agentEmail}\n`);
-  }
-  process.stdout.write("Config saved to ~/.e2a/config.json\n");
 }

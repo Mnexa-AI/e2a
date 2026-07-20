@@ -5,8 +5,12 @@
 **Breaking:** `e2a login --agent <inbox>` is removed. The CLI is now
 account-credential only on the login path — the browser handoff always saves an
 account-scoped key. Mint a least-privilege inbox-bound key with
-`e2a keys create --agent <inbox>` after logging in, or install one headlessly
-with `e2a login --with-key`.
+`e2a keys create --agent <inbox>` after logging in.
+
+**Breaking:** `e2a login --with-key` is removed. `login` is now exclusively the
+interactive browser flow. Headless environments should set `E2A_API_KEY` (and
+may persist it with `e2a config set api_key <key>` before validating it with
+`e2a whoami`).
 
 **Breaking:** `e2a login` no longer sets `agent_email`. It previously persisted
 whichever inbox the server's handoff happened to name first, which silently

@@ -6,12 +6,19 @@ const VALID_KEYS: (keyof Config)[] = ["api_key", "api_url", "agent_email", "shar
 export async function config(args: string[]): Promise<void> {
   const subcommand = args[0];
 
-  if (!subcommand || subcommand === "list") {
+  if (!subcommand) {
+    showAll();
+    return;
+  }
+
+  if (subcommand === "list") {
+    requireArgCount(args, 1);
     showAll();
     return;
   }
 
   if (subcommand === "get") {
+    requireArgCount(args, 2);
     const key = args[1];
     if (!key) {
       process.stderr.write("Usage: e2a config get <key>\n");
@@ -30,6 +37,7 @@ export async function config(args: string[]): Promise<void> {
   }
 
   if (subcommand === "set") {
+    requireArgCount(args, 3);
     const key = args[1];
     const value = args[2];
     if (!key || value === undefined) {
@@ -57,6 +65,7 @@ export async function config(args: string[]): Promise<void> {
 
   // Treat bare key as shorthand for "get"
   if (VALID_KEYS.includes(subcommand as keyof Config)) {
+    requireArgCount(args, 1);
     const cfg = loadConfig();
     const value = cfg[subcommand as keyof Config];
     if (value) {
@@ -70,6 +79,13 @@ export async function config(args: string[]): Promise<void> {
       `Valid keys: ${VALID_KEYS.join(", ")}\n`,
   );
   process.exit(EXIT.USAGE);
+}
+
+function requireArgCount(args: string[], expected: number): void {
+  if (args.length !== expected) {
+    process.stderr.write("Usage: e2a config [list|get <key>|set <key> <value>]\n");
+    process.exit(EXIT.USAGE);
+  }
 }
 
 function showAll(): void {
@@ -86,29 +102,26 @@ function showAll(): void {
 
 /**
  * Warn if an environment variable interferes with a config key.
- * There are two cases:
- * (a) NOT PERSISTED AT ALL: api_url/E2A_URL, shared_domain/E2A_SHARED_DOMAIN
- * (b) PERSISTED BUT SHADOWED ON READ: api_key/E2A_API_KEY, agent_email/E2A_AGENT_EMAIL
+ * All values are persisted, but the corresponding environment variable stays
+ * authoritative until it is unset.
  */
 function warnIfEnvVarInterferes(key: string): void {
-  // Case (a): NOT PERSISTED — the write was discarded entirely
   if (key === "api_url" && process.env.E2A_URL) {
     process.stderr.write(
-      "e2a: api_url was not saved — E2A_URL environment variable is set and blocks writes.\n" +
-        "     Unset E2A_URL to persist this configuration.\n",
+      "e2a: api_url was saved, but E2A_URL environment variable will take precedence.\n" +
+        "     Unset E2A_URL to use the saved value.\n",
     );
     return;
   }
 
   if (key === "shared_domain" && process.env.E2A_SHARED_DOMAIN) {
     process.stderr.write(
-      "e2a: shared_domain was not saved — E2A_SHARED_DOMAIN environment variable is set and blocks writes.\n" +
-        "     Unset E2A_SHARED_DOMAIN to persist this configuration.\n",
+      "e2a: shared_domain was saved, but E2A_SHARED_DOMAIN environment variable will take precedence.\n" +
+        "     Unset E2A_SHARED_DOMAIN to use the saved value.\n",
     );
     return;
   }
 
-  // Case (b): PERSISTED BUT SHADOWED ON READ — the file was written but env var takes precedence
   if (key === "api_key" && process.env.E2A_API_KEY) {
     process.stderr.write(
       "e2a: api_key was saved, but E2A_API_KEY environment variable will take precedence.\n" +

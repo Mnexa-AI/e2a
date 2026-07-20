@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { EXIT } from "./exit.js";
@@ -18,9 +18,8 @@ export interface Config {
   shared_domain: string;
   /**
    * Scope of the stored api_key ("account" or "agent"), recorded by `e2a
-   * login` on both paths (browser → always "account"; --with-key → whatever
-   * GET /v1/account reports). Lets commands that need workspace-admin scope
-   * fail with a precise message instead of a server 403. Absent for keys
+   * login` after the browser handoff. Lets commands that need workspace-admin
+   * scope fail with a precise message instead of a server 403. Absent for keys
    * saved by older CLIs or set out-of-band.
    */
   key_scope?: string;
@@ -108,7 +107,7 @@ export function saveConfig(updates: Partial<Config>): void {
   }
 
   if ("api_url" in updates) {
-    if (updates.api_url && updates.api_url !== DEFAULT_URL && !process.env.E2A_URL) {
+    if (updates.api_url && updates.api_url !== DEFAULT_URL) {
       fileConfig.api_url = updates.api_url;
     } else {
       delete fileConfig.api_url;
@@ -136,12 +135,13 @@ export function saveConfig(updates: Partial<Config>): void {
     else delete fileConfig.key_scope;
   }
 
-  // Mirror the api_url policy: only persist non-default, non-env-overridden values.
+  // Mirror the api_url policy: persist non-default values even while an env
+  // override shadows them, so removing the override reveals the requested
+  // configuration instead of an older value (or the hosted default).
   if ("shared_domain" in updates) {
     if (
       updates.shared_domain &&
-      updates.shared_domain !== DEFAULT_SHARED_DOMAIN &&
-      !process.env.E2A_SHARED_DOMAIN
+      updates.shared_domain !== DEFAULT_SHARED_DOMAIN
     ) {
       fileConfig.shared_domain = updates.shared_domain;
     } else {
@@ -157,6 +157,10 @@ export function saveConfig(updates: Partial<Config>): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(fileConfig, null, 2) + "\n", {
     mode: 0o600,
   });
+  // `mode` only applies when writeFileSync creates the file. Tighten an
+  // existing config too: it contains plaintext API credentials and may have
+  // been copied or manually created with a permissive umask.
+  chmodSync(CONFIG_PATH, 0o600);
 }
 
 export function requireApiKey(config: Config): string {
@@ -164,9 +168,9 @@ export function requireApiKey(config: Config): string {
     // Missing credentials are an auth failure per the documented exit-code
     // contract (4) — never 1, which scripts treat as retryable-transient.
     // Name BOTH acquisition paths: `login` needs a browser on this machine;
-    // headless boxes use --with-key or the env var.
+    // headless boxes use the environment variable.
     process.stderr.write(
-      "Not authenticated. Run: e2a login (browser) or e2a login --with-key (headless), or set E2A_API_KEY\n",
+      "Not authenticated. Run: e2a login (browser), or set E2A_API_KEY\n",
     );
     process.exit(EXIT.AUTH);
   }

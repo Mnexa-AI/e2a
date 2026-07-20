@@ -36,6 +36,25 @@ describe("getPositionals", () => {
   it("returns empty when only flags are present", () => {
     expect(getPositionals(["--body", "hi", "--json"])).toEqual([]);
   });
+
+  it("rejects extra or missing operands when an exact count is required", () => {
+    const mockStderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    try {
+      expect(() => getPositionals(["key_a", "key_b"], 1, "usage: delete <id>")).toThrow(
+        "process.exit",
+      );
+      expect(() => getPositionals([], 1, "usage: delete <id>")).toThrow("process.exit");
+      expect(() => getPositionals(["unexpected"], 0, "usage: list")).toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(2);
+      expect(mockStderr).toHaveBeenCalledWith("usage: delete <id>\n");
+    } finally {
+      mockExit.mockRestore();
+      mockStderr.mockRestore();
+    }
+  });
 });
 
 describe("parseArgs", () => {
@@ -187,6 +206,12 @@ describe("checkFlags (FIX 1: single-dash flag typos)", () => {
   it("still rejects unknown --long-flags and --flag=value (pre-existing behavior)", () => {
     expect(() => checkFlags(["--bogus"], ["--json"])).toThrow("process.exit");
     expect(() => checkFlags(["--json=true"], ["--json"])).toThrow("process.exit");
+  });
+
+  it("rejects the removed login --with-key flag", () => {
+    expect(() => checkFlags(["--with-key"], [])).toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(2);
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("unknown flag: --with-key"));
   });
 });
 

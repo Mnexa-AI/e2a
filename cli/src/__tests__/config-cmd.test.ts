@@ -57,6 +57,17 @@ describe("config command", () => {
     expect(mockStdout).toHaveBeenCalledWith("agent_email=new@agents.e2a.dev\n");
   });
 
+  it("rejects extra operands instead of silently ignoring them", async () => {
+    const { config } = await import("../commands/config.js");
+
+    await expect(config(["list", "extra"])).rejects.toThrow("process.exit");
+    await expect(config(["get", "agent_email", "extra"])).rejects.toThrow("process.exit");
+    await expect(
+      config(["set", "agent_email", "bot@agents.e2a.dev", "extra"]),
+    ).rejects.toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(2);
+  });
+
   it("rejects unknown keys on get", async () => {
     const { config } = await import("../commands/config.js");
     await expect(config(["get", "bad_key"])).rejects.toThrow("process.exit");
@@ -94,7 +105,7 @@ describe("config command", () => {
       process.env = originalEnv;
     });
 
-    it("warns when api_url is set and E2A_URL env var exists (NOT PERSISTED)", async () => {
+    it("warns when api_url is saved but shadowed by E2A_URL", async () => {
       process.env.E2A_URL = "https://example.com";
       const { config } = await import("../commands/config.js");
       await config(["set", "api_url", "http://localhost:8080"]);
@@ -102,14 +113,14 @@ describe("config command", () => {
       // Check that stdout has the success message
       expect(mockStdout).toHaveBeenCalledWith("api_url=http://localhost:8080\n");
 
-      // Check that stderr has the warning about E2A_URL blocking writes
+      // The value is persisted for use after the env override is removed.
       const stderrCalls = mockStderr.mock.calls.map((c: unknown[]) => c[0]).join("");
-      expect(stderrCalls).toContain("api_url was not saved");
+      expect(stderrCalls).toContain("api_url was saved");
       expect(stderrCalls).toContain("E2A_URL");
-      expect(stderrCalls).toContain("blocks writes");
+      expect(stderrCalls).toContain("take precedence");
     });
 
-    it("warns when shared_domain is set and E2A_SHARED_DOMAIN env var exists (NOT PERSISTED)", async () => {
+    it("warns when shared_domain is saved but shadowed by E2A_SHARED_DOMAIN", async () => {
       process.env.E2A_SHARED_DOMAIN = "agents.example.com";
       const { config } = await import("../commands/config.js");
       await config(["set", "shared_domain", "agents.custom.com"]);
@@ -117,11 +128,11 @@ describe("config command", () => {
       // Check that stdout has the success message
       expect(mockStdout).toHaveBeenCalledWith("shared_domain=agents.custom.com\n");
 
-      // Check that stderr has the warning about E2A_SHARED_DOMAIN blocking writes
+      // The value is persisted for use after the env override is removed.
       const stderrCalls = mockStderr.mock.calls.map((c: unknown[]) => c[0]).join("");
-      expect(stderrCalls).toContain("shared_domain was not saved");
+      expect(stderrCalls).toContain("shared_domain was saved");
       expect(stderrCalls).toContain("E2A_SHARED_DOMAIN");
-      expect(stderrCalls).toContain("blocks writes");
+      expect(stderrCalls).toContain("take precedence");
     });
 
     it("warns when api_key is set and E2A_API_KEY env var exists (PERSISTED BUT SHADOWED)", async () => {

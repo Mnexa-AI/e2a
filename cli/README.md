@@ -35,9 +35,10 @@ Open a browser login and save an account-scoped API key to `~/.e2a/config.json`
 
 ```bash
 e2a login
-e2a login --with-key             # headless: validate + save a key (from the arg,
-                                  # $E2A_API_KEY, or stdin) — no browser needed
 ```
+
+On a headless machine, set `E2A_API_KEY` instead of running `login`. To persist
+that key locally, use `e2a config set api_key <key>`; `e2a whoami` validates it.
 
 Login does **not** set a default sending inbox. The key is account-scoped — it
 spans every inbox on the account — so the CLI never guesses which one you meant.
@@ -215,9 +216,9 @@ flow and `/get-started`, and proxies the `/v1` API. It is *not* the SDKs'
 breaks `e2a login`. The CLI does not read `E2A_API_URL` or the SDKs' older
 `E2A_BASE_URL`.
 
-Values that come from the environment are **not** written back to
-`~/.e2a/config.json` — so with `E2A_URL` exported, `e2a config set api_url …`
-has no effect until you unset it.
+Environment variables take precedence without blocking persistent updates. For
+example, with `E2A_URL` exported, `e2a config set api_url …` saves the new value
+but the environment host remains active until you unset it.
 
 ## Options
 

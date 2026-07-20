@@ -191,7 +191,7 @@ describe("listen notification handling", () => {
     expect(mockStdout).not.toHaveBeenCalledWith(expect.stringContaining("from_"));
   });
 
-  it("forwards exact raw JSON to a generic webhook", async () => {
+  it("forwards wire-stable JSON to a generic webhook", async () => {
     const full = {
       id: "msg_123",
       from_: "alice@example.com",
@@ -227,7 +227,7 @@ describe("listen notification handling", () => {
           "Content-Type": "application/json",
           Authorization: "Bearer secret",
         },
-        body: JSON.stringify(full),
+        body: JSON.stringify(withWireFrom(full)),
       }),
     );
     expect(client.messages.reply).not.toHaveBeenCalled();
@@ -308,9 +308,10 @@ describe("listen notification handling", () => {
     // set (before the fix, --json short-circuited and the forward was dropped).
     expect(fetchMock).toHaveBeenCalledWith(
       "https://example.com/webhook",
-      // The forward POST body is the raw SDK model shape (from_), unchanged —
-      // only the stdout --json rendering gets the wire rename below.
-      expect.objectContaining({ method: "POST", body: JSON.stringify(full) }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(withWireFrom(full)),
+      }),
     );
     // ...and the JSON rendering still reaches stdout, wire-renamed.
     expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(withWireFrom(full))}\n`);
