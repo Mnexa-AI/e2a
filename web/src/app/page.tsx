@@ -940,8 +940,14 @@ export default function Home() {
 // array; here we want JSX children so syntax highlighting reads inline.
 // ─────────────────────────────────────────────────────────────────────────
 
-// A hover-opened nav dropdown. Each menu owns its open state so adding one
-// doesn't mean threading another boolean through the page component.
+// A nav dropdown. Each menu owns its open state so adding one doesn't mean
+// threading another boolean through the page component.
+//
+// Opens on hover, click, AND focus — hover alone left everything inside
+// unreachable by keyboard, and unreliable on touch devices that get the
+// desktop layout. Focus/blur are on the wrapper (React bubbles them), so
+// tabbing into the button opens the menu and tabbing past the last link
+// closes it; Escape dismisses without a pointer.
 function NavMenu({ label, items }: { label: string; items: NavItem[] }) {
   const [open, setOpen] = useState(false);
   return (
@@ -949,10 +955,23 @@ function NavMenu({ label, items }: { label: string; items: NavItem[] }) {
       className="relative"
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={(e) => {
+        // Only close when focus actually leaves the menu, not when it moves
+        // between the button and its own links.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setOpen(false);
+      }}
     >
       <button
         type="button"
         aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen((o) => !o)}
         className="px-3 py-1.5 rounded-md transition hover:bg-[var(--bg-elev)]"
         style={{ color: "var(--fg-muted)" }}
       >

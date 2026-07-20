@@ -100,6 +100,35 @@ describe("Landing page", () => {
     }
   });
 
+  // Regression: the menus opened on hover only, so a keyboard user could
+  // reach the button but never its contents. That was a reachability
+  // REGRESSION, not just a pre-existing gap — Human-in-the-loop, Use cases
+  // and Blog used to be top-level links and are now inside these menus.
+  it("opens a nav menu from the keyboard and closes it with Escape", async () => {
+    render(<Home />);
+    const button = screen.getByRole("button", { name: /^Product/ });
+
+    // Nothing is open to start with.
+    expect(screen.queryByRole("link", { name: "Use cases" })).not.toBeInTheDocument();
+
+    // Tabbing to the button reveals the menu...
+    fireEvent.focus(button);
+    expect(screen.getByRole("link", { name: "Use cases" })).toBeInTheDocument();
+
+    // ...and Escape dismisses it without touching a mouse.
+    fireEvent.keyDown(button, { key: "Escape" });
+    expect(screen.queryByRole("link", { name: "Use cases" })).not.toBeInTheDocument();
+  });
+
+  it("toggles a nav menu on click, for touch and pointer users", () => {
+    render(<Home />);
+    const button = screen.getByRole("button", { name: /^Resources/ });
+    fireEvent.click(button);
+    expect(screen.getByText("API Reference")).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(screen.queryByText("API Reference")).not.toBeInTheDocument();
+  });
+
   it("groups the on-page sections under Product", () => {
     render(<Home />);
     const product = screen.getByText(/^Product/).closest("div")!;
