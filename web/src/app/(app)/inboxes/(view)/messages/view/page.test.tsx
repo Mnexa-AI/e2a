@@ -12,12 +12,18 @@
 // `&pending=1`. A deep link with no params defaults to inbound /
 // not-pending (no approve/reject), which we also assert below.
 
-import { render, screen, waitFor } from "../../../../../../test-utils/swr";
+import { render, screen, waitFor, within } from "../../../../../../test-utils/swr";
 import { render as rawRender } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { mutate } from "swr";
 import AgentMessageFocusPage from "./page";
-import { agentsKey, pendingMessageKey } from "../../../../../../lib/swrKeys";
+import { PendingRow } from "../../../../reviews/_components/PendingRow";
+import { ThreadBubble } from "../../../../../components/messages/ThreadBubble";
+import type {
+  MessageSummary,
+  PendingMessageSummary,
+} from "../../../../../components/types";
+import { agentsKey, messageDetailKey } from "../../../../../../lib/swrKeys";
 
 const mockUseSearchParams = jest.fn();
 const mockRouterPush = jest.fn();
@@ -39,12 +45,14 @@ jest.mock("next/link", () => {
 // `as const` tuples), so we keep `requireActual` and override only
 // the side-effect functions we want to observe.
 const mockInvalidateAgentMessages = jest.fn();
+const mockInvalidateMessageDetail = jest.fn();
 jest.mock("../../../../../../lib/swrKeys", () => {
   const actual = jest.requireActual("../../../../../../lib/swrKeys");
   return {
     ...actual,
     invalidateAgentMessages: (email: string) =>
       mockInvalidateAgentMessages(email),
+    invalidateMessageDetail: (id: string) => mockInvalidateMessageDetail(id),
   };
 });
 
@@ -154,6 +162,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   mockRouterPush.mockReset();
   mockInvalidateAgentMessages.mockReset();
+  mockInvalidateMessageDetail.mockReset();
 });
 
 afterEach(() => {
@@ -298,6 +307,28 @@ describe("AgentMessageFocusPage", () => {
     );
   });
 
+  // The other half of the invalidation contract: swrKeys.test.ts proves the
+  // predicate matches the real key, but nothing proved this CALL SITE passes
+  // the message id. It's an easy thing to get wrong (every neighbouring
+  // invalidation in refreshAfterMutation is keyed by `email`) and it fails
+  // silently — an approved message would keep rendering its stale
+  // "Pending review" detail with no error anywhere.
+  it("approve invalidates the message-detail entry by message id, not by inbox", async () => {
+    setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
+    mockApproveSuccess();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    render(<AgentMessageFocusPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("action-card")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Approve & send/i }));
+
+    await waitFor(() => {
+      expect(mockInvalidateMessageDetail).toHaveBeenCalledWith("msg_pending");
+    });
+  });
+
   it("⌘↵ keyboard shortcut triggers Approve when status is pending", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     const countCalls = mockApproveSuccess();
@@ -430,8 +461,8 @@ describe("AgentMessageFocusPage", () => {
   // Regression for H3: previously the draft-body textarea was seeded
   // only from SWR's onSuccess callback. onSuccess fires after a real
   // fetch — not on a cache hit served within dedupingInterval. If
-  // another surface (e.g. PendingDetailPanel) populated
-  // pendingMessageKey(id) just before the user navigated here, the
+  // another surface (e.g. the review queue) populated
+  // messageDetailKey(id) just before the user navigated here, the
   // focus page would render data from cache, skip the fetcher, never
   // call onSuccess, and leave draftBody as "" — the reviewer would
   // click Edit and see a blank textarea instead of the agent's body.
@@ -441,7 +472,7 @@ describe("AgentMessageFocusPage", () => {
   // To genuinely reproduce the bug condition (vs asserting the
   // post-fix shape on a fetch path that pre-fix code would also have
   // passed), we render WITHOUT the test-utils/swr fresh-Map wrapper,
-  // use the module-level SWR cache, pre-seed pendingMessageKey(id)
+  // use the module-level SWR cache, pre-seed messageDetailKey(id)
   // before mounting, and assert mockFetch was never called for the
   // outbound endpoint. A pre-fix implementation (onSuccess-only seed)
   // would observe data via the cache but never fire onSuccess, so
@@ -455,9 +486,12 @@ describe("AgentMessageFocusPage", () => {
     // render the HITL step — without seeding it the page would
     // trigger a /api/inboxes fetch and defeat the cache-
     // hit reproduction below.
+    // The cached value is the RAW wire (what both detail endpoints
+    // return); the page projects it. Seeding a projection here would no
+    // longer match what any fetcher writes.
     await mutate(
-      pendingMessageKey("support@acme.io", "msg_pending"),
-      { direction: "outbound", data: { ...OUTBOUND_PENDING, id: "msg_pending", body_text: OUTBOUND_PENDING.body.text } },
+      messageDetailKey("msg_pending"),
+      { ...OUTBOUND_PENDING, id: "msg_pending" },
       { revalidate: false },
     );
     await mutate(
@@ -492,6 +526,262 @@ describe("AgentMessageFocusPage", () => {
     await user.click(screen.getByText(/^edit draft$/i));
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(textarea.value).toContain("Thanks for sending over the renewal draft");
+  });
+
+  // Regression: the review queue and this focus page show the SAME
+  // message through DIFFERENT endpoints — the review read
+  // (GET /v1/reviews/{id}, the only one carrying hold_reason) and the
+  // agent-scoped read (GET /v1/agents/{address}/messages/{id}, the only
+  // one that flips unread → read). Both share one per-message cache entry.
+  //
+  // They used to cache their own PROJECTED shapes under that shared key:
+  // the queue wrote a flat PendingMessageDetail, this page expected
+  // { direction, data }. So expanding a held message in Pending and then
+  // clicking through here handed this page the queue's shape — `direction`
+  // was set but `data` was undefined, so reading `msg.data.conversation_id`
+  // threw to the 500 error boundary. Caching the raw wire makes the shape
+  // uniform no matter which surface fills the entry first.
+  //
+  // Both components render against the module-level SWR cache (no
+  // fresh-Map wrapper), so the second genuinely reads what the first wrote
+  // — reintroducing a projection in either fetcher fails this test.
+  it("renders after the review queue cached the same message (cross-surface shape regression)", async () => {
+    const REVIEW_WIRE = {
+      ...OUTBOUND_PENDING,
+      review_status: "pending_review",
+      hold_reason: {
+        type: "gate",
+        code: "recipient_gate",
+        summary: "One or more recipients aren't allowed by the inbox policy.",
+      },
+    };
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/v1/reviews/msg_pending") return jsonText(REVIEW_WIRE);
+      if (isDetailGet(url) && url.includes("msg_pending"))
+        return jsonText(OUTBOUND_PENDING);
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+
+    const summary: PendingMessageSummary = {
+      id: "msg_pending",
+      agent_email: AGENT_EMAIL,
+      direction: "outbound",
+      subject: OUTBOUND_PENDING.subject,
+      to: OUTBOUND_PENDING.to,
+      status: "pending_review",
+      created_at: OUTBOUND_PENDING.created_at,
+    };
+
+    // 1. The review queue fills the shared entry first.
+    rawRender(
+      <PendingRow
+        summary={summary}
+        expanded
+        onToggle={() => {}}
+        onResolved={() => {}}
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Thanks for sending over the renewal draft/),
+      ).toBeInTheDocument();
+    });
+
+    // 2. "Review →" lands here, reading that same entry.
+    setSearchParams({
+      email: AGENT_EMAIL,
+      id: "msg_pending",
+      direction: "outbound",
+      pending: "1",
+    });
+    rawRender(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("message-focus")).toBeInTheDocument();
+    });
+    // The outbound projection resolved: subject and approve/reject render
+    // rather than the error boundary.
+    expect(screen.getByTestId("action-card")).toBeInTheDocument();
+    expect(
+      screen.getAllByText(OUTBOUND_PENDING.subject).length,
+    ).toBeGreaterThan(0);
+  });
+
+  // The REVERSE of the test above, and the ordering that actually happens
+  // most often (open a message, then go to Pending). Two things are pinned
+  // here and they fail independently:
+  //
+  //  1. Shape. The focus page fills the shared entry first; the review row
+  //     then reads what IT wrote. Before the fix each surface cached its own
+  //     projection, so the row would find the focus page's { direction, data }
+  //     wrapper where it expected a flat detail and render "(empty body)".
+  //
+  //  2. Graceful degradation. The two endpoints return different supersets:
+  //     only GET /v1/reviews/{id} populates hold_reason. A wire written by
+  //     the agent-scoped read therefore has none, and the "Why this message
+  //     was held" banner survives only because PendingRow falls back to the
+  //     summary row's hold_reason. This was confirmed by hand in a browser
+  //     and had no test.
+  //
+  // The review endpoint is staged to fail and asserted un-called, so the
+  // banner provably comes from the summary fallback and not from a
+  // revalidation quietly refilling the entry with the superset.
+  it("the review row renders on a cache entry the focus page filled (reverse ordering, hold reason via summary fallback)", async () => {
+    // Own id: SWR's request-dedup window is keyed globally and outlives the
+    // cache reset in jest.setup.ts, so a key another test already fetched
+    // would never fetch here and the entry would stay empty.
+    const id = "msg_pending_reverse";
+    const WIRE = { ...OUTBOUND_PENDING, id };
+    mockFetch.mockImplementation((url: string) => {
+      if (isDetailGet(url) && url.includes(id)) return jsonText(WIRE);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () =>
+          Promise.resolve("the review read must not supply hold_reason here"),
+      });
+    });
+
+    // 1. The focus page fills the shared entry (no hold_reason on this wire).
+    setSearchParams({
+      email: AGENT_EMAIL,
+      id,
+      direction: "outbound",
+      pending: "1",
+    });
+    const { container: focusEl } = rawRender(<AgentMessageFocusPage />);
+    await waitFor(() => {
+      expect(within(focusEl).getByTestId("message-focus")).toBeInTheDocument();
+    });
+
+    // 2. The user opens Pending; the row reads that same entry.
+    const summary: PendingMessageSummary = {
+      id,
+      agent_email: AGENT_EMAIL,
+      direction: "outbound",
+      subject: WIRE.subject,
+      to: WIRE.to,
+      status: "pending_review",
+      created_at: WIRE.created_at,
+      hold_reason: {
+        type: "gate",
+        code: "recipient_gate",
+        summary: "One or more recipients aren't allowed by the inbox policy.",
+      },
+    };
+    const { container } = rawRender(
+      <PendingRow
+        summary={summary}
+        expanded
+        onToggle={() => {}}
+        onResolved={() => {}}
+      />,
+    );
+    // Scope queries to the row — the focus page is still mounted and renders
+    // the same body/subject text.
+    const row = within(container);
+
+    // Shape: the row projected the focus page's wire into its own view.
+    await waitFor(() => {
+      expect(
+        row.getByText(/Thanks for sending over the renewal draft/),
+      ).toBeInTheDocument();
+    });
+    // Degradation: the banner renders off summary.hold_reason.
+    expect(row.getByText("Why this message was held")).toBeInTheDocument();
+    expect(
+      row.getAllByText(/recipients aren't allowed by the inbox policy/).length,
+    ).toBeGreaterThan(0);
+    // …and provably not off a review-endpoint revalidation.
+    expect(
+      mockFetch.mock.calls.some((c) =>
+        String(c[0]).startsWith("/v1/reviews/"),
+      ),
+    ).toBe(false);
+  });
+
+  // ThreadBubble is the THIRD surface on the shared per-message entry, and
+  // the easiest one to regress: it shares both the key AND the endpoint with
+  // the focus page, so a projection cached here reads back as valid-looking
+  // data everywhere except the surface that expects the other shape. The
+  // component's own test file mocks getMessageDetailWire, so nothing there
+  // exercises the real key or the real cache — these two do.
+  // A distinct id per cross-surface test: SWR's request-dedup window is
+  // keyed globally and outlives the cache reset in jest.setup.ts, so reusing
+  // an id another test already fetched suppresses the fetch here and the
+  // entry never fills.
+  const inboundSummary = (id: string): MessageSummary => ({
+    id,
+    direction: "inbound",
+    from: "maya@stripe.com",
+    to: [AGENT_EMAIL],
+    recipient: AGENT_EMAIL,
+    subject: "Q3 contract renewal",
+    status: "read",
+    created_at: INBOUND_DETAIL.created_at,
+  });
+
+  it("the focus page renders on a cache entry ThreadBubble filled", async () => {
+    const id = "msg_bubble_first";
+    mockDetail({
+      ...INBOUND_DETAIL,
+      id,
+      parsed: { text: "thread bubble body" },
+    });
+
+    // Wait for the bubble's BODY, not just its container: the body is the
+    // first thing that proves the fetch resolved and the shared entry is
+    // actually filled before the focus page subscribes to it.
+    const { container: bubbleEl } = rawRender(
+      <ThreadBubble
+        message={inboundSummary(id)}
+        counterparty={{ email: "maya@stripe.com", name: "Maya" }}
+        agentEmail={AGENT_EMAIL}
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        within(bubbleEl).getByText(/thread bubble body/),
+      ).toBeInTheDocument();
+    });
+
+    setSearchParams({ email: AGENT_EMAIL, id, direction: "inbound" });
+    const { container } = rawRender(<AgentMessageFocusPage />);
+    const focus = within(container);
+
+    await waitFor(() => {
+      expect(focus.getByTestId("message-focus")).toBeInTheDocument();
+    });
+    // The inbound projection resolved off the bubble's cached wire — a
+    // cached projection would leave the focus page's body card empty.
+    expect(focus.getByText(/thread bubble body/)).toBeInTheDocument();
+  });
+
+  it("ThreadBubble renders on a cache entry the focus page filled", async () => {
+    const id = "msg_focus_first";
+    mockDetail({ ...INBOUND_DETAIL, id, parsed: { text: "focus page body" } });
+
+    setSearchParams({ email: AGENT_EMAIL, id, direction: "inbound" });
+    const { container: focusEl } = rawRender(<AgentMessageFocusPage />);
+    await waitFor(() => {
+      expect(within(focusEl).getByTestId("message-focus")).toBeInTheDocument();
+    });
+
+    const { container } = rawRender(
+      <ThreadBubble
+        message={inboundSummary(id)}
+        counterparty={{ email: "maya@stripe.com", name: "Maya" }}
+        agentEmail={AGENT_EMAIL}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(within(container).getByText(/focus page body/)).toBeInTheDocument();
+    });
   });
 
   // Regression: navigating from message A to message B via ?id= must

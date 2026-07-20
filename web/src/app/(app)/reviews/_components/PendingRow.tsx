@@ -9,16 +9,16 @@
 // the list. Replaces the old master-detail PendingDetailPanel.
 //
 // The body/recipients fetch is lazy — it fires only when the row is
-// expanded (GET /v1/agents/{address}/messages/{id}). Approve/reject reuse
-// the diff-only edit helpers so untouched fields keep their agent-authored
-// original.
+// expanded (GET /v1/reviews/{id}). Approve/reject reuse the diff-only
+// edit helpers so untouched fields keep their agent-authored original.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { pendingMessageKey } from "../../../../lib/swrKeys";
+import { messageDetailKey } from "../../../../lib/swrKeys";
 import {
   approvePendingMessage,
-  getPendingMessage,
+  getReviewDetailWire,
+  projectPending,
   rejectPendingMessage,
 } from "../../../components/onboarding/api";
 import type {
@@ -89,16 +89,19 @@ export function PendingRow({
   // and "& send" wording are outbound-only.
   const isInbound = summary.direction === "inbound";
 
-  // Lazy: only fetch the body/recipients once the row is open. Shares the
-  // pendingMessageKey cache with invalidateMessageDetail so resolving
-  // from anywhere refetches.
-  const { data: msg, error: fetchError, isLoading } = useSWR<PendingMessageDetail>(
-    expanded ? pendingMessageKey(agentEmail, id) : null,
-    () => getPendingMessage(agentEmail, id),
+  // Lazy: only fetch the body/recipients once the row is open. Caches the
+  // RAW wire under the shared per-message key — the focus page reads the
+  // same entry, so both must agree on the shape (see lib/swrKeys.ts) —
+  // and projects below. Uses the review endpoint, the only one that
+  // carries `hold_reason`/`protection`.
+  const { data: wire, error: fetchError, isLoading } = useSWR(
+    expanded ? messageDetailKey(id) : null,
+    () => getReviewDetailWire(id),
     {
       keepPreviousData: false,
-      onSuccess: (data) => {
+      onSuccess: (w) => {
         if (editing) return;
+        const data = projectPending(agentEmail, w);
         setSubject(data.subject ?? "");
         setBodyText(data.body_text ?? "");
         setBodyHTML(data.body_html ?? "");
@@ -107,6 +110,11 @@ export function PendingRow({
         setBCC(joinCSV(data.bcc));
       },
     },
+  );
+
+  const msg: PendingMessageDetail | undefined = useMemo(
+    () => (wire ? projectPending(agentEmail, wire) : undefined),
+    [wire, agentEmail],
   );
 
   const [editing, setEditing] = useState(false);
