@@ -278,8 +278,12 @@ pass` is authenticated.
 Add forward-only, idempotent columns sufficient to retain canonical evidence:
 
 - `header_from`;
-- `envelope_from`; and
 - `authentication JSONB`.
+
+Reuse the existing nullable `messages.envelope_from` column (migration 055),
+which currently stores outbound queue submissions, and populate it for new
+SMTP inbound rows as well. Direction disambiguates the same wire concept:
+outbound stores the submitted MAIL FROM; inbound stores the received MAIL FROM.
 
 New inbound writes populate all three atomically with the message and event
 outbox entry. Outbound and loopback writes store `authentication = NULL`.
@@ -325,7 +329,7 @@ on `authenticated_from`. Examples must use the DMARC status plus the literal
 ```ts
 const trusted =
   message.authentication?.dmarc.status === "pass" &&
-  message.header_from.toLowerCase() === configuredAddress.toLowerCase();
+  message.header_from?.toLowerCase() === configuredAddress.toLowerCase();
 ```
 
 This means “the configured From address was authorized by an authenticated
@@ -356,9 +360,9 @@ domain,” not “e2a proved the human behind the mailbox.”
 ## Scalability and extensibility
 
 - DNS lookups must honor bounded timeouts and the existing SMTP/River retry
-  model. Cache positive and negative DMARC policy discoveries by DNS TTL with
-  bounded memory; do not cache transient resolver errors beyond a short safety
-  interval.
+  model. Cache positive and negative DMARC policy discoveries for a bounded,
+  conservative interval with bounded memory; do not cache transient resolver
+  errors.
 - Store structured evidence once so list/read/event paths do not perform DNS or
   MIME authentication work.
 - The DKIM array permits multiple signatures without a future schema break.
@@ -369,7 +373,8 @@ domain,” not “e2a proved the human behind the mailbox.”
 
 ## Rollout
 
-1. Add idempotent persistence fields and dual-read support.
+1. Add idempotent `header_from` and `authentication` persistence fields, reuse
+   the existing `envelope_from` field for inbound, and add dual-read support.
 2. Implement the RFC 9989 evaluator and canonical internal model behind unit
    tests.
 3. Switch new inbound writes and server-side gates to the canonical model.
