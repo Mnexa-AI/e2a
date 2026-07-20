@@ -426,6 +426,98 @@ components:
         - dkim
         - dmarc
       type: object
+    BatchMessage:
+      additionalProperties: false
+      properties:
+        attachments:
+          description: Per-item attachments. Single attachment ≤ 10 MiB, item combined ≤ 25 MiB. Additionally the SUM across all batch items must be ≤ 25 MiB (docs/design/batch-send.md §14 Q15).
+          items:
+            $ref: "#/components/schemas/Attachment"
+          type: array
+        bcc:
+          description: Bcc recipients for this item.
+          items:
+            maxLength: 320
+            type: string
+          type: array
+        cc:
+          description: Cc recipients for this item.
+          items:
+            maxLength: 320
+            type: string
+          type: array
+        conversation_id:
+          description: Caller-assigned conversation (thread) id. Auto-minted per item if omitted.
+          maxLength: 200
+          type: string
+        html:
+          description: HTML body.
+          maxLength: 1048576
+          type: string
+        reply_to:
+          description: Per-item Reply-To override. If empty, the batch-level reply_to default (if set) applies.
+          maxLength: 320
+          type: string
+        subject:
+          description: Literal subject. Required unless a template reference is used. Same caps as single-send.
+          maxLength: 2000
+          type: string
+        template_alias:
+          description: Human-handle alternative to template_id.
+          type: string
+        template_data:
+          additionalProperties: {}
+          description: Per-item template data. Populated freely across items — this is what makes native mail-merge possible without a server-side templating loop (docs/design/batch-send.md §0.5).
+          type: object
+        template_id:
+          description: Send using a stored template. Mutually exclusive with template_alias and with literal subject/text/html on this item.
+          type: string
+        text:
+          description: Plain-text body.
+          maxLength: 1048576
+          type: string
+        to:
+          description: Primary recipients for this item. Same per-item cap as single-send (50 combined across to+cc+bcc). Each item's envelope is independent — item i's cc/bcc are not visible in item j.
+          items:
+            maxLength: 320
+            type: string
+          type: array
+      required:
+        - to
+      type: object
+    BatchResult:
+      additionalProperties: true
+      properties:
+        message_id:
+          description: Minted message id when the item was accepted (delivery_status='accepted' persisted and River outbound_send job enqueued). Absent when Suppressed is present.
+          type: string
+        suppressed:
+          $ref: "#/components/schemas/BatchSuppressedResult"
+          description: Present when the item was dropped by the suppression-list filter (docs/design/batch-send.md §2.2). No message row exists for a suppressed slot; the caller can un-suppress via DELETE /v1/account/suppressions/{address} and resubmit.
+      type: object
+    BatchSuppressedResult:
+      additionalProperties: true
+      properties:
+        address:
+          description: The recipient address in this item's to list that triggered the drop. If multiple addresses in the same item are suppressed, only the first is surfaced (dropping the whole item is enough signal).
+          type: string
+        reason:
+          description: "The suppression-list category from suppressions.source. Known values: bounce, complaint, manual. Open set — treat as string and tolerate unknown values."
+          type: string
+      required:
+        - address
+        - reason
+      type: object
+    CheckResult:
+      additionalProperties: true
+      properties:
+        detail:
+          type: string
+        status:
+          type: string
+      required:
+        - status
+      type: object
     ConversationDetailView:
       additionalProperties: true
       properties:
@@ -3218,6 +3310,47 @@ components:
         - status
         - domain
         - aligned
+    SendBatchRequest:
+      additionalProperties: false
+      properties:
+        messages:
+          description: "1..100 BatchMessage items. Each item is a self-contained near-clone of SendEmailRequest minus from — its own to/cc/bcc/content/attachments/template/reply_to. Ordering is significant: results[] in the response is positionally aligned with this array."
+          items:
+            $ref: "#/components/schemas/BatchMessage"
+          maxItems: 100
+          minItems: 1
+          type: array
+        reply_to:
+          description: Optional batch-level Reply-To default. Applied to any item that leaves reply_to empty; a per-item value always wins. This is the ONLY batch-level default in MVP; every other field is per-item (docs/design/batch-send.md §1.2).
+          maxLength: 320
+          type: string
+      required:
+        - messages
+      type: object
+    SendBatchResponse:
+      additionalProperties: true
+      properties:
+        accepted:
+          description: Count of results[] slots that are {message_id}. Redundant with results[] but convenient for logging + zero-check.
+          format: int64
+          type: integer
+        batch_id:
+          description: Durable id for this batch (bat_<base32>). Use GET /v1/batches/{batch_id} to retrieve the header + status rollup.
+          type: string
+        results:
+          description: One slot per request item, positionally aligned. Each slot is either {message_id} (accepted) or {suppressed:{address,reason}} (dropped by the suppression filter).
+          items:
+            $ref: "#/components/schemas/BatchResult"
+          type: array
+        suppressed_count:
+          description: Count of results[] slots that are {suppressed}. Zero when no per-item drops occurred.
+          format: int64
+          type: integer
+      required:
+        - batch_id
+        - results
+        - accepted
+        - suppressed_count
       type: object
     SendEmailRequest:
       additionalProperties: false
@@ -4635,6 +4768,129 @@ paths:
       summary: Update an agent
       tags:
         - agents
+  /v1/agents/{email}/batches:
+    post:
+      description: |-
+        Fan out N independent emails in one API call. Each `messages[i]` item is a full send request in its own right (to/subject/body/template/attachments/reply_to) — the batch endpoint is essentially single-send in a loop, sharing rate-limit reservation and idempotency across all N items. Response `results[]` is positionally aligned with the input `messages[]`; each slot is either `{message_id}` (accepted) or `{suppressed: {address, reason}}` (dropped because a recipient was on this account's suppression list). See docs/design/batch-send.md for the full contract.
+
+        MVP restrictions: HITL-enabled agents are refused with 403 `batch_hitl_unsupported` (§5.1); per-item content override is native (each item carries its own body or template_data); attachments are per-item with a 25 MiB batch-wide combined cap (§14 Q15); rate limits count as N sends (§4.2); duplicate recipients across items are rejected (§14 Q11). All error responses include `details.item_index` (or `details.item_indices`) to identify the offending item where relevant.
+      operationId: sendBatch
+      parameters:
+        - in: path
+          name: email
+          required: true
+          schema:
+            type: string
+        - description: "Optional idempotency key for safe retries. Same semantics as single-send: 24h TTL, path+body hash, replay returns the cached 202 verbatim (409 in-flight, 422 mismatch)."
+          in: header
+          name: Idempotency-Key
+          schema:
+            description: "Optional idempotency key for safe retries. Same semantics as single-send: 24h TTL, path+body hash, replay returns the cached 202 verbatim (409 in-flight, 422 mismatch)."
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendBatchRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendBatchResponse"
+          description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendBatchResponse"
+          description: Batch accepted — durably persisted, with up to len(request.messages) River outbound_send jobs enqueued. results[] is positionally aligned with request.messages; each slot is either {message_id} (accepted) or {suppressed} (dropped by the suppression filter — the request itself is not an error). An all-suppressed batch (every slot suppressed) is also a 202; accepted=0.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Bad Request — request-shape/validation failure. error.code includes invalid_request, invalid_recipient, too_many_messages, duplicate_recipient, invalid_attachment (undecodable base64). Per-item errors carry details.item_index identifying the offending messages[] index; batch-wide errors omit it.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "402":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LimitExceededEnvelope"
+          description: Payment required — a per-account resource cap was hit (code limit_exceeded). error.details.resource is the AccountView usage/limits field stem (agents, domains, messages_month, storage_bytes), so the client can key it to usage.<resource> / limits.max_<resource>. This is a QUOTA (stock/flow) cap — distinct from a 429 rate_limited (throughput). A retry alone will not clear it; surface a quota/upgrade path.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Conflict — code idempotency_in_flight: a request with this Idempotency-Key is still executing. Retry-able: wait for the first request to finish, then retry with the SAME key and byte-identical body — the retry replays the first request's response instead of re-executing the side effect."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Payload Too Large — error.code = payload_too_large. An attachment exceeds 10 MiB decoded; combined attachments exceed 25 MiB decoded; or the composed message exceeds 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes. error.details uses PayloadTooLargeDetails: {scope, actual_bytes, max_bytes, filename?}; scope identifies composed_message, attachment, attachments_total, or request_body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: "Unprocessable — branch on error.code. idempotency_key_reuse: this Idempotency-Key was already used with a DIFFERENT request body (the dedup hash covers the route + the raw body bytes) — do NOT retry as-is; a legitimate retry must resend the byte-identical body, and a genuinely new request needs a fresh key. invalid_request: a semantic validation failure in the request body."
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RateLimitedEnvelope"
+          description: "Too Many Requests — a request-RATE / throughput limit was hit (code rate_limited). This is distinct from a 402 limit_exceeded (a QUOTA cap): a 429 is transient and retry-able — wait error.details.retry_after_seconds (mirrored on the Retry-After header), then the same request succeeds. Branch on the HTTP status: 429 → back off and retry; 402 → surface a quota/upgrade path."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+      security:
+        - bearer: []
+      summary: Send a batch of up to 100 emails
+      tags:
+        - messages
   /v1/agents/{email}/conversations:
     get:
       description: List an agent's conversation threads (derived from messages.conversation_id).

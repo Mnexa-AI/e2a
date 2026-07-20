@@ -170,6 +170,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		EventsEnabled:          p.EventsEnabled,
 		Idempotency:            p.Idempotency,
 		DeliverOutbound:        p.API.DeliverOutbound,
+		DeliverBatch:           p.API.DeliverBatch,
 		SendTest:               p.API.SendTestCore,
 		PollSendOutcome:        p.Store.GetSendOutcome,
 		ApprovePending:         p.API.ApprovePendingCore,
@@ -196,6 +197,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		RemoveAgentSuppression: p.Store.RemoveAgentSuppression,
 
 		ListProtectionEventsByMessage: p.Store.ListProtectionEventsByMessage,
+
 		GetUsage: func(ctx context.Context, userID string) httpapi.LimitsUsageView {
 			var u httpapi.LimitsUsageView
 			if n, err := p.UsageStore.CountAgentsByUser(ctx, userID); err == nil {

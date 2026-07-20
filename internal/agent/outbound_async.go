@@ -42,6 +42,11 @@ type ApproveIdemCompleter func(ctx context.Context, tx pgx.Tx, approved *identit
 // closed before provider I/O.
 type OutboundEnqueuer interface {
 	EnqueueSendTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error)
+	// EnqueueBatchTx enqueues N outbound_send jobs in one round-trip
+	// within the caller's tx. Returns job ids positionally aligned with
+	// messageIDs so the accept-tx can stamp messages.send_job_id per row.
+	// Used by DeliverBatch; single-send stays on EnqueueSendTx.
+	EnqueueBatchTx(ctx context.Context, tx pgx.Tx, messageIDs []string) ([]int64, error)
 }
 
 // outboundSendStore implements outboundsend.Store over identity.Store +
