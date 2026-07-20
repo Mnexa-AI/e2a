@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { CounterpartyAvatar } from "./CounterpartyAvatar";
+import { MessageStatusChip, deriveStatusChip } from "./MessageStatusChip";
 import { formatRelativeAge } from "../../../lib/relativeTime";
 import type { Thread } from "./threading";
 
@@ -25,6 +26,15 @@ export function ThreadRow({
     (m) => m.direction === "inbound" && m.read_status === "unread",
   );
   const pending = thread.state === "pending";
+  const latest = thread.messages[thread.messages.length - 1];
+  const latestStatus =
+    latest.direction === "outbound"
+      ? deriveStatusChip({
+          direction: "outbound",
+          delivery_status: latest.status,
+          review_status: latest.review_status,
+        })
+      : null;
   const fw = unread ? 600 : 400;
   // Hover highlight via state, not a `hover:bg-*` class: the inline
   // `background` below (active/unread tinting) would otherwise win over a
@@ -98,8 +108,15 @@ export function ThreadRow({
         )}
       </span>
 
-      {/* Right meta: pending pill (needs attention) + timestamp. */}
-      {pending && (
+      {/* Right meta: attention status + timestamp. */}
+      {latestStatus?.attention && (
+        <MessageStatusChip
+          direction="outbound"
+          delivery_status={latest.status}
+          review_status={latest.review_status}
+        />
+      )}
+      {pending && !latestStatus?.attention && (
         <span
           className="shrink-0"
           style={{
