@@ -242,20 +242,20 @@ func renderText(msg *identity.Message, agent *identity.AgentIdentity, approveURL
 
 // renderHTML builds the approval email in the dashboard's "Loft" palette so the
 // notification reads as the same product as the web app: a warm cream shell, a
-// white card, the Geist UI type stack, ember links, and the web app's semantic
+// white card, the Inter UI type stack, gold spark links, and the web app's semantic
 // success/danger button shades. Colors are hardcoded (no CSS vars or @media) and
 // the layout is table-based so it survives mail clients. Token values mirror
 // web/src/app/globals.css; keep them in sync if the brand palette moves.
 func renderHTML(msg *identity.Message, agent *identity.AgentIdentity, approveURL, rejectURL, dashboardURL string) string {
 	const (
-		fontStack = `"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif`
+		fontStack = `"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif`
 		bg        = "#FAF7F2" // --bg (cream shell)
 		panel     = "#FFFFFF" // --bg-panel (card)
 		border    = "#E5DED3" // --border
 		fg        = "#1A1714" // --fg-strong
 		muted     = "#6E665B" // --fg-muted
 		subtle    = "#9A9082" // --fg-subtle
-		link      = "#A84218" // --accent-strong (ember)
+		link      = "#8A5214" // --accent-strong (gold spark)
 		success   = "#0F7A4D" // --success (approve)
 		danger    = "#CC2E2E" // --danger (reject)
 		onAccent  = "#FFFFFF" // --accent-fg

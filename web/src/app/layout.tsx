@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 // @e2a/ui component classes (loft-*). Imported before globals.css so the app's
 // globals.css stays authoritative for design tokens and the Tailwind theme.
 import "@e2a/ui/styles.css";
@@ -8,7 +8,7 @@ import { AuthProvider } from "./components/AuthProvider";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { SITE_URL, SITE_NAME, GOOGLE_SITE_VERIFICATION } from "../lib/site";
 
-const geist = Geist({
+const inter = Inter({
   variable: "--f-ui",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
@@ -20,11 +20,11 @@ const jetbrainsMono = JetBrains_Mono({
   weight: ["400", "500", "600", "700"],
 });
 
-const instrumentSerif = Instrument_Serif({
+const fraunces = Fraunces({
   variable: "--f-editorial",
   subsets: ["latin"],
-  weight: "400",
   style: ["normal", "italic"],
+  axes: ["opsz"],
 });
 
 const ROOT_TITLE = "e2a — Authenticated Email for AI Agents";
@@ -115,7 +115,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geist.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable} antialiased`}
+      className={`${inter.variable} ${jetbrainsMono.variable} ${fraunces.variable} antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-col">

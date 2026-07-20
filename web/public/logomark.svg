@@ -5,5 +5,5 @@
     
   </defs>
   <rect width="256" height="256" rx="56" fill="#1A1714"></rect>
-  <text x="128" y="178" text-anchor="middle" font-family="Geist, &#39;Inter&#39;, ui-sans-serif, system-ui, -apple-system, &#39;Helvetica Neue&#39;, Arial, sans-serif" font-weight="700" font-size="200" letter-spacing="-12" fill="#E8E3D8">2</text>
+  <text x="128" y="178" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui, -apple-system, &#39;Helvetica Neue&#39;, Arial, sans-serif" font-weight="700" font-size="200" letter-spacing="-12" fill="#E8E3D8">2</text>
 </svg>

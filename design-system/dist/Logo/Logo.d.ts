@@ -5,7 +5,7 @@ export type LogoProps = {
     /** `wordmark` = the "e2a" lockup; `mark` = the boxed "2" monogram. */
     variant?: LogoVariant;
     /**
-     * `color` — foreground + ember accent, theme-aware.
+     * `color` — foreground + gold spark accent, theme-aware.
      * `mono`  — single `currentColor` (inherits text color).
      * `ink`   — light lockup on the dark ink panel.
      */
