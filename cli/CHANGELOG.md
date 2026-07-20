@@ -12,6 +12,10 @@ interactive browser flow. Headless environments should set `E2A_API_KEY` (and
 may persist it with `e2a config set api_key <key>` before validating it with
 `e2a whoami`).
 
+`e2a config set` now accepts only `api_key` and `agent_email`; deployment URL,
+shared domain, and cached key scope are managed internally or through their
+documented environment variables.
+
 **Breaking:** `e2a login` no longer sets `agent_email`. It previously persisted
 whichever inbox the server's handoff happened to name first, which silently
 chose the `From:` address for every later `send`/`reply`. An account-scoped key

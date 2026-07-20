@@ -198,6 +198,9 @@ e2a config get agent_email
 e2a config set agent_email bot@acme.com
 ```
 
+Only `api_key` and `agent_email` are user-settable. Deployment URL, shared
+domain, and cached key scope are managed by login or environment variables.
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -216,9 +219,9 @@ flow and `/get-started`, and proxies the `/v1` API. It is *not* the SDKs'
 breaks `e2a login`. The CLI does not read `E2A_API_URL` or the SDKs' older
 `E2A_BASE_URL`.
 
-Environment variables take precedence without blocking persistent updates. For
-example, with `E2A_URL` exported, `e2a config set api_url …` saves the new value
-but the environment host remains active until you unset it.
+Environment variables take precedence over stored `api_key` and `agent_email`
+values until they are unset. Deployment URL and shared-domain overrides are
+environment-only (`E2A_URL` and `E2A_SHARED_DOMAIN`).
 
 ## Options
 

@@ -57,6 +57,16 @@ describe("config command", () => {
     expect(mockStdout).toHaveBeenCalledWith("agent_email=new@agents.e2a.dev\n");
   });
 
+  it("clears cached scope when setting an API key manually", async () => {
+    const { config } = await import("../commands/config.js");
+    await config(["set", "api_key", "e2a_newkey123"]);
+
+    expect(saveConfig).toHaveBeenCalledWith({
+      api_key: "e2a_newkey123",
+      key_scope: "",
+    });
+  });
+
   it("rejects extra operands instead of silently ignoring them", async () => {
     const { config } = await import("../commands/config.js");
 
@@ -79,6 +89,18 @@ describe("config command", () => {
     await expect(config(["set", "bad_key", "val"])).rejects.toThrow("process.exit");
     expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("Unknown key"));
   });
+
+  it.each(["api_url", "shared_domain", "key_scope"])(
+    "rejects setting managed-only key %s",
+    async (key) => {
+      const { config } = await import("../commands/config.js");
+      await expect(config(["set", key, "value"])).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(2);
+      expect(mockStderr).toHaveBeenCalledWith(
+        expect.stringContaining("Settable keys: api_key, agent_email"),
+      );
+    },
+  );
 
   it("treats bare valid key as get shorthand", async () => {
     const { config } = await import("../commands/config.js");
@@ -103,36 +125,6 @@ describe("config command", () => {
 
     afterEach(() => {
       process.env = originalEnv;
-    });
-
-    it("warns when api_url is saved but shadowed by E2A_URL", async () => {
-      process.env.E2A_URL = "https://example.com";
-      const { config } = await import("../commands/config.js");
-      await config(["set", "api_url", "http://localhost:8080"]);
-
-      // Check that stdout has the success message
-      expect(mockStdout).toHaveBeenCalledWith("api_url=http://localhost:8080\n");
-
-      // The value is persisted for use after the env override is removed.
-      const stderrCalls = mockStderr.mock.calls.map((c: unknown[]) => c[0]).join("");
-      expect(stderrCalls).toContain("api_url was saved");
-      expect(stderrCalls).toContain("E2A_URL");
-      expect(stderrCalls).toContain("take precedence");
-    });
-
-    it("warns when shared_domain is saved but shadowed by E2A_SHARED_DOMAIN", async () => {
-      process.env.E2A_SHARED_DOMAIN = "agents.example.com";
-      const { config } = await import("../commands/config.js");
-      await config(["set", "shared_domain", "agents.custom.com"]);
-
-      // Check that stdout has the success message
-      expect(mockStdout).toHaveBeenCalledWith("shared_domain=agents.custom.com\n");
-
-      // The value is persisted for use after the env override is removed.
-      const stderrCalls = mockStderr.mock.calls.map((c: unknown[]) => c[0]).join("");
-      expect(stderrCalls).toContain("shared_domain was saved");
-      expect(stderrCalls).toContain("E2A_SHARED_DOMAIN");
-      expect(stderrCalls).toContain("take precedence");
     });
 
     it("warns when api_key is set and E2A_API_KEY env var exists (PERSISTED BUT SHADOWED)", async () => {
@@ -184,17 +176,5 @@ describe("config command", () => {
       expect(stderrCalls).not.toContain("take precedence");
     });
 
-    it("does not warn when setting key_scope (no env interference)", async () => {
-      const { config } = await import("../commands/config.js");
-      await config(["set", "key_scope", "account"]);
-
-      // Check that stdout has the success message
-      expect(mockStdout).toHaveBeenCalledWith("key_scope=account\n");
-
-      // Check that stderr has no interference warnings
-      const stderrCalls = mockStderr.mock.calls.map((c: unknown[]) => c[0]).join("");
-      expect(stderrCalls).not.toContain("was not saved");
-      expect(stderrCalls).not.toContain("take precedence");
-    });
   });
 });

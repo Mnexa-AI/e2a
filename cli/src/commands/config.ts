@@ -2,6 +2,7 @@ import { loadConfig, saveConfig, Config } from "../config.js";
 import { EXIT } from "../exit.js";
 
 const VALID_KEYS: (keyof Config)[] = ["api_key", "api_url", "agent_email", "shared_domain", "key_scope"];
+const SETTABLE_KEYS: (keyof Config)[] = ["api_key", "agent_email"];
 
 export async function config(args: string[]): Promise<void> {
   const subcommand = args[0];
@@ -48,13 +49,15 @@ export async function config(args: string[]): Promise<void> {
       process.stderr.write(`Unknown key: ${key}\nValid keys: ${VALID_KEYS.join(", ")}\n`);
       process.exit(EXIT.USAGE);
     }
-    // key_scope is an enum, not free text — a persisted typo would feed any
-    // future scope preflight confidently wrong data.
-    if (key === "key_scope" && value !== "account" && value !== "agent") {
-      process.stderr.write(`key_scope must be "account" or "agent"\n`);
+    if (!SETTABLE_KEYS.includes(key as keyof Config)) {
+      process.stderr.write(
+        `Cannot set managed key: ${key}\nSettable keys: ${SETTABLE_KEYS.join(", ")}\n`,
+      );
       process.exit(EXIT.USAGE);
     }
-    saveConfig({ [key]: value });
+    // A manually supplied key has unknown scope until `whoami` validates it;
+    // never retain scope metadata recorded for the previous credential.
+    saveConfig(key === "api_key" ? { api_key: value, key_scope: "" } : { [key]: value });
     process.stdout.write(`${key}=${value}\n`);
 
     // Warn if this key is interfered with by an environment variable.
@@ -102,26 +105,10 @@ function showAll(): void {
 
 /**
  * Warn if an environment variable interferes with a config key.
- * All values are persisted, but the corresponding environment variable stays
- * authoritative until it is unset.
+ * Settable values are persisted, but the corresponding environment variable
+ * stays authoritative until it is unset.
  */
 function warnIfEnvVarInterferes(key: string): void {
-  if (key === "api_url" && process.env.E2A_URL) {
-    process.stderr.write(
-      "e2a: api_url was saved, but E2A_URL environment variable will take precedence.\n" +
-        "     Unset E2A_URL to use the saved value.\n",
-    );
-    return;
-  }
-
-  if (key === "shared_domain" && process.env.E2A_SHARED_DOMAIN) {
-    process.stderr.write(
-      "e2a: shared_domain was saved, but E2A_SHARED_DOMAIN environment variable will take precedence.\n" +
-        "     Unset E2A_SHARED_DOMAIN to use the saved value.\n",
-    );
-    return;
-  }
-
   if (key === "api_key" && process.env.E2A_API_KEY) {
     process.stderr.write(
       "e2a: api_key was saved, but E2A_API_KEY environment variable will take precedence.\n" +

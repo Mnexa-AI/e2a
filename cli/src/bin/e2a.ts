@@ -82,7 +82,7 @@ Usage:
         --until <ISO>              With --once: deadline; prints TIMEOUT, exits 6
         --text                     With --once: print the message body text only
         --json                     Emit raw JSON notifications
-  e2a config [list|get|set]         View or update config
+  e2a config [list|get|set]         View config; set only api_key or agent_email
 
 Options:
   --help, -h     Show this help (works after any subcommand too, e.g.
