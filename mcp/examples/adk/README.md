@@ -2,7 +2,7 @@
 
 Google ADK [`Agent`](https://adk.dev/) powered by Gemini that uses the hosted e2a [MCP server](https://api.e2a.dev/mcp) for the e2a tool surface.
 
-`agent.py` wires `McpToolset` + `StreamableHTTPConnectionParams` to the hosted endpoint at `https://api.e2a.dev/mcp`. This works locally and for ADK agents deployed to [Cloud Run](https://docs.cloud.google.com/run/docs/host-mcp-servers).
+`agent.py` wires `McpToolset` + `StreamableHTTPConnectionParams` to the hosted endpoint at `https://api.e2a.dev/mcp`. This works locally and for ADK agents deployed to [Cloud Run](https://docs.cloud.google.com/run/docs/host-mcp-servers). Unlike the LangChain/CrewAI/OpenAI Agents SDK examples, this URL is hardcoded — there's no `E2A_MCP_URL` override; to point at a self-hosted deployment, edit the `url` passed to `StreamableHTTPConnectionParams` directly.
 
 ## Prerequisites
 

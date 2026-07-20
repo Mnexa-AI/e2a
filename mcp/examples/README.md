@@ -16,15 +16,16 @@ Each example exercises the same e2a tool surface (50 tools; the visible set depe
 
 Every example connects to `https://api.e2a.dev/mcp` over Streamable HTTP with an
 agent-scoped API key in the `Authorization` header. Set `E2A_MCP_URL` to point
-the Python examples at a self-hosted deployment. No Node toolchain or local
-build is needed.
+the LangChain, CrewAI, and OpenAI Agents SDK examples at a self-hosted
+deployment (the Google ADK example currently hardcodes the hosted URL — see
+[adk/](./adk/)). No Node toolchain or local build is needed.
 
 Bring your own [e2a API key](https://e2a.dev) and an LLM key for whichever framework you're trying.
 
-The Python prompts share three email invariants: reply with
-`reply_to_message` to preserve the wire thread, treat `pending_review` as an
-accepted hold rather than an error, and retry only tool failures whose structured
-error reports `retryable: true`.
+The LangChain, CrewAI, and OpenAI Agents SDK prompts share three email
+invariants: reply with `reply_to_message` to preserve the wire thread, treat
+`pending_review` as an accepted hold rather than an error, and retry only
+tool failures whose structured error reports `retryable: true`.
 
 ## Things to try once a demo is running
 
@@ -35,6 +36,8 @@ error reports `retryable: true`.
 
 ## Pointing at a self-hosted e2a
 
-Set `E2A_MCP_URL=https://your-e2a.example/mcp` for the Python examples. Update
-the URL in the Codex `[mcp_servers.e2a-hosted]` block for the configuration-only
-example.
+Set `E2A_MCP_URL=https://your-e2a.example/mcp` for the LangChain, CrewAI, and
+OpenAI Agents SDK examples. Update the URL in the Codex
+`[mcp_servers.e2a-hosted]` block for the configuration-only example. The
+Google ADK example does not read `E2A_MCP_URL` — edit the hardcoded URL in
+`adk/agent.py` to point it at a self-hosted deployment.
