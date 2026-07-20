@@ -120,7 +120,7 @@ describe("login", () => {
     vi.clearAllMocks();
   });
 
-  it("saves the api key and active agent from the browser callback", async () => {
+  it("saves the api key but NOT an inferred agent_email", async () => {
     mockExecFile.mockImplementation((_cmd: string, args: string[], cb?: (err: Error | null) => void) => {
       const loginUrl = new URL(args[args.length - 1]);
       const cliState = loginUrl.searchParams.get("cli_state");
@@ -138,18 +138,56 @@ describe("login", () => {
     const { login } = await import("../commands/login.js");
     await login();
 
+    // The account key spans every inbox — the handoff's agent_email is the
+    // server's arbitrary first agent, not a chosen sending identity. Asserting
+    // on the exact object is the point: an extra agent_email key here IS the
+    // regression, because it would silently pick the From: address for sends.
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_browser_key",
       key_scope: "account",
-      agent_email: "bot@agents.e2a.dev",
       shared_domain: "agents.e2a.dev",
     });
     expect(mockStdout).toHaveBeenCalledWith("Logged in to e2a.dev.\n");
     expect(mockStdout).toHaveBeenCalledWith("Config saved to ~/.e2a/config.json\n");
-    expect(mockStdout).toHaveBeenCalledWith("Active agent: bot@agents.e2a.dev\n");
+    expect(mockStdout).toHaveBeenCalledWith(
+      "No default inbox set. Pass --agent <email> per command, or set one:\n" +
+        "  e2a agents list\n" +
+        "  e2a config set agent_email <email>\n",
+    );
   });
 
-  it("clears the active agent when the browser login returns no agents", async () => {
+  it("reports an explicitly-set agent_email as the default inbox", async () => {
+    mockLoadConfig.mockReturnValue({
+      api_key: "",
+      api_url: "https://e2a.dev",
+      agent_email: "chosen@agents.e2a.dev",
+      shared_domain: "agents.e2a.dev",
+    });
+    mockExecFile.mockImplementation((_cmd: string, args: string[], cb?: (err: Error | null) => void) => {
+      const loginUrl = new URL(args[args.length - 1]);
+      void simulateBrowserCallback({
+        cli_state: loginUrl.searchParams.get("cli_state")!,
+        api_key: "e2a_browser_key",
+        agent_email: "bot@agents.e2a.dev",
+      });
+      cb?.(null);
+      return { unref: vi.fn() };
+    });
+
+    const { login } = await import("../commands/login.js");
+    await login();
+
+    // Omitted from the update, so saveConfig preserves the existing value —
+    // a deliberate choice must survive re-login.
+    expect(mockSaveConfig).toHaveBeenCalledWith({
+      api_key: "e2a_browser_key",
+      key_scope: "account",
+      shared_domain: "agents.e2a.dev",
+    });
+    expect(mockStdout).toHaveBeenCalledWith("Default inbox: chosen@agents.e2a.dev\n");
+  });
+
+  it("points at get-started when the account owns no agents yet", async () => {
     mockExecFile.mockImplementation((_cmd: string, args: string[], cb?: (err: Error | null) => void) => {
       const loginUrl = new URL(args[args.length - 1]);
       const cliState = loginUrl.searchParams.get("cli_state");
@@ -170,7 +208,6 @@ describe("login", () => {
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_browser_key",
       key_scope: "account",
-      agent_email: "",
       shared_domain: "agents.e2a.dev",
     });
     expect(mockStderr).toHaveBeenCalledWith("No agents found yet. Run: e2a agents create <name>@<shared-domain> — or visit https://e2a.dev/get-started\n");
@@ -236,7 +273,6 @@ describe("login", () => {
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_browser_key",
       key_scope: "account",
-      agent_email: "bot@example.com",
     });
   });
 
@@ -295,7 +331,6 @@ describe("login", () => {
     expect(mockSaveConfig).toHaveBeenCalledWith({
       api_key: "e2a_self",
       key_scope: "account",
-      agent_email: "bot@agents.acme.test",
       shared_domain: "agents.acme.test",
     });
     expect(mockStdout).toHaveBeenCalledWith("Logged in to e2a.acme.test.\n");

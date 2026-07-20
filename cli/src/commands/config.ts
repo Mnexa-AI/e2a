@@ -48,6 +48,10 @@ export async function config(args: string[]): Promise<void> {
     }
     saveConfig({ [key]: value });
     process.stdout.write(`${key}=${value}\n`);
+
+    // Warn if this key is interfered with by an environment variable.
+    // Two distinct cases: (a) NOT PERSISTED AT ALL, or (b) PERSISTED BUT SHADOWED ON READ.
+    warnIfEnvVarInterferes(key);
     return;
   }
 
@@ -77,5 +81,49 @@ function showAll(): void {
     } else {
       process.stdout.write(`${key}=${value || ""}\n`);
     }
+  }
+}
+
+/**
+ * Warn if an environment variable interferes with a config key.
+ * There are two cases:
+ * (a) NOT PERSISTED AT ALL: api_url/E2A_URL, shared_domain/E2A_SHARED_DOMAIN
+ * (b) PERSISTED BUT SHADOWED ON READ: api_key/E2A_API_KEY, agent_email/E2A_AGENT_EMAIL
+ */
+function warnIfEnvVarInterferes(key: string): void {
+  // Case (a): NOT PERSISTED — the write was discarded entirely
+  if (key === "api_url" && process.env.E2A_URL) {
+    process.stderr.write(
+      "e2a: api_url was not saved — E2A_URL environment variable is set and blocks writes.\n" +
+        "     Unset E2A_URL to persist this configuration.\n",
+    );
+    return;
+  }
+
+  if (key === "shared_domain" && process.env.E2A_SHARED_DOMAIN) {
+    process.stderr.write(
+      "e2a: shared_domain was not saved — E2A_SHARED_DOMAIN environment variable is set and blocks writes.\n" +
+        "     Unset E2A_SHARED_DOMAIN to persist this configuration.\n",
+    );
+    return;
+  }
+
+  // Case (b): PERSISTED BUT SHADOWED ON READ — the file was written but env var takes precedence
+  if (key === "api_key" && process.env.E2A_API_KEY) {
+    process.stderr.write(
+      "e2a: api_key was saved, but E2A_API_KEY environment variable will take precedence.\n" +
+        "     `e2a config get api_key` will show the env var value, not your saved config.\n" +
+        "     Unset E2A_API_KEY to use the saved value.\n",
+    );
+    return;
+  }
+
+  if (key === "agent_email" && process.env.E2A_AGENT_EMAIL) {
+    process.stderr.write(
+      "e2a: agent_email was saved, but E2A_AGENT_EMAIL environment variable will take precedence.\n" +
+        "     `e2a config get agent_email` will show the env var value, not your saved config.\n" +
+        "     Unset E2A_AGENT_EMAIL to use the saved value.\n",
+    );
+    return;
   }
 }

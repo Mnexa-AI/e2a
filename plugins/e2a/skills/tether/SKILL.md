@@ -92,9 +92,16 @@ inbox, `--new` to force a fresh one.
    ```
 
 Credentials resolve in order: explicit env vars → `~/.e2a-tether.env` →
-`~/.e2a/config.json` (written by `e2a login`; after `e2a login --agent <inbox>`
-that file already holds a least-privilege agent key, so tether needs no
-tether-specific config at all).
+`~/.e2a/config.json`. Note that `e2a login` saves an **account-scoped** key and
+does **not** set `agent_email` — so `~/.e2a/config.json` alone is not enough for
+tether, which needs a specific inbox. Either set both explicitly:
+
+```bash
+e2a keys create --agent <inbox>          # least-privilege e2a_agt_… key
+e2a config set agent_email <inbox>       # or export E2A_AGENT_EMAIL
+```
+
+or put the agent key + inbox in `~/.e2a-tether.env` and leave the CLI config alone.
 
 > The tether agent must have send-side protection / HITL **off**, or each update
 > is held for review instead of reaching you. `tether.sh` now detects this on

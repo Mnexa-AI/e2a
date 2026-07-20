@@ -93,7 +93,7 @@ export function sanitizeTsvField(s: string): string {
  * back before JSON output so scripts read the wire-stable `.from`, not a
  * codegen implementation detail.
  */
-function withWireFrom(model: object): Record<string, unknown> {
+export function withWireFrom(model: object): Record<string, unknown> {
   const obj: Record<string, unknown> = { ...model };
   if ("from_" in obj) {
     obj.from = obj.from_;

@@ -1,5 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { getFlag, getFlags, hasFlag, parseArgs, getPositionals, hasBareFlag } from "../bin/e2a.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  getFlag,
+  getFlags,
+  hasFlag,
+  parseArgs,
+  getPositionals,
+  hasBareFlag,
+  checkFlags,
+  getConversationId,
+} from "../bin/e2a.js";
 
 describe("hasBareFlag", () => {
   it("finds a flag in normal position", () => {
@@ -116,5 +125,132 @@ describe("--limit validation", () => {
     const val = parseInt("-5", 10);
     expect(val).toBe(-5);
     expect(val < 1).toBe(true);
+  });
+});
+
+// checkFlags and getConversationId call process.exit on a usage error, so
+// these describe blocks mock it the same way the command-level test files
+// do (e.g. send.test.ts): make it throw so the invalid-input tests can
+// assert via .toThrow, and restore it afterward so a passing suite doesn't
+// pick up a stray exit code.
+describe("checkFlags (FIX 1: single-dash flag typos)", () => {
+  let mockStderr: ReturnType<typeof vi.spyOn>;
+  let mockExit: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    mockStderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+  });
+
+  afterEach(() => {
+    mockStderr.mockRestore();
+    mockExit.mockRestore();
+  });
+
+  it("rejects a single-dash long-flag typo instead of silently dropping it", () => {
+    // Verified bug: `e2a messages list -limit 5 --agent x@y.com` used to
+    // pass checkFlags silently (both -limit and the 5 were ignored) and
+    // dump the whole mailbox at exit 0.
+    expect(() => checkFlags(["-limit", "5", "--agent", "x@y.com"], ["--agent"])).toThrow(
+      "process.exit",
+    );
+    expect(mockExit).toHaveBeenCalledWith(2);
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining("unknown flag: -limit"));
+  });
+
+  it("rejects other single-dash typos (-json, -once, -text)", () => {
+    expect(() => checkFlags(["-json"], ["--json"])).toThrow("process.exit");
+    expect(() => checkFlags(["-once"], ["--once"])).toThrow("process.exit");
+    expect(() => checkFlags(["-text"], ["--text"])).toThrow("process.exit");
+  });
+
+  it("does NOT flag a dash-leading VALUE of an allowed non-boolean flag", () => {
+    // CRITICAL: --subject and --body both take a value, so -weird and
+    // -alsoweird are consumed as those values (via the loop's i++) and must
+    // never reach the single-dash validation as tokens of their own.
+    expect(() =>
+      checkFlags(
+        ["--subject", "-weird", "--body", "-alsoweird"],
+        ["--subject", "--body"],
+      ),
+    ).not.toThrow();
+    expect(mockExit).not.toHaveBeenCalled();
+  });
+
+  it("still accepts a bare positional (no leading dash) alongside allowed flags", () => {
+    expect(() => checkFlags(["msg_abc123", "--json"], ["--json"])).not.toThrow();
+    expect(mockExit).not.toHaveBeenCalled();
+  });
+
+  it("still rejects unknown --long-flags and --flag=value (pre-existing behavior)", () => {
+    expect(() => checkFlags(["--bogus"], ["--json"])).toThrow("process.exit");
+    expect(() => checkFlags(["--json=true"], ["--json"])).toThrow("process.exit");
+  });
+});
+
+describe("-h / -v as subcommand flags (FIX 2)", () => {
+  // main() reuses hasBareFlag(args, "-h") / hasBareFlag(args, "-v") — the
+  // same flag-position-aware helper already used for --help/--version — so
+  // `e2a whoami -h` short-circuits to help before whoami's API call, and
+  // `e2a send -h --to …` short-circuits before any send is attempted.
+  it("finds -h/-v in normal flag position on a subcommand", () => {
+    expect(hasBareFlag(["-h"], "-h")).toBe(true);
+    expect(hasBareFlag(["--json", "-h"], "-h")).toBe(true);
+    expect(hasBareFlag(["-v"], "-v")).toBe(true);
+    expect(hasBareFlag(["--to", "a@b.c", "-h"], "-h")).toBe(true);
+  });
+
+  it("does NOT match -h/-v when they are the VALUE of a value-taking flag", () => {
+    expect(hasBareFlag(["--subject", "-h"], "-h")).toBe(false);
+    expect(hasBareFlag(["--body", "-v"], "-v")).toBe(false);
+  });
+});
+
+describe("getConversationId (FIX 3: --conversation-id / --conversation precedence)", () => {
+  let mockStderr: ReturnType<typeof vi.spyOn>;
+  let mockExit: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    mockStderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+  });
+
+  afterEach(() => {
+    mockStderr.mockRestore();
+    mockExit.mockRestore();
+  });
+
+  it("returns the value when only one alias is given", () => {
+    expect(getConversationId(["--conversation-id", "conv_1"])).toBe("conv_1");
+    expect(getConversationId(["--conversation", "conv_1"])).toBe("conv_1");
+  });
+
+  it("returns undefined when neither alias is given", () => {
+    expect(getConversationId(["--agent", "x@y.com"])).toBeUndefined();
+  });
+
+  it("accepts both aliases when they agree", () => {
+    expect(
+      getConversationId(["--conversation-id", "conv_1", "--conversation", "conv_1"]),
+    ).toBe("conv_1");
+  });
+
+  it("errors instead of silently picking a winner when both aliases disagree", () => {
+    // Verified bug: send resolved --conversation-id ?? --conversation while
+    // messages list / listen resolved --conversation ?? --conversation-id —
+    // opposite winners for the identical pair of flags. Precedence is now
+    // shared across all three call sites via this one function, and a
+    // conflicting pair is a usage error rather than a coin flip.
+    expect(() =>
+      getConversationId(["--conversation-id", "conv_A", "--conversation", "conv_B"]),
+    ).toThrow("process.exit");
+    expect(mockExit).toHaveBeenCalledWith(2);
+    expect(mockStderr).toHaveBeenCalledWith(
+      expect.stringContaining("--conversation-id and --conversation are aliases"),
+    );
   });
 });

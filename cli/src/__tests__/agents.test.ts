@@ -64,6 +64,44 @@ describe("agents commands", () => {
     expect(mockStdout).toHaveBeenCalledWith("tether@agents.e2a.dev\ttether\tverified\n");
   });
 
+  it("list sanitizes agent names containing tabs/newlines in TSV output", async () => {
+    const agentWithTabInName = {
+      ...AGENT,
+      name: "agent\twith\ttabs",
+    };
+    mockList.mockReturnValue(
+      (async function* () {
+        yield agentWithTabInName;
+      })(),
+    );
+    const { agentsList } = await import("../commands/agents.js");
+    await agentsList({});
+
+    // Tabs and newlines should be replaced with spaces
+    expect(mockStdout).toHaveBeenCalledWith(
+      "tether@agents.e2a.dev\tagent with tabs\tverified\n",
+    );
+  });
+
+  it("list sanitizes agent names containing newlines in TSV output", async () => {
+    const agentWithNewlineInName = {
+      ...AGENT,
+      name: "agent\nwith\nnewlines",
+    };
+    mockList.mockReturnValue(
+      (async function* () {
+        yield agentWithNewlineInName;
+      })(),
+    );
+    const { agentsList } = await import("../commands/agents.js");
+    await agentsList({});
+
+    // Newlines should be replaced with spaces
+    expect(mockStdout).toHaveBeenCalledWith(
+      "tether@agents.e2a.dev\tagent with newlines\tverified\n",
+    );
+  });
+
   it("get prints the agent summary", async () => {
     mockGet.mockResolvedValue(AGENT);
     const { agentsGet } = await import("../commands/agents.js");

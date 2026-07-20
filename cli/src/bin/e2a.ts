@@ -37,9 +37,6 @@ management (domains, webhooks, review queues) lives in the MCP tools, the SDKs
 
 Usage:
   e2a login                         Log in via browser (account-scoped key)
-        --agent <inbox>            Exchange for a least-privilege agent-scoped key
-                                   bound to <inbox> (bare slugs expand on the
-                                   shared domain); revokes the account bootstrap key
         --with-key [<key>]         Headless: validate + save a key (from the arg,
                                    $E2A_API_KEY, or stdin) — no browser needed
   e2a whoami [--json]               Show key identity: user, scope, bound agent, plan
@@ -90,8 +87,9 @@ Usage:
   e2a config [list|get|set]         View or update config
 
 Options:
-  --help     Show this help
-  --version  Show version
+  --help, -h     Show this help (works after any subcommand too, e.g.
+                 e2a send -h — always before any network call)
+  --version, -v  Show version
 
 Exit codes (stable scripting contract):
   0  success
@@ -191,6 +189,30 @@ function getFlagChecked(args: string[], flag: string): string | undefined {
   return value;
 }
 
+/**
+ * --conversation-id and --conversation are aliases for the same filter,
+ * accepted on send/messages list/listen. FIX 3: precedence used to be
+ * INVERTED between commands — send preferred --conversation-id over
+ * --conversation, while messages list and listen preferred --conversation
+ * over --conversation-id. Passing both with different values therefore
+ * threaded a send onto one conversation while the "same" filter on
+ * messages list showed another — silent, opposite winners for one flag
+ * pair. Identical values are harmless and accepted; different values are
+ * an ambiguous invocation the caller must resolve, not a coin flip that
+ * lands differently per command.
+ */
+function getConversationId(args: string[]): string | undefined {
+  const id = getFlagChecked(args, "--conversation-id");
+  const alias = getFlagChecked(args, "--conversation");
+  if (id !== undefined && alias !== undefined && id !== alias) {
+    process.stderr.write(
+      "--conversation-id and --conversation are aliases for the same flag but were given different values\n",
+    );
+    process.exit(EXIT.USAGE);
+  }
+  return id ?? alias;
+}
+
 function getFlagsChecked(args: string[], flag: string): string[] {
   const values = getFlags(args, flag);
   const occurrences = args.filter((a) => a === flag).length;
@@ -206,48 +228,77 @@ function getFlagsChecked(args: string[], flag: string): string[] {
  * `--conversation-id` on `messages list` silently widens the query to the
  * whole mailbox with exit 0 — the silent-corruption class the exit-code
  * contract exists to prevent. Also rejects `--flag=value` (unsupported form)
- * with a pointer at the space-separated syntax.
+ * with a pointer at the space-separated syntax, and single-dash long-flag
+ * typos like `-limit` or `-json` (FIX 1) — those used to fall straight
+ * through `!arg.startsWith("--")` unvalidated and get silently dropped by
+ * the command along with whatever they meant to set. `-h`/`-v` are
+ * intercepted globally before any command's checkFlags runs (see main()),
+ * so a bare `-h`/`-v` reaching here is always a genuine typo, not a dropped
+ * help/version request.
  */
 function checkFlags(args: string[], allowed: string[]): void {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (!arg.startsWith("--")) continue;
-    if (arg.includes("=")) {
-      process.stderr.write(`${arg}: use space-separated values (--flag value), not --flag=value\n`);
-      process.exit(EXIT.USAGE);
+    if (arg.startsWith("--")) {
+      if (arg.includes("=")) {
+        process.stderr.write(`${arg}: use space-separated values (--flag value), not --flag=value\n`);
+        process.exit(EXIT.USAGE);
+      }
+      if (!allowed.includes(arg)) {
+        process.stderr.write(`unknown flag: ${arg} (see e2a --help)\n`);
+        process.exit(EXIT.USAGE);
+      }
+      // Skip the flag's value — including one that itself starts with "-"
+      // (e.g. `--subject -weird`) — so it's never re-examined as its own
+      // token by the single-dash check below.
+      if (!BOOLEAN_FLAGS.has(arg)) i++;
+      continue;
     }
-    if (!allowed.includes(arg)) {
+    // Reaching here means `arg` is in FLAG POSITION, not consumed above as
+    // a value. Positionals in this CLI (message ids, email addresses) never
+    // start with "-", so any dash-leading token here can only be a mistyped
+    // flag — reject it instead of silently ignoring it.
+    if (arg.length > 1 && arg.startsWith("-")) {
       process.stderr.write(`unknown flag: ${arg} (see e2a --help)\n`);
       process.exit(EXIT.USAGE);
     }
-    if (!BOOLEAN_FLAGS.has(arg)) i++; // skip the flag's value
   }
 }
 
 async function main() {
   const { command, args } = parseArgs(process.argv);
 
+  // FIX 2: `-h`/`-v` must short-circuit on EVERY subcommand, exactly like
+  // `--help`/`--version` — before any network call. Previously only the
+  // bare command ("e2a -h") and `--help` anywhere in args were checked, so
+  // `e2a whoami -h` silently ran a real authenticated API call and
+  // `e2a send -h --to …` attempted an actual send.
   if (
     command === "" ||
     command === "help" ||
     command === "--help" ||
     command === "-h" ||
-    hasBareFlag(args, "--help")
+    hasBareFlag(args, "--help") ||
+    hasBareFlag(args, "-h")
   ) {
     process.stdout.write(USAGE);
     return;
   }
 
-  if (command === "--version" || command === "-v" || hasBareFlag(args, "--version")) {
+  if (
+    command === "--version" ||
+    command === "-v" ||
+    hasBareFlag(args, "--version") ||
+    hasBareFlag(args, "-v")
+  ) {
     process.stdout.write(`e2a ${pkg.version}\n`);
     return;
   }
 
   switch (command) {
     case "login":
-      checkFlags(args, ["--agent", "--with-key"]);
+      checkFlags(args, ["--with-key"]);
       await login({
-        agent: getFlagChecked(args, "--agent"),
         withKey: hasFlag(args, "--with-key"),
         // Unchecked on purpose: bare `--with-key` (no value) means "take the
         // key from $E2A_API_KEY or stdin".
@@ -336,9 +387,9 @@ async function main() {
         bodyFile: getFlagChecked(args, "--body-file"),
         htmlFile: getFlagChecked(args, "--html-file"),
         // --conversation accepted as an alias so send and messages list can't
-        // trip each other's spelling.
-        conversationId:
-          getFlagChecked(args, "--conversation-id") ?? getFlagChecked(args, "--conversation"),
+        // trip each other's spelling. Precedence (and conflicting-value
+        // rejection) is shared via getConversationId — see FIX 3.
+        conversationId: getConversationId(args),
         replyTo: getFlagChecked(args, "--reply-to"),
         agent: getFlagChecked(args, "--agent"),
         idempotencyKey: getFlagChecked(args, "--idempotency-key"),
@@ -372,8 +423,7 @@ async function main() {
           agent: getFlagChecked(rest, "--agent"),
           direction: getFlagChecked(rest, "--direction"),
           since: getFlagChecked(rest, "--since"),
-          conversation:
-            getFlagChecked(rest, "--conversation") ?? getFlagChecked(rest, "--conversation-id"),
+          conversation: getConversationId(rest),
           readStatus: getFlagChecked(rest, "--read-status"),
           limit: getFlagChecked(rest, "--limit"),
           json: hasFlag(rest, "--json"),
@@ -403,8 +453,7 @@ async function main() {
         // silently listen WITHOUT forwarding — the silent-drop class again.
         forward: getFlagChecked(args, "--forward"),
         forwardToken: getFlagChecked(args, "--forward-token"),
-        conversation:
-          getFlagChecked(args, "--conversation") ?? getFlagChecked(args, "--conversation-id"),
+        conversation: getConversationId(args),
         once: hasFlag(args, "--once"),
         until: getFlagChecked(args, "--until"),
         text: hasFlag(args, "--text"),
@@ -436,4 +485,13 @@ if (!isTestImport) {
   });
 }
 
-export { getFlag, getFlags, hasFlag, parseArgs, getPositionals, hasBareFlag };
+export {
+  getFlag,
+  getFlags,
+  hasFlag,
+  parseArgs,
+  getPositionals,
+  hasBareFlag,
+  checkFlags,
+  getConversationId,
+};

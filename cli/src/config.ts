@@ -18,10 +18,10 @@ export interface Config {
   shared_domain: string;
   /**
    * Scope of the stored api_key ("account" or "agent"), recorded by `e2a
-   * login` (which now writes it on every path: browser, --agent exchange,
-   * --with-key). Lets commands that need workspace-admin scope fail with a
-   * precise message instead of a server 403. Absent for keys saved by older
-   * CLIs or set out-of-band.
+   * login` on both paths (browser → always "account"; --with-key → whatever
+   * GET /v1/account reports). Lets commands that need workspace-admin scope
+   * fail with a precise message instead of a server 403. Absent for keys
+   * saved by older CLIs or set out-of-band.
    */
   key_scope?: string;
 }

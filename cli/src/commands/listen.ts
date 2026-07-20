@@ -2,7 +2,7 @@ import type { E2AClient, EmailReceivedData, WSEvent } from "@e2a/sdk/v1";
 import { E2AConnectionReplacedError, isEmailReceived } from "@e2a/sdk/v1";
 import { createClient, requireAgentEmail } from "../sdk.js";
 import { EXIT, fail } from "../exit.js";
-import { sanitizeTsvField } from "./messages.js";
+import { sanitizeTsvField, withWireFrom } from "./messages.js";
 
 const MAX_TIMEOUT_MS = 2 ** 31 - 1; // setTimeout clamps larger delays to ~1ms
 
@@ -125,6 +125,10 @@ export async function listen(opts: ListenOptions): Promise<void> {
   // Iterate notifications. handleNotification swallows its own errors so
   // a single bad message doesn't tear down the loop.
   let matched = false;
+  // Set when --once's forward side channel fails; checked after the loop so
+  // the message is still printed to stdout (it WAS consumed off the stream)
+  // but the exit code reflects that the forward hand-off did not happen.
+  let onceForwardFailed = false;
   try {
   for await (const event of stream) {
     try {
@@ -144,20 +148,23 @@ export async function listen(opts: ListenOptions): Promise<void> {
         // handleNotification, which also renders stdout and would double-print
         // under --json, since the --once block renders below.
         if (opts.forward) {
-          await forwardMessage(
+          const forwarded = await forwardMessage(
             client,
             agentEmail,
             notification,
             opts.forward,
             opts.forwardToken,
           );
+          if (!forwarded) onceForwardFailed = true;
         }
         if (opts.text) {
           const full = await client.messages.get(agentEmail, notification.message_id);
           process.stdout.write((full.parsed?.text ?? full.body?.text ?? "").trim() + "\n");
         } else if (opts.json) {
           const full = await client.messages.get(agentEmail, notification.message_id);
-          process.stdout.write(JSON.stringify(full) + "\n");
+          // Rename from_ -> from: same wire-stable shape `messages get --json`
+          // emits, so `e2a listen --json | jq .from` doesn't get null.
+          process.stdout.write(JSON.stringify(withWireFrom(full)) + "\n");
         } else {
           // One stable machine shape for the blocking wait, regardless of
           // whether --conversation was used.
@@ -195,18 +202,37 @@ export async function listen(opts: ListenOptions): Promise<void> {
 
   if (deadlineTimer) clearTimeout(deadlineTimer);
   stream.close();
-  if (opts.once && !matched) {
-    if (timedOut) {
-      // Clean window expiry — the documented exit-6 outcome.
-      process.stdout.write("TIMEOUT\n");
-      process.exitCode = EXIT.TIMEOUT;
-    } else {
-      // The stream ended before the deadline (handshake rejected, server
-      // close). That's a transient error, NOT a timeout — callers polling in
-      // a loop must be able to tell the difference or they spin hot.
-      process.stderr.write("stream closed before the deadline\n");
+  if (opts.once) {
+    if (!matched) {
+      if (timedOut) {
+        // Clean window expiry — the documented exit-6 outcome.
+        process.stdout.write("TIMEOUT\n");
+        process.exitCode = EXIT.TIMEOUT;
+      } else {
+        // The stream ended before the deadline (handshake rejected, server
+        // close). That's a transient error, NOT a timeout — callers polling in
+        // a loop must be able to tell the difference or they spin hot.
+        process.stderr.write("stream closed before the deadline\n");
+        process.exitCode = EXIT.ERROR;
+      }
+    } else if (onceForwardFailed) {
+      // The message was consumed off the stream and printed to stdout, but
+      // the --forward side channel never received it. Exit 0 here would
+      // read as "handed off successfully" to a harness — forwardMessage
+      // already wrote the "Forward failed…" detail to stderr; this just
+      // makes it show up in the exit code too.
       process.exitCode = EXIT.ERROR;
     }
+  } else {
+    // Long-running (non-`--once`) listen only gets here when the stream
+    // itself ends — e.g. WS close code 1000, which the SDK treats as
+    // terminal and stops reconnecting (sdks/typescript/src/v1/ws.ts). Exit 0
+    // here reads as "intentionally stopped" to a supervisor (systemd
+    // Restart=on-failure, `while ! e2a listen; do sleep 5; done`), so a
+    // server-side deploy drain would silently kill the listener for good
+    // instead of triggering a restart.
+    process.stderr.write("stream ended; listener stopped\n");
+    process.exitCode = EXIT.ERROR;
   }
 }
 
@@ -222,18 +248,29 @@ export async function handleNotification(
   // both flags were passed — the exact silent side-channel drop the CLI's
   // exit-code contract exists to prevent.
   if (opts.forward) {
-    await forwardMessage(
+    const forwarded = await forwardMessage(
       client,
       agentEmail,
       notification,
       opts.forward,
       opts.forwardToken,
     );
+    if (!forwarded) {
+      // Flush-safe (not process.exit): a single failed forward in a
+      // long-running listener shouldn't tear down the loop — later messages
+      // may still forward fine. Sticking EXIT.ERROR means that whenever the
+      // process does eventually exit, a wrapper script or supervisor can
+      // tell something failed during the run instead of seeing a clean 0
+      // that papers over a dropped side-channel delivery.
+      process.exitCode = EXIT.ERROR;
+    }
   }
 
   if (opts.json) {
     const full = await client.messages.get(agentEmail, notification.message_id);
-    process.stdout.write(JSON.stringify(full) + "\n");
+    // Rename from_ -> from: same wire-stable shape `messages get --json`
+    // emits, so `e2a listen --json | jq .from` doesn't get null.
+    process.stdout.write(JSON.stringify(withWireFrom(full)) + "\n");
     return;
   }
 
@@ -256,13 +293,24 @@ export function isOpenClawUrl(url: string): boolean {
   }
 }
 
+/**
+ * POSTs the full message to forwardUrl. Returns whether the forward itself
+ * (the fetch + response status) succeeded — callers that treat "message
+ * handed off" as a claim (--once's exit code) need to know this, not just
+ * that forwardMessage didn't throw; both failure paths below already log
+ * their own "Forward failed…" detail to stderr and return false instead of
+ * throwing, so a bad forward URL doesn't tear down the rest of the listener.
+ * The OpenClaw auto-reply after a successful forward is a secondary action:
+ * a reply failure is logged but does not flip this back to false — the
+ * forward itself did succeed.
+ */
 export async function forwardMessage(
   client: E2AClient,
   agentEmail: string,
   notification: EmailReceivedData,
   forwardUrl: string,
   forwardToken?: string,
-): Promise<void> {
+): Promise<boolean> {
   // Fetch full message (MessageView).
   const full = await client.messages.get(agentEmail, notification.message_id);
 
@@ -315,14 +363,14 @@ export async function forwardMessage(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`Forward failed: ${message}\n`);
-    return;
+    return false;
   }
 
   if (!res.ok) {
     process.stderr.write(
       `Forward failed (${res.status}): ${await res.text()}\n`,
     );
-    return;
+    return false;
   }
 
   process.stderr.write(
@@ -346,6 +394,8 @@ export async function forwardMessage(
       }
     }
   }
+
+  return true;
 }
 
 /** Extract text body from raw RFC 2822 message (lightweight, no mailparser). */

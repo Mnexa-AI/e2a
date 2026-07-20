@@ -9,6 +9,7 @@ import {
   handleNotification,
   forwardMessage,
 } from "../commands/listen.js";
+import { withWireFrom } from "../commands/messages.js";
 
 function mockResponse(body: unknown): Response {
   return {
@@ -140,6 +141,10 @@ describe("listen notification handling", () => {
     mockStderr.mockRestore();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    // handleNotification now sets process.exitCode on a failed forward
+    // (flush-safe, not a hard exit) — reset it so a passing suite doesn't
+    // report a nonzero exit and so it doesn't leak into later tests.
+    process.exitCode = 0;
   });
 
   it("prints a human-readable notification by default", async () => {
@@ -180,7 +185,10 @@ describe("listen notification handling", () => {
     );
 
     expect(client.messages.get).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_123");
-    expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(full)}\n`);
+    // Wire-renamed (from_ -> from), same shape `messages get --json` emits —
+    // NOT the raw SDK model, which would still say from_.
+    expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(withWireFrom(full))}\n`);
+    expect(mockStdout).not.toHaveBeenCalledWith(expect.stringContaining("from_"));
   });
 
   it("forwards exact raw JSON to a generic webhook", async () => {
@@ -202,7 +210,7 @@ describe("listen notification handling", () => {
       messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
     } as any;
 
-    await forwardMessage(
+    const forwarded = await forwardMessage(
       client,
       "bot@agents.e2a.dev",
       makeNotification(),
@@ -226,6 +234,49 @@ describe("listen notification handling", () => {
     expect(mockStderr).toHaveBeenCalledWith(
       "Forwarded msg_123 to https://example.com/webhook\n",
     );
+    // Callers (listen's --once path) branch on this to decide the exit code.
+    expect(forwarded).toBe(true);
+  });
+
+  it("resolves false (not throw) on a forward transport error, so callers can branch on the exit code", async () => {
+    const full = { id: "msg_123", subject: "Hello" };
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("connection refused")));
+    const client = {
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
+    } as any;
+
+    const forwarded = await forwardMessage(
+      client,
+      "bot@agents.e2a.dev",
+      makeNotification(),
+      "http://127.0.0.1:1/webhook",
+    );
+
+    expect(forwarded).toBe(false);
+  });
+
+  it("resolves false on a non-2xx forward response", async () => {
+    const full = { id: "msg_123", subject: "Hello" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve("boom"),
+      }),
+    );
+    const client = {
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
+    } as any;
+
+    const forwarded = await forwardMessage(
+      client,
+      "bot@agents.e2a.dev",
+      makeNotification(),
+      "https://example.com/webhook",
+    );
+
+    expect(forwarded).toBe(false);
   });
 
   it("forwards AND prints JSON when --forward and --json are both set (regression: silent forward drop)", async () => {
@@ -257,10 +308,12 @@ describe("listen notification handling", () => {
     // set (before the fix, --json short-circuited and the forward was dropped).
     expect(fetchMock).toHaveBeenCalledWith(
       "https://example.com/webhook",
+      // The forward POST body is the raw SDK model shape (from_), unchanged —
+      // only the stdout --json rendering gets the wire rename below.
       expect.objectContaining({ method: "POST", body: JSON.stringify(full) }),
     );
-    // ...and the JSON rendering still reaches stdout.
-    expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(full)}\n`);
+    // ...and the JSON rendering still reaches stdout, wire-renamed.
+    expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(withWireFrom(full))}\n`);
   });
 
   it("prints JSON when the independent forward side channel rejects", async () => {
@@ -287,6 +340,34 @@ describe("listen notification handling", () => {
     expect(mockStderr).toHaveBeenCalledWith(
       "Forward failed: connection refused\n",
     );
+    // Fix: a failed forward inside the long-running (non-`--once`) loop is
+    // flush-safe (process.exitCode, not process.exit) so it doesn't tear
+    // down the listener over one bad delivery, but it must still surface —
+    // a silent 0 here would hide the dropped side channel from a wrapper
+    // script inspecting the eventual exit code.
+    expect(process.exitCode).toBe(1); // EXIT.ERROR
+  });
+
+  it("does not set an exit code when the forward side channel succeeds", async () => {
+    const full = { id: "msg_123", subject: "Hello" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve("ok"),
+      }),
+    );
+    const client = {
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
+    } as any;
+
+    await handleNotification(client, "bot@agents.e2a.dev", makeNotification(), {
+      json: true,
+      forward: "https://example.com/webhook",
+    });
+
+    expect(process.exitCode).toBe(0);
   });
 
   it("forwards to OpenClaw and auto-replies when text is returned", async () => {
@@ -366,6 +447,10 @@ describe("listen --once forwarding failures", () => {
     vi.resetModules();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    // The --once exit-code fix sets process.exitCode (not process.exit) on a
+    // failed forward — reset it so a passing suite doesn't report a nonzero
+    // exit and so it doesn't leak into later tests.
+    process.exitCode = 0;
   });
 
   it("renders the matching message and exits after a forward transport error", async () => {
@@ -417,6 +502,8 @@ describe("listen --once forwarding failures", () => {
     });
 
     expect(stdoutSpy).toHaveBeenCalledTimes(1);
+    // The message still prints — it WAS consumed off the stream — but the
+    // fix means exit code no longer silently reports success (see below).
     expect(stdoutSpy).toHaveBeenCalledWith(`${JSON.stringify(full)}\n`);
     expect(stderrSpy).toHaveBeenCalledWith(
       "Forward failed: connection refused\n",
@@ -425,6 +512,210 @@ describe("listen --once forwarding failures", () => {
       expect.stringContaining("Error handling message"),
     );
     expect(fakeStream.close).toHaveBeenCalled();
+    // Fix: a --once forward that never reached the endpoint must not exit 0
+    // — a harness reading that as "handed off" would be wrong.
+    expect(process.exitCode).toBe(1); // EXIT.ERROR
+  });
+
+  it("exits EXIT.ERROR when the forward endpoint responds non-2xx (the other swallowed path)", async () => {
+    vi.resetModules();
+
+    const full = { id: "msg_123", subject: "Hello" };
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "email.received",
+          id: "evt_123",
+          schema_version: "1",
+          created_at: "2025-01-15T10:30:00Z",
+          data: makeNotification(),
+        };
+      },
+    };
+    const client = {
+      listen: vi.fn(() => fakeStream),
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
+    };
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => client,
+      requireAgentEmail: (agent?: string) => agent ?? "bot@agents.e2a.dev",
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve("service unavailable"),
+      }),
+    );
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const { listen } = await import("../commands/listen.js");
+    await listen({
+      agent: "bot@agents.e2a.dev",
+      once: true,
+      forward: "http://127.0.0.1:1/webhook",
+    });
+
+    expect(stderrSpy).toHaveBeenCalledWith(
+      "Forward failed (503): service unavailable\n",
+    );
+    expect(process.exitCode).toBe(1); // EXIT.ERROR
+  });
+
+  it("exits OK (no exit code override) when the --once forward succeeds", async () => {
+    vi.resetModules();
+
+    const full = { id: "msg_123", subject: "Hello" };
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "email.received",
+          id: "evt_123",
+          schema_version: "1",
+          created_at: "2025-01-15T10:30:00Z",
+          data: makeNotification(),
+        };
+      },
+    };
+    const client = {
+      listen: vi.fn(() => fakeStream),
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
+    };
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => client,
+      requireAgentEmail: (agent?: string) => agent ?? "bot@agents.e2a.dev",
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve("ok"),
+      }),
+    );
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const { listen } = await import("../commands/listen.js");
+    await listen({
+      agent: "bot@agents.e2a.dev",
+      once: true,
+      forward: "http://127.0.0.1:1/webhook",
+    });
+
+    expect(process.exitCode).toBe(0);
+  });
+
+  it("renames from_ to from in the --once --json output (regression: raw SDK field leaking to stdout)", async () => {
+    vi.resetModules();
+
+    // Deliberately shaped like the generated MessageView model: from_, not
+    // from — withWireFrom must rename it before this reaches stdout.
+    const full = { id: "msg_123", from_: "alice@example.com", subject: "Hello" };
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "email.received",
+          id: "evt_123",
+          schema_version: "1",
+          created_at: "2025-01-15T10:30:00Z",
+          data: makeNotification(),
+        };
+      },
+    };
+    const client = {
+      listen: vi.fn(() => fakeStream),
+      messages: { get: vi.fn().mockResolvedValue(full), reply: vi.fn() },
+    };
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => client,
+      requireAgentEmail: (agent?: string) => agent ?? "bot@agents.e2a.dev",
+    }));
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const { listen } = await import("../commands/listen.js");
+    await listen({ agent: "bot@agents.e2a.dev", once: true, json: true });
+
+    expect(stdoutSpy).toHaveBeenCalledWith(`${JSON.stringify(withWireFrom(full))}\n`);
+    const printed = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(printed).toContain('"from":"alice@example.com"');
+    expect(printed).not.toContain("from_");
+  });
+});
+
+describe("listen exit code when a long-running (non---once) stream ends", () => {
+  afterEach(() => {
+    vi.doUnmock("../sdk.js");
+    vi.resetModules();
+    vi.restoreAllMocks();
+    // Reset so this fix's process.exitCode doesn't leak into later tests or
+    // make a passing suite report a nonzero exit.
+    process.exitCode = 0;
+  });
+
+  it("exits EXIT.ERROR when the stream ends without --once (e.g. WS close 1000)", async () => {
+    vi.resetModules();
+
+    // Mirrors the SDK's WSStream finishing cleanly (no throw) on a terminal
+    // close code — see sdks/typescript/src/v1/ws.ts: code 1000 calls
+    // finish(), not finishWithError(). The for-await loop just ends.
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        // No events — the stream ends immediately, same as a live listener
+        // whose connection the server closed cleanly mid-run.
+      },
+    };
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => ({ listen: () => fakeStream }),
+      requireAgentEmail: (agent?: string) => agent ?? "bot@agents.e2a.dev",
+    }));
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const { listen } = await import("../commands/listen.js");
+    await listen({ agent: "bot@agents.e2a.dev" });
+
+    expect(fakeStream.close).toHaveBeenCalled();
+    // Before the fix this exited 0 — indistinguishable from a deliberate
+    // stop, so a supervisor (systemd Restart=on-failure, a `while` loop)
+    // never restarted the listener after a server-side deploy drain.
+    expect(process.exitCode).toBe(1); // EXIT.ERROR
+    expect(stderrSpy).toHaveBeenCalledWith("stream ended; listener stopped\n");
+  });
+
+  it("does not regress --once's own TIMEOUT exit code", async () => {
+    vi.resetModules();
+
+    // --once with a deadline already in the past: hits the immediate-timeout
+    // branch, which returns before the (unrelated) non-once exit-code branch
+    // this fix added — confirms the restructuring didn't cross the wires.
+    const fakeStream = { on: vi.fn(), close: vi.fn() };
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => ({ listen: () => fakeStream }),
+      requireAgentEmail: (agent?: string) => agent ?? "bot@agents.e2a.dev",
+    }));
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    const { listen } = await import("../commands/listen.js");
+    await listen({
+      agent: "bot@agents.e2a.dev",
+      once: true,
+      until: "2000-01-01T00:00:00Z",
+    });
+
+    expect(stdoutSpy).toHaveBeenCalledWith("TIMEOUT\n");
+    expect(process.exitCode).toBe(6); // EXIT.TIMEOUT, unchanged by this fix
   });
 });
 

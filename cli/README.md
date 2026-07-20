@@ -30,15 +30,32 @@ npx @e2a/cli login
 
 ### `e2a login`
 
-Open a browser login and save your API key + default agent to `~/.e2a/config.json`
+Open a browser login and save an account-scoped API key to `~/.e2a/config.json`
 (also caches the deployment's shared mail domain, discovered from `GET /v1/info`).
 
 ```bash
 e2a login
-e2a login --agent bot@acme.com   # exchange for a least-privilege agent-scoped key
-                                  # bound to <inbox>; revokes the account bootstrap key
 e2a login --with-key             # headless: validate + save a key (from the arg,
                                   # $E2A_API_KEY, or stdin) — no browser needed
+```
+
+Login does **not** set a default sending inbox. The key is account-scoped — it
+spans every inbox on the account — so the CLI never guesses which one you meant.
+Commands that send or read mail take `--agent <email>`; to avoid passing it every
+time, set a default explicitly:
+
+```bash
+e2a agents list
+e2a config set agent_email bot@acme.com   # or export E2A_AGENT_EMAIL
+```
+
+Without one, those commands exit `2` (usage) rather than picking an inbox for you.
+A default you set this way survives re-login.
+
+Need a least-privilege key bound to a single inbox? Mint one after logging in:
+
+```bash
+e2a keys create --agent bot@acme.com
 ```
 
 ### `e2a whoami`
