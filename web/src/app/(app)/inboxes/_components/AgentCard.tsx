@@ -8,6 +8,7 @@ import {
   getInboxUnread,
   UNREAD_BADGE_CAP,
 } from "../../../components/onboarding/api";
+import { unreadPolling } from "../../../../lib/livePolling";
 import { agentUnreadKey } from "../../../../lib/swrKeys";
 
 export function AgentCard({
@@ -16,11 +17,14 @@ export function AgentCard({
   agent: DashboardAgent;
 }) {
   // Option A unread affordance: one lightweight per-card probe against the
-  // messages endpoint (read_status=unread). SWR shares/dedupes the call and
-  // revalidates on focus, so returning to this tab after reading an inbox
-  // updates the count. Failures degrade silently to "no badge".
-  const { data: unread } = useSWR(agentUnreadKey(agent.email), () =>
-    getInboxUnread(agent.email).catch(() => ({ count: 0, more: false })),
+  // messages endpoint (read_status=unread). SWR shares/dedupes the call,
+  // polls while visible and online, and revalidates on focus. Failures
+  // degrade silently to "no badge".
+  const { data: unread } = useSWR(
+    agentUnreadKey(agent.email),
+    () =>
+      getInboxUnread(agent.email).catch(() => ({ count: 0, more: false })),
+    unreadPolling,
   );
   const unreadCount = unread?.count ?? 0;
   const unreadLabel =

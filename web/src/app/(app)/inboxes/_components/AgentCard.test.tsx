@@ -3,7 +3,7 @@
 // pin the count/"99+"/hidden-at-zero rendering and the graceful-degrade
 // on probe failure.
 
-import { render, screen, waitFor } from "../../../../test-utils/swr";
+import { act, render, screen, waitFor } from "../../../../test-utils/swr";
 import { AgentCard } from "./AgentCard";
 import { getInboxUnread } from "../../../components/onboarding/api";
 import type { DashboardAgent } from "../../../components/types";
@@ -41,7 +41,10 @@ const agent: DashboardAgent = {
   created_at: "2026-05-10T00:00:00Z",
 };
 
-afterEach(() => mockUnread.mockReset());
+afterEach(() => {
+  jest.useRealTimers();
+  mockUnread.mockReset();
+});
 
 it("renders the unread count as a red badge", async () => {
   mockUnread.mockResolvedValue({ count: 3, more: false });
@@ -71,4 +74,24 @@ it("degrades to no badge when the probe rejects", async () => {
   render(<AgentCard agent={agent} />);
   await waitFor(() => expect(screen.getByText("billing@acme.dev")).toBeInTheDocument());
   expect(screen.queryByText("unread messages", { exact: false })).not.toBeInTheDocument();
+});
+
+it("refreshes the unread probe every 15 seconds", async () => {
+  jest.useFakeTimers();
+  mockUnread.mockResolvedValue({ count: 1, more: false });
+
+  render(<AgentCard agent={agent} />);
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.getByTitle("1 unread")).toBeInTheDocument();
+  const initialCallCount = mockUnread.mock.calls.length;
+
+  await act(async () => {
+    jest.advanceTimersByTime(15_000);
+    await Promise.resolve();
+  });
+
+  expect(mockUnread.mock.calls.length).toBeGreaterThan(initialCallCount);
 });
