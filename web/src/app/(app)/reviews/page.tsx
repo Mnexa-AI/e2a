@@ -4,7 +4,6 @@ import { Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { listPendingMessages } from "../../components/onboarding/api";
-import { pendingPolling } from "../../../lib/livePolling";
 import {
   invalidateAgents,
   invalidateAllAgentMessages,
@@ -33,11 +32,7 @@ function PendingContent() {
     data: messages = [],
     error: swrError,
     isLoading,
-  } = useSWR<PendingMessageSummary[]>(
-    pendingMessagesKey,
-    () => listPendingMessages(),
-    pendingPolling,
-  );
+  } = useSWR<PendingMessageSummary[]>(pendingMessagesKey, listPendingMessages);
   const loading = isLoading && messages.length === 0;
   const error = swrError
     ? swrError instanceof Error

@@ -95,3 +95,27 @@ it("refreshes the unread probe every 15 seconds", async () => {
 
   expect(mockUnread.mock.calls.length).toBeGreaterThan(initialCallCount);
 });
+
+it("keeps the prior unread badge when a polling refresh fails", async () => {
+  jest.useFakeTimers();
+  mockUnread
+    .mockResolvedValueOnce({ count: 4, more: false })
+    .mockRejectedValueOnce(new Error("transient"));
+
+  render(<AgentCard agent={agent} />);
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.getByTitle("4 unread")).toBeInTheDocument();
+  const initialCallCount = mockUnread.mock.calls.length;
+
+  await act(async () => {
+    jest.advanceTimersByTime(15_000);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(mockUnread.mock.calls.length).toBeGreaterThan(initialCallCount);
+  expect(screen.getByTitle("4 unread")).toBeInTheDocument();
+});

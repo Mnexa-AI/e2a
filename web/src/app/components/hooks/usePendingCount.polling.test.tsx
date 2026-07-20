@@ -1,5 +1,4 @@
 import useSWR from "swr";
-import { pendingPolling } from "../../../lib/livePolling";
 import { pendingMessagesKey } from "../../../lib/swrKeys";
 import { listPendingMessages } from "../onboarding/api";
 import { usePendingCount } from "./usePendingCount";
@@ -18,16 +17,23 @@ const mockListPendingMessages = listPendingMessages as jest.MockedFunction<
   typeof listPendingMessages
 >;
 
-it("uses the shared pending polling policy", () => {
+it("subscribes to pending messages without owning a polling interval", () => {
   usePendingCount();
 
   expect(mockUseSWR).toHaveBeenCalledWith(
     pendingMessagesKey,
-    expect.any(Function),
-    pendingPolling,
+    listPendingMessages,
   );
 
-  const fetcher = mockUseSWR.mock.calls[0][1] as () => unknown;
-  fetcher();
+  listPendingMessages();
   expect(mockListPendingMessages).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the last successful count when revalidation fails", () => {
+  mockUseSWR.mockReturnValueOnce({
+    data: [{ id: "msg_1" }, { id: "msg_2" }],
+    error: new Error("transient"),
+  } as ReturnType<typeof useSWR>);
+
+  expect(usePendingCount()).toBe(2);
 });

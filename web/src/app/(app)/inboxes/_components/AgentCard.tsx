@@ -18,12 +18,11 @@ export function AgentCard({
 }) {
   // Option A unread affordance: one lightweight per-card probe against the
   // messages endpoint (read_status=unread). SWR shares/dedupes the call,
-  // polls while visible and online, and revalidates on focus. Failures
-  // degrade silently to "no badge".
+  // polls while visible and online, and revalidates on focus. An initial
+  // failure shows no badge; a transient refresh failure retains cached data.
   const { data: unread } = useSWR(
     agentUnreadKey(agent.email),
-    () =>
-      getInboxUnread(agent.email).catch(() => ({ count: 0, more: false })),
+    () => getInboxUnread(agent.email),
     unreadPolling,
   );
   const unreadCount = unread?.count ?? 0;

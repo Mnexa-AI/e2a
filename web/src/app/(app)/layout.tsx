@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../components/AuthProvider";
 import { SWRProvider } from "../components/swr/SWRProvider";
+import { PendingPollingOwner } from "../components/swr/PendingPollingOwner";
 import { SignInLink } from "../components/SignInLink";
 import { Sidebar } from "../components/loft/Sidebar";
 
@@ -125,6 +126,7 @@ export default function AppLayout({
       // pages keep their own visual density.
       data-app-surface=""
     >
+      <PendingPollingOwner />
       {/* Desktop sidebar */}
       <Sidebar />
 
