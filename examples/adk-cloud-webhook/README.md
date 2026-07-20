@@ -152,7 +152,7 @@ field on the parsed payload.
   vision model.
 - **HITL.** The agent replies immediately. If you want human approval
   before the reply goes out, enable review holds on the agent's
-  protection config (`PUT /v1/agents/{address}/protection`,
+  protection config (`PUT /v1/agents/{email}/protection`,
   [docs](https://github.com/tokencanopy/e2a/blob/main/README.md)) and the
   `client.messages.reply(...)` call returns `status: "pending_review"`
   with the reply held for review.
