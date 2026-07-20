@@ -203,11 +203,13 @@ intervals without changing presentation components.
   outbound messages and no delivery chip on inbound messages.
 - Use fake timers or SWR test configuration to verify the active inbox refetches
   at 10 seconds.
-- Verify `usePendingCount` and the Review page share the key and refresh at the
-  10-second cadence without duplicate visible state.
+- Verify the single authenticated-layout `PendingPollingOwner` refreshes
+  `pendingMessagesKey` at the 10-second cadence, while `usePendingCount` and
+  the Review page are passive subscribers to that same key.
 - Verify unread probes refresh at 15 seconds and retain the existing `99+`
   behavior.
-- Verify hidden/offline polling options are disabled at each live-data hook.
+- Verify hidden/offline polling options are disabled at each polling owner or
+  polling query, not at the passive pending subscribers.
 
 ### Repository checks
 

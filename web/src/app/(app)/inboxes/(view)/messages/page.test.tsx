@@ -157,6 +157,48 @@ describe("AgentInboxPage", () => {
     });
   });
 
+  it("retains cached inbox rows when background polling fails", async () => {
+    setSearchParams({ email: "support@acme.io" });
+    let messageRequestCount = 0;
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/v1/agents/") && url.includes("/messages")) {
+        messageRequestCount += 1;
+        if (messageRequestCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({ items: [ORPHAN_INBOUND], next_cursor: null }),
+              ),
+          });
+        }
+        return Promise.reject(new Error("refresh failed"));
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+
+    render(<AgentInboxPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-row")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("refresh failed")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("thread-row")).toBeInTheDocument();
+  });
+
   it("pending callout appears in the thread detail when a thread is pending", async () => {
     setSearchParams({ email: "support@acme.io" });
     mockMessages([PENDING_REPLY, PARENT_INBOUND]);

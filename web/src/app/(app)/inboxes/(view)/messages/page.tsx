@@ -222,7 +222,7 @@ function AgentInboxContent() {
           Loading inbox…
         </div>
       )}
-      {!error && initialPage && (
+      {initialPage && (
         <div className="flex-1 flex flex-col">
           {selected ? (
             <ThreadDetail
