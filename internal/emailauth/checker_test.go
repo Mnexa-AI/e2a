@@ -1,10 +1,15 @@
 package emailauth
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"strings"
 	"testing"
+
+	"blitiri.com.ar/go/spf"
+	"github.com/emersion/go-msgauth/dkim"
 )
 
 func TestAuthenticationJSONShape(t *testing.T) {
@@ -38,6 +43,77 @@ func TestNonPassAlignmentIsNull(t *testing.T) {
 	r := SPFResult{Status: StatusFail}
 	if r.Aligned != nil {
 		t.Fatalf("aligned = %v, want nil", *r.Aligned)
+	}
+}
+
+func TestMapSPFResultPreservesSoftFailAndNeutral(t *testing.T) {
+	for _, tc := range []struct {
+		input spf.Result
+		want  Status
+	}{{spf.SoftFail, StatusSoftFail}, {spf.Neutral, StatusNeutral}} {
+		got := mapSPFResult(tc.input, nil, "example.com")
+		if got.Status != tc.want {
+			t.Fatalf("mapSPFResult(%q) = %q, want %q", tc.input, got.Status, tc.want)
+		}
+	}
+}
+
+func TestDKIMResultsRetainEverySignatureAndRefuseOnlyLengthLimitedSignature(t *testing.T) {
+	verifications := []*dkim.Verification{
+		{Domain: "safe.example", Err: nil},
+		{Domain: "limited.example", Err: nil},
+		{Domain: "failed.example", Err: errors.New("bad signature")},
+	}
+	tags := []map[string]string{
+		{"d": "safe.example", "s": "safe"},
+		{"d": "limited.example", "s": "limited", "l": "10"},
+		{"d": "failed.example", "s": "failed"},
+	}
+	got := mapDKIMResults(verifications, tags, nil)
+	if len(got) != 3 {
+		t.Fatalf("len(results) = %d, want 3: %+v", len(got), got)
+	}
+	if got[0].Status != StatusPass || got[1].Status != StatusPolicy || got[2].Status != StatusFail {
+		t.Fatalf("statuses = %q, %q, %q", got[0].Status, got[1].Status, got[2].Status)
+	}
+	if got[0].Selector == nil || *got[0].Selector != "safe" {
+		t.Fatalf("selector = %v", got[0].Selector)
+	}
+}
+
+func TestAuthenticationPassRequiresDMARCAlignment(t *testing.T) {
+	r := &fakeTXTResolver{records: map[string][]string{
+		"_dmarc.trusted.com": {"v=DMARC1; p=reject"},
+	}}
+	spfDomain := "evil.com"
+	authentication := &Authentication{
+		SPF:  SPFResult{Status: StatusPass, Domain: &spfDomain},
+		DKIM: []DKIMResult{},
+	}
+	newDMARCEvaluator(r).evaluateAuthentication(context.Background(), "trusted.com", authentication)
+	if authentication.DMARC.Status != StatusFail || authentication.Passed() {
+		t.Fatalf("authentication = %+v", authentication)
+	}
+	if authentication.SPF.Aligned == nil || *authentication.SPF.Aligned {
+		t.Fatalf("SPF alignment = %v, want false", authentication.SPF.Aligned)
+	}
+}
+
+func TestAuthenticationAlignedDKIMPassesDMARC(t *testing.T) {
+	r := &fakeTXTResolver{records: map[string][]string{
+		"_dmarc.example.com": {"v=DMARC1; p=reject"},
+	}}
+	domain, selector := "mail.example.com", "s1"
+	authentication := &Authentication{
+		SPF:  SPFResult{Status: StatusNone},
+		DKIM: []DKIMResult{{Status: StatusPass, Domain: &domain, Selector: &selector}},
+	}
+	newDMARCEvaluator(r).evaluateAuthentication(context.Background(), "example.com", authentication)
+	if !authentication.Passed() {
+		t.Fatalf("authentication = %+v", authentication)
+	}
+	if authentication.DKIM[0].Aligned == nil || !*authentication.DKIM[0].Aligned {
+		t.Fatalf("DKIM alignment = %v, want true", authentication.DKIM[0].Aligned)
 	}
 }
 
@@ -133,11 +209,11 @@ func TestCheckDKIMLengthTagRefused(t *testing.T) {
 		"\r\n" +
 		"AAAAAAAAAA[attacker-appended-content-past-signed-length]")
 
-	result, _ := checkDKIM(msg)
-	if result.Status != StatusFail {
-		t.Errorf("DKIM status = %q, want %q (l= must trigger refusal)", result.Status, StatusFail)
+	results := checkDKIM(msg)
+	if len(results) != 1 || results[0].Status != StatusPolicy {
+		t.Fatalf("DKIM results = %+v, want one policy refusal", results)
 	}
-	if result.Detail == "" {
+	if results[0].Detail == "" {
 		t.Error("expected non-empty Detail explaining the l= refusal")
 	}
 }
@@ -159,9 +235,12 @@ func TestCheckDKIMNoLengthTagFallsThroughToVerify(t *testing.T) {
 		"\r\n" +
 		"body")
 
-	result, _ := checkDKIM(msg)
-	if result.Status == StatusFail && strings.Contains(result.Detail, "l= body-length tag") {
-		t.Errorf("DKIM refused with l= detail despite no l= tag in header: %q", result.Detail)
+	results := checkDKIM(msg)
+	if len(results) != 1 {
+		t.Fatalf("DKIM results = %+v, want one", results)
+	}
+	if results[0].Status == StatusPolicy && strings.Contains(results[0].Detail, "l= body-length tag") {
+		t.Errorf("DKIM refused with l= detail despite no l= tag in header: %q", results[0].Detail)
 	}
 }
 

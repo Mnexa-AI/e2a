@@ -140,6 +140,31 @@ func (e *dmarcEvaluator) evaluate(ctx context.Context, headerFromDomain string, 
 	return result
 }
 
+// evaluateAuthentication applies the policy's strict/relaxed alignment modes
+// to each passing mechanism and then derives the DMARC result from that same
+// evidence. Non-pass mechanism results deliberately retain aligned=null.
+func (e *dmarcEvaluator) evaluateAuthentication(ctx context.Context, headerFromDomain string, authentication *Authentication) {
+	if authentication == nil {
+		return
+	}
+	discovery := e.discover(ctx, headerFromDomain)
+	if discovery.record != nil && discovery.err == nil {
+		if authentication.SPF.Status == StatusPass && authentication.SPF.Domain != nil {
+			aligned, _ := e.domainsAlign(ctx, *authentication.SPF.Domain, headerFromDomain, discovery.record.SPFStrict, discovery.organizationalDomain)
+			authentication.SPF.Aligned = boolPtr(aligned)
+		}
+		for i := range authentication.DKIM {
+			result := &authentication.DKIM[i]
+			if result.Status != StatusPass || result.Domain == nil {
+				continue
+			}
+			aligned, _ := e.domainsAlign(ctx, *result.Domain, headerFromDomain, discovery.record.DKIMStrict, discovery.organizationalDomain)
+			result.Aligned = boolPtr(aligned)
+		}
+	}
+	authentication.DMARC = e.evaluate(ctx, headerFromDomain, authentication.SPF, authentication.DKIM)
+}
+
 func (e *dmarcEvaluator) domainsAlign(ctx context.Context, authenticatedDomain, authorDomain string, strict bool, authorOrgDomain string) (bool, *dmarcWalk) {
 	authenticatedDomain, authorDomain = normDomain(authenticatedDomain), normDomain(authorDomain)
 	if authenticatedDomain == "" || authorDomain == "" {
@@ -403,6 +428,8 @@ func appendUniqueAlignment(values []AlignmentMechanism, value AlignmentMechanism
 }
 
 func stringPtr(value string) *string { return &value }
+
+func boolPtr(value bool) *bool { return &value }
 
 func validDomainName(domain string) bool {
 	if domain == "" || len(domain) > 253 {

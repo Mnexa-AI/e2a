@@ -3,6 +3,7 @@ package emailauth
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -13,6 +14,8 @@ import (
 	"github.com/emersion/go-msgauth/dkim"
 	"golang.org/x/net/publicsuffix"
 )
+
+var defaultDMARCEvaluator = newDMARCEvaluator(netTXTResolver{resolver: net.DefaultResolver})
 
 // CheckStatus is retained while legacy callers migrate to Status.
 type CheckStatus = Status
@@ -47,21 +50,51 @@ func (r *AuthVerdict) Summary() string {
 	return strings.Join(parts, "; ")
 }
 
-// Check runs SPF and DKIM verification on an inbound message.
+// Check is the compatibility entry point used while relay and persistence
+// callers migrate to Authentication. New code should call CheckAuthentication.
 // remoteIP is the IP address of the SMTP client that connected to us.
 // senderEmail is the envelope sender (MAIL FROM).
 // rawMessage is the full RFC 2822 message including headers.
 func Check(remoteIP net.IP, senderEmail string, rawMessage []byte) *AuthVerdict {
-	result := &AuthVerdict{}
+	authentication := CheckAuthentication(context.Background(), remoteIP, senderEmail, rawMessage)
+	return &AuthVerdict{
+		SPF:   CheckResult{Status: authentication.SPF.Status, Detail: authentication.SPF.Detail},
+		DKIM:  aggregateLegacyDKIM(authentication.DKIM),
+		DMARC: CheckResult{Status: authentication.DMARC.Status, Detail: authentication.DMARC.Detail},
+	}
+}
 
-	// Run SPF and DKIM checks, then derive DMARC from their alignment.
-	result.SPF = checkSPF(remoteIP, senderEmail)
-	var dkimDomain string
-	result.DKIM, dkimDomain = checkDKIM(rawMessage)
-	result.DMARC = checkDMARC(rawMessage, senderEmail, result.SPF, result.DKIM, dkimDomain)
+// CheckAuthentication evaluates and retains the complete SPF, DKIM, and DMARC
+// evidence for an inbound message.
+func CheckAuthentication(ctx context.Context, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
+	return checkWithEvaluator(ctx, defaultDMARCEvaluator, remoteIP, envelopeFrom, rawMessage)
+}
 
-	log.Printf("Email auth for %s from %s: SPF=%s DKIM=%s DMARC=%s", senderEmail, remoteIP, result.SPF.Status, result.DKIM.Status, result.DMARC.Status)
-	return result
+func checkWithResolver(ctx context.Context, resolver TXTResolver, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
+	return checkWithEvaluator(ctx, newDMARCEvaluator(resolver), remoteIP, envelopeFrom, rawMessage)
+}
+
+func checkWithEvaluator(ctx context.Context, evaluator *dmarcEvaluator, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
+	authentication := &Authentication{
+		SPF:  checkSPF(remoteIP, envelopeFrom),
+		DKIM: checkDKIM(rawMessage),
+	}
+	evaluator.evaluateAuthentication(ctx, fromHeaderDomain(rawMessage), authentication)
+	log.Printf("Email auth for %s from %s: SPF=%s DKIM=%d DMARC=%s", envelopeFrom, remoteIP, authentication.SPF.Status, len(authentication.DKIM), authentication.DMARC.Status)
+	return authentication
+
+}
+
+func aggregateLegacyDKIM(results []DKIMResult) CheckResult {
+	if len(results) == 0 {
+		return CheckResult{Status: StatusNone, Detail: "no DKIM signature found"}
+	}
+	for _, result := range results {
+		if result.Status == StatusPass {
+			return CheckResult{Status: result.Status, Detail: result.Detail}
+		}
+	}
+	return CheckResult{Status: results[0].Status, Detail: results[0].Detail}
 }
 
 // checkDMARC derives a DMARC verdict from the SPF/DKIM results plus identifier
@@ -150,76 +183,116 @@ func fromHeaderDomain(rawMessage []byte) string {
 	return extractDomain(addr.Address)
 }
 
-func checkSPF(remoteIP net.IP, senderEmail string) CheckResult {
+func checkSPF(remoteIP net.IP, senderEmail string) SPFResult {
 	if remoteIP == nil {
-		return CheckResult{Status: StatusNone, Detail: "no remote IP available"}
+		return SPFResult{Status: StatusNone, Detail: "no remote IP available"}
 	}
 
 	domain := extractDomain(senderEmail)
 	if domain == "" {
-		return CheckResult{Status: StatusPermError, Detail: "cannot extract domain from sender"}
+		return SPFResult{Status: StatusPermError, Detail: "cannot extract domain from sender"}
 	}
 
 	result, err := spf.CheckHostWithSender(remoteIP, domain, senderEmail)
-	switch result {
-	case spf.Pass:
-		return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("domain %s", domain)}
-	case spf.Fail, spf.SoftFail:
-		detail := fmt.Sprintf("domain %s", domain)
-		if err != nil {
-			detail += ": " + err.Error()
-		}
-		return CheckResult{Status: StatusFail, Detail: detail}
-	case spf.None:
-		return CheckResult{Status: StatusNone, Detail: fmt.Sprintf("no SPF record for %s", domain)}
-	case spf.TempError:
-		detail := "temporary DNS error"
-		if err != nil {
-			detail = err.Error()
-		}
-		return CheckResult{Status: StatusTempError, Detail: detail}
-	default:
-		return CheckResult{Status: StatusPermError, Detail: "SPF check error"}
-	}
+	return mapSPFResult(result, err, domain)
 }
 
-// checkDKIM verifies DKIM and returns the result plus the signing domain (d=)
-// of the passing signature (empty when none passed) — needed for DMARC
-// alignment.
-func checkDKIM(rawMessage []byte) (CheckResult, string) {
-	// RFC 6376 §3.5 defines the `l=` tag (body length limit). Honoring
-	// it lets an attacker append arbitrary unsigned content (HTML,
-	// prompt-injection payloads) to a legitimately-signed message, and
-	// the receiver still sees dkim=pass. Agents that act on
-	// `verified=true` headers may then execute the attacker-tacked-on
-	// instructions. We refuse any signature carrying `l=` outright.
-	// Conservative trade-off: a sender that uses `l=` and a sender
-	// that doesn't both fail if their messages reach us — but `l=` is
-	// rare in modern signing configs (Gmail, M365, SES all omit it by
-	// default).
-	if dkimSignatureHasBodyLengthTag(rawMessage) {
-		return CheckResult{Status: StatusFail, Detail: "DKIM-Signature includes l= body-length tag (refused: would allow tail-content injection)"}, ""
+func mapSPFResult(result spf.Result, err error, domain string) SPFResult {
+	domain = normDomain(domain)
+	mapped := SPFResult{Domain: stringPtr(domain)}
+	switch result {
+	case spf.Pass:
+		mapped.Status, mapped.Detail = StatusPass, fmt.Sprintf("domain %s", domain)
+	case spf.Fail:
+		mapped.Status, mapped.Detail = StatusFail, fmt.Sprintf("domain %s", domain)
+	case spf.SoftFail:
+		mapped.Status, mapped.Detail = StatusSoftFail, fmt.Sprintf("domain %s", domain)
+	case spf.Neutral:
+		mapped.Status, mapped.Detail = StatusNeutral, fmt.Sprintf("domain %s", domain)
+	case spf.None:
+		mapped.Status, mapped.Detail = StatusNone, fmt.Sprintf("no SPF record for %s", domain)
+	case spf.TempError:
+		mapped.Status, mapped.Detail = StatusTempError, "temporary DNS error"
+	case spf.PermError:
+		mapped.Status, mapped.Detail = StatusPermError, "SPF record could not be evaluated"
+	default:
+		mapped.Status, mapped.Detail = StatusPermError, "unknown SPF result"
 	}
-
-	verifications, err := dkim.Verify(bytes.NewReader(rawMessage))
 	if err != nil {
-		return CheckResult{Status: StatusTempError, Detail: err.Error()}, ""
-	}
-
-	if len(verifications) == 0 {
-		return CheckResult{Status: StatusNone, Detail: "no DKIM signature found"}, ""
-	}
-
-	// At least one DKIM signature must pass
-	for _, v := range verifications {
-		if v.Err == nil {
-			return CheckResult{Status: StatusPass, Detail: fmt.Sprintf("domain %s", v.Domain)}, v.Domain
+		detail := fmt.Sprintf("domain %s", domain)
+		if mapped.Detail != "" {
+			detail = mapped.Detail
 		}
+		mapped.Detail = detail + ": " + err.Error()
 	}
+	return mapped
+}
 
-	// All signatures failed
-	firstErr := verifications[0].Err
-	return CheckResult{Status: StatusFail, Detail: firstErr.Error()}, ""
+// checkDKIM returns one result per DKIM-Signature field. A body-length-limited
+// signature is refused individually so it cannot invalidate an independent,
+// safe signature on the same message.
+func checkDKIM(rawMessage []byte) []DKIMResult {
+	tags := dkimSignatureTags(rawMessage)
+	verifications, err := dkim.Verify(bytes.NewReader(rawMessage))
+	return mapDKIMResults(verifications, tags, err)
+}
+
+func mapDKIMResults(verifications []*dkim.Verification, tags []map[string]string, verifyErr error) []DKIMResult {
+	count := len(verifications)
+	if len(tags) > count {
+		count = len(tags)
+	}
+	results := make([]DKIMResult, 0, count)
+	for i := 0; i < count; i++ {
+		var verification *dkim.Verification
+		if i < len(verifications) {
+			verification = verifications[i]
+		}
+		var signatureTags map[string]string
+		if i < len(tags) {
+			signatureTags = tags[i]
+		}
+		result := DKIMResult{}
+		if domain := normDomain(signatureTags["d"]); domain != "" {
+			result.Domain = stringPtr(domain)
+		}
+		if selector := strings.TrimSpace(signatureTags["s"]); selector != "" {
+			result.Selector = stringPtr(selector)
+		}
+		if verification != nil && verification.Domain != "" {
+			result.Domain = stringPtr(normDomain(verification.Domain))
+		}
+		if _, limited := signatureTags["l"]; limited {
+			result.Status = StatusPolicy
+			result.Detail = "DKIM-Signature includes l= body-length tag (refused: would allow tail-content injection)"
+			results = append(results, result)
+			continue
+		}
+		resultErr := verifyErr
+		if verification != nil {
+			resultErr = verification.Err
+		}
+		switch {
+		case resultErr == nil && verification != nil:
+			result.Status = StatusPass
+			if result.Domain != nil {
+				result.Detail = "domain " + *result.Domain
+			}
+		case dkim.IsTempFail(resultErr):
+			result.Status, result.Detail = StatusTempError, resultErr.Error()
+		case dkim.IsPermFail(resultErr):
+			result.Status, result.Detail = StatusPermError, resultErr.Error()
+		default:
+			result.Status = StatusFail
+			if resultErr != nil {
+				result.Detail = resultErr.Error()
+			} else {
+				result.Detail = "DKIM signature could not be evaluated"
+			}
+		}
+		results = append(results, result)
+	}
+	return results
 }
 
 // dkimSignatureHasBodyLengthTag reports whether any DKIM-Signature
@@ -234,32 +307,41 @@ func checkDKIM(rawMessage []byte) (CheckResult, string) {
 // `l=<actual_length>` becomes exploitable the moment a downstream
 // MTA or replay re-frames the message.
 func dkimSignatureHasBodyLengthTag(rawMessage []byte) bool {
+	for _, tags := range dkimSignatureTags(rawMessage) {
+		if _, ok := tags["l"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// dkimSignatureTags returns tag maps in header order so they can be correlated
+// with go-msgauth's ordered verification results. Header folding is unfolded
+// before parsing.
+func dkimSignatureTags(rawMessage []byte) []map[string]string {
 	// Read the header block: lines up to (but not including) the first
 	// empty line. RFC 5322 line ending is CRLF but we tolerate LF.
 	scanner := bufio.NewScanner(bytes.NewReader(rawMessage))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	var signatures []map[string]string
 	var currentHeader strings.Builder
 	inDKIM := false
 
-	flushAndCheck := func() bool {
+	flush := func() {
 		if !inDKIM {
-			return false
+			return
 		}
-		hit := tagValueContainsKey(currentHeader.String(), "l")
+		signatures = append(signatures, parseTagValues(currentHeader.String()))
 		currentHeader.Reset()
 		inDKIM = false
-		return hit
 	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
-			// End of header block.
-			if flushAndCheck() {
-				return true
-			}
-			return false
+			flush()
+			return signatures
 		}
 		// Folded continuation: starts with SP or HTAB.
 		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
@@ -270,9 +352,7 @@ func dkimSignatureHasBodyLengthTag(rawMessage []byte) bool {
 			continue
 		}
 		// New header line — finalize the previous one first.
-		if flushAndCheck() {
-			return true
-		}
+		flush()
 		// Case-insensitive prefix match per RFC 5322.
 		if colon := strings.IndexByte(line, ':'); colon > 0 {
 			name := strings.TrimSpace(line[:colon])
@@ -282,11 +362,8 @@ func dkimSignatureHasBodyLengthTag(rawMessage []byte) bool {
 			}
 		}
 	}
-	// EOF without a blank line — flush whatever's pending.
-	if flushAndCheck() {
-		return true
-	}
-	return false
+	flush()
+	return signatures
 }
 
 // tagValueContainsKey reports whether a DKIM tag-value string (the
@@ -295,17 +372,23 @@ func dkimSignatureHasBodyLengthTag(rawMessage []byte) bool {
 // optional FWS around the `=` and trimming on both sides. We don't
 // care about the value here, only the presence of the key.
 func tagValueContainsKey(s, key string) bool {
+	_, ok := parseTagValues(s)[key]
+	return ok
+}
+
+func parseTagValues(s string) map[string]string {
+	values := make(map[string]string)
 	for _, entry := range strings.Split(s, ";") {
 		eq := strings.IndexByte(entry, '=')
 		if eq < 0 {
 			continue
 		}
-		name := strings.TrimSpace(entry[:eq])
-		if name == key {
-			return true
+		name := strings.ToLower(strings.TrimSpace(entry[:eq]))
+		if name != "" {
+			values[name] = strings.TrimSpace(entry[eq+1:])
 		}
 	}
-	return false
+	return values
 }
 
 func extractDomain(email string) string {
