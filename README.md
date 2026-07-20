@@ -64,7 +64,15 @@ codex plugin marketplace add tokencanopy/e2a
 
 Then launch `codex`, run `/plugins`, and install **e2a**.
 
-**Cursor** — run `/add-plugin e2a`, or paste `https://github.com/tokencanopy/e2a` into the marketplace search in Cursor Settings.
+**Cursor** — add the MCP server directly. Put this in `.cursor/mcp.json` (or `~/.cursor/mcp.json` to get it in every project); Cursor opens your browser to authorize on first use, no API key to paste:
+
+```json
+{
+  "mcpServers": {
+    "e2a": { "url": "https://api.e2a.dev/mcp" }
+  }
+}
+```
 
 **Other MCP clients** (Zed, Goose, Windsurf, Claude Desktop, raw `mcp.json`) — point straight at `https://api.e2a.dev/mcp`; ready-to-paste configs are in [plugins/e2a/clients/](plugins/e2a/clients). See [plugins/e2a/README.md](plugins/e2a/README.md) for the full per-client guide.
 

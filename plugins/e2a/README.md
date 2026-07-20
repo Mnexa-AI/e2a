@@ -33,8 +33,30 @@ you through the OAuth path. (Codex desktop: **Plugins → Add more + →** paste
 
 ### Cursor
 
-In Cursor, run `/add-plugin e2a`, or paste `https://github.com/tokencanopy/e2a`
-into the marketplace search in Cursor Settings and add it.
+Point Cursor at the hosted MCP server. Project-level config lives in
+`.cursor/mcp.json`, global in `~/.cursor/mcp.json` (project wins on conflict):
+
+```json
+{
+  "mcpServers": {
+    "e2a": { "url": "https://api.e2a.dev/mcp" }
+  }
+}
+```
+
+Remote servers take `url` only — `type`/`transport` are stdio-only in Cursor.
+On first use Cursor registers itself via OAuth Dynamic Client Registration and
+opens your browser; there is no API key to paste and no `auth` block to fill in.
+
+Cursor gets the MCP server this way rather than the plugin, so it does not pick
+up the skill — the tools work, the operating guidance doesn't come with them.
+
+This file used to recommend two things that don't work, so they're worth naming
+before someone re-adds them: a bare `/add-plugin e2a` resolves only against
+Cursor's curated marketplace, which e2a isn't published to; and there is no
+"paste a repo URL into marketplace search" flow — importing a repo is
+**Dashboard → Plugins → Add Marketplace → Import from Repo**, which creates a
+*team* marketplace and is Teams/Enterprise only.
 
 ### Other MCP clients (manual)
 
