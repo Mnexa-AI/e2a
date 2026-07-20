@@ -9,6 +9,7 @@ import {SecurityAuthentication} from '../auth/auth.js';
 
 
 import { AttachmentView } from '../models/AttachmentView.js';
+import { BatchView } from '../models/BatchView.js';
 import { DeleteMessageResult } from '../models/DeleteMessageResult.js';
 import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
@@ -227,7 +228,49 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
+<<<<<<< HEAD
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.
+=======
+     * Returns the batch header (counts + the list of items dropped by the suppression filter at accept time) plus a live rollup of the batch\'s child messages by delivery status. The rollup is computed on read from the messages table — poll it after a batch send to watch delivery progress. For per-recipient detail beyond the aggregate, use GET /v1/messages?batch_id={batch_id}. Account-scoped: a batch owned by another account returns 404 not_found.
+     * Get a batch\'s header and delivery-status rollup
+     * @param batchId The batch id, e.g. bat_abc123.
+     */
+    public async getBatch(batchId: string, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'batchId' is not null or undefined
+        if (batchId === null || batchId === undefined) {
+            throw new RequiredError("MessagesApi", "getBatch", "batchId");
+        }
+
+
+        // Path Params
+        const localVarPath = '/v1/batches/{batch_id}'
+            .replace('{' + 'batch_id' + '}', encodeURIComponent(String(batchId)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
+     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
      * Get a message
      * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
@@ -282,6 +325,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param from_ Case-insensitive substring match on sender.
      * @param subjectContains Case-insensitive substring match on subject.
      * @param conversationId 
+     * @param batchId Filter to the child messages of a batch send (docs/design/batch-send.md §7.2). Outbound only; pair with direction&#x3D;outbound. Exact match on the batch id, e.g. bat_abc123.
      * @param labels Repeatable; AND-matched.
      * @param since RFC3339; created_at &gt;&#x3D; since.
      * @param until RFC3339; created_at &lt; until.
@@ -289,13 +333,14 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
      * @param limit 
      * @param deleted List the trash instead: messages that were soft-deleted and are restorable until purged (30 days after deletion by default, deployment-configurable). Defaults to false (live messages only).
      */
-    public async listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, deleted?: boolean, _options?: Configuration): Promise<RequestContext> {
+    public async listMessages(email: string, direction?: 'inbound' | 'outbound' | 'all', readStatus?: 'unread' | 'read' | 'all', sort?: 'asc' | 'desc', from_?: string, subjectContains?: string, conversationId?: string, batchId?: string, labels?: Array<string>, since?: string, until?: string, cursor?: string, limit?: number, deleted?: boolean, _options?: Configuration): Promise<RequestContext> {
         let _config = _options || this.configuration;
 
         // verify required parameter 'email' is not null or undefined
         if (email === null || email === undefined) {
             throw new RequiredError("MessagesApi", "listMessages", "email");
         }
+
 
 
 
@@ -346,6 +391,11 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         // Query Params
         if (conversationId !== undefined) {
             requestContext.setQueryParam("conversation_id", ObjectSerializer.serialize(conversationId, "string", ""));
+        }
+
+        // Query Params
+        if (batchId !== undefined) {
+            requestContext.setQueryParam("batch_id", ObjectSerializer.serialize(batchId, "string", ""));
         }
 
         // Query Params
@@ -871,6 +921,49 @@ export class MessagesApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "AttachmentView", ""
             ) as AttachmentView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to getBatch
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async getBatchWithHttpInfo(response: ResponseContext): Promise<HttpInfo<BatchView >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: BatchView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "BatchView", ""
+            ) as BatchView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("404", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error — the standard envelope; branch on error.code.", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: BatchView = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "BatchView", ""
+            ) as BatchView;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

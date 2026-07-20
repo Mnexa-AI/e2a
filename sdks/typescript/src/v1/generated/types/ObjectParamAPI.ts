@@ -14,6 +14,17 @@ import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
+<<<<<<< HEAD
+=======
+import { AuthVerdict } from '../models/AuthVerdict.js';
+import { BatchMessage } from '../models/BatchMessage.js';
+import { BatchResult } from '../models/BatchResult.js';
+import { BatchStatusRollupView } from '../models/BatchStatusRollupView.js';
+import { BatchSuppressedItem } from '../models/BatchSuppressedItem.js';
+import { BatchSuppressedResult } from '../models/BatchSuppressedResult.js';
+import { BatchView } from '../models/BatchView.js';
+import { CheckResult } from '../models/CheckResult.js';
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
@@ -1344,6 +1355,16 @@ export interface MessagesApiGetAttachmentRequest {
     inline?: boolean
 }
 
+export interface MessagesApiGetBatchRequest {
+    /**
+     * The batch id, e.g. bat_abc123.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApigetBatch
+     */
+    batchId: string
+}
+
 export interface MessagesApiGetMessageRequest {
     /**
      * The agent\&#39;s full email address.
@@ -1411,6 +1432,13 @@ export interface MessagesApiListMessagesRequest {
      * @memberof MessagesApilistMessages
      */
     conversationId?: string
+    /**
+     * Filter to the child messages of a batch send (docs/design/batch-send.md §7.2). Outbound only; pair with direction&#x3D;outbound. Exact match on the batch id, e.g. bat_abc123.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApilistMessages
+     */
+    batchId?: string
     /**
      * Repeatable; AND-matched.
      * Defaults to: undefined
@@ -1626,7 +1654,29 @@ export class ObjectMessagesApi {
     }
 
     /**
+<<<<<<< HEAD
      * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.
+=======
+     * Returns the batch header (counts + the list of items dropped by the suppression filter at accept time) plus a live rollup of the batch\'s child messages by delivery status. The rollup is computed on read from the messages table — poll it after a batch send to watch delivery progress. For per-recipient detail beyond the aggregate, use GET /v1/messages?batch_id={batch_id}. Account-scoped: a batch owned by another account returns 404 not_found.
+     * Get a batch\'s header and delivery-status rollup
+     * @param param the request object
+     */
+    public getBatchWithHttpInfo(param: MessagesApiGetBatchRequest, options?: ConfigurationOptions): Promise<HttpInfo<BatchView>> {
+        return this.api.getBatchWithHttpInfo(param.batchId,  options).toPromise();
+    }
+
+    /**
+     * Returns the batch header (counts + the list of items dropped by the suppression filter at accept time) plus a live rollup of the batch\'s child messages by delivery status. The rollup is computed on read from the messages table — poll it after a batch send to watch delivery progress. For per-recipient detail beyond the aggregate, use GET /v1/messages?batch_id={batch_id}. Account-scoped: a batch owned by another account returns 404 not_found.
+     * Get a batch\'s header and delivery-status rollup
+     * @param param the request object
+     */
+    public getBatch(param: MessagesApiGetBatchRequest, options?: ConfigurationOptions): Promise<BatchView> {
+        return this.api.getBatch(param.batchId,  options).toPromise();
+    }
+
+    /**
+     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
      * Get a message
      * @param param the request object
      */
@@ -1649,7 +1699,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public listMessagesWithHttpInfo(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageMessageSummaryView>> {
-        return this.api.listMessagesWithHttpInfo(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit, param.deleted,  options).toPromise();
+        return this.api.listMessagesWithHttpInfo(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.batchId, param.labels, param.since, param.until, param.cursor, param.limit, param.deleted,  options).toPromise();
     }
 
     /**
@@ -1658,7 +1708,7 @@ export class ObjectMessagesApi {
      * @param param the request object
      */
     public listMessages(param: MessagesApiListMessagesRequest, options?: ConfigurationOptions): Promise<PageMessageSummaryView> {
-        return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.labels, param.since, param.until, param.cursor, param.limit, param.deleted,  options).toPromise();
+        return this.api.listMessages(param.email, param.direction, param.readStatus, param.sort, param.from_, param.subjectContains, param.conversationId, param.batchId, param.labels, param.since, param.until, param.cursor, param.limit, param.deleted,  options).toPromise();
     }
 
     /**

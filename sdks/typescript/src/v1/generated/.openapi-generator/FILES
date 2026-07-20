@@ -28,7 +28,18 @@ models/ApproveRequest.ts
 models/Attachment.ts
 models/AttachmentMetaView.ts
 models/AttachmentView.ts
+<<<<<<< HEAD
 models/Authentication.ts
+=======
+models/AuthVerdict.ts
+models/BatchMessage.ts
+models/BatchResult.ts
+models/BatchStatusRollupView.ts
+models/BatchSuppressedItem.ts
+models/BatchSuppressedResult.ts
+models/BatchView.ts
+models/CheckResult.ts
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
 models/ConversationDetailView.ts
 models/ConversationSummaryView.ts
 models/CreateAPIKeyRequest.ts

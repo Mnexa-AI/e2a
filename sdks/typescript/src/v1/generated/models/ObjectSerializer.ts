@@ -10,7 +10,18 @@ export * from '../models/ApproveRequest.js';
 export * from '../models/Attachment.js';
 export * from '../models/AttachmentMetaView.js';
 export * from '../models/AttachmentView.js';
+<<<<<<< HEAD
 export * from '../models/Authentication.js';
+=======
+export * from '../models/AuthVerdict.js';
+export * from '../models/BatchMessage.js';
+export * from '../models/BatchResult.js';
+export * from '../models/BatchStatusRollupView.js';
+export * from '../models/BatchSuppressedItem.js';
+export * from '../models/BatchSuppressedResult.js';
+export * from '../models/BatchView.js';
+export * from '../models/CheckResult.js';
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
 export * from '../models/ConversationDetailView.js';
 export * from '../models/ConversationSummaryView.js';
 export * from '../models/CreateAPIKeyRequest.js';
@@ -148,7 +159,18 @@ import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
+<<<<<<< HEAD
 import { Authentication } from '../models/Authentication.js';
+=======
+import { AuthVerdict } from '../models/AuthVerdict.js';
+import { BatchMessage } from '../models/BatchMessage.js';
+import { BatchResult } from '../models/BatchResult.js';
+import { BatchStatusRollupView } from '../models/BatchStatusRollupView.js';
+import { BatchSuppressedItem } from '../models/BatchSuppressedItem.js';
+import { BatchSuppressedResult } from '../models/BatchSuppressedResult.js';
+import { BatchView } from '../models/BatchView.js';
+import { CheckResult } from '../models/CheckResult.js';
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../models/CreateAPIKeyRequest.js';
@@ -322,7 +344,18 @@ let typeMap: {[index: string]: any} = {
     "Attachment": Attachment,
     "AttachmentMetaView": AttachmentMetaView,
     "AttachmentView": AttachmentView,
+<<<<<<< HEAD
     "Authentication": Authentication,
+=======
+    "AuthVerdict": AuthVerdict,
+    "BatchMessage": BatchMessage,
+    "BatchResult": BatchResult,
+    "BatchStatusRollupView": BatchStatusRollupView,
+    "BatchSuppressedItem": BatchSuppressedItem,
+    "BatchSuppressedResult": BatchSuppressedResult,
+    "BatchView": BatchView,
+    "CheckResult": CheckResult,
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
     "ConversationDetailView": ConversationDetailView,
     "ConversationSummaryView": ConversationSummaryView,
     "CreateAPIKeyRequest": CreateAPIKeyRequest,

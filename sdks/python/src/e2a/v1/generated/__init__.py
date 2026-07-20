@@ -49,7 +49,18 @@ __all__ = [
     "Attachment",
     "AttachmentMetaView",
     "AttachmentView",
+<<<<<<< HEAD
     "Authentication",
+=======
+    "AuthVerdict",
+    "BatchMessage",
+    "BatchResult",
+    "BatchStatusRollupView",
+    "BatchSuppressedItem",
+    "BatchSuppressedResult",
+    "BatchView",
+    "CheckResult",
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
     "ConversationDetailView",
     "ConversationSummaryView",
     "CreateAPIKeyRequest",
@@ -212,7 +223,18 @@ from e2a.v1.generated.models.approve_request import ApproveRequest as ApproveReq
 from e2a.v1.generated.models.attachment import Attachment as Attachment
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView as AttachmentMetaView
 from e2a.v1.generated.models.attachment_view import AttachmentView as AttachmentView
+<<<<<<< HEAD
 from e2a.v1.generated.models.authentication import Authentication as Authentication
+=======
+from e2a.v1.generated.models.auth_verdict import AuthVerdict as AuthVerdict
+from e2a.v1.generated.models.batch_message import BatchMessage as BatchMessage
+from e2a.v1.generated.models.batch_result import BatchResult as BatchResult
+from e2a.v1.generated.models.batch_status_rollup_view import BatchStatusRollupView as BatchStatusRollupView
+from e2a.v1.generated.models.batch_suppressed_item import BatchSuppressedItem as BatchSuppressedItem
+from e2a.v1.generated.models.batch_suppressed_result import BatchSuppressedResult as BatchSuppressedResult
+from e2a.v1.generated.models.batch_view import BatchView as BatchView
+from e2a.v1.generated.models.check_result import CheckResult as CheckResult
+>>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView as ConversationDetailView
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView as ConversationSummaryView
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest as CreateAPIKeyRequest

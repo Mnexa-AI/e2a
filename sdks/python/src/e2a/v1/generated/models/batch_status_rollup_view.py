@@ -17,32 +17,25 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, StrictInt
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 
-class EmailFailedData(BaseModel):
+class BatchStatusRollupView(BaseModel):
     """
-    EmailFailedData
+    BatchStatusRollupView
     """ # noqa: E501
-    agent_email: StrictStr
-    batch_id: Optional[StrictStr] = None
-    bcc: Optional[List[StrictStr]] = None
-    cc: Optional[List[StrictStr]] = None
-    conversation_id: Optional[StrictStr] = None
-    direction: StrictStr = Field(description="Always \"outbound\" on this event.")
-    from_: StrictStr = Field(alias="from")
-    message_id: StrictStr
-    message_type: StrictStr = Field(description="Send kind. Open set; tolerate unknown values. Known values: send, reply, forward.")
-    method: StrictStr = Field(description="Transport used for the send. Open set; tolerate unknown values. Known values: smtp.")
-    reason: StrictStr
-    reason_code: Optional[StrictStr] = None
-    retryable: Optional[StrictBool] = None
-    subject: StrictStr
-    to: List[StrictStr]
+    accepted: StrictInt
+    bounced: StrictInt
+    complained: StrictInt
+    deferred: StrictInt
+    delivered: StrictInt
+    failed: StrictInt
+    sending: StrictInt
+    sent: StrictInt
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "batch_id", "bcc", "cc", "conversation_id", "direction", "from", "message_id", "message_type", "method", "reason", "reason_code", "retryable", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["accepted", "bounced", "complained", "deferred", "delivered", "failed", "sending", "sent"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -62,7 +55,7 @@ class EmailFailedData(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of EmailFailedData from a JSON string"""
+        """Create an instance of BatchStatusRollupView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -94,7 +87,7 @@ class EmailFailedData(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of EmailFailedData from a dict"""
+        """Create an instance of BatchStatusRollupView from a dict"""
         if obj is None:
             return None
 
@@ -102,21 +95,14 @@ class EmailFailedData(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_email": obj.get("agent_email"),
-            "batch_id": obj.get("batch_id"),
-            "bcc": obj.get("bcc"),
-            "cc": obj.get("cc"),
-            "conversation_id": obj.get("conversation_id"),
-            "direction": obj.get("direction"),
-            "from": obj.get("from"),
-            "message_id": obj.get("message_id"),
-            "message_type": obj.get("message_type"),
-            "method": obj.get("method"),
-            "reason": obj.get("reason"),
-            "reason_code": obj.get("reason_code"),
-            "retryable": obj.get("retryable"),
-            "subject": obj.get("subject"),
-            "to": obj.get("to")
+            "accepted": obj.get("accepted"),
+            "bounced": obj.get("bounced"),
+            "complained": obj.get("complained"),
+            "deferred": obj.get("deferred"),
+            "delivered": obj.get("delivered"),
+            "failed": obj.get("failed"),
+            "sending": obj.get("sending"),
+            "sent": obj.get("sent")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

@@ -17,32 +17,26 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from typing import Any, ClassVar, Dict, List
+from e2a.v1.generated.models.batch_status_rollup_view import BatchStatusRollupView
+from e2a.v1.generated.models.batch_suppressed_item import BatchSuppressedItem
 from typing import Optional, Set
 from typing_extensions import Self
 
-class EmailFailedData(BaseModel):
+class BatchView(BaseModel):
     """
-    EmailFailedData
+    BatchView
     """ # noqa: E501
-    agent_email: StrictStr
-    batch_id: Optional[StrictStr] = None
-    bcc: Optional[List[StrictStr]] = None
-    cc: Optional[List[StrictStr]] = None
-    conversation_id: Optional[StrictStr] = None
-    direction: StrictStr = Field(description="Always \"outbound\" on this event.")
-    from_: StrictStr = Field(alias="from")
-    message_id: StrictStr
-    message_type: StrictStr = Field(description="Send kind. Open set; tolerate unknown values. Known values: send, reply, forward.")
-    method: StrictStr = Field(description="Transport used for the send. Open set; tolerate unknown values. Known values: smtp.")
-    reason: StrictStr
-    reason_code: Optional[StrictStr] = None
-    retryable: Optional[StrictBool] = None
-    subject: StrictStr
-    to: List[StrictStr]
+    accepted: StrictInt = Field(description="Number of items durably accepted (each has a message_id + delivery pipeline entry).")
+    agent_id: StrictStr = Field(description="The sending agent's address.")
+    batch_id: StrictStr
+    created_at: StrictStr = Field(description="RFC3339 timestamp of when the batch was accepted.")
+    requested: StrictInt = Field(description="Number of items in the original request (accepted + suppressed).")
+    status_rollup: BatchStatusRollupView = Field(description="Live per-delivery-status count of the batch's child messages, computed on read.")
+    suppressed: List[BatchSuppressedItem] = Field(description="Items dropped by the suppression filter at accept time. Empty when none were dropped.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "batch_id", "bcc", "cc", "conversation_id", "direction", "from", "message_id", "message_type", "method", "reason", "reason_code", "retryable", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["accepted", "agent_id", "batch_id", "created_at", "requested", "status_rollup", "suppressed"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -62,7 +56,7 @@ class EmailFailedData(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of EmailFailedData from a JSON string"""
+        """Create an instance of BatchView from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -85,6 +79,16 @@ class EmailFailedData(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of status_rollup
+        if self.status_rollup:
+            _dict['status_rollup'] = self.status_rollup.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of each item in suppressed (list)
+        _items = []
+        if self.suppressed:
+            for _item_suppressed in self.suppressed:
+                if _item_suppressed:
+                    _items.append(_item_suppressed.to_dict())
+            _dict['suppressed'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -94,7 +98,7 @@ class EmailFailedData(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of EmailFailedData from a dict"""
+        """Create an instance of BatchView from a dict"""
         if obj is None:
             return None
 
@@ -102,21 +106,13 @@ class EmailFailedData(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_email": obj.get("agent_email"),
+            "accepted": obj.get("accepted"),
+            "agent_id": obj.get("agent_id"),
             "batch_id": obj.get("batch_id"),
-            "bcc": obj.get("bcc"),
-            "cc": obj.get("cc"),
-            "conversation_id": obj.get("conversation_id"),
-            "direction": obj.get("direction"),
-            "from": obj.get("from"),
-            "message_id": obj.get("message_id"),
-            "message_type": obj.get("message_type"),
-            "method": obj.get("method"),
-            "reason": obj.get("reason"),
-            "reason_code": obj.get("reason_code"),
-            "retryable": obj.get("retryable"),
-            "subject": obj.get("subject"),
-            "to": obj.get("to")
+            "created_at": obj.get("created_at"),
+            "requested": obj.get("requested"),
+            "status_rollup": BatchStatusRollupView.from_dict(obj["status_rollup"]) if obj.get("status_rollup") is not None else None,
+            "suppressed": [BatchSuppressedItem.from_dict(_item) for _item in obj["suppressed"]] if obj.get("suppressed") is not None else None
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

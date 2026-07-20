@@ -495,6 +495,58 @@ components:
           $ref: "#/components/schemas/BatchSuppressedResult"
           description: Present when the item was dropped by the suppression-list filter (docs/design/batch-send.md §2.2). No message row exists for a suppressed slot; the caller can un-suppress via DELETE /v1/account/suppressions/{address} and resubmit.
       type: object
+    BatchStatusRollupView:
+      additionalProperties: true
+      properties:
+        accepted:
+          format: int64
+          type: integer
+        bounced:
+          format: int64
+          type: integer
+        complained:
+          format: int64
+          type: integer
+        deferred:
+          format: int64
+          type: integer
+        delivered:
+          format: int64
+          type: integer
+        failed:
+          format: int64
+          type: integer
+        sending:
+          format: int64
+          type: integer
+        sent:
+          format: int64
+          type: integer
+      required:
+        - accepted
+        - sending
+        - sent
+        - delivered
+        - deferred
+        - bounced
+        - complained
+        - failed
+      type: object
+    BatchSuppressedItem:
+      additionalProperties: true
+      properties:
+        address:
+          type: string
+        item_index:
+          format: int64
+          type: integer
+        reason:
+          type: string
+      required:
+        - item_index
+        - address
+        - reason
+      type: object
     BatchSuppressedResult:
       additionalProperties: true
       properties:
@@ -507,6 +559,42 @@ components:
       required:
         - address
         - reason
+      type: object
+    BatchView:
+      additionalProperties: true
+      properties:
+        accepted:
+          description: Number of items durably accepted (each has a message_id + delivery pipeline entry).
+          format: int64
+          type: integer
+        agent_id:
+          description: The sending agent's address.
+          type: string
+        batch_id:
+          type: string
+        created_at:
+          description: RFC3339 timestamp of when the batch was accepted.
+          type: string
+        requested:
+          description: Number of items in the original request (accepted + suppressed).
+          format: int64
+          type: integer
+        status_rollup:
+          $ref: "#/components/schemas/BatchStatusRollupView"
+          description: Live per-delivery-status count of the batch's child messages, computed on read.
+        suppressed:
+          description: Items dropped by the suppression filter at accept time. Empty when none were dropped.
+          items:
+            $ref: "#/components/schemas/BatchSuppressedItem"
+          type: array
+      required:
+        - batch_id
+        - agent_id
+        - requested
+        - accepted
+        - suppressed
+        - created_at
+        - status_rollup
       type: object
     CheckResult:
       additionalProperties: true
@@ -1340,6 +1428,8 @@ components:
       properties:
         agent_email:
           type: string
+        batch_id:
+          type: string
         bcc:
           items:
             type: string
@@ -1466,6 +1556,8 @@ components:
       additionalProperties: true
       properties:
         agent_email:
+          type: string
+        batch_id:
           type: string
         bcc:
           items:
@@ -2143,6 +2235,9 @@ components:
                 - object
                 - "null"
           description: Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
+        batch_id:
+          type: string
+
         bcc:
           items:
             type: string
@@ -5079,6 +5174,13 @@ paths:
           name: conversation_id
           schema:
             type: string
+        - description: Filter to the child messages of a batch send (docs/design/batch-send.md §7.2). Outbound only; pair with direction=outbound. Exact match on the batch id, e.g. bat_abc123.
+          explode: false
+          in: query
+          name: batch_id
+          schema:
+            description: Filter to the child messages of a batch send (docs/design/batch-send.md §7.2). Outbound only; pair with direction=outbound. Exact match on the batch id, e.g. bat_abc123.
+            type: string
         - description: Repeatable; AND-matched.
           explode: false
           in: query
@@ -6107,6 +6209,51 @@ paths:
       summary: Send a test email to the agent's own address
       tags:
         - agents
+  /v1/batches/{batch_id}:
+    get:
+      description: "Returns the batch header (counts + the list of items dropped by the suppression filter at accept time) plus a live rollup of the batch's child messages by delivery status. The rollup is computed on read from the messages table — poll it after a batch send to watch delivery progress. For per-recipient detail beyond the aggregate, use GET /v1/messages?batch_id={batch_id}. Account-scoped: a batch owned by another account returns 404 not_found."
+      operationId: getBatch
+      parameters:
+        - description: The batch id, e.g. bat_abc123.
+          in: path
+          name: batch_id
+          required: true
+          schema:
+            description: The batch id, e.g. bat_abc123.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchView"
+          description: The batch header + per-status rollup.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error — the standard envelope; branch on error.code.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+      security:
+        - bearer: []
+      summary: Get a batch's header and delivery-status rollup
+      tags:
+        - messages
   /v1/domains:
     get:
       description: List the domains owned by the authenticated account, newest first, with cursor pagination.

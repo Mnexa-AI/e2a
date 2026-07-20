@@ -262,6 +262,7 @@ func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessage
 		BCC:               m.BCC,
 		Subject:           m.Subject,
 		MessageType:       m.Type,
+		BatchID:           m.BatchID,
 	}
 	return webhookpub.Event{
 		Type:           webhookpub.EventEmailSent,
@@ -295,6 +296,7 @@ func buildEmailFailedEventFromRow(info *identity.OutboundSentInfo, detail string
 		BCC:            m.BCC,
 		Subject:        m.Subject,
 		MessageType:    m.Type,
+		BatchID:        m.BatchID,
 		Reason:         detail,
 	}
 	return webhookpub.Event{
