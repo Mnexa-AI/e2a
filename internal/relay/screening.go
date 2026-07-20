@@ -45,7 +45,7 @@ func (r inboundScreenResult) Review() bool { return r.AppliedAction == piguard.A
 //     delivery suppressed.
 //   - flag   → delivered + annotated (the gate's email.flagged path is unchanged).
 //   - allow  → delivered normally.
-func (s *Server) screenInbound(ctx context.Context, agent *identity.AgentIdentity, messageID, senderEmail string, body []byte, auth *emailauth.AuthVerdict, gate inboundpolicy.Decision) inboundScreenResult {
+func (s *Server) screenInbound(ctx context.Context, agent *identity.AgentIdentity, messageID, senderEmail string, body []byte, auth *emailauth.Authentication, gate inboundpolicy.Decision) inboundScreenResult {
 	var res inboundScreenResult
 
 	// Gate action: a flagged sender escalates to the agent's inbound_policy_action

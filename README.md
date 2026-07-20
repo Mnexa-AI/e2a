@@ -26,7 +26,7 @@ Receive inbound over **webhook · WebSocket · REST · MCP**. Send through an **
 > [!IMPORTANT]
 > **The `/v1` API and SDKs are release candidates and are not yet stable. GA is planned by July 31, 2026; stable compatibility guarantees begin only with the explicitly announced GA release tag.** Existing `v1.0.x` application/cherry-pick tags predate the API freeze and are not `/v1` compatibility baselines. Pin your SDK versions and watch [Releases](https://github.com/tokencanopy/e2a/releases).
 
-e2a is an **authenticated email gateway for AI agents**. It receives inbound mail, verifies the sender (SPF/DKIM), and delivers it to your agent as structured data with HMAC-signed `X-E2A-Auth-*` headers — over whichever channel fits your runtime. Outbound goes back out through an HTTP API, with an optional human-in-the-loop approval gate.
+e2a is an **authenticated email gateway for AI agents**. It receives inbound mail, evaluates SPF, every DKIM signature, and DMARC, and delivers structured authentication evidence over whichever channel fits your runtime. Outbound goes back out through an HTTP API, with an optional human-in-the-loop approval gate.
 
 **Four ways to plug an agent in:**
 
@@ -37,7 +37,7 @@ e2a is an **authenticated email gateway for AI agents**. It receives inbound mai
 
 What you get on top of bare SMTP:
 
-- **Authenticated transport** — SPF/DKIM verified on inbound; HMAC-signed `X-E2A-Auth-*` headers on every delivery
+- **Authenticated inbound identity** — normalized SPF, DKIM, and DMARC evidence, with an explicit aligned DMARC verdict
 - **No public URL required** — WebSocket, REST polling, and MCP all work from a laptop or behind a firewall
 - **Outbound API** — agents send to other agents (SMTP relay) or humans (upstream SMTP, e.g. SES, Resend)
 - **Human in the loop** — opt-in approval gate that holds outbound mail until a reviewer approves via dashboard, magic-link email, the MCP tools, or the API
@@ -93,7 +93,7 @@ You can either use the hosted instance or self-host.
    ┌───────────────┐
    │   e2a relay   │  ← MX for your agent domain points here
    │               │
-   │   inbound  ↓  │  ← verify (SPF/DKIM) · sign (X-E2A-Auth-*) · deliver
+   │   inbound  ↓  │  ← evaluate SPF/DKIM/DMARC · deliver
    │   outbound ↑  │  ← optional HITL hold · send
    └───────────────┘
           │   ▲
@@ -104,7 +104,7 @@ You can either use the hosted instance or self-host.
    └───────────────┘
 ```
 
-Inbound flow: SMTP → SPF/DKIM check → agent lookup → HMAC-sign auth headers → webhook / WebSocket / REST / MCP delivery.
+Inbound flow: SMTP → SPF/DKIM/DMARC evaluation → agent lookup → webhook / WebSocket / REST / MCP delivery.
 
 Outbound flow: API call → optional HITL hold → SMTP relay (agent-to-agent) or upstream SMTP (agent-to-human).
 
@@ -125,35 +125,13 @@ Notifications carry lightweight metadata (message id, sender, subject); you fetc
 
 Webhooks are an **account-level resource** (`/v1/webhooks`), chosen per integration rather than configured on the agent.
 
-### Auth headers
+### Inbound authentication
 
-Every email delivered through e2a (webhook or WebSocket-fetched) carries signed headers:
+Inbound messages expose three distinct concepts: `header_from` (the parsed RFC 5322 From address), `envelope_from` (SMTP MAIL FROM), and `authentication` (SPF, every DKIM signature, and the aligned DMARC result). Reply-To remains separate and never replaces `header_from`.
 
-| Header | Description |
-|--------|-------------|
-| `X-E2A-Auth-Verified` | `true` if domain-level auth (SPF or DKIM) passed |
-| `X-E2A-Auth-Sender` | Verified sender email or agent domain |
-| `X-E2A-Auth-Entity-Type` | `human` or `agent` |
-| `X-E2A-Auth-Domain-Check` | SPF/DKIM result string (e.g. `spf=pass; dkim=none`) |
-| `X-E2A-Auth-Delegation` | `agent={id};human={id}` if an active delegation binding exists |
-| `X-E2A-Auth-Timestamp` | RFC3339 timestamp |
-| `X-E2A-Auth-Message-Id` | Internal e2a message ID this delivery is for |
-| `X-E2A-Auth-Body-Hash` | Hex SHA-256 of the raw message bytes |
-| `X-E2A-Auth-Signature` | HMAC-SHA256 over a canonical string of the above |
+Treat a sender as authenticated only when `authentication?.dmarc.status === "pass"`. SPF or DKIM passing alone is evidence, but is not sufficient unless it aligns with the From domain under DMARC. `authentication` is null for outbound messages and providerless local loopback delivery.
 
-The signature covers:
-
-```
-verified \n sender \n entity_type \n domain_check \n delegation \n timestamp \n message_id \n body_hash
-```
-
-The MAC binds to **both** `message_id` and a SHA-256 of the raw message body. Substituting either invalidates the signature, so an attacker who captures one delivery cannot replay the auth claim on a different message or under a modified body.
-
-#### Verifying the signature
-
-Any field in the payload — including `X-E2A-Auth-Verified` — is just the *server's claim* until you authenticate the delivery: anyone who can reach your webhook URL can POST a forged body. To make a security decision, **verify the delivery's envelope signature** — the `X-E2A-Signature` header — with your webhook's signing secret, a `whsec_…` value returned **once** when you create the subscription (`POST /v1/webhooks`); store it then. Rotate via `POST /v1/webhooks/{id}/rotate-secret` (24h grace window where the old secret still verifies). The envelope signature covers the whole payload, so once it verifies, the `X-E2A-Auth-*` claims inside are trustworthy too.
-
-> The inner `X-E2A-Auth-Signature` (in the table above) is a separate mechanism, signed with the deployment's HMAC secret — **not** your `whsec_` — so a webhook subscriber neither needs nor can verify it. It exists for same-trust-domain consumers that receive these as relayed message headers (e.g. a self-hosted deployment holding the HMAC secret). Your verification path as a subscriber is the envelope signature.
+Before trusting any webhook field, verify the delivery envelope's `X-E2A-Signature` with the webhook's `whsec_…` signing secret. The envelope signature covers the complete structured payload, including `authentication`.
 
 The one-call shortcut parses **and** verifies a delivery, returning a typed event — use it instead of trusting any field on an unverified payload:
 
@@ -374,11 +352,9 @@ Email is the only protocol where every human already has an address and a workin
 
 e2a doesn't replace webhooks or MCP — your agent *receives* email through them. It bridges email's universal addressability to the structured-data world the agent code already lives in.
 
-### What stops an attacker from spoofing the `X-E2A-Auth-*` headers?
+### What stops an attacker from spoofing authentication results?
 
-The relay never trusts inbound `X-E2A-Auth-*` headers — it derives the auth claim from scratch and signs it with HMAC-SHA256 against `signing.hmac_secret`, so any values a sender injects are ignored (read the signed `auth_headers` field, not raw message headers). The signed canonical binds `Sender + Verified + Body-Hash + Message-Id` together — replay attempts, body swaps, and sender-only forgery all fail validation. Each delivery is bound to *that specific message body*, not just the sender claim, so a captured `(headers, signature)` tuple can't be lifted onto a different message.
-
-For a **webhook subscriber**, though, the protection you actually rely on is the delivery's **envelope signature** (`X-E2A-Signature`, verified with your `whsec_`): a forged POST to your URL fails envelope verification regardless of what `X-E2A-Auth-*` values it carries. The inner re-signing above is for the *relayed-header* trust model — consumers that hold the deployment HMAC secret and receive `X-E2A-Auth-*` as message headers — which a `/v1/webhooks` subscriber is not.
+The relay discards any sender-supplied authentication claims and evaluates SPF, DKIM, and DMARC itself. For webhooks, verify `X-E2A-Signature` with the subscription's `whsec_` secret before trusting the structured result; a forged POST then fails verification regardless of its claimed DMARC status.
 
 Receivers verify with the SDK — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + HMAC verify in one call (or `verify_webhook_signature(...)` / `verifyWebhookSignature(...)` if you only need the boolean check). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard; the previous secret keeps verifying through a 24h grace window, then stops. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
 
@@ -387,7 +363,7 @@ Receivers verify with the SDK — `construct_event(body, header, secret)` / `con
 Yes — and the extra steps are the point. Concretely:
 
 - SPF/DKIM verdict normalization so receivers don't reimplement domain auth
-- HMAC-signed delivery contract binding sender, body hash, message ID, and verification status
+- Structured SPF/DKIM/DMARC evidence with explicit identifier alignment
 - WebSocket / REST / MCP transport for agents without public URLs
 - HITL approval flow with auto-expiration and stateless magic-link review
 - Conversation-Id threading that survives the email ↔ structured-data boundary

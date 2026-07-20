@@ -318,7 +318,7 @@ type Message struct {
 	ID        string `json:"id"`
 	AgentID   string `json:"agent_email"`
 	Direction string `json:"direction"`
-	Sender    string `json:"from"`
+	Sender    string `json:"-"`
 	// HeaderFrom and EnvelopeFrom are the canonical inbound identities. They
 	// remain separate from ReplyTo and from the legacy Sender projection.
 	HeaderFrom        string                    `json:"header_from"`
@@ -331,12 +331,12 @@ type Message struct {
 	Method            string                    `json:"method,omitempty"`
 	Type              string                    `json:"type,omitempty"`
 	RawMessage        []byte                    `json:"raw_message,omitempty"`
-	AuthHeaders       map[string]string         `json:"auth_headers,omitempty"`
+	AuthHeaders       map[string]string         `json:"-"`
 	// Auth carries the parsed inbound authentication verdict
 	// (messages.auth_verdict from migration 032): SPF/DKIM/DMARC each with
 	// a status and detail. Populated on inbound read paths when the column
 	// is non-null; nil on outbound rows (which never have a verdict).
-	Auth           *emailauth.AuthVerdict `json:"auth,omitempty"`
+	Auth           *emailauth.AuthVerdict `json:"-"`
 	ConversationID string                 `json:"conversation_id,omitempty"`
 	// DeliveryStatus is overloaded by direction. On inbound rows it carries
 	// the inbox read/unread status (messages.inbox_status) under this legacy
@@ -470,6 +470,10 @@ type InboundAuth struct {
 	HeaderFrom     string
 	EnvelopeFrom   string
 	Authentication *emailauth.Authentication
+	// StoredSender preserves internal reply-routing compatibility where it must
+	// differ from the public RFC 5322 header identity (providerless loopback).
+	// External SMTP callers leave it empty and persist HeaderFrom as before.
+	StoredSender string
 }
 
 // Message status values mirror the CHECK constraint in migration 044_unify_holds.sql.
@@ -1889,7 +1893,11 @@ func (s *Store) CreateInboundMessageInTx(ctx context.Context, tx pgx.Tx, id, age
 }
 
 func (s *Store) CreateInboundMessageAuthenticatedInTx(ctx context.Context, tx pgx.Tx, id, agentID string, auth InboundAuth, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, flagged bool, flagReason string, toRecipients, cc, replyTo []string, screening InboundScreening) (*Message, error) {
-	return createInboundMessage(ctx, tx, id, agentID, auth.HeaderFrom, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, nil, nil, flagged, flagReason, toRecipients, cc, replyTo, screening, &auth)
+	storedSender := auth.StoredSender
+	if storedSender == "" {
+		storedSender = auth.HeaderFrom
+	}
+	return createInboundMessage(ctx, tx, id, agentID, storedSender, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, nil, nil, flagged, flagReason, toRecipients, cc, replyTo, screening, &auth)
 }
 
 // messageExecutor is the subset of *pgxpool.Pool and pgx.Tx that
@@ -2121,8 +2129,9 @@ func unmarshalAuthentication(authenticationJSON, legacyVerdictJSON []byte, m *Me
 // was never persisted; callers must tolerate that and fall back to
 // legacy single-id threading.
 //
-// auth_headers is included in the SELECT so HITL review handlers can
-// surface SPF/DKIM/DMARC provenance on the reply-context pane.
+// Canonical authentication columns are included so HITL review handlers can
+// surface SPF/DKIM/DMARC provenance on the reply-context pane. Legacy columns
+// remain selected only for fail-closed migration fallback.
 func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*Message, error) {
 	if emailMessageID == "" {
 		return nil, fmt.Errorf("empty email_message_id")
@@ -3474,7 +3483,7 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 
 func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit int) ([]Message, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.subject, m.email_message_id, COALESCE(m.method, ''), COALESCE(m.message_type, ''), COALESCE(m.inbox_status, ''), m.created_at, m.expires_at,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, COALESCE(m.header_from, ''), COALESCE(m.envelope_from, ''), m.authentication, m.recipient, m.subject, m.email_message_id, COALESCE(m.method, ''), COALESCE(m.message_type, ''), COALESCE(m.inbox_status, ''), m.created_at, m.expires_at,
 		        COALESCE(wd.status, ''), COALESCE(wd.last_error, ''), COALESCE(wd.attempts, 0),
 		        m.to_recipients, m.cc, m.bcc,
 		        COALESCE(m.conversation_id, ''), COALESCE(octet_length(m.raw_message), 0),
@@ -3498,11 +3507,14 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 	for rows.Next() {
 		var m Message
 		var inboxStatus, outboundDeliveryStatus string
-		var authVerdict []byte
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &inboxStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict, &m.Flagged, &m.FlagReason); err != nil {
+		var authentication, authVerdict []byte
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.Subject, &m.EmailMessageID, &m.Method, &m.Type, &inboxStatus, &m.CreatedAt, &m.ExpiresAt, &m.WebhookStatus, &m.WebhookError, &m.WebhookAttempts, &m.ToRecipients, &m.CC, &m.BCC, &m.ConversationID, &m.SizeBytes, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &authVerdict, &m.Flagged, &m.FlagReason); err != nil {
 			return nil, err
 		}
 		if err := unmarshalAuthVerdict(authVerdict, &m); err != nil {
+			return nil, err
+		}
+		if err := unmarshalAuthentication(authentication, authVerdict, &m); err != nil {
 			return nil, err
 		}
 		// DeliveryStatus is overloaded by direction (see Message.DeliveryStatus):
@@ -3583,10 +3595,10 @@ type MessageListFilter struct {
 // `status` (outbound HITL lifecycle), `webhook_status`/`last_error`
 // (outbound delivery), and `octet_length(raw_message)` (size column);
 // the polling SDK ignores these fields and reads only the existing
-// inbound-relevant ones from the Message struct. `auth_headers` (small
-// signed metadata, persisted at intake) is selected so the WS drain path
-// can emit the same authenticated_from/auth_headers a live delivery
-// carries; raw_message stays deliberately unselected (the blob).
+// inbound-relevant ones from the Message struct. Canonical identity and
+// authentication evidence is selected so the WS drain fallback matches live
+// delivery; raw_message stays deliberately unselected (the blob). Legacy auth
+// columns remain selected only for fail-closed migration fallback.
 func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]Message, error) {
 	var query string
 	var args []interface{}
@@ -3752,7 +3764,8 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 	return messages, rows.Err()
 }
 
-// GetMessageWithContent returns a full message including raw_message and auth_headers.
+// GetMessageWithContent returns a full message including raw MIME and canonical
+// authentication evidence.
 // Marks the message as 'read' if it was 'unread'.
 //
 // Unlike the list/reply/threading paths, this deliberately returns TRASHED
@@ -4252,7 +4265,7 @@ func (s *Store) ListConversationsByAgent(ctx context.Context, f ConversationList
 // labels[]; both are sorted lexicographically for stable output.
 func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID string) (*ConversationDetail, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient,
+		`SELECT m.id, m.agent_id, m.direction, m.sender, COALESCE(m.header_from, ''), COALESCE(m.envelope_from, ''), m.authentication, m.recipient,
 		        m.to_recipients, m.cc, m.bcc, m.reply_to,
 		        m.subject, COALESCE(m.email_message_id, ''),
 		        COALESCE(m.method, ''), COALESCE(m.message_type, ''),
@@ -4285,9 +4298,9 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 	for rows.Next() {
 		var m Message
 		var outboundDeliveryStatus string
-		var authVerdict []byte
+		var authentication, authVerdict []byte
 		if err := rows.Scan(
-			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient,
+			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient,
 			&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
 			&m.Subject, &m.EmailMessageID,
 			&m.Method, &m.Type,
@@ -4302,6 +4315,9 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 			return nil, err
 		}
 		if err := unmarshalAuthVerdict(authVerdict, &m); err != nil {
+			return nil, err
+		}
+		if err := unmarshalAuthentication(authentication, authVerdict, &m); err != nil {
 			return nil, err
 		}
 		// DeliveryStatus is overloaded by direction (see Message.DeliveryStatus):

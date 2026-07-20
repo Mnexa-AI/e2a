@@ -20,7 +20,7 @@ import json
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, List, Mapping, Optional, Sequence, Union
+from typing import Any, List, Literal, Mapping, Optional, Sequence, Union
 
 from typing_extensions import NotRequired, TypedDict, TypeGuard
 
@@ -145,9 +145,37 @@ class AttachmentMetaView(TypedDict):
     index: int
 
 
-# email.received / email.sent / email.failed carry the sender under the wire
-# key "from" — a Python keyword — so these three use the functional TypedDict
-# syntax. Access it as ``data["from"]``.
+class SPFResult(TypedDict):
+    status: Literal["pass", "fail", "none", "neutral", "softfail", "policy", "temperror", "permerror"]
+    domain: Optional[str]
+    aligned: Optional[bool]
+    detail: NotRequired[str]
+
+
+class DKIMResult(TypedDict):
+    status: Literal["pass", "fail", "none", "neutral", "policy", "temperror", "permerror"]
+    domain: Optional[str]
+    selector: Optional[str]
+    aligned: Optional[bool]
+    detail: NotRequired[str]
+
+
+class DMARCResult(TypedDict):
+    status: Literal["pass", "fail", "none", "temperror", "permerror"]
+    domain: Optional[str]
+    policy: Optional[Literal["none", "quarantine", "reject"]]
+    aligned_by: List[Literal["spf", "dkim"]]
+    detail: NotRequired[str]
+
+
+class Authentication(TypedDict):
+    spf: SPFResult
+    dkim: List[DKIMResult]
+    dmarc: DMARCResult
+
+
+# email.sent / email.failed carry the sender under the wire key "from" — a
+# Python keyword — so those payloads use the functional TypedDict syntax.
 
 EmailReceivedData = TypedDict(
     "EmailReceivedData",
@@ -156,19 +184,16 @@ EmailReceivedData = TypedDict(
         "agent_email": str,
         "direction": str,  # always "inbound"
         "conversation_id": NotRequired[str],
-        # Display/reply sender (prefers Reply-To); for the verified identity
-        # use authenticated_from.
-        "from": str,
-        "authenticated_from": str,
+        "header_from": Optional[str],
+        "envelope_from": Optional[str],
+        "authentication": Optional[Authentication],
         "to": List[str],
-        "cc": NotRequired[List[str]],
-        "reply_to": NotRequired[List[str]],
+        "cc": List[str],
+        "reply_to": List[str],
         # The one agent address this per-agent copy was delivered to — the
         # fetch key for the message.
         "delivered_to": str,
         "subject": str,
-        # Signed X-E2A-Auth-* attestation (may be empty on the WS drain path).
-        "auth_headers": Mapping[str, str],
         "received_at": str,
         "attachments": NotRequired[List[AttachmentMetaView]],
     },
@@ -176,8 +201,8 @@ EmailReceivedData = TypedDict(
 EmailReceivedData.__doc__ = (
     "``data`` of an ``email.received`` event — a metadata-only notification. "
     "``message_id`` + ``delivered_to`` are the fetch keys; retrieve the full "
-    "message with ``client.webhooks.fetch_message(event)``. "
-    "``authenticated_from`` — not ``from`` — is the SPF/DKIM/DMARC-verified identity."
+    "message with ``client.webhooks.fetch_message(event)``. Trust the sender "
+    "only when ``authentication.dmarc.status == 'pass'``."
 )
 
 EmailSentData = TypedDict(

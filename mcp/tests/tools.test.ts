@@ -139,7 +139,13 @@ function makeStubClient(
     getMessage: vi.fn(async (id: string, _addr?: string) => ({
       id,
       conversationId: "conv_x",
-      from_: "alice@example.com",
+      headerFrom: "alice@example.com",
+      envelopeFrom: "bounce@example.com",
+      authentication: {
+        spf: { status: "pass", domain: "example.com", aligned: true },
+        dkim: [],
+        dmarc: { status: "pass", domain: "example.com", policy: "reject", alignedBy: ["spf"] },
+      },
       deliveredTo: "bot@example.com",
       to: ["bot@example.com"],
       cc: [],
@@ -694,7 +700,10 @@ describe("e2a MCP server", () => {
     const content = res.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
     expect(parsed.id).toBe("msg_abc");
-    expect(parsed.from_).toBe("alice@example.com");
+    expect(parsed.header_from).toBe("alice@example.com");
+    expect(parsed.envelope_from).toBe("bounce@example.com");
+    expect(parsed.authentication).toMatchObject({ dmarc: { status: "pass" } });
+    expect(parsed).not.toHaveProperty("from_");
     expect(parsed).not.toHaveProperty("from");
     expect(parsed.text).toBe("hello world");
     // Critical: attachments surfaced as metadata-only (no `data`)

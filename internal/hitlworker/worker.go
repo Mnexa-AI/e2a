@@ -447,20 +447,18 @@ func (w *Worker) publishLoopbackOutcomeEventsTx(
 		replyTo = []string{req.ReplyTo}
 	}
 	receivedData := eventpayload.EmailReceivedData{
-		MessageID:         inboundMsg.ID,
-		AgentEmail:        agent.EmailAddress(),
-		Direction:         "inbound",
-		ConversationID:    inboundMsg.ConversationID,
-		From:              loopbackDisplayFrom(req, agent.EmailAddress()),
-		AuthenticatedFrom: agent.EmailAddress(),
-		To:                []string{agent.EmailAddress()},
-		CC:                []string{},
-		ReplyTo:           replyTo,
-		DeliveredTo:       agent.EmailAddress(),
-		Subject:           inboundMsg.Subject,
-		AuthHeaders:       map[string]string{},
-		ReceivedAt:        inboundMsg.CreatedAt.UTC(),
-		Attachments:       eventpayload.AttachmentMetadata(result.Raw),
+		MessageID:      inboundMsg.ID,
+		AgentEmail:     agent.EmailAddress(),
+		Direction:      "inbound",
+		ConversationID: inboundMsg.ConversationID,
+		HeaderFrom:     stringPointer(agent.EmailAddress()),
+		To:             []string{agent.EmailAddress()},
+		CC:             []string{},
+		ReplyTo:        replyTo,
+		DeliveredTo:    agent.EmailAddress(),
+		Subject:        inboundMsg.Subject,
+		ReceivedAt:     inboundMsg.CreatedAt.UTC(),
+		Attachments:    eventpayload.AttachmentMetadata(result.Raw),
 	}
 	receivedEvent := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, receivedData)
 	receivedEvent.ID = webhookpub.DeterministicEventID(inboundMsg.ID, webhookpub.EventEmailReceived)
@@ -482,6 +480,8 @@ func loopbackDisplayFrom(req outbound.SendRequest, agentEmail string) string {
 	}
 	return agentEmail
 }
+
+func stringPointer(value string) *string { return &value }
 
 func (w *Worker) pushLoopbackReceived(agentID string, event webhookpub.Event) {
 	if w.wsHub == nil || event.ID == "" || !w.wsHub.IsConnected(agentID) {

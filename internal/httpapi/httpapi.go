@@ -185,8 +185,8 @@ type Deps struct {
 
 	// CursorSecret is the deployment HMAC secret (config.Signing.HMACSecret)
 	// used to sign/verify pagination cursors so they are tamper-evident
-	// (issue #144 M2). The same key approvaltoken and the X-E2A-Auth-* email
-	// headers use — no new key. Handlers pass it to EncodeCursor and wrap it
+	// (issue #144 M2). The same deployment key used by approvaltoken — no new
+	// key. Handlers pass it to EncodeCursor and wrap it
 	// in a 1-element slice for DecodeCursor (whose verify loop supports N for
 	// a future secret rotation). Empty in minimal test setups, which is fine:
 	// encode and verify stay consistent under the same (empty) key.
@@ -457,6 +457,7 @@ func New(deps Deps) *Server {
 	// handler. Registered once; applies to every operation.
 	api.UseMiddleware(s.rateLimit)
 	s.registerOperations()
+	s.applyAuthenticationNullability()
 	// Post-registration document passes, in order: drop the phantom
 	// octet-stream request-body variants first (a Huma RawBody artifact), then
 	// stamp the forward-compat stance onto the cleaned document — response

@@ -596,9 +596,9 @@ for 24 hours; accept a request when either secret verifies during that window.
 
 <a id="webhook-signing-secrets"></a>
 > **Signing.** Webhook deliveries are signed per-webhook with the `whsec_`
-> secret (rotatable via the `rotate-secret` route above). The relay's
-> `X-E2A-Auth-*` headers and the HITL approval / magic-link tokens are signed by
-> the deployment-wide HMAC secret (`E2A_HMAC_SECRET`), its sole signer.
+> secret (rotatable via the `rotate-secret` route above). The envelope signature
+> authenticates the structured inbound authentication evidence. HITL approval /
+> magic-link tokens use the deployment-wide HMAC secret (`E2A_HMAC_SECRET`).
 
 ### Events (`/v1/events`)
 
@@ -643,12 +643,18 @@ content via `GET /v1/agents/{email}/messages/{id}`:
     "agent_email": "bot@your-domain.com",
     "direction": "inbound",
     "conversation_id": "conv_xyz",
-    "from": "alice@example.com",
-    "authenticated_from": "alice@example.com",
+    "header_from": "alice@example.com",
+    "envelope_from": "bounce@example.com",
+    "authentication": {
+      "spf": {"status": "pass", "domain": "example.com", "aligned": true},
+      "dkim": [],
+      "dmarc": {"status": "pass", "domain": "example.com", "policy": "reject", "aligned_by": ["spf"]}
+    },
     "to": ["bot@your-domain.com"],
+    "cc": [],
+    "reply_to": [],
     "delivered_to": "bot@your-domain.com",
     "subject": "Meeting tomorrow",
-    "auth_headers": {},
     "received_at": "2026-04-24T10:00:00.123456789Z"
   }
 }
@@ -657,13 +663,9 @@ content via `GET /v1/agents/{email}/messages/{id}`:
 On connect, all unread messages are drained as `email.received` events
 automatically. Live events carry the same marshaled event envelope as the
 webhook delivery — identical fields and event id; byte layout may differ
-(JSON key order/escaping is not contractual). The drain-on-reconnect rebuild
-carries the full auth contract (`authenticated_from` + the signed
-`auth_headers`, persisted with the message) and diverges from the original
-event in exactly two ways: `attachments` is omitted (the raw message is not
-loaded by the drain query), and `created_at`/`received_at` are the message
-row's time rather than the original event's publish time — the full message
-(fetched separately) always has everything.
+(JSON key order/escaping is not contractual). Reconnect drain reuses the
+durable event envelope, including the persisted `header_from`, `envelope_from`,
+and structured `authentication` evidence.
 
 ### Connection lifecycle & close codes
 

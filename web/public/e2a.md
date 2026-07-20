@@ -146,8 +146,8 @@ credential). Don't retry — it's held, not failed.
   double-queue. Wait for the human decision.
 - ❌ Starting a new `send_message` to answer an inbound → breaks threading. Use
   `reply_to_message`.
-- ❌ Trusting the `From` display name → use the authenticated SPF/DKIM/DMARC
-  result and `authenticated_from` identity.
+- ❌ Trusting `header_from` without checking alignment → require
+  `authentication.dmarc.status == "pass"`, then compare `header_from`.
 - ❌ Hardcoding tool signatures from this doc → call `tools/list`; it's
   authoritative.
 

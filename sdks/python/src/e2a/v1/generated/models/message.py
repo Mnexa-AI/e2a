@@ -18,10 +18,10 @@ import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictBytes, StrictFloat, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional, Union
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
-from e2a.v1.generated.models.auth_verdict import AuthVerdict
+from e2a.v1.generated.models.authentication import Authentication
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -32,8 +32,7 @@ class Message(BaseModel):
     agent_email: StrictStr
     approval_expires_at: Optional[datetime] = None
     attachments: Optional[List[AttachmentMetaView]] = None
-    auth: Optional[AuthVerdict] = None
-    auth_headers: Optional[Dict[str, StrictStr]] = None
+    authentication: Authentication
     bcc: Optional[List[StrictStr]] = None
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
@@ -45,16 +44,17 @@ class Message(BaseModel):
     direction: StrictStr
     edited: Optional[StrictBool] = None
     email_message_id: Optional[StrictStr] = None
+    envelope_from: StrictStr
     expires_at: datetime
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    from_: StrictStr = Field(alias="from")
+    header_from: StrictStr
     html: Optional[StrictStr] = None
     id: StrictStr
     labels: Optional[List[StrictStr]] = None
     method: Optional[StrictStr] = None
     provider_message_id: Optional[StrictStr] = None
-    raw_message: Optional[StrictStr] = None
+    raw_message: Optional[Union[StrictBytes, StrictStr]] = None
     read_status: Optional[StrictStr] = None
     rejection_reason: Optional[StrictStr] = None
     reply_to: Optional[List[StrictStr]] = None
@@ -75,7 +75,7 @@ class Message(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "auth", "auth_headers", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "webhook_attempts", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "authentication", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "envelope_from", "expires_at", "flag_reason", "flagged", "header_from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "webhook_attempts", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -125,9 +125,9 @@ class Message(BaseModel):
                 if _item_attachments:
                     _items.append(_item_attachments.to_dict())
             _dict['attachments'] = _items
-        # override the default output from pydantic by calling `to_dict()` of auth
-        if self.auth:
-            _dict['auth'] = self.auth.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of authentication
+        if self.authentication:
+            _dict['authentication'] = self.authentication.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -178,8 +178,7 @@ class Message(BaseModel):
             "agent_email": obj.get("agent_email"),
             "approval_expires_at": obj.get("approval_expires_at"),
             "attachments": [AttachmentMetaView.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
-            "auth": AuthVerdict.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
-            "auth_headers": obj.get("auth_headers"),
+            "authentication": Authentication.from_dict(obj["authentication"]) if obj.get("authentication") is not None else None,
             "bcc": obj.get("bcc"),
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
@@ -191,10 +190,11 @@ class Message(BaseModel):
             "direction": obj.get("direction"),
             "edited": obj.get("edited"),
             "email_message_id": obj.get("email_message_id"),
+            "envelope_from": obj.get("envelope_from"),
             "expires_at": obj.get("expires_at"),
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
-            "from": obj.get("from"),
+            "header_from": obj.get("header_from"),
             "html": obj.get("html"),
             "id": obj.get("id"),
             "labels": obj.get("labels"),

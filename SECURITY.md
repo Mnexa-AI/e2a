@@ -2,7 +2,7 @@
 
 e2a is an authenticated email gateway. A vulnerability in this codebase
 can affect every deployment that uses it — including the ability to
-forge signed `X-E2A-Auth-*` headers, bypass HITL approval gates, exfil
+forge inbound authentication verdicts, bypass HITL approval gates, exfil
 inbound mail, or spoof agent identity. We take that responsibility
 seriously and ask that you report issues privately rather than in
 public GitHub issues.
@@ -53,11 +53,10 @@ In scope (please report):
 
 - Authentication bypass — anything that lets an unauthenticated caller
   reach an authenticated endpoint, or that lets one user act as another
-- Forging or replaying `X-E2A-Auth-*` headers (HMAC, timestamp, body
-  hash) without knowing the signing secret
+- Causing forged or misaligned mail to receive a trusted DMARC verdict
 - Bypassing HITL approval (sending an outbound message that should
   have been held for review)
-- SPF/DKIM verification flaws (causing inbound mail to be marked
+- SPF/DKIM/DMARC verification flaws (causing inbound mail to be marked
   verified when it shouldn't, or vice versa)
 - SSRF in webhook delivery, OAuth callback handling, or any other
   outbound HTTP path

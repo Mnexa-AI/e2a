@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
@@ -103,7 +103,6 @@ type testEnv struct {
 	baseURL string
 	store   *identity.Store
 	outbox  webhookpub.Outbox
-	signer  *headers.Signer
 	wsHub   *ws.Hub
 	apiKey  string
 	userID  string
@@ -127,7 +126,6 @@ func setupEnv(t *testing.T) *testEnv {
 		baseURL: cs.BaseURL,
 		store:   cs.Store,
 		outbox:  webhookpub.NewOutbox(cs.DBPool, webhookpub.StaticFlag(true)),
-		signer:  cs.Signer,
 		wsHub:   cs.WSHub,
 		apiKey:  cs.APIKey,
 		userID:  cs.UserID,
@@ -167,46 +165,46 @@ func (e *testEnv) injectInboundMessage(t *testing.T, agentEmail, from, subject s
 	if err != nil {
 		t.Fatalf("get agent: %v", err)
 	}
-	// A faithful inbound message carries its raw MIME and the X-E2A-Auth-* blob
-	// the relay stamps after SPF/DKIM/DMARC — without auth_headers the detail
-	// view omits the field (it is omitempty), which is not how a real received
-	// message looks. Populate both so the contract exercises the real shape.
+	// Populate canonical SMTP authentication evidence so the contract exercises
+	// the same shape as a real received message.
 	raw := []byte("From: " + from + "\r\nTo: " + agentEmail + "\r\nSubject: " + subject + "\r\n\r\nbody\r\n")
 	messageID := identity.NewMessageID()
-	authHeaders := e.signer.Sign(headers.AuthPayload{
-		Verified:    true,
-		Sender:      from,
-		EntityType:  "human",
-		DomainCheck: "spf=pass; dkim=pass; dmarc=pass",
-		MessageID:   messageID,
-		BodyHash:    headers.HashBody(raw),
-	})
+	fromDomain := strings.SplitN(from, "@", 2)[1]
+	aligned := true
+	policy := emailauth.DMARCPolicyReject
+	authentication := &emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &fromDomain, Aligned: &aligned},
+		DKIM:  []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &fromDomain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
+	}
 	to := []string{agentEmail}
 	var msg *identity.Message
 	// Match the production inbound invariant: the inbox row and its canonical
 	// email.received envelope become durable in the same transaction.
 	err = e.store.WithTx(ctx, func(tx pgx.Tx) error {
 		var txErr error
-		msg, txErr = e.store.CreateInboundMessageInTx(
-			ctx, tx, messageID, ag.ID, from, agentEmail, "", subject, "", "unread",
-			raw, authHeaders, nil, false, "", to, nil, nil, identity.InboundScreening{},
+		msg, txErr = e.store.CreateInboundMessageAuthenticatedInTx(
+			ctx, tx, messageID, ag.ID, identity.InboundAuth{HeaderFrom: from, EnvelopeFrom: from, Authentication: authentication}, agentEmail, "", subject, "", "unread",
+			raw, false, "", to, nil, nil, identity.InboundScreening{},
 		)
 		if txErr != nil {
 			return txErr
 		}
 
 		event := webhookpub.NewEvent(webhookpub.EventEmailReceived, ag.UserID, eventpayload.EmailReceivedData{
-			MessageID:         msg.ID,
-			AgentEmail:        agentEmail,
-			Direction:         "inbound",
-			From:              from,
-			AuthenticatedFrom: from,
-			To:                to,
-			DeliveredTo:       agentEmail,
-			Subject:           subject,
-			AuthHeaders:       authHeaders,
-			ReceivedAt:        msg.CreatedAt.UTC(),
-			Attachments:       eventpayload.AttachmentMetadata(raw),
+			MessageID:      msg.ID,
+			AgentEmail:     agentEmail,
+			Direction:      "inbound",
+			HeaderFrom:     &from,
+			EnvelopeFrom:   &from,
+			To:             to,
+			CC:             []string{},
+			ReplyTo:        []string{},
+			Authentication: authentication,
+			DeliveredTo:    agentEmail,
+			Subject:        subject,
+			ReceivedAt:     msg.CreatedAt.UTC(),
+			Attachments:    eventpayload.AttachmentMetadata(raw),
 		})
 		event.ID = webhookpub.DeterministicEventID(msg.ID, webhookpub.EventEmailReceived)
 		event.AgentID = ag.ID
@@ -241,8 +239,9 @@ func TestInjectInboundMessagePersistsDurableEnvelope(t *testing.T) {
 	}
 	var event struct {
 		Data struct {
-			MessageID   string              `json:"message_id"`
-			AuthHeaders headers.AuthHeaders `json:"auth_headers"`
+			MessageID      string                    `json:"message_id"`
+			HeaderFrom     *string                   `json:"header_from"`
+			Authentication *emailauth.Authentication `json:"authentication"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(envelope, &event); err != nil {
@@ -251,27 +250,11 @@ func TestInjectInboundMessagePersistsDurableEnvelope(t *testing.T) {
 	if event.Data.MessageID != msgID {
 		t.Fatalf("event message_id = %q, want %q", event.Data.MessageID, msgID)
 	}
-	if !env.signer.Verify(event.Data.AuthHeaders) {
-		t.Fatal("durable email.received auth_headers do not carry a valid contract-server attestation")
+	if event.Data.HeaderFrom == nil || *event.Data.HeaderFrom != "alice@example.com" {
+		t.Fatalf("header_from = %v", event.Data.HeaderFrom)
 	}
-	wantRaw := []byte("From: alice@example.com\r\nTo: bot@ws-envelope.test.dev\r\nSubject: WS envelope test\r\n\r\nbody\r\n")
-	wantHeaders := map[string]string{
-		headers.HeaderVerified:    "true",
-		headers.HeaderSender:      "alice@example.com",
-		headers.HeaderEntityType:  "human",
-		headers.HeaderDomainCheck: "spf=pass; dkim=pass; dmarc=pass",
-		headers.HeaderMessageID:   msgID,
-		headers.HeaderBodyHash:    headers.HashBody(wantRaw),
-	}
-	for name, want := range wantHeaders {
-		if got := event.Data.AuthHeaders[name]; got != want {
-			t.Errorf("auth header %s = %q, want %q", name, got, want)
-		}
-	}
-	for _, name := range []string{headers.HeaderTimestamp, headers.HeaderSignature} {
-		if event.Data.AuthHeaders[name] == "" {
-			t.Errorf("auth header %s is empty", name)
-		}
+	if event.Data.Authentication == nil || event.Data.Authentication.DMARC.Status != emailauth.StatusPass {
+		t.Fatalf("authentication = %#v, want DMARC pass", event.Data.Authentication)
 	}
 }
 

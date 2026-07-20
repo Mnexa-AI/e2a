@@ -104,13 +104,41 @@ export interface AttachmentMetaView {
   index: number;
 }
 
+export interface SPFResult {
+  status: "pass" | "fail" | "none" | "neutral" | "softfail" | "policy" | "temperror" | "permerror";
+  domain: string | null;
+  aligned: boolean | null;
+  detail?: string;
+}
+
+export interface DKIMResult {
+  status: "pass" | "fail" | "none" | "neutral" | "policy" | "temperror" | "permerror";
+  domain: string | null;
+  selector: string | null;
+  aligned: boolean | null;
+  detail?: string;
+}
+
+export interface DMARCResult {
+  status: "pass" | "fail" | "none" | "temperror" | "permerror";
+  domain: string | null;
+  policy: "none" | "quarantine" | "reject" | null;
+  aligned_by: Array<"spf" | "dkim">;
+  detail?: string;
+}
+
+export interface Authentication {
+  spf: SPFResult;
+  dkim: DKIMResult[];
+  dmarc: DMARCResult;
+}
+
 /** Typed payload of an `email.received` event. The event is a metadata-only
  *  notification — it does NOT carry the message body. `message_id` + `delivered_to`
  *  are the fetch keys; pass the event to {@link E2AClient.webhooks.fetchMessage}
  *  (or call `client.messages.get(delivered_to, message_id)`) to retrieve the full
- *  message (body + attachment bytes). `auth_headers` is the signed X-E2A-Auth-*
- *  attestation — verify it to independently confirm the inbound SPF/DKIM/DMARC
- *  verdict. */
+ *  message (body + attachment bytes). Trust the sender only when
+ *  `authentication?.dmarc.status === "pass"`. */
 export interface EmailReceivedData {
   message_id: string;
   /** The receiving agent's email — its id and address (an agent's id IS its email). */
@@ -118,22 +146,19 @@ export interface EmailReceivedData {
   /** Always "inbound" on this event. */
   direction: string;
   conversation_id?: string;
-  /** Display/reply sender (prefers Reply-To). For the authenticated, gated
-   *  identity use `authenticated_from`. */
-  from: string;
-  /** The From-header identity SPF/DKIM/DMARC verified — treat THIS (not
-   *  `from`) as the gated identity. */
-  authenticated_from: string;
+  /** Parsed RFC 5322 From address; never replaced by Reply-To. */
+  header_from: string | null;
+  /** SMTP MAIL FROM; null for a null reverse path or providerless delivery. */
+  envelope_from: string | null;
+  /** SMTP authentication evidence; null for providerless delivery. */
+  authentication: Authentication | null;
   to: string[];
-  cc?: string[];
-  reply_to?: string[];
+  cc: string[];
+  reply_to: string[];
   /** The one agent address this per-agent copy was delivered to (scalar by
    *  construction — one event per delivery). The fetch key. */
   delivered_to: string;
   subject: string;
-  /** Signed X-E2A-Auth-* attestation of the inbound auth verdict. May be an
-   *  empty object on the WebSocket drain path; never absent. */
-  auth_headers: Record<string, string>;
   received_at: string;
   /** Attachment METADATA (never bytes). Omitted when the message has none. */
   attachments?: AttachmentMetaView[];

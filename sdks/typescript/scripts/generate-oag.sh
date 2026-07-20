@@ -7,7 +7,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUT="$ROOT/sdks/typescript/src/v1/generated"
+CODEGEN_SPEC="$ROOT/sdks/typescript/.oag-openapi.yaml"
 IMG="openapitools/openapi-generator-cli:v7.16.0"
+
+go run "$ROOT/cmd/e2a-openapi-codegen-normalize" "$ROOT/api/openapi.yaml" "$CODEGEN_SPEC"
+trap 'rm -f "$CODEGEN_SPEC"' EXIT
 
 # Clean prior output but keep .openapi-generator-ignore (suppresses scaffolding).
 find "$OUT" -name '*.ts' -delete 2>/dev/null || true
@@ -23,7 +27,8 @@ find "$OUT" -name '*.ts' -delete 2>/dev/null || true
 # `from_` (matching Python's PEP-8 trailing-underscore convention). Wire JSON
 # stays `from` (baseName / setQueryParam are unchanged).
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
-  -i /work/api/openapi.yaml -g typescript \
+  --skip-validate-spec \
+  -i /work/sdks/typescript/.oag-openapi.yaml -g typescript \
   -o /work/sdks/typescript/src/v1/generated \
   --name-mappings from=from_ --parameter-name-mappings from=from_ \
   --additional-properties=supportsES6=true,importFileExtension=.js >/dev/null
@@ -58,5 +63,8 @@ perl -pi -e 's/[ \t]+$//' \
   "$OUT/types/ObjectParamAPI.ts"
 
 perl -0pi -e 's/\n+\z/\n/' "$OUT/models/UnsubscribeOptions.ts"
+
+rm -f "$CODEGEN_SPEC"
+trap - EXIT
 
 echo "TS /v1 client base regenerated at sdks/typescript/src/v1/generated"

@@ -398,16 +398,15 @@ func TestWebhooksE2E_EmailReceived(t *testing.T) {
 		t.Errorf("expected msg_ id in data.message_id, got %v", data["message_id"])
 	}
 	// email.received is a metadata-only notification: the delivered payload must
-	// NOT carry the message body, only the fetch keys + the signed auth_headers
-	// attestation. Verified over the wire against the real delivered JSON body.
+	// NOT carry the message body, only fetch keys + authentication evidence.
 	if _, present := data["raw_message"]; present {
 		t.Errorf("metadata-only email.received must not carry raw_message over the wire")
 	}
 	if data["delivered_to"] != agent.EmailAddress() {
 		t.Errorf("delivered_to (fetch key) = %v, want %s", data["delivered_to"], agent.EmailAddress())
 	}
-	if _, ok := data["auth_headers"]; !ok {
-		t.Errorf("expected signed auth_headers attestation in data.auth_headers")
+	if _, ok := data["authentication"].(map[string]any); !ok {
+		t.Errorf("expected structured data.authentication evidence")
 	}
 }
 

@@ -17,21 +17,21 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict
-from typing import Any, ClassVar, Dict, List
-from e2a.v1.generated.models.check_result import CheckResult
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
+from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
-class AuthVerdict(BaseModel):
+class SPFResult(BaseModel):
     """
-    AuthVerdict
+    SPFResult
     """ # noqa: E501
-    dkim: CheckResult
-    dmarc: CheckResult
-    spf: CheckResult
+    aligned: Optional[StrictBool]
+    detail: Optional[StrictStr] = None
+    domain: Optional[StrictStr]
+    status: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["dkim", "dmarc", "spf"]
+    __properties: ClassVar[List[str]] = ["aligned", "detail", "domain", "status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -51,7 +51,7 @@ class AuthVerdict(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AuthVerdict from a JSON string"""
+        """Create an instance of SPFResult from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -74,25 +74,26 @@ class AuthVerdict(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of dkim
-        if self.dkim:
-            _dict['dkim'] = self.dkim.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of dmarc
-        if self.dmarc:
-            _dict['dmarc'] = self.dmarc.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of spf
-        if self.spf:
-            _dict['spf'] = self.spf.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if aligned (nullable) is None
+        # and model_fields_set contains the field
+        if self.aligned is None and "aligned" in self.model_fields_set:
+            _dict['aligned'] = None
+
+        # set to None if domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.domain is None and "domain" in self.model_fields_set:
+            _dict['domain'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AuthVerdict from a dict"""
+        """Create an instance of SPFResult from a dict"""
         if obj is None:
             return None
 
@@ -100,9 +101,10 @@ class AuthVerdict(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "dkim": CheckResult.from_dict(obj["dkim"]) if obj.get("dkim") is not None else None,
-            "dmarc": CheckResult.from_dict(obj["dmarc"]) if obj.get("dmarc") is not None else None,
-            "spf": CheckResult.from_dict(obj["spf"]) if obj.get("spf") is not None else None
+            "aligned": obj.get("aligned"),
+            "detail": obj.get("detail"),
+            "domain": obj.get("domain"),
+            "status": obj.get("status")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

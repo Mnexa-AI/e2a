@@ -162,14 +162,13 @@ export async function listen(opts: ListenOptions): Promise<void> {
           process.stdout.write((full.parsed?.text ?? full.body?.text ?? "").trim() + "\n");
         } else if (opts.json) {
           const full = await client.messages.get(agentEmail, notification.message_id);
-          // Rename from_ -> from: same wire-stable shape `messages get --json`
-          // emits, so `e2a listen --json | jq .from` doesn't get null.
+		  // Use the same canonical SDK model shape as `messages get --json`.
           process.stdout.write(JSON.stringify(withWireFrom(full)) + "\n");
         } else {
           // One stable machine shape for the blocking wait, regardless of
           // whether --conversation was used.
           process.stdout.write(
-            `${notification.message_id}\t${sanitizeTsvField(notification.from)}\t${notification.received_at}\n`,
+			`${notification.message_id}\t${sanitizeTsvField(notificationSender(notification))}\t${notification.received_at}\n`,
           );
         }
         matched = true;
@@ -268,8 +267,7 @@ export async function handleNotification(
 
   if (opts.json) {
     const full = await client.messages.get(agentEmail, notification.message_id);
-    // Rename from_ -> from: same wire-stable shape `messages get --json`
-    // emits, so `e2a listen --json | jq .from` doesn't get null.
+    // Use the same canonical SDK model shape as `messages get --json`.
     process.stdout.write(JSON.stringify(withWireFrom(full)) + "\n");
     return;
   }
@@ -278,10 +276,14 @@ export async function handleNotification(
   // human summary is only for the plain (non-json, non-forward) default.
   if (opts.forward) return;
 
-  const time = new Date(notification.received_at).toLocaleTimeString();
-  process.stdout.write(
-    `[${time}] From: ${notification.from} | Subject: ${notification.subject}\n`,
-  );
+	const time = new Date(notification.received_at).toLocaleTimeString();
+	process.stdout.write(
+	  `[${time}] From: ${notificationSender(notification)} | Subject: ${notification.subject}\n`,
+	);
+}
+
+function notificationSender(notification: EmailReceivedData): string {
+	return notification.header_from ?? notification.envelope_from ?? "(unknown sender)";
 }
 
 export function isOpenClawUrl(url: string): boolean {
@@ -332,7 +334,7 @@ export async function forwardMessage(
       }
     }
 
-    const message = `New email from ${notification.from}\n\nSubject: ${notification.subject}\n\n${body}`;
+	const message = `New email from ${notificationSender(notification)}\n\nSubject: ${notification.subject}\n\n${body}`;
 
     fetchBody = JSON.stringify({
       model: "openclaw",
@@ -344,8 +346,7 @@ export async function forwardMessage(
     }
   } else {
     // Generic forward — POST the full v1 MessageView as JSON. It uses the SDK's
-    // camelCase model shape (id, createdAt, …), with the generated `from_`
-    // property restored to the wire-stable `from` spelling used by CLI JSON.
+    // camelCase model shape (id, headerFrom, createdAt, …).
     fetchBody = JSON.stringify(withWireFrom(full));
     if (forwardToken) {
       headers["Authorization"] = `Bearer ${forwardToken}`;
@@ -385,7 +386,7 @@ export async function forwardMessage(
           text: responseText,
         });
         process.stderr.write(
-          `Replied to ${notification.from} (${notification.message_id})\n`,
+		  `Replied to ${notificationSender(notification)} (${notification.message_id})\n`,
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

@@ -8,8 +8,8 @@
     "agent_email": "support@agents.example.com",
     "direction": "inbound",
     "conversation_id": "conv_9f8e7d6c",
-    "from": "reply@customer.example.com",
-    "authenticated_from": "alice@customer.example.com",
+    "header_from": "alice@customer.example.com",
+    "envelope_from": "bounce@customer.example.com",
     "to": [
       "support@agents.example.com"
     ],
@@ -19,12 +19,24 @@
     "reply_to": [
       "reply@customer.example.com"
     ],
+    "authentication": {
+      "spf": {
+        "status": "pass",
+        "domain": "customer.example.com",
+        "aligned": true
+      },
+      "dkim": [],
+      "dmarc": {
+        "status": "pass",
+        "domain": "customer.example.com",
+        "policy": "reject",
+        "aligned_by": [
+          "spf"
+        ]
+      }
+    },
     "delivered_to": "support@agents.example.com",
     "subject": "Order #1234 delayed",
-    "auth_headers": {
-      "X-E2A-Auth-Sender": "alice@customer.example.com",
-      "X-E2A-Auth-Verified": "true"
-    },
     "received_at": "2026-07-01T10:30:00.123456789Z",
     "attachments": [
       {

@@ -1,9 +1,9 @@
 // Package telemetry defines the metrics interface for the e2a backend.
 // Implementations:
 //
-//   * NoOp — production default until an operator wires a real backend.
-//   * Log  — structured log emitter; cheap; aggregator-friendly.
-//   * (future) Prometheus, OTLP, statsd, etc.
+//   - NoOp — production default until an operator wires a real backend.
+//   - Log  — structured log emitter; cheap; aggregator-friendly.
+//   - (future) Prometheus, OTLP, statsd, etc.
 //
 // The interface is small by design. Call sites should depend on
 // telemetry.Metrics, not on a concrete backend. To swap backends,
@@ -69,14 +69,14 @@ type Metrics interface {
 // NoOp swallows every call. Default for tests that don't care.
 type NoOp struct{}
 
-func (NoOp) OutboxEventsPublished(string)         {}
-func (NoOp) OutboxEventsFanOut(string, int)       {}
-func (NoOp) OutboxEventsNoMatch(string)           {}
-func (NoOp) OutboxFailures(string)                {}
-func (NoOp) RedeliverRequests(string)             {}
-func (NoOp) JanitorRowsDeleted(string, int)       {}
-func (NoOp) NotifyMissed()                        {}
-func (NoOp) SetPublisherLag(float64)              {}
+func (NoOp) OutboxEventsPublished(string)   {}
+func (NoOp) OutboxEventsFanOut(string, int) {}
+func (NoOp) OutboxEventsNoMatch(string)     {}
+func (NoOp) OutboxFailures(string)          {}
+func (NoOp) RedeliverRequests(string)       {}
+func (NoOp) JanitorRowsDeleted(string, int) {}
+func (NoOp) NotifyMissed()                  {}
+func (NoOp) SetPublisherLag(float64)        {}
 
 // Log emits a structured log line for every metric call. Cheap and
 // portable; production aggregators (Loki, CloudWatch, Datadog) can

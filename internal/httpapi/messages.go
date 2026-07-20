@@ -18,18 +18,20 @@ import (
 )
 
 // MessageView is the full single-message representation: a strict superset of
-// MessageSummaryView plus body/parsed/raw_message/auth_headers. The inbox
+// MessageSummaryView plus body/parsed/raw_message. The inbox
 // read-state is exposed as `read_status` (MSG-1); the four status axes are
 // read_status / hitl_status / delivery_status / webhook_status.
 type MessageView struct {
-	ID             string   `json:"id"`
-	From           string   `json:"from"`
-	To             []string `json:"to" nullable:"false"`
-	CC             []string `json:"cc" nullable:"false"`
-	ReplyTo        []string `json:"reply_to" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here)."`
-	Recipient      string   `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
-	Subject        string   `json:"subject"`
-	ConversationID string   `json:"conversation_id"`
+	ID             string                    `json:"id"`
+	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
+	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address when known."`
+	Authentication *emailauth.Authentication `json:"authentication" doc:"SMTP authentication evidence; null for outbound and providerless delivery."`
+	To             []string                  `json:"to" nullable:"false"`
+	CC             []string                  `json:"cc" nullable:"false"`
+	ReplyTo        []string                  `json:"reply_to" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here)."`
+	Recipient      string                    `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
+	Subject        string                    `json:"subject"`
+	ConversationID string                    `json:"conversation_id"`
 	// Direction (inbound|outbound) — mirrors MessageSummaryView so a client
 	// fetching a single message keeps the full trust-axis context (review F1).
 	// Deliberately a CLOSED enum despite being response-side: direction is a
@@ -95,16 +97,8 @@ type MessageView struct {
 	// moved there, omitted on live messages. Trashed messages appear only in
 	// the deleted=true list view and this single-message get; they are purged
 	// ~30 days after deletion (docs/design/trash-soft-delete.md).
-	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash."`
-	// AuthHeaders is the raw X-E2A-Auth-* blob — a convenience copy, optional
-	// (MSG-12): omitted on outbound, where there is no inbound verdict. `auth`
-	// (AuthVerdict) is the primary, structured verdict.
-	AuthHeaders map[string]string `json:"auth_headers,omitempty"`
-	// Auth is the structured inbound authentication verdict (SPF/DKIM/DMARC,
-	// each with status + detail) from migration 032. Inbound-only; omitted on
-	// outbound messages, which carry no verdict.
-	Auth       *AuthVerdict `json:"auth,omitempty"`
-	RawMessage []byte       `json:"raw_message" nullable:"true" doc:"Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages."`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash."`
+	RawMessage []byte     `json:"raw_message" nullable:"true" doc:"Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages."`
 	// Parsed is the derived view (decision 9 / Slice 4b-3): the raw message
 	// rendered to text (`text`, quoted chains stripped + length-capped, for the
 	// agent to feed a model by default) plus the decoded HTML part (`html`, for
@@ -162,7 +156,9 @@ type MessageBodyView struct {
 func messageViewFromIdentity(m *identity.Message) MessageView {
 	v := MessageView{
 		ID:             m.ID,
-		From:           m.Sender,
+		HeaderFrom:     messageHeaderFrom(m),
+		EnvelopeFrom:   nullableMessageString(m.EnvelopeFrom),
+		Authentication: m.Authentication,
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
 		ReplyTo:        inboundReplyToView(m),
@@ -175,15 +171,13 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		// lifecycle in `hitl_status`. (The store resolves m.DeliveryStatus to
 		// inbox_status for inbound and the rollup for outbound, so the detail
 		// view must read InboxStatus to agree with the summary.)
-		Status:      m.InboxStatus,
-		Labels:      orEmptyStrings(m.Labels),
-		CreatedAt:   m.CreatedAt.UTC(),
-		DeletedAt:   utcPtr(m.DeletedAt),
-		AuthHeaders: m.AuthHeaders,
-		Auth:        m.Auth,
-		RawMessage:  m.RawMessage,
-		Flagged:     m.Flagged,
-		FlagReason:  m.FlagReason,
+		Status:     m.InboxStatus,
+		Labels:     orEmptyStrings(m.Labels),
+		CreatedAt:  m.CreatedAt.UTC(),
+		DeletedAt:  utcPtr(m.DeletedAt),
+		RawMessage: m.RawMessage,
+		Flagged:    m.Flagged,
+		FlagReason: m.FlagReason,
 	}
 	// Webhook delivery context + raw size — apply to both directions so the
 	// detail view stays a superset of the summary view (omitempty hides empties).
@@ -255,14 +249,16 @@ type MessageSummaryView struct {
 	ID string `json:"id"`
 	// Deliberately a CLOSED enum despite being response-side: direction is a
 	// binary invariant of the model, not an evolving vocabulary.
-	Direction      string   `json:"direction" enum:"inbound,outbound"`
-	From           string   `json:"from"`
-	To             []string `json:"to" nullable:"false"`
-	CC             []string `json:"cc,omitempty" nullable:"false"`
-	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
-	Recipient      string   `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
-	Subject        string   `json:"subject"`
-	ConversationID string   `json:"conversation_id,omitempty"`
+	Direction      string                    `json:"direction" enum:"inbound,outbound"`
+	HeaderFrom     *string                   `json:"header_from" nullable:"true"`
+	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true"`
+	Authentication *emailauth.Authentication `json:"authentication"`
+	To             []string                  `json:"to" nullable:"false"`
+	CC             []string                  `json:"cc,omitempty" nullable:"false"`
+	ReplyTo        []string                  `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
+	Recipient      string                    `json:"delivered_to" doc:"The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array)."`
+	Subject        string                    `json:"subject"`
+	ConversationID string                    `json:"conversation_id,omitempty"`
 	// Status is the inbox read-state, exposed as `read_status` (MSG-1).
 	Status        string `json:"read_status"`
 	HITLStatus    string `json:"review_status,omitempty" doc:"Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field."`
@@ -289,16 +285,7 @@ type MessageSummaryView struct {
 	// DeletedAt marks a message in the trash — set on rows of the deleted=true
 	// list view, omitted on live messages. See MessageView.DeletedAt.
 	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash."`
-	// Auth is the structured inbound authentication verdict (migration 032).
-	// Inbound-only; omitted on outbound rows.
-	Auth *AuthVerdict `json:"auth,omitempty"`
 }
-
-// AuthVerdict is the wire schema for the structured inbound auth verdict
-// (MSG-11). Alias of emailauth.AuthVerdict — the trust primitive the inbound
-// policy enforces on — so the REST message views and the account export
-// publish ONE public auth-verdict component schema.
-type AuthVerdict = emailauth.AuthVerdict
 
 // inboundReplyToView returns the parsed inbound Reply-To for the wire view. The
 // reply_to field is defined as the Reply-To header PARSED off an inbound message;
@@ -317,7 +304,9 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 	s := MessageSummaryView{
 		ID:             m.ID,
 		Direction:      m.Direction,
-		From:           m.Sender,
+		HeaderFrom:     messageHeaderFrom(&m),
+		EnvelopeFrom:   nullableMessageString(m.EnvelopeFrom),
+		Authentication: m.Authentication,
 		To:             orEmptyStrings(m.ToRecipients),
 		CC:             orEmptyStrings(m.CC),
 		ReplyTo:        inboundReplyToView(&m),
@@ -329,7 +318,6 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		Labels:         orEmptyStrings(m.Labels),
 		CreatedAt:      m.CreatedAt.UTC(),
 		DeletedAt:      utcPtr(m.DeletedAt),
-		Auth:           m.Auth,
 		Flagged:        m.Flagged,
 		FlagReason:     m.FlagReason,
 	}
@@ -345,6 +333,24 @@ func messageSummaryFromIdentity(m identity.Message) MessageSummaryView {
 		s.SentAs = m.SentAs
 	}
 	return s
+}
+
+func messageHeaderFrom(m *identity.Message) *string {
+	if m.HeaderFrom != "" {
+		return nullableMessageString(m.HeaderFrom)
+	}
+	if m.Direction == "outbound" {
+		return nullableMessageString(m.Sender)
+	}
+	return nil
+}
+
+func nullableMessageString(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // ListMessagesInput is the typed query surface for the message list. Cursor
@@ -425,7 +431,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Get a message",
-		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.",
+		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, func(ctx context.Context, in *MessageIDParam) (*messageOutput, error) {

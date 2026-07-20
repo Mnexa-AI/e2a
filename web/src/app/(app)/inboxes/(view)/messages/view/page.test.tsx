@@ -80,7 +80,9 @@ const AGENT_EMAIL = "support@acme.io";
 // they're threaded via the URL params. Body comes through `body.text`.
 const OUTBOUND_PENDING = {
   id: "msg_pending",
-  from: "",
+  header_from: AGENT_EMAIL,
+  envelope_from: null,
+  authentication: null,
   to: ["maya@stripe.com"],
   cc: [],
   reply_to: [],
@@ -96,7 +98,13 @@ const OUTBOUND_PENDING = {
 
 const INBOUND_DETAIL = {
   id: "msg_in1",
-  from: "maya@stripe.com",
+  header_from: "maya@stripe.com",
+  envelope_from: "bounce@stripe.com",
+  authentication: {
+    spf: { status: "pass", domain: "stripe.com", aligned: true },
+    dkim: [],
+    dmarc: { status: "pass", domain: "stripe.com", policy: "reject", aligned_by: ["spf"] },
+  },
   to: [AGENT_EMAIL],
   cc: [],
   reply_to: [],
@@ -105,7 +113,6 @@ const INBOUND_DETAIL = {
   conversation_id: "conv_K3p9aQ",
   status: "read",
   created_at: minutesAgo(25),
-  auth_headers: { "X-E2A-Auth-Verified": "true", "Received-SPF": "pass" },
   raw_message: btoa(
     "From: maya@stripe.com\r\n" +
       "To: support@acme.io\r\n" +

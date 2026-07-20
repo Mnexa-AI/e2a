@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/tokencanopy/e2a/internal/config"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -62,10 +61,9 @@ func TestRelay_RcptTo_SubdomainAgentUnderVerifiedParent(t *testing.T) {
 		t.Fatalf("CreateAgent exact: %v", err)
 	}
 
-	signer := headers.NewSigner("test-relay-hmac-key-32-bytes-long!")
 	port, _ := freePort()
 	cfg := &config.Config{SMTP: config.SMTPConfig{ListenAddr: "127.0.0.1:" + port, Domain: "test.relay"}, Env: "development"}
-	server := relay.NewServer(cfg, store, signer, usage.NewNoopUsageTracker(), ws.NewHub())
+	server := relay.NewServer(cfg, store, usage.NewNoopUsageTracker(), ws.NewHub())
 	go func() { _ = server.ListenAndServe() }()
 	t.Cleanup(func() { _ = server.Close() })
 

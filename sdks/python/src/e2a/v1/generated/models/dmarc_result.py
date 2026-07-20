@@ -17,19 +17,22 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
-class CheckResult(BaseModel):
+class DMARCResult(BaseModel):
     """
-    CheckResult
+    DMARCResult
     """ # noqa: E501
+    aligned_by: List[StrictStr]
     detail: Optional[StrictStr] = None
+    domain: Optional[StrictStr]
+    policy: Optional[StrictStr]
     status: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["detail", "status"]
+    __properties: ClassVar[List[str]] = ["aligned_by", "detail", "domain", "policy", "status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -49,7 +52,7 @@ class CheckResult(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of CheckResult from a JSON string"""
+        """Create an instance of DMARCResult from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -77,11 +80,21 @@ class CheckResult(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.domain is None and "domain" in self.model_fields_set:
+            _dict['domain'] = None
+
+        # set to None if policy (nullable) is None
+        # and model_fields_set contains the field
+        if self.policy is None and "policy" in self.model_fields_set:
+            _dict['policy'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of CheckResult from a dict"""
+        """Create an instance of DMARCResult from a dict"""
         if obj is None:
             return None
 
@@ -89,7 +102,10 @@ class CheckResult(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "aligned_by": obj.get("aligned_by"),
             "detail": obj.get("detail"),
+            "domain": obj.get("domain"),
+            "policy": obj.get("policy"),
             "status": obj.get("status")
         })
         # store additional fields in additional_properties

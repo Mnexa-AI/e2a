@@ -44,7 +44,9 @@ describe("message projection (v1 contract)", () => {
               {
                 message_id: "m1",
                 direction: "outbound",
-                from: "a@x.com",
+                header_from: "a@x.com",
+                envelope_from: null,
+                authentication: null,
                 to: ["b@y.com"],
                 recipient: "b@y.com",
                 subject: "s",
@@ -72,7 +74,9 @@ describe("message projection (v1 contract)", () => {
               {
                 message_id: "m1",
                 direction: "inbound",
-                from: "b@y.com",
+                header_from: "b@y.com",
+                envelope_from: "b@y.com",
+                authentication: null,
                 to: ["a@x.com"],
                 recipient: "a@x.com",
                 subject: "hi",
@@ -148,7 +152,9 @@ describe("message projection (v1 contract)", () => {
 // the superset: it alone carries hold_reason + protection.
 const REVIEW_WIRE: MessageViewWire = {
   id: "msg_1",
-  from: "",
+  header_from: null,
+  envelope_from: null,
+  authentication: null,
   to: ["customer@bigco.com"],
   cc: ["cc@bigco.com"],
   reply_to: [],
@@ -171,7 +177,9 @@ const REVIEW_WIRE: MessageViewWire = {
 // (GET /v1/agents/{address}/messages/{id}) for an inbound row.
 const INBOUND_WIRE: MessageViewWire = {
   id: "msg_in",
-  from: "james@x.com",
+  header_from: "james@x.com",
+  envelope_from: "bounce@x.com",
+  authentication: null,
   to: ["support@acme.dev"],
   delivered_to: "support@acme.dev",
   subject: "Hi",
@@ -179,7 +187,6 @@ const INBOUND_WIRE: MessageViewWire = {
   delivery_status: "received",
   read_status: "unread",
   created_at: "2026-01-01T00:00:00Z",
-  auth_headers: { "Received-SPF": "pass" },
   parsed: { text: "plain body" },
   attachments: [],
   raw_message: "cmF3",
@@ -224,17 +231,20 @@ describe("message-detail projectors (shared-cache invariant)", () => {
     // attachment endpoint without an agent address to key by.
     expect(d.recipient).toBe("support@acme.dev");
     expect(d.status).toBe("received");
-    expect(d.auth_headers).toEqual({ "Received-SPF": "pass" });
+    expect(d.header_from).toBe("james@x.com");
+    expect(d.envelope_from).toBe("bounce@x.com");
     expect(d.parsed?.text).toBe("plain body");
   });
 
   it("projectInbound defaults absent list/scalar fields instead of leaking undefined", () => {
     // The focus page and ThreadBubble index into these without guards
-    // (cc.join, attachments.map, auth_headers entries) — undefined here is
+    // (cc.join, attachments.map) — undefined here is
     // a crash there.
     const d = projectInbound({
       id: "msg_bare",
-      from: "a@x.com",
+      header_from: "a@x.com",
+      envelope_from: null,
+      authentication: null,
       delivered_to: "support@acme.dev",
       subject: "",
       created_at: "2026-01-01T00:00:00Z",
@@ -243,7 +253,7 @@ describe("message-detail projectors (shared-cache invariant)", () => {
     expect(d.cc).toEqual([]);
     expect(d.reply_to).toEqual([]);
     expect(d.attachments).toEqual([]);
-    expect(d.auth_headers).toEqual({});
+    expect(d.authentication).toBeNull();
     expect(d.conversation_id).toBe("");
     expect(d.raw_message).toBe("");
   });

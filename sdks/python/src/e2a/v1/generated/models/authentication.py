@@ -17,21 +17,23 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
-from typing_extensions import Annotated
+from pydantic import BaseModel, ConfigDict
+from typing import Any, ClassVar, Dict, List
+from e2a.v1.generated.models.dkim_result import DKIMResult
+from e2a.v1.generated.models.dmarc_result import DMARCResult
+from e2a.v1.generated.models.spf_result import SPFResult
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ProtectionGateRequest(BaseModel):
+class Authentication(BaseModel):
     """
-    ProtectionGateRequest
+    Authentication
     """ # noqa: E501
-    action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
-    allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound allowlist/domain gates first require DMARC pass, then match the aligned RFC 5322 From address.")
-    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses).")
+    dkim: List[DKIMResult]
+    dmarc: DMARCResult
+    spf: SPFResult
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
+    __properties: ClassVar[List[str]] = ["dkim", "dmarc", "spf"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -51,7 +53,7 @@ class ProtectionGateRequest(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ProtectionGateRequest from a JSON string"""
+        """Create an instance of Authentication from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -74,6 +76,19 @@ class ProtectionGateRequest(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in dkim (list)
+        _items = []
+        if self.dkim:
+            for _item_dkim in self.dkim:
+                if _item_dkim:
+                    _items.append(_item_dkim.to_dict())
+            _dict['dkim'] = _items
+        # override the default output from pydantic by calling `to_dict()` of dmarc
+        if self.dmarc:
+            _dict['dmarc'] = self.dmarc.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of spf
+        if self.spf:
+            _dict['spf'] = self.spf.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -83,7 +98,7 @@ class ProtectionGateRequest(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ProtectionGateRequest from a dict"""
+        """Create an instance of Authentication from a dict"""
         if obj is None:
             return None
 
@@ -91,9 +106,9 @@ class ProtectionGateRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "action": obj.get("action") if obj.get("action") is not None else 'flag',
-            "allowlist": obj.get("allowlist"),
-            "policy": obj.get("policy") if obj.get("policy") is not None else 'open'
+            "dkim": [DKIMResult.from_dict(_item) for _item in obj["dkim"]] if obj.get("dkim") is not None else None,
+            "dmarc": DMARCResult.from_dict(obj["dmarc"]) if obj.get("dmarc") is not None else None,
+            "spf": SPFResult.from_dict(obj["spf"]) if obj.get("spf") is not None else None
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

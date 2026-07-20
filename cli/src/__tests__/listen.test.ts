@@ -23,12 +23,14 @@ function makeNotification(overrides: Partial<EmailReceivedData> = {}): EmailRece
     message_id: "msg_123",
     agent_email: "bot@agents.e2a.dev",
     direction: "inbound",
-    from: "alice@example.com",
-    authenticated_from: "alice@example.com",
+    header_from: "alice@example.com",
+    envelope_from: "bounce@example.com",
+    authentication: null,
     to: ["bot@agents.e2a.dev"],
+    cc: [],
+    reply_to: [],
     delivered_to: "bot@agents.e2a.dev",
     subject: "Hello",
-    auth_headers: {},
     received_at: "2025-01-15T10:30:00Z",
     ...overrides,
   };
@@ -168,7 +170,7 @@ describe("listen notification handling", () => {
   it("fetches and prints raw JSON for --json mode", async () => {
     const full = {
       id: "msg_123",
-      from_: "alice@example.com",
+      headerFrom: "alice@example.com",
       delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
@@ -185,16 +187,15 @@ describe("listen notification handling", () => {
     );
 
     expect(client.messages.get).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_123");
-    // Wire-renamed (from_ -> from), same shape `messages get --json` emits —
-    // NOT the raw SDK model, which would still say from_.
+    // The same canonical SDK model shape `messages get --json` emits.
     expect(mockStdout).toHaveBeenCalledWith(`${JSON.stringify(withWireFrom(full))}\n`);
-    expect(mockStdout).not.toHaveBeenCalledWith(expect.stringContaining("from_"));
+    expect(mockStdout).toHaveBeenCalledWith(expect.stringContaining("headerFrom"));
   });
 
   it("forwards wire-stable JSON to a generic webhook", async () => {
     const full = {
       id: "msg_123",
-      from_: "alice@example.com",
+      headerFrom: "alice@example.com",
       delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
@@ -282,7 +283,7 @@ describe("listen notification handling", () => {
   it("forwards AND prints JSON when --forward and --json are both set (regression: silent forward drop)", async () => {
     const full = {
       id: "msg_123",
-      from_: "alice@example.com",
+      headerFrom: "alice@example.com",
       delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       rawMessage: "U3ViamVjdDogSGVsbG8NCg0KSGkgdGhlcmUh",
@@ -376,7 +377,7 @@ describe("listen notification handling", () => {
     const raw = "Subject: Hello\r\n\r\nHi there!";
     const full = {
       id: "msg_123",
-      from_: "alice@example.com",
+      headerFrom: "alice@example.com",
       delivered_to: "bot@agents.e2a.dev",
       subject: "Hello",
       body: { text: "", html: "" },
@@ -613,12 +614,10 @@ describe("listen --once forwarding failures", () => {
     expect(process.exitCode).toBe(0);
   });
 
-  it("renames from_ to from in the --once --json output (regression: raw SDK field leaking to stdout)", async () => {
+  it("keeps canonical headerFrom in the --once --json output", async () => {
     vi.resetModules();
 
-    // Deliberately shaped like the generated MessageView model: from_, not
-    // from — withWireFrom must rename it before this reaches stdout.
-    const full = { id: "msg_123", from_: "alice@example.com", subject: "Hello" };
+    const full = { id: "msg_123", headerFrom: "alice@example.com", subject: "Hello" };
     const fakeStream = {
       on: vi.fn(),
       close: vi.fn(),
@@ -648,8 +647,7 @@ describe("listen --once forwarding failures", () => {
 
     expect(stdoutSpy).toHaveBeenCalledWith(`${JSON.stringify(withWireFrom(full))}\n`);
     const printed = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
-    expect(printed).toContain('"from":"alice@example.com"');
-    expect(printed).not.toContain("from_");
+    expect(printed).toContain('"headerFrom":"alice@example.com"');
   });
 });
 

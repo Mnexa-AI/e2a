@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tokencanopy/e2a/internal/config"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -75,8 +74,7 @@ func TestE2E_InboundInjectionHeldOverSMTP(t *testing.T) {
 		SMTP: config.SMTPConfig{ListenAddr: "127.0.0.1:" + port, Domain: domain},
 		Env:  "development",
 	}
-	signer := headers.NewSigner("test-relay-hmac-key-32-bytes-long!")
-	server := relay.NewServer(cfg, store, signer, usage.NewNoopUsageTracker(), ws.NewHub())
+	server := relay.NewServer(cfg, store, usage.NewNoopUsageTracker(), ws.NewHub())
 	server.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
 	go func() { _ = server.ListenAndServe() }()
 	t.Cleanup(func() { _ = server.Close() })

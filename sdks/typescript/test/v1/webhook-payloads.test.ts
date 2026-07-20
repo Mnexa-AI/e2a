@@ -45,12 +45,13 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.message_id).toMatch(/^msg_/);
     expect(d.agent_email).toBe("support@agents.example.com");
     expect(d.direction).toBe("inbound");
-    expect(d.from).toBe("reply@customer.example.com");
-    expect(d.authenticated_from).toBe("alice@customer.example.com");
+    expect(d.header_from).toBe("alice@customer.example.com");
+    expect(d.envelope_from).toBe("bounce@customer.example.com");
     expect(d.to).toEqual(["support@agents.example.com"]);
     expect(d.delivered_to).toBe("support@agents.example.com");
     expect(d.subject).toBe("Order #1234 delayed");
-    expect(d.auth_headers["X-E2A-Auth-Verified"]).toBe("true");
+    expect(d.authentication?.dmarc.status).toBe("pass");
+    expect(d.authentication?.spf.aligned).toBe(true);
     expect(typeof d.received_at).toBe("string");
     expect(d.attachments).toEqual([
       { filename: "invoice.pdf", content_type: "application/pdf", size_bytes: 12345, index: 0 },
@@ -138,14 +139,15 @@ describe("golden payload fixtures parse into the typed payloads", () => {
       const d = e.data;
       expect(d.message_id).toMatch(/^msg_/);
       expect(d.delivered_to).toBe("support@agents.example.com");
-      // Required present-but-empty, never absent.
-      expect(d.authenticated_from).toBe("");
-      expect(d.auth_headers).toEqual({});
+      // Required nullable authentication/identity fields remain present.
+      expect(d.header_from).toBeNull();
+      expect(d.envelope_from).toBeNull();
+      expect(d.authentication).toBeNull();
       expect(d.to).toEqual(["support@agents.example.com"]);
+      expect(d.cc).toEqual([]);
+      expect(d.reply_to).toEqual([]);
       // Optional fields are ABSENT on the wire.
       expect(d.conversation_id).toBeUndefined();
-      expect(d.cc).toBeUndefined();
-      expect(d.reply_to).toBeUndefined();
       expect(d.attachments).toBeUndefined();
     });
 

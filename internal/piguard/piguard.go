@@ -105,7 +105,7 @@ type Request struct {
 	// Sender is the authenticated From (inbound) or the agent identity (outbound).
 	Sender string
 	// Auth is the parsed inbound auth verdict; nil on outbound.
-	Auth *emailauth.AuthVerdict
+	Auth *emailauth.Authentication
 	// SizeBytes is the total extracted text size (post-cap).
 	SizeBytes int
 }

@@ -11,15 +11,14 @@
  */
 
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
-import { AuthVerdict } from '../models/AuthVerdict.js';
+import { Authentication } from '../models/Authentication.js';
 import { HttpFile } from '../http/http.js';
 
 export class Message {
     'agentEmail': string;
     'approvalExpiresAt'?: Date;
     'attachments'?: Array<AttachmentMetaView> | null;
-    'auth'?: AuthVerdict;
-    'authHeaders'?: { [key: string]: string; };
+    'authentication': Authentication;
     'bcc'?: Array<string> | null;
     'cc'?: Array<string> | null;
     'conversationId'?: string;
@@ -31,10 +30,11 @@ export class Message {
     'direction': string;
     'edited'?: boolean;
     'emailMessageId'?: string;
+    'envelopeFrom': string;
     'expiresAt': Date;
     'flagReason'?: string;
     'flagged'?: boolean;
-    'from_': string;
+    'headerFrom': string;
     'html'?: string;
     'id': string;
     'labels'?: Array<string> | null;
@@ -88,15 +88,9 @@ export class Message {
             "format": ""
         },
         {
-            "name": "auth",
-            "baseName": "auth",
-            "type": "AuthVerdict",
-            "format": ""
-        },
-        {
-            "name": "authHeaders",
-            "baseName": "auth_headers",
-            "type": "{ [key: string]: string; }",
+            "name": "authentication",
+            "baseName": "authentication",
+            "type": "Authentication",
             "format": ""
         },
         {
@@ -166,6 +160,12 @@ export class Message {
             "format": ""
         },
         {
+            "name": "envelopeFrom",
+            "baseName": "envelope_from",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "expiresAt",
             "baseName": "expires_at",
             "type": "Date",
@@ -184,8 +184,8 @@ export class Message {
             "format": ""
         },
         {
-            "name": "from_",
-            "baseName": "from",
+            "name": "headerFrom",
+            "baseName": "header_from",
             "type": "string",
             "format": ""
         },
@@ -223,7 +223,7 @@ export class Message {
             "name": "rawMessage",
             "baseName": "raw_message",
             "type": "string",
-            "format": ""
+            "format": "byte"
         },
         {
             "name": "readStatus",

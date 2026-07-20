@@ -48,7 +48,7 @@ AND (later) a repo-write coding agent.
 
 4. **Verified-reply routing.** Inbound email auto-routes (approvals,
    dispute-reopens) ONLY when the e2a `conversation_id` matches a ticket's
-   `comms_ref` AND `authenticated_from` (the SPF/DKIM/DMARC-verified sender)
+   `comms_ref`, `authentication.dmarc.status` is `pass`, AND `header_from`
    matches the address on file. A public marker / subject token NEVER
    routes — an attacker who knows an issue number cannot approve a fix or
    reopen a ticket.

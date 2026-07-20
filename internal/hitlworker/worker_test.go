@@ -290,14 +290,14 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 	var live struct {
 		Type string `json:"type"`
 		Data struct {
-			From              string `json:"from"`
-			AuthenticatedFrom string `json:"authenticated_from"`
+			HeaderFrom     *string `json:"header_from"`
+			Authentication any     `json:"authentication"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(hub.payload, &live); err != nil {
 		t.Fatalf("live WebSocket payload: %v (%q)", err, hub.payload)
 	}
-	if live.Type != webhookpub.EventEmailReceived || live.Data.From != "support@example.com" || live.Data.AuthenticatedFrom != agent.EmailAddress() {
+	if live.Type != webhookpub.EventEmailReceived || live.Data.HeaderFrom == nil || *live.Data.HeaderFrom != agent.EmailAddress() || live.Data.Authentication != nil {
 		t.Errorf("loopback live event drift: %+v", live)
 	}
 	var usageCount int

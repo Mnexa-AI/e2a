@@ -20,7 +20,7 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.auth_verdict import AuthVerdict
+from e2a.v1.generated.models.authentication import Authentication
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -28,7 +28,7 @@ class MessageSummaryView(BaseModel):
     """
     MessageSummaryView
     """ # noqa: E501
-    auth: Optional[AuthVerdict] = None
+    authentication: Optional[Authentication]
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
@@ -37,9 +37,10 @@ class MessageSummaryView(BaseModel):
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)")
     direction: StrictStr
+    envelope_from: Optional[StrictStr]
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    from_: StrictStr = Field(alias="from")
+    header_from: Optional[StrictStr]
     id: StrictStr
     labels: List[StrictStr]
     read_status: StrictStr
@@ -52,7 +53,7 @@ class MessageSummaryView(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["auth", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "id", "labels", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["authentication", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "envelope_from", "flag_reason", "flagged", "header_from", "id", "labels", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -95,13 +96,28 @@ class MessageSummaryView(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of auth
-        if self.auth:
-            _dict['auth'] = self.auth.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of authentication
+        if self.authentication:
+            _dict['authentication'] = self.authentication.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
+
+        # set to None if authentication (nullable) is None
+        # and model_fields_set contains the field
+        if self.authentication is None and "authentication" in self.model_fields_set:
+            _dict['authentication'] = None
+
+        # set to None if envelope_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.envelope_from is None and "envelope_from" in self.model_fields_set:
+            _dict['envelope_from'] = None
+
+        # set to None if header_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.header_from is None and "header_from" in self.model_fields_set:
+            _dict['header_from'] = None
 
         return _dict
 
@@ -115,7 +131,7 @@ class MessageSummaryView(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "auth": AuthVerdict.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
+            "authentication": Authentication.from_dict(obj["authentication"]) if obj.get("authentication") is not None else None,
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "created_at": obj.get("created_at"),
@@ -124,9 +140,10 @@ class MessageSummaryView(BaseModel):
             "delivery_detail": obj.get("delivery_detail"),
             "delivery_status": obj.get("delivery_status"),
             "direction": obj.get("direction"),
+            "envelope_from": obj.get("envelope_from"),
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
-            "from": obj.get("from"),
+            "header_from": obj.get("header_from"),
             "id": obj.get("id"),
             "labels": obj.get("labels"),
             "read_status": obj.get("read_status"),

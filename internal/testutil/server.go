@@ -19,7 +19,6 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/apiserver"
 	"github.com/tokencanopy/e2a/internal/config"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/jobs"
@@ -88,7 +87,6 @@ type E2ATestServer struct {
 	HTTPServer *httptest.Server
 	SMTPAddr   string
 	Store      *identity.Store
-	Signer     *headers.Signer
 	WSHub      *ws.Hub
 	smtpServer *relay.Server
 
@@ -173,7 +171,6 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	}
 
 	store := identity.NewStore(pool)
-	signer := headers.NewSigner(TestHMACSecret)
 	outboundCfg := &config.OutboundSMTPConfig{
 		Host:            o.outboundSMTPHost,
 		Port:            o.outboundSMTPPort,
@@ -275,7 +272,7 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		},
 		Env: "development",
 	}
-	smtpServer := relay.NewServer(cfg, store, signer, noopUsage, wsHub)
+	smtpServer := relay.NewServer(cfg, store, noopUsage, wsHub)
 	smtpServer.SetOutbox(outbox)
 
 	go func() {
@@ -298,7 +295,6 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		HTTPServer:      httpServer,
 		SMTPAddr:        smtpAddr,
 		Store:           store,
-		Signer:          signer,
 		WSHub:           wsHub,
 		smtpServer:      smtpServer,
 		SubscriberStore: subscriberStore,

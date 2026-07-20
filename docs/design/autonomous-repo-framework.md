@@ -164,7 +164,8 @@ runtime generic without a code plugin system.
   with no thread yet, `send_message` mints the thread and its `conversation_id`
   is captured into the ticket-card.
 - `poll_replies` = `list_messages direction=inbound read_status=unread sort=asc`
-  → `get_message` per item (body + `conversation_id` + `authenticated_from`).
+  → `get_message` per item (body + `conversation_id` + `header_from` +
+  `authentication`; trust only `authentication.dmarc.status == "pass"`).
 - **verified reply** = `conversation_id` matches a ticket-card `comms_ref` **AND**
   `authenticated_from` == the address that opened that thread. A subject-line
   ticket hint is **never** sufficient (issue numbers/markers are public).

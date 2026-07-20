@@ -10,13 +10,13 @@
  * Do not edit the class manually.
  */
 
-import { CheckResult } from '../models/CheckResult.js';
 import { HttpFile } from '../http/http.js';
 
-export class AuthVerdict {
-    'dkim': CheckResult;
-    'dmarc': CheckResult;
-    'spf': CheckResult;
+export class SPFResult {
+    'aligned': boolean | null;
+    'detail'?: string;
+    'domain': string | null;
+    'status': SPFResultStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -24,28 +24,46 @@ export class AuthVerdict {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "dkim",
-            "baseName": "dkim",
-            "type": "CheckResult",
+            "name": "aligned",
+            "baseName": "aligned",
+            "type": "boolean",
             "format": ""
         },
         {
-            "name": "dmarc",
-            "baseName": "dmarc",
-            "type": "CheckResult",
+            "name": "detail",
+            "baseName": "detail",
+            "type": "string",
             "format": ""
         },
         {
-            "name": "spf",
-            "baseName": "spf",
-            "type": "CheckResult",
+            "name": "domain",
+            "baseName": "domain",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "status",
+            "baseName": "status",
+            "type": "SPFResultStatusEnum",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return AuthVerdict.attributeTypeMap;
+        return SPFResult.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
+
+export enum SPFResultStatusEnum {
+    Pass = 'pass',
+    Fail = 'fail',
+    None = 'none',
+    Neutral = 'neutral',
+    Softfail = 'softfail',
+    Policy = 'policy',
+    Temperror = 'temperror',
+    Permerror = 'permerror'
+}
+

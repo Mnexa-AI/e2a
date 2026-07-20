@@ -28,8 +28,7 @@ models/ApproveRequest.ts
 models/Attachment.ts
 models/AttachmentMetaView.ts
 models/AttachmentView.ts
-models/AuthVerdict.ts
-models/CheckResult.ts
+models/Authentication.ts
 models/ConversationDetailView.ts
 models/ConversationSummaryView.ts
 models/CreateAPIKeyRequest.ts
@@ -39,6 +38,8 @@ models/CreateAgentSuppressionRequest.ts
 models/CreateTemplateRequest.ts
 models/CreateWebhookRequest.ts
 models/CreateWebhookResponse.ts
+models/DKIMResult.ts
+models/DMARCResult.ts
 models/DNSRecord.ts
 models/DeleteAgentResult.ts
 models/DeleteApiKeyResult.ts
@@ -120,6 +121,7 @@ models/ReplyRequest.ts
 models/RetryAfterDetails.ts
 models/ReviewView.ts
 models/RotateSecretResponse.ts
+models/SPFResult.ts
 models/SendEmailRequest.ts
 models/SendResultView.ts
 models/SendingRampView.ts

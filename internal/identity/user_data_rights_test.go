@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 )
@@ -62,13 +63,19 @@ func seedUserData(t *testing.T, store *identity.Store, ctx context.Context, labe
 	// Inbound message on the custom-domain agent. Populate reply_to so
 	// the export covers the GDPR-Art.15 right-of-access claim that all
 	// stored data about the user is returned.
-	if _, err := store.CreateInboundMessage(ctx,
+	domain := "gmail.com"
+	aligned := true
+	policy := emailauth.DMARCPolicyReject
+	authentication := &emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &domain, Aligned: &aligned},
+		DKIM:  []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &domain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
+	}
+	if _, err := store.CreateInboundMessageAuthenticated(ctx,
 		"msg_in_"+label, customAgent.ID,
-		"alice@gmail.com", customAgent.EmailAddress(),
+		identity.InboundAuth{HeaderFrom: "alice@gmail.com", EnvelopeFrom: "alice@gmail.com", Authentication: authentication}, customAgent.EmailAddress(),
 		"<orig@gmail.com>", "Hi there", "", "delivered",
 		[]byte(seedRawWithAttachment),
-		map[string]string{"X-E2A-Auth-Verified": "true"},
-		nil,
 		false, "",
 		nil, nil, []string{"real-alice@example.com"},
 		identity.InboundScreening{}); err != nil {

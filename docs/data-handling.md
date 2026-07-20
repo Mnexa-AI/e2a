@@ -19,7 +19,7 @@ For vulnerability reporting and the security model, see [SECURITY.md](../SECURIT
 | OAuth sessions | Postgres `user_sessions` | 7 days; cleanup worker removes expired rows hourly |
 | Usage events / summaries (only when `E2A_USAGE_TRACKING=true`) | Postgres `usage_events`, `usage_summaries` | Indefinite by default — operator can purge or override |
 | Per-webhook signing secret (`whsec_…`) | Postgres, **plaintext** | Until the webhook is deleted. Returned once at creation; rotate via `POST /v1/webhooks/{id}/rotate-secret` (the previous secret stays valid for a 24h grace window). |
-| Deployment-wide HMAC signing secret (operator key) | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment. The **sole** signer for the relay's `X-E2A-Auth-*` headers and HITL approval / magic-link tokens. SDKs verify inbound deliveries with `E2A_WEBHOOK_SECRET` (the per-webhook `whsec_`), not this. |
+| Deployment-wide HMAC secret (operator key) | Operator's env (`E2A_HMAC_SECRET`); never written to DB | Lifetime of the deployment. Used for HITL approval / magic-link tokens and internal key derivation. SDKs verify webhook deliveries with the per-webhook `whsec_` secret, not this. |
 
 ## What's logged
 

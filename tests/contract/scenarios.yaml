@@ -195,7 +195,7 @@ scenarios:
           status: 200
           body_contains:
             - id
-            - auth_headers
+            - authentication
             - raw_message
 
       - id: list_unread_after
@@ -404,7 +404,9 @@ scenarios:
             - schema_version
             - created_at
             - data.message_id
-            - data.from
+            - data.header_from
+            - data.envelope_from
+            - data.authentication
             - data.delivered_to
             - data.agent_email
             - data.direction
@@ -416,7 +418,8 @@ scenarios:
           field_match:
             type: email.received
             schema_version: "1"
-            data.from: alice@example.com
+            data.header_from: alice@example.com
+            data.envelope_from: alice@example.com
             data.delivered_to: "{agent_email}"
             data.agent_email: "{agent_email}"
             data.direction: inbound

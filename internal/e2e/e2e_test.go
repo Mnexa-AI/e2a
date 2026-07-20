@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 )
@@ -49,30 +48,6 @@ func setupDomainAndAgent(t *testing.T, ts *testutil.E2ATestServer, email, domain
 	return user, apiKey, agent
 }
 
-// authHeaderSecrets returns the secret the relay uses to sign inbound
-// auth headers. The relay signs with the deployment HMAC secret
-// (cfg.Signing.HMACSecret, TestHMACSecret in tests) — the sole signer.
-func authHeaderSecrets(t *testing.T, ts *testutil.E2ATestServer, userID string) []string {
-	t.Helper()
-	_ = ts
-	_ = userID
-	return []string{testutil.TestHMACSecret}
-}
-
-// receivedAuthHeaders pulls the auth_headers map out of an email.received
-// subscriber envelope's data block (the relay carries the signed
-// X-E2A-Auth-* headers there).
-func receivedAuthHeaders(data map[string]any) map[string]string {
-	raw, _ := data["auth_headers"].(map[string]any)
-	out := make(map[string]string, len(raw))
-	for k, v := range raw {
-		if s, ok := v.(string); ok {
-			out[k] = s
-		}
-	}
-	return out
-}
-
 func TestInboundDelivered(t *testing.T) {
 	pool := testutil.TestDB(t)
 	receiver := testutil.SubscriberReceiver(t)
@@ -104,28 +79,30 @@ func TestInboundDelivered(t *testing.T) {
 	}
 	data, _ := c.Envelope["data"].(map[string]any)
 
-	if data["from"] != "alice@gmail.com" {
-		t.Errorf("from = %v", data["from"])
+	if data["header_from"] != "alice@gmail.com" {
+		t.Errorf("header_from = %v", data["header_from"])
+	}
+	if data["envelope_from"] != "alice@gmail.com" {
+		t.Errorf("envelope_from = %v", data["envelope_from"])
 	}
 	to, _ := data["to"].([]any)
 	if len(to) != 1 || to[0] != "agent@inbound.example.com" {
 		t.Errorf("to = %v, want [agent@inbound.example.com]", data["to"])
 	}
 
-	// Domain-Check header should be present in the carried auth_headers.
-	authHeaders := receivedAuthHeaders(data)
-	domainCheck := authHeaders["X-E2A-Auth-Domain-Check"]
-	if domainCheck == "" {
-		t.Error("expected non-empty X-E2A-Auth-Domain-Check header")
+	authentication, ok := data["authentication"].(map[string]any)
+	if !ok {
+		t.Fatalf("authentication = %T %v, want object", data["authentication"], data["authentication"])
 	}
-	if !strings.Contains(domainCheck, "spf=") || !strings.Contains(domainCheck, "dkim=") {
-		t.Errorf("Domain-Check = %q, expected spf= and dkim= components", domainCheck)
+	for _, mechanism := range []string{"spf", "dkim", "dmarc"} {
+		if _, present := authentication[mechanism]; !present {
+			t.Errorf("authentication missing %s: %v", mechanism, authentication)
+		}
 	}
-
-	// Verify signature against the owner's per-user signing secret (the
-	// relay signs inbound auth headers with it, not the deployment signer).
-	if !headers.Verify(authHeaderSecrets(t, ts, user.ID), headers.AuthHeaders(authHeaders)) {
-		t.Error("auth header signature verification failed")
+	for _, retired := range []string{"from", "authenticated_from", "auth", "auth_headers"} {
+		if _, present := data[retired]; present {
+			t.Errorf("retired field %q is present", retired)
+		}
 	}
 }
 
@@ -171,14 +148,7 @@ func TestOutboundAgentToAgent(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	payloads := receiver.WaitForPayloads(t, 1, 5*time.Second)
-	p := payloads[0]
-	if p.Body.AuthHeaders["X-E2A-Auth-Entity-Type"] != "agent" {
-		t.Errorf("EntityType = %q, want agent", p.Body.AuthHeaders["X-E2A-Auth-Entity-Type"])
-	}
-	if p.Body.AuthHeaders["X-E2A-Auth-Verified"] != "true" {
-		t.Errorf("Verified = %q, want true", p.Body.AuthHeaders["X-E2A-Auth-Verified"])
-	}
+	_ = receiver
 }
 
 func TestOutboundRequiresAuth(t *testing.T) {
@@ -199,7 +169,7 @@ func TestOutboundRequiresAuth(t *testing.T) {
 	}
 }
 
-func TestReplayProtection(t *testing.T) {
+func TestInboundAuthenticationEvidenceShape(t *testing.T) {
 	pool := testutil.TestDB(t)
 	receiver := testutil.SubscriberReceiver(t)
 	ts := testutil.TestServer(t, pool)
@@ -217,18 +187,13 @@ func TestReplayProtection(t *testing.T) {
 		t.Fatalf("got %d captures, want 1", len(got))
 	}
 	data, _ := got[0].Envelope["data"].(map[string]any)
-	authHeaders := headers.AuthHeaders(receivedAuthHeaders(data))
-	secrets := authHeaderSecrets(t, ts, user.ID)
-
-	// Should verify with normal window
-	if !headers.Verify(secrets, authHeaders) {
-		t.Error("expected auth headers to verify within normal window")
+	authentication, ok := data["authentication"].(map[string]any)
+	if !ok {
+		t.Fatalf("authentication = %T %v, want object", data["authentication"], data["authentication"])
 	}
-
-	// Should reject with very tight window
-	time.Sleep(5 * time.Millisecond)
-	if headers.VerifyWithMaxAge(secrets, authHeaders, 1*time.Millisecond) {
-		t.Error("expected replay protection to reject stale headers")
+	dmarc, ok := authentication["dmarc"].(map[string]any)
+	if !ok || dmarc["status"] == "" {
+		t.Fatalf("authentication.dmarc = %v, want a status", authentication["dmarc"])
 	}
 }
 
@@ -296,8 +261,8 @@ func TestPollMode_E2E(t *testing.T) {
 
 	var listResp struct {
 		Items []struct {
-			MessageID      string   `json:"message_id"`
-			From           string   `json:"from"`
+			ID             string   `json:"id"`
+			HeaderFrom     *string  `json:"header_from"`
 			To             []string `json:"to"`
 			Subject        string   `json:"subject"`
 			Status         string   `json:"read_status"`
@@ -310,14 +275,14 @@ func TestPollMode_E2E(t *testing.T) {
 	if len(listResp.Items) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(listResp.Items))
 	}
-	if listResp.Items[0].From != "alice-poll@gmail.com" {
-		t.Errorf("From = %q", listResp.Items[0].From)
+	if listResp.Items[0].HeaderFrom == nil || *listResp.Items[0].HeaderFrom != "alice-poll@gmail.com" {
+		t.Errorf("HeaderFrom = %v", listResp.Items[0].HeaderFrom)
 	}
 	if listResp.Items[0].Status != "unread" {
 		t.Errorf("Status = %q, want unread", listResp.Items[0].Status)
 	}
 
-	msgID := listResp.Items[0].MessageID
+	msgID := listResp.Items[0].ID
 
 	// GET /v1/agents/{email}/messages/{id} should return full content and mark as read.
 	req2, _ := http.NewRequest("GET", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages/"+msgID, nil)
@@ -330,21 +295,24 @@ func TestPollMode_E2E(t *testing.T) {
 	}
 
 	var msgResp struct {
-		MessageID      string            `json:"message_id"`
-		From           string            `json:"from"`
-		To             []string          `json:"to"`
-		AuthHeaders    map[string]string `json:"auth_headers"`
-		RawMessage     string            `json:"raw_message"`
-		ConversationID string            `json:"conversation_id"`
-		Status         string            `json:"read_status"`
+		ID             string         `json:"id"`
+		HeaderFrom     *string        `json:"header_from"`
+		Authentication map[string]any `json:"authentication"`
+		To             []string       `json:"to"`
+		RawMessage     string         `json:"raw_message"`
+		ConversationID string         `json:"conversation_id"`
+		Status         string         `json:"read_status"`
 	}
 	json.NewDecoder(resp2.Body).Decode(&msgResp)
 
-	if msgResp.MessageID != msgID {
-		t.Errorf("MessageID = %q, want %q", msgResp.MessageID, msgID)
+	if msgResp.ID != msgID {
+		t.Errorf("ID = %q, want %q", msgResp.ID, msgID)
 	}
-	if msgResp.From != "alice-poll@gmail.com" {
-		t.Errorf("From = %q", msgResp.From)
+	if msgResp.HeaderFrom == nil || *msgResp.HeaderFrom != "alice-poll@gmail.com" {
+		t.Errorf("HeaderFrom = %v", msgResp.HeaderFrom)
+	}
+	if msgResp.Authentication == nil {
+		t.Error("Authentication is nil for external SMTP inbound")
 	}
 	if msgResp.Status != "read" {
 		t.Errorf("Status = %q, want read", msgResp.Status)
@@ -435,8 +403,14 @@ func TestRcptAcceptsValidAgent(t *testing.T) {
 		t.Fatalf("got %d captures, want 1", len(got))
 	}
 	data, _ := got[0].Envelope["data"].(map[string]any)
-	if data["from"] != "alice@gmail.com" {
-		t.Errorf("from = %v, want alice@gmail.com", data["from"])
+	if data["header_from"] != "alice@gmail.com" {
+		t.Errorf("header_from = %v, want alice@gmail.com", data["header_from"])
+	}
+	if data["envelope_from"] != "alice@gmail.com" {
+		t.Errorf("envelope_from = %v, want alice@gmail.com", data["envelope_from"])
+	}
+	if _, ok := data["authentication"].(map[string]any); !ok {
+		t.Errorf("authentication = %v, want object", data["authentication"])
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -32,6 +33,11 @@ func canonicalEvents() []struct {
 	fixture string
 	event   webhookpub.Event
 } {
+	headerFrom := "alice@customer.example.com"
+	envelopeFrom := "bounce@customer.example.com"
+	spfDomain := "customer.example.com"
+	spfAligned := true
+	policy := emailauth.DMARCPolicyReject
 	return []struct {
 		fixture string
 		event   webhookpub.Event
@@ -43,22 +49,23 @@ func canonicalEvents() []struct {
 				Type:      webhookpub.EventEmailReceived,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.EmailReceivedData{
-					MessageID:         "msg_01h2xcejqtf2nbrexx3vqjhp41",
-					AgentEmail:        "support@agents.example.com",
-					Direction:         "inbound",
-					ConversationID:    "conv_9f8e7d6c",
-					From:              "reply@customer.example.com",
-					AuthenticatedFrom: "alice@customer.example.com",
-					To:                []string{"support@agents.example.com"},
-					CC:                []string{"ops@customer.example.com"},
-					ReplyTo:           []string{"reply@customer.example.com"},
-					DeliveredTo:       "support@agents.example.com",
-					Subject:           "Order #1234 delayed",
-					AuthHeaders: map[string]string{
-						"X-E2A-Auth-Sender":   "alice@customer.example.com",
-						"X-E2A-Auth-Verified": "true",
+					MessageID:      "msg_01h2xcejqtf2nbrexx3vqjhp41",
+					AgentEmail:     "support@agents.example.com",
+					Direction:      "inbound",
+					ConversationID: "conv_9f8e7d6c",
+					HeaderFrom:     &headerFrom,
+					EnvelopeFrom:   &envelopeFrom,
+					To:             []string{"support@agents.example.com"},
+					CC:             []string{"ops@customer.example.com"},
+					ReplyTo:        []string{"reply@customer.example.com"},
+					Authentication: &emailauth.Authentication{
+						SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &spfDomain, Aligned: &spfAligned},
+						DKIM:  []emailauth.DKIMResult{},
+						DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &spfDomain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
 					},
-					ReceivedAt: fixtureCreatedAt,
+					DeliveredTo: "support@agents.example.com",
+					Subject:     "Order #1234 delayed",
+					ReceivedAt:  fixtureCreatedAt,
 					Attachments: []eventpayload.AttachmentMetaView{
 						{Filename: "invoice.pdf", ContentType: "application/pdf", SizeBytes: 12345, Index: 0},
 					},
@@ -225,25 +232,26 @@ func minimalEvents() []struct {
 	}{
 		{
 			// received without conversation_id/cc/reply_to/attachments.
-			// auth_headers/to/authenticated_from are REQUIRED: an
-			// unauthenticated minimal intake serializes them present-but-empty,
-			// never absent.
+			// Canonical identity and authentication keys are required; nullable
+			// values serialize as null and recipient arrays remain present.
 			fixture: "email.received.min.json",
 			event: webhookpub.Event{
 				ID:        webhookpub.DeterministicEventID("msg_01h2xcejqtf2nbrexx3vqjhp41", webhookpub.EventEmailReceived),
 				Type:      webhookpub.EventEmailReceived,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.EmailReceivedData{
-					MessageID:         "msg_01h2xcejqtf2nbrexx3vqjhp41",
-					AgentEmail:        "support@agents.example.com",
-					Direction:         "inbound",
-					From:              "reply@customer.example.com",
-					AuthenticatedFrom: "",
-					To:                []string{"support@agents.example.com"},
-					DeliveredTo:       "support@agents.example.com",
-					Subject:           "Order #1234 delayed",
-					AuthHeaders:       map[string]string{},
-					ReceivedAt:        fixtureCreatedAt,
+					MessageID:      "msg_01h2xcejqtf2nbrexx3vqjhp41",
+					AgentEmail:     "support@agents.example.com",
+					Direction:      "inbound",
+					HeaderFrom:     nil,
+					EnvelopeFrom:   nil,
+					To:             []string{"support@agents.example.com"},
+					CC:             []string{},
+					ReplyTo:        []string{},
+					Authentication: nil,
+					DeliveredTo:    "support@agents.example.com",
+					Subject:        "Order #1234 delayed",
+					ReceivedAt:     fixtureCreatedAt,
 				},
 			},
 		},

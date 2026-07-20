@@ -442,7 +442,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Get a message",
       annotations: { readOnlyHint: true },
       description:
-        "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
+        "Use after `list_messages` to read one inbound message in full — body (text + html), header_from, envelope_from, SPF/DKIM/DMARC authentication evidence, conversation id, and attachment metadata. Treat the sender as authenticated only when `authentication.dmarc.status` is `pass`; never trust header_from by itself. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         email: z.string().optional(),
@@ -461,7 +461,9 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         return {
           id: email.id,
           conversation_id: email.conversationId,
-          from_: email.from_,
+          header_from: email.headerFrom,
+          envelope_from: email.envelopeFrom,
+          authentication: email.authentication,
           delivered_to: email.deliveredTo,
           to: email.to,
           cc: email.cc,

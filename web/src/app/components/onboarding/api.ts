@@ -170,7 +170,9 @@ export async function sendAgentTestEmail(
 type MessageSummaryWire = {
   id: string;
   direction: "inbound" | "outbound";
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  authentication: import("../types").EmailAuthentication | null;
   to?: string[] | null;
   cc?: string[] | null;
   reply_to?: string[] | null;
@@ -198,7 +200,7 @@ function projectSummary(w: MessageSummaryWire): import("../types").MessageSummar
   return {
     id: w.id,
     direction: w.direction,
-    from: w.from,
+    from: w.header_from ?? "",
     to: w.to ?? [],
     cc: w.cc ?? undefined,
     reply_to: w.reply_to ?? undefined,
@@ -329,7 +331,9 @@ export async function getInboxUnread(
 // construction. See lib/swrKeys.ts.
 export type MessageViewWire = {
   id: string;
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  authentication: import("../types").EmailAuthentication | null;
   to?: string[] | null;
   cc?: string[] | null;
   reply_to?: string[] | null;
@@ -353,7 +357,6 @@ export type MessageViewWire = {
     summary?: string;
   }[];
   created_at: string;
-  auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
   // Backend-derived body: `text` (injection-reduced) for any message with raw
   // MIME, plus `html` (decoded text/html part) for rich display when present.
@@ -401,7 +404,9 @@ export function projectInbound(
 ): InboundMessageDetail {
   return {
     id: w.id,
-    from: w.from,
+    header_from: w.header_from,
+    envelope_from: w.envelope_from,
+    authentication: w.authentication,
     to: w.to ?? [],
     cc: w.cc ?? [],
     reply_to: w.reply_to ?? [],
@@ -410,7 +415,6 @@ export function projectInbound(
     conversation_id: w.conversation_id ?? "",
     status: w.delivery_status ?? "",
     created_at: w.created_at,
-    auth_headers: w.auth_headers ?? {},
     parsed: w.parsed,
     body: w.body,
     attachments: w.attachments ?? [],
@@ -420,8 +424,8 @@ export function projectInbound(
 
 // A MessageView projected for whichever direction the caller knows it to
 // be. `/v1` returns one MessageView for both directions, and that detail
-// shape has NO `direction` field — it also drops `from`/`status` to empty
-// strings on outbound rows, so the direction CANNOT be recovered from the
+// shape has a direction field, but callers still thread the authoritative
+// list-row direction into this projection for compatibility with deep links.
 // payload. The authoritative direction lives on the MessageSummaryView
 // list row, so callers thread it in (the focus page via its `?direction=`
 // query param). When the caller can't supply one (a deep link with no

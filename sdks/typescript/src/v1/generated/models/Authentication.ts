@@ -10,11 +10,15 @@
  * Do not edit the class manually.
  */
 
+import { DKIMResult } from '../models/DKIMResult.js';
+import { DMARCResult } from '../models/DMARCResult.js';
+import { SPFResult } from '../models/SPFResult.js';
 import { HttpFile } from '../http/http.js';
 
-export class CheckResult {
-    'detail'?: string;
-    'status': string;
+export class Authentication {
+    'dkim': Array<DKIMResult>;
+    'dmarc': DMARCResult;
+    'spf': SPFResult;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -22,20 +26,26 @@ export class CheckResult {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "detail",
-            "baseName": "detail",
-            "type": "string",
+            "name": "dkim",
+            "baseName": "dkim",
+            "type": "Array<DKIMResult>",
             "format": ""
         },
         {
-            "name": "status",
-            "baseName": "status",
-            "type": "string",
+            "name": "dmarc",
+            "baseName": "dmarc",
+            "type": "DMARCResult",
+            "format": ""
+        },
+        {
+            "name": "spf",
+            "baseName": "spf",
+            "type": "SPFResult",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return CheckResult.attributeTypeMap;
+        return Authentication.attributeTypeMap;
     }
 
     public constructor() {

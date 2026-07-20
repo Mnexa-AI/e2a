@@ -2,8 +2,9 @@
   {
     "message_id": "msg_reply1",
     "conversation_id": "conv_existing",
-    "from": "dev@acme.test",
-    "authenticated_from": "dev@acme.test",
+    "header_from": "dev@acme.test",
+    "envelope_from": "dev@acme.test",
+    "authentication": {"spf":{"status":"pass","domain":"acme.test","aligned":true},"dkim":[],"dmarc":{"status":"pass","domain":"acme.test","policy":"reject","aligned_by":["spf"]}},
     "subject": "Re: your bug",
     "body": "Actually this still happens on the latest build.",
     "direction": "inbound",

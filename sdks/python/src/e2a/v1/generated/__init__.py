@@ -49,8 +49,7 @@ __all__ = [
     "Attachment",
     "AttachmentMetaView",
     "AttachmentView",
-    "AuthVerdict",
-    "CheckResult",
+    "Authentication",
     "ConversationDetailView",
     "ConversationSummaryView",
     "CreateAPIKeyRequest",
@@ -60,6 +59,8 @@ __all__ = [
     "CreateTemplateRequest",
     "CreateWebhookRequest",
     "CreateWebhookResponse",
+    "DKIMResult",
+    "DMARCResult",
     "DNSRecord",
     "DeleteAgentResult",
     "DeleteApiKeyResult",
@@ -140,6 +141,7 @@ __all__ = [
     "RetryAfterDetails",
     "ReviewView",
     "RotateSecretResponse",
+    "SPFResult",
     "SendEmailRequest",
     "SendResultView",
     "SendingRampView",
@@ -210,8 +212,7 @@ from e2a.v1.generated.models.approve_request import ApproveRequest as ApproveReq
 from e2a.v1.generated.models.attachment import Attachment as Attachment
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView as AttachmentMetaView
 from e2a.v1.generated.models.attachment_view import AttachmentView as AttachmentView
-from e2a.v1.generated.models.auth_verdict import AuthVerdict as AuthVerdict
-from e2a.v1.generated.models.check_result import CheckResult as CheckResult
+from e2a.v1.generated.models.authentication import Authentication as Authentication
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView as ConversationDetailView
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView as ConversationSummaryView
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest as CreateAPIKeyRequest
@@ -221,6 +222,8 @@ from e2a.v1.generated.models.create_agent_suppression_request import CreateAgent
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest as CreateTemplateRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest as CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse as CreateWebhookResponse
+from e2a.v1.generated.models.dkim_result import DKIMResult as DKIMResult
+from e2a.v1.generated.models.dmarc_result import DMARCResult as DMARCResult
 from e2a.v1.generated.models.dns_record import DNSRecord as DNSRecord
 from e2a.v1.generated.models.delete_agent_result import DeleteAgentResult as DeleteAgentResult
 from e2a.v1.generated.models.delete_api_key_result import DeleteApiKeyResult as DeleteApiKeyResult
@@ -301,6 +304,7 @@ from e2a.v1.generated.models.reply_request import ReplyRequest as ReplyRequest
 from e2a.v1.generated.models.retry_after_details import RetryAfterDetails as RetryAfterDetails
 from e2a.v1.generated.models.review_view import ReviewView as ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse as RotateSecretResponse
+from e2a.v1.generated.models.spf_result import SPFResult as SPFResult
 from e2a.v1.generated.models.send_email_request import SendEmailRequest as SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView as SendResultView
 from e2a.v1.generated.models.sending_ramp_view import SendingRampView as SendingRampView

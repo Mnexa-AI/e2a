@@ -85,9 +85,9 @@ func (a *API) performSelfSend(
 			return fmt.Errorf("self-send outbound row: %w", txErr)
 		}
 
-		inboundMsg, txErr := a.store.CreateInboundMessageInTx(
-			ctx, tx, "", agent.ID, loopbackDisplayFrom(req, email), email, providerID, req.Subject,
-			req.ConversationID, "unread", rawMessage, nil, nil, false, "",
+		inboundMsg, txErr := a.store.CreateInboundMessageAuthenticatedInTx(
+			ctx, tx, "", agent.ID, identity.InboundAuth{HeaderFrom: email, StoredSender: loopbackDisplayFrom(req, email)}, email, providerID, req.Subject,
+			req.ConversationID, "unread", rawMessage, false, "",
 			[]string{email}, nil, replyToList(req.ReplyTo), identity.InboundScreening{},
 		)
 		if txErr != nil {
@@ -219,27 +219,27 @@ func (a *API) recordLoopbackUsage(ctx context.Context, userID string, agent *ide
 
 func replyToList(replyTo string) []string {
 	if replyTo == "" {
-		return nil
+		return []string{}
 	}
 	return []string{replyTo}
 }
 
 func buildLoopbackReceivedEvent(agent *identity.AgentIdentity, msg *identity.Message, req outbound.SendRequest, raw []byte) webhookpub.Event {
 	data := eventpayload.EmailReceivedData{
-		MessageID:         msg.ID,
-		AgentEmail:        agent.EmailAddress(),
-		Direction:         "inbound",
-		ConversationID:    req.ConversationID,
-		From:              loopbackDisplayFrom(req, agent.EmailAddress()),
-		AuthenticatedFrom: agent.EmailAddress(),
-		To:                []string{agent.EmailAddress()},
-		CC:                []string{},
-		ReplyTo:           replyToList(req.ReplyTo),
-		DeliveredTo:       agent.EmailAddress(),
-		Subject:           req.Subject,
-		AuthHeaders:       map[string]string{},
-		ReceivedAt:        msg.CreatedAt.UTC(),
-		Attachments:       eventpayload.AttachmentMetadata(raw),
+		MessageID:      msg.ID,
+		AgentEmail:     agent.EmailAddress(),
+		Direction:      "inbound",
+		ConversationID: req.ConversationID,
+		HeaderFrom:     stringPointer(agent.EmailAddress()),
+		EnvelopeFrom:   nil,
+		To:             []string{agent.EmailAddress()},
+		CC:             []string{},
+		ReplyTo:        replyToList(req.ReplyTo),
+		Authentication: nil,
+		DeliveredTo:    agent.EmailAddress(),
+		Subject:        req.Subject,
+		ReceivedAt:     msg.CreatedAt.UTC(),
+		Attachments:    eventpayload.AttachmentMetadata(raw),
 	}
 	e := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, data)
 	e.ID = webhookpub.DeterministicEventID(msg.ID, webhookpub.EventEmailReceived)
@@ -248,6 +248,8 @@ func buildLoopbackReceivedEvent(agent *identity.AgentIdentity, msg *identity.Mes
 	e.MessageID = msg.ID
 	return e
 }
+
+func stringPointer(value string) *string { return &value }
 
 func loopbackDisplayFrom(req outbound.SendRequest, agentEmail string) string {
 	if req.ReplyTo != "" {

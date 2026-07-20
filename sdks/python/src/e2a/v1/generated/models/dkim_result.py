@@ -17,21 +17,22 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
-from typing_extensions import Annotated
 from typing import Optional, Set
 from typing_extensions import Self
 
-class ProtectionGateRequest(BaseModel):
+class DKIMResult(BaseModel):
     """
-    ProtectionGateRequest
+    DKIMResult
     """ # noqa: E501
-    action: Optional[StrictStr] = Field(default='flag', description="What a gate non-match does: flag (deliver + annotate), review (hold), block.")
-    allowlist: Optional[Annotated[List[StrictStr], Field(max_length=1000)]] = Field(default=None, description="Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound allowlist/domain gates first require DMARC pass, then match the aligned RFC 5322 From address.")
-    policy: Optional[StrictStr] = Field(default='open', description="Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent's own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses).")
+    aligned: Optional[StrictBool]
+    detail: Optional[StrictStr] = None
+    domain: Optional[StrictStr]
+    selector: Optional[StrictStr]
+    status: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["action", "allowlist", "policy"]
+    __properties: ClassVar[List[str]] = ["aligned", "detail", "domain", "selector", "status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -51,7 +52,7 @@ class ProtectionGateRequest(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of ProtectionGateRequest from a JSON string"""
+        """Create an instance of DKIMResult from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -79,11 +80,26 @@ class ProtectionGateRequest(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if aligned (nullable) is None
+        # and model_fields_set contains the field
+        if self.aligned is None and "aligned" in self.model_fields_set:
+            _dict['aligned'] = None
+
+        # set to None if domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.domain is None and "domain" in self.model_fields_set:
+            _dict['domain'] = None
+
+        # set to None if selector (nullable) is None
+        # and model_fields_set contains the field
+        if self.selector is None and "selector" in self.model_fields_set:
+            _dict['selector'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of ProtectionGateRequest from a dict"""
+        """Create an instance of DKIMResult from a dict"""
         if obj is None:
             return None
 
@@ -91,9 +107,11 @@ class ProtectionGateRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "action": obj.get("action") if obj.get("action") is not None else 'flag',
-            "allowlist": obj.get("allowlist"),
-            "policy": obj.get("policy") if obj.get("policy") is not None else 'open'
+            "aligned": obj.get("aligned"),
+            "detail": obj.get("detail"),
+            "domain": obj.get("domain"),
+            "selector": obj.get("selector"),
+            "status": obj.get("status")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

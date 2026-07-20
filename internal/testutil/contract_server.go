@@ -11,7 +11,6 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/apiserver"
 	"github.com/tokencanopy/e2a/internal/config"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/limits"
@@ -30,7 +29,6 @@ type ContractServer struct {
 	DBPool     *pgxpool.Pool
 	Store      *identity.Store
 	WSHub      *ws.Hub
-	Signer     *headers.Signer
 	SMTPAddr   string
 	httpServer *http.Server
 	httpLn     net.Listener
@@ -49,7 +47,6 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		pool.Close()
 		return nil, err
 	}
-	signer := headers.NewSigner(TestHMACSecret)
 	smtpRelay := outbound.NewSMTPRelay(&config.OutboundSMTPConfig{})
 	sender := outbound.NewSender(smtpRelay, "test.e2a.dev")
 	noopUsage := usage.NewNoopUsageTracker()
@@ -124,7 +121,7 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		},
 		Env: "development",
 	}
-	smtpServer := relay.NewServer(cfg, store, signer, noopUsage, wsHub)
+	smtpServer := relay.NewServer(cfg, store, noopUsage, wsHub)
 	go func() {
 		_ = smtpServer.ListenAndServe()
 	}()
@@ -164,7 +161,6 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		DBPool:     pool,
 		Store:      store,
 		WSHub:      wsHub,
-		Signer:     signer,
 		SMTPAddr:   smtpAddr,
 		httpServer: httpServer,
 		httpLn:     httpLn,

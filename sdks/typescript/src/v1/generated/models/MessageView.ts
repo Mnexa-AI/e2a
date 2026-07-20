@@ -11,7 +11,7 @@
  */
 
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
-import { AuthVerdict } from '../models/AuthVerdict.js';
+import { Authentication } from '../models/Authentication.js';
 import { HoldReasonView } from '../models/HoldReasonView.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
@@ -20,8 +20,10 @@ import { HttpFile } from '../http/http.js';
 
 export class MessageView {
     'attachments': Array<AttachmentMetaView>;
-    'auth'?: AuthVerdict;
-    'authHeaders'?: { [key: string]: string; };
+    /**
+    * SMTP authentication evidence; null for outbound and providerless delivery.
+    */
+    'authentication': Authentication | null;
     'body'?: MessageBodyView;
     'cc': Array<string>;
     'conversationId': string;
@@ -40,9 +42,16 @@ export class MessageView {
     */
     'deliveryStatus'?: string;
     'direction': MessageViewDirectionEnum;
+    /**
+    * SMTP MAIL FROM address when known.
+    */
+    'envelopeFrom': string | null;
     'flagReason'?: string;
     'flagged'?: boolean;
-    'from_': string;
+    /**
+    * Parsed RFC 5322 From address; never replaced by Reply-To.
+    */
+    'headerFrom': string | null;
     'holdReason'?: HoldReasonView;
     'id': string;
     'labels': Array<string>;
@@ -89,15 +98,9 @@ export class MessageView {
             "format": ""
         },
         {
-            "name": "auth",
-            "baseName": "auth",
-            "type": "AuthVerdict",
-            "format": ""
-        },
-        {
-            "name": "authHeaders",
-            "baseName": "auth_headers",
-            "type": "{ [key: string]: string; }",
+            "name": "authentication",
+            "baseName": "authentication",
+            "type": "Authentication",
             "format": ""
         },
         {
@@ -155,6 +158,12 @@ export class MessageView {
             "format": ""
         },
         {
+            "name": "envelopeFrom",
+            "baseName": "envelope_from",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "flagReason",
             "baseName": "flag_reason",
             "type": "string",
@@ -167,8 +176,8 @@ export class MessageView {
             "format": ""
         },
         {
-            "name": "from_",
-            "baseName": "from",
+            "name": "headerFrom",
+            "baseName": "header_from",
             "type": "string",
             "format": ""
         },
@@ -206,7 +215,7 @@ export class MessageView {
             "name": "rawMessage",
             "baseName": "raw_message",
             "type": "string",
-            "format": ""
+            "format": "byte"
         },
         {
             "name": "readStatus",

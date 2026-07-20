@@ -146,7 +146,7 @@ const defaultPageLimit = 100
 // The MAC is computed over the LITERAL emitted base64url(json) segment (not
 // a re-marshaled struct) so encode and verify are byte-canonical and cannot
 // drift. secret is the deployment HMAC secret (config.Signing.HMACSecret) —
-// the same key approvaltoken and the X-E2A-Auth-* email headers already use,
+// the same deployment key used by approval tokens,
 // so there is no new key to manage.
 func EncodeCursor(secret string, payload any) (string, error) {
 	raw, err := json.Marshal(payload)

@@ -115,7 +115,7 @@ export type PendingMessageDetail = PendingMessageSummary & {
   protection?: ProtectionFinding[];
   // Attached when this is a reply — the inbound message being replied
   // to. Drives the review panel's "In reply to" provenance pane
-  // (SPF/DKIM/DMARC from auth_headers). Null on send/test messages.
+  // (structured SPF/DKIM/DMARC evidence). Null on send/test messages.
   inbound?: PendingMessageInboundContext | null;
 };
 
@@ -123,7 +123,30 @@ export type PendingMessageInboundContext = {
   sender: string;
   subject: string;
   created_at: string;
-  auth_headers?: Record<string, string>;
+  authentication?: EmailAuthentication | null;
+};
+
+export type EmailAuthentication = {
+  spf: {
+    status: string;
+    domain: string | null;
+    aligned: boolean | null;
+    detail?: string;
+  };
+  dkim: {
+    status: string;
+    domain: string | null;
+    selector: string | null;
+    aligned: boolean | null;
+    detail?: string;
+  }[];
+  dmarc: {
+    status: "pass" | "fail" | "none" | "temperror" | "permerror";
+    domain: string | null;
+    policy: "none" | "quarantine" | "reject" | null;
+    aligned_by: ("spf" | "dkim")[];
+    detail?: string;
+  };
 };
 
 // MessageSummaryView from `GET /v1/agents/{address}/messages`
@@ -175,11 +198,13 @@ export type ListMessagesResponse = {
 // MessageView from `GET /v1/agents/{address}/messages/{id}`. Used by the
 // focus page's inbound branch. The `/v1` detail endpoint returns the
 // same MessageView shape for inbound and outbound; inbound rows carry
-// `auth_headers` + `raw_message`, and the parsed text/plain body comes
+// canonical authentication evidence + `raw_message`, and the parsed text/plain body comes
 // through `body.text`.
 export type InboundMessageDetail = {
   id: string;
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  authentication: EmailAuthentication | null;
   to: string[];
   cc: string[];
   reply_to: string[];
@@ -188,7 +213,6 @@ export type InboundMessageDetail = {
   conversation_id: string;
   status: string;
   created_at: string;
-  auth_headers: Record<string, string>;
   // Backend-derived body (preferred): `text` is the injection-reduced plain
   // body (text/plain, else HTML→text, QP/base64 decoded, quoted chains
   // stripped); `html` is the decoded text/html part for rich display, present

@@ -53,12 +53,12 @@ def test_email_received():
     assert d["message_id"].startswith("msg_")
     assert d["agent_email"] == "support@agents.example.com"
     assert d["direction"] == "inbound"
-    assert d["from"] == "reply@customer.example.com"
-    assert d["authenticated_from"] == "alice@customer.example.com"
+    assert d["header_from"] == "alice@customer.example.com"
+    assert d["envelope_from"] == "bounce@customer.example.com"
     assert d["to"] == ["support@agents.example.com"]
     assert d["delivered_to"] == "support@agents.example.com"
     assert d["subject"] == "Order #1234 delayed"
-    assert d["auth_headers"]["X-E2A-Auth-Verified"] == "true"
+    assert d["authentication"]["dmarc"]["status"] == "pass"
     assert isinstance(d["received_at"], str)
     assert d["attachments"] == [
         {"filename": "invoice.pdf", "content_type": "application/pdf", "size_bytes": 12345, "index": 0}
@@ -181,14 +181,15 @@ def test_email_received_minimal():
     d = e.data
     assert d["message_id"].startswith("msg_")
     assert d["delivered_to"] == "support@agents.example.com"
-    # Required present-but-empty, never absent.
-    assert d["authenticated_from"] == ""
-    assert d["auth_headers"] == {}
+    # Required nullable authentication/identity fields remain present.
+    assert d["header_from"] is None
+    assert d["envelope_from"] is None
+    assert d["authentication"] is None
     assert d["to"] == ["support@agents.example.com"]
+    assert d["cc"] == []
+    assert d["reply_to"] == []
     # Optional fields are ABSENT on the wire.
     assert "conversation_id" not in d
-    assert "cc" not in d
-    assert "reply_to" not in d
     assert "attachments" not in d
 
 

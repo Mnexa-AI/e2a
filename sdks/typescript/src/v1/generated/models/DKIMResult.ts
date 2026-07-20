@@ -12,19 +12,12 @@
 
 import { HttpFile } from '../http/http.js';
 
-export class ProtectionGateRequest {
-    /**
-    * What a gate non-match does: flag (deliver + annotate), review (hold), block.
-    */
-    'action'?: ProtectionGateRequestActionEnum;
-    /**
-    * Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent\'s own domain, not this list). Inbound allowlist/domain gates first require DMARC pass, then match the aligned RFC 5322 From address.
-    */
-    'allowlist'?: Array<string>;
-    /**
-    * Trust gate: open (all), domain (inbound: senders on the listed domains; outbound: recipients on the agent\'s own domain — for a subdomain agent bound to its verified PARENT domain, that own domain is the parent, so under this policy it can send to @parent recipients but not to its own @subdomain), allowlist (listed addresses).
-    */
-    'policy'?: ProtectionGateRequestPolicyEnum;
+export class DKIMResult {
+    'aligned': boolean | null;
+    'detail'?: string;
+    'domain': string | null;
+    'selector': string | null;
+    'status': DKIMResultStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -32,40 +25,51 @@ export class ProtectionGateRequest {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "action",
-            "baseName": "action",
-            "type": "ProtectionGateRequestActionEnum",
+            "name": "aligned",
+            "baseName": "aligned",
+            "type": "boolean",
             "format": ""
         },
         {
-            "name": "allowlist",
-            "baseName": "allowlist",
-            "type": "Array<string>",
+            "name": "detail",
+            "baseName": "detail",
+            "type": "string",
             "format": ""
         },
         {
-            "name": "policy",
-            "baseName": "policy",
-            "type": "ProtectionGateRequestPolicyEnum",
+            "name": "domain",
+            "baseName": "domain",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "selector",
+            "baseName": "selector",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "status",
+            "baseName": "status",
+            "type": "DKIMResultStatusEnum",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return ProtectionGateRequest.attributeTypeMap;
+        return DKIMResult.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
 
-export enum ProtectionGateRequestActionEnum {
-    Flag = 'flag',
-    Review = 'review',
-    Block = 'block'
-}
-export enum ProtectionGateRequestPolicyEnum {
-    Open = 'open',
-    Allowlist = 'allowlist',
-    Domain = 'domain'
+export enum DKIMResultStatusEnum {
+    Pass = 'pass',
+    Fail = 'fail',
+    None = 'none',
+    Neutral = 'neutral',
+    Policy = 'policy',
+    Temperror = 'temperror',
+    Permerror = 'permerror'
 }
 

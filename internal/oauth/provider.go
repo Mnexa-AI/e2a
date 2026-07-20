@@ -20,10 +20,9 @@ import (
 const oauthSigningKeyLabel = "e2a-oauth-token-signing-v1"
 
 // deriveOAuthSigningKey produces a 32-byte HMAC key dedicated to fosite
-// from the master secret used for X-E2A-Auth-* header signing. Key
-// separation matters here: the master also signs HITL approval links
-// and email headers, and rotating one signing domain shouldn't tear
-// down the other two. HKDF-SHA256 with a per-purpose `info` label
+// from the deployment master secret. Key
+// separation matters here: the master also signs HITL approval links, and
+// rotating one signing domain should not tear down the other. HKDF-SHA256 with a per-purpose `info` label
 // gives us a stable, deterministic per-domain key without any extra
 // config knob.
 //
@@ -62,8 +61,8 @@ const (
 //   - PKCE-S256 mandatory (no plain), public clients only at /token
 //
 // hmacSecret is the *master* signing key (typically
-// cfg.Signing.HMACSecret) — same one X-E2A-Auth-* email headers and
-// HITL magic links sign with. We never hand fosite the master
+// cfg.Signing.HMACSecret) — the same master secret used for approval tokens
+// and HITL magic links. We never hand fosite the master
 // directly; deriveOAuthSigningKey produces a per-purpose 32-byte
 // subkey via HKDF-SHA256, so a future rotation of the OAuth signing
 // material (bump the label suffix to v2) doesn't churn the other
@@ -147,10 +146,10 @@ func NewProvider(storage *Storage, issuerURL string, hmacSecret []byte) (fosite.
 		// JWT bearer, OIDC, introspection, PAR) is intentionally
 		// not wired. fosite returns "unsupported_grant_type" /
 		// "unsupported_response_type" for those by default.
-		compose.OAuth2AuthorizeExplicitFactory,    // authorize-code grant
-		compose.OAuth2RefreshTokenGrantFactory,    // refresh-token grant
-		compose.OAuth2PKCEFactory,                 // PKCE (S256-only here)
-		compose.OAuth2TokenRevocationFactory,      // RFC 7009 /revoke endpoint
+		compose.OAuth2AuthorizeExplicitFactory, // authorize-code grant
+		compose.OAuth2RefreshTokenGrantFactory, // refresh-token grant
+		compose.OAuth2PKCEFactory,              // PKCE (S256-only here)
+		compose.OAuth2TokenRevocationFactory,   // RFC 7009 /revoke endpoint
 		// Token-introspection HANDLER (not endpoint). Wires the
 		// CoreValidator that authenticateUser's bearer dispatch uses
 		// via provider.IntrospectToken(). We don't expose the RFC

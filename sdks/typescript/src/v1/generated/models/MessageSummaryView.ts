@@ -10,11 +10,11 @@
  * Do not edit the class manually.
  */
 
-import { AuthVerdict } from '../models/AuthVerdict.js';
+import { Authentication } from '../models/Authentication.js';
 import { HttpFile } from '../http/http.js';
 
 export class MessageSummaryView {
-    'auth'?: AuthVerdict;
+    'authentication': Authentication | null;
     'cc'?: Array<string>;
     'conversationId'?: string;
     'createdAt': Date;
@@ -32,9 +32,10 @@ export class MessageSummaryView {
     */
     'deliveryStatus'?: string;
     'direction': MessageSummaryViewDirectionEnum;
+    'envelopeFrom': string | null;
     'flagReason'?: string;
     'flagged'?: boolean;
-    'from_': string;
+    'headerFrom': string | null;
     'id': string;
     'labels': Array<string>;
     'readStatus': string;
@@ -65,9 +66,9 @@ export class MessageSummaryView {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "auth",
-            "baseName": "auth",
-            "type": "AuthVerdict",
+            "name": "authentication",
+            "baseName": "authentication",
+            "type": "Authentication",
             "format": ""
         },
         {
@@ -119,6 +120,12 @@ export class MessageSummaryView {
             "format": ""
         },
         {
+            "name": "envelopeFrom",
+            "baseName": "envelope_from",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "flagReason",
             "baseName": "flag_reason",
             "type": "string",
@@ -131,8 +138,8 @@ export class MessageSummaryView {
             "format": ""
         },
         {
-            "name": "from_",
-            "baseName": "from",
+            "name": "headerFrom",
+            "baseName": "header_from",
             "type": "string",
             "format": ""
         },

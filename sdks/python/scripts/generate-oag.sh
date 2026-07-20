@@ -14,9 +14,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 TMP="$ROOT/sdks/python/.oag-tmp"
 DEST="$ROOT/sdks/python/src/e2a/v1/generated"
+CODEGEN_SPEC="$ROOT/sdks/python/.oag-openapi.yaml"
 IMG="openapitools/openapi-generator-cli:v7.16.0"
 
 rm -rf "$TMP"
+go run "$ROOT/cmd/e2a-openapi-codegen-normalize" "$ROOT/api/openapi.yaml" "$CODEGEN_SPEC"
+trap 'rm -rf "$TMP"; rm -f "$CODEGEN_SPEC"' EXIT
 # Run as the invoking host user (not the container's default root) so the
 # generated files + the .oag-tmp scratch dir are host-user-owned and removable
 # on CI's non-root runner. HOME is a writable path for tools that expect it.
@@ -29,7 +32,8 @@ rm -rf "$TMP"
 # so the SDK teaches exactly one spelling. Wire JSON stays `from` (the pydantic
 # alias / query-param name are unchanged).
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
-  -i /work/api/openapi.yaml -g python \
+  --skip-validate-spec \
+  -i /work/sdks/python/.oag-openapi.yaml -g python \
   -o /work/sdks/python/.oag-tmp \
   --name-mappings from=from_ --parameter-name-mappings from=from_ \
   --additional-properties=packageName=e2a.v1.generated,library=httpx >/dev/null
@@ -62,5 +66,8 @@ perl -0pi -e 's/\n+\z/\n/' \
   "$DEST/models/create_agent_suppression_request.py" \
   "$DEST/models/page_agent_suppression_view.py" \
   "$DEST/models/unsubscribe_options.py"
+
+rm -f "$CODEGEN_SPEC"
+trap - EXIT
 
 echo "Python /v1 client base regenerated at sdks/python/src/e2a/v1/generated"

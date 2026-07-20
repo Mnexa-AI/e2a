@@ -349,7 +349,7 @@ function FocusContent({
         : "outbound"
       : "inbound";
   const subject = msg.data.subject;
-  const from = direction === "outbound" ? email : msg.data.from;
+  const from = direction === "outbound" ? email : msg.data.header_from ?? "(unknown sender)";
   const to = direction === "outbound" ? msg.data.to?.[0] ?? "" : email;
   const convId = msg.data.conversation_id;
   const createdAt = msg.data.created_at;
@@ -782,7 +782,7 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
       node: (
         <span>
           <span style={{ color: "var(--ink-fg-muted)" }}>From:</span>{" "}
-          <span style={{ color: "var(--spectral)" }}>{d.from}</span>
+          <span style={{ color: "var(--spectral)" }}>{d.header_from ?? "(unknown)"}</span>
         </span>
       ),
     },
@@ -802,26 +802,19 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
       ),
     },
   ];
-  // Surface every X-E2A-Auth-* + Received-SPF + Authentication-Results
-  // header we got. Values are scrubbed for clipboard safety — upstream
-  // SMTP could embed control chars that would otherwise pollute the
-  // copy buffer when a reviewer pastes from the InkConsole.
-  for (const [k, rawV] of Object.entries(d.auth_headers ?? {})) {
-    const v = scrubHeaderValue(rawV);
-    lines.push({
-      node: (
-        <span>
-          <span style={{ color: "var(--ink-fg-muted)" }}>{k}:</span>{" "}
-          {v === "pass" || v === "verified" || v === "true" ? (
-            <span style={{ color: "var(--machine)" }}>{v}</span>
-          ) : v === "fail" || v === "false" ? (
-            <span style={{ color: "var(--danger)" }}>{v}</span>
-          ) : (
-            <span style={{ color: "var(--spectral)" }}>{v}</span>
-          )}
-        </span>
-      ),
-    });
+  if (d.envelope_from) {
+    lines.push({ c: "plain", text: `Envelope-From: ${scrubHeaderValue(d.envelope_from)}` });
+  }
+  if (d.authentication) {
+    const { spf, dkim, dmarc } = d.authentication;
+    lines.push({ c: dmarc.status === "pass" ? "accent" : "plain", text: `DMARC: ${dmarc.status}` });
+    lines.push({ c: "plain", text: `SPF: ${spf.status}${spf.domain ? ` · ${spf.domain}` : ""}` });
+    for (const signature of dkim) {
+      lines.push({
+        c: "plain",
+        text: `DKIM: ${signature.status}${signature.domain ? ` · ${signature.domain}` : ""}${signature.selector ? ` · ${signature.selector}` : ""}`,
+      });
+    }
   }
   return lines;
 }
@@ -867,19 +860,9 @@ function buildOutboundHeaderLines(d: PendingMessageDetail): InkLine[] {
       ),
     });
   }
-  if (d.inbound?.auth_headers) {
-    lines.push({ c: "comment", text: "# parent inbound auth" });
-    for (const [k, rawV] of Object.entries(d.inbound.auth_headers)) {
-      const v = scrubHeaderValue(rawV);
-      lines.push({
-        node: (
-          <span>
-            <span style={{ color: "var(--ink-fg-muted)" }}>{k}:</span>{" "}
-            <span style={{ color: "var(--spectral)" }}>{v}</span>
-          </span>
-        ),
-      });
-    }
+  if (d.inbound?.authentication) {
+	lines.push({ c: "comment", text: "# parent inbound auth" });
+	lines.push({ c: "plain", text: `DMARC: ${d.inbound.authentication.dmarc.status}` });
   }
   return lines;
 }

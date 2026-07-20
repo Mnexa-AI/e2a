@@ -23,7 +23,6 @@ import (
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/hitlnotify"
 	"github.com/tokencanopy/e2a/internal/hitlworker"
 	"github.com/tokencanopy/e2a/internal/idempotency"
@@ -183,7 +182,6 @@ func main() {
 	if err := store.EnsureSharedDomain(ctx, cfg.SharedDomain); err != nil {
 		log.Fatalf("Failed to seed shared domain row: %v", err)
 	}
-	signer := headers.NewSigner(cfg.Signing.HMACSecret)
 	// deliveryStore backs the legacy webhook_deliveries table. The
 	// legacy per-agent push path (Deliverer/RetryWorker) is gone — push
 	// now flows exclusively through the /v1/webhooks subscriber resource
@@ -690,7 +688,7 @@ func main() {
 	httpServer := newHTTPServer(cfg.HTTP.ListenAddr, v1)
 
 	// SMTP Relay
-	smtpServer := relay.NewServer(cfg, store, signer, usageTracker, wsHub)
+	smtpServer := relay.NewServer(cfg, store, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
 	smtpServer.SetOutbox(webhookOutbox)
 

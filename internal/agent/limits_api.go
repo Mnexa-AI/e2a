@@ -106,4 +106,3 @@ func hmacHexSHA256(key, body []byte) string {
 	h.Write(body)
 	return hex.EncodeToString(h.Sum(nil))
 }
-

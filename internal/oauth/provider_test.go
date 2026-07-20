@@ -14,8 +14,8 @@ import (
 	"github.com/tokencanopy/e2a/internal/oauth"
 	"github.com/tokencanopy/e2a/internal/testutil"
 
-	"github.com/ory/fosite"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ory/fosite"
 )
 
 // newProviderFixture wires a fosite OAuth2Provider over the same
