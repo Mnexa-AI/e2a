@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/smtp"
 	"net/textproto"
+	"os"
 	"strings"
 	"time"
 
@@ -160,8 +161,19 @@ func IsConnectionError(err error) bool {
 //	250 Ok <010f019d2bd82cd5-49c4925c-...@us-east-2.amazonses.com>
 func (r *SMTPRelay) sendOnceContext(ctx context.Context, envelopeFrom string, recipients []string, message []byte) (msgID string, err error) {
 	defer func() {
-		if err != nil && ctx.Err() != nil {
+		if err == nil {
+			return
+		}
+		if ctx.Err() != nil {
 			err = ctx.Err()
+			return
+		}
+		// The conn deadline is set to the ctx deadline below, so the net
+		// poller's timer races the context's own timer to the same instant.
+		// When the poller wins, the I/O error surfaces while ctx.Err() is
+		// still nil — map it to the deadline error the caller contracted for.
+		if d, ok := ctx.Deadline(); ok && !time.Now().Before(d) && errors.Is(err, os.ErrDeadlineExceeded) {
+			err = context.DeadlineExceeded
 		}
 	}()
 
