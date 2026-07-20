@@ -58,8 +58,9 @@ the two directions use different mechanisms:
 
 ### Fast path (recommended): `tether.sh setup`
 
-If the e2a CLI is logged in (`e2a login` in a browser, or `e2a login
---with-key` on a headless box), one command does the whole bootstrap:
+If the e2a CLI is logged in (`e2a login` in a browser, or a key persisted with
+`e2a config set api_key <key>` on a headless box), one command does the whole
+bootstrap:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh" setup
@@ -92,9 +93,16 @@ inbox, `--new` to force a fresh one.
    ```
 
 Credentials resolve in order: explicit env vars → `~/.e2a-tether.env` →
-`~/.e2a/config.json` (written by `e2a login`; after `e2a login --agent <inbox>`
-that file already holds a least-privilege agent key, so tether needs no
-tether-specific config at all).
+`~/.e2a/config.json`. Note that `e2a login` saves an **account-scoped** key and
+does **not** set `agent_email` — so `~/.e2a/config.json` alone is not enough for
+tether, which needs a specific inbox. Either set both explicitly:
+
+```bash
+e2a keys create --agent <inbox>          # least-privilege e2a_agt_… key
+e2a config set agent_email <inbox>       # or export E2A_AGENT_EMAIL
+```
+
+or put the agent key + inbox in `~/.e2a-tether.env` and leave the CLI config alone.
 
 > The tether agent must have send-side protection / HITL **off**, or each update
 > is held for review instead of reaching you. `tether.sh` now detects this on
@@ -113,9 +121,10 @@ first-time user — **help them get to a working setup instead of just failing**
    `e2a login` — or, when `e2a` isn't installed globally, the npx form:
    `npx -y @e2a/cli login` (same auto-fetch the harness itself uses). It opens
    the browser sign-up/sign-in and saves an account-scoped key to
-   `~/.e2a/config.json`. (Headless box: they mint a key in the dashboard and
-   run `… login --with-key`.) Interactive sign-in is theirs to complete: hand
-   them the command, don't drive it.
+   `~/.e2a/config.json`. (Headless box: they mint an account key in the
+   dashboard, persist it with `e2a config set api_key <key>`, then validate it
+   with `e2a whoami`.) Interactive sign-in is theirs to complete: hand them the
+   command, don't drive it.
 2. **Run the bootstrap:** `"$T" setup` — it creates the inbox, disables
    outbound review, mints the agent-scoped key, and writes
    `~/.e2a-tether.env`. See **Setup** above for what it refuses to do.

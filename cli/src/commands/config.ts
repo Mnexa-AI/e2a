@@ -2,16 +2,24 @@ import { loadConfig, saveConfig, Config } from "../config.js";
 import { EXIT } from "../exit.js";
 
 const VALID_KEYS: (keyof Config)[] = ["api_key", "api_url", "agent_email", "shared_domain", "key_scope"];
+const SETTABLE_KEYS: (keyof Config)[] = ["api_key", "agent_email"];
 
 export async function config(args: string[]): Promise<void> {
   const subcommand = args[0];
 
-  if (!subcommand || subcommand === "list") {
+  if (!subcommand) {
+    showAll();
+    return;
+  }
+
+  if (subcommand === "list") {
+    requireArgCount(args, 1);
     showAll();
     return;
   }
 
   if (subcommand === "get") {
+    requireArgCount(args, 2);
     const key = args[1];
     if (!key) {
       process.stderr.write("Usage: e2a config get <key>\n");
@@ -30,6 +38,7 @@ export async function config(args: string[]): Promise<void> {
   }
 
   if (subcommand === "set") {
+    requireArgCount(args, 3);
     const key = args[1];
     const value = args[2];
     if (!key || value === undefined) {
@@ -40,19 +49,26 @@ export async function config(args: string[]): Promise<void> {
       process.stderr.write(`Unknown key: ${key}\nValid keys: ${VALID_KEYS.join(", ")}\n`);
       process.exit(EXIT.USAGE);
     }
-    // key_scope is an enum, not free text — a persisted typo would feed any
-    // future scope preflight confidently wrong data.
-    if (key === "key_scope" && value !== "account" && value !== "agent") {
-      process.stderr.write(`key_scope must be "account" or "agent"\n`);
+    if (!SETTABLE_KEYS.includes(key as keyof Config)) {
+      process.stderr.write(
+        `Cannot set managed key: ${key}\nSettable keys: ${SETTABLE_KEYS.join(", ")}\n`,
+      );
       process.exit(EXIT.USAGE);
     }
-    saveConfig({ [key]: value });
+    // A manually supplied key has unknown scope until `whoami` validates it;
+    // never retain scope metadata recorded for the previous credential.
+    saveConfig(key === "api_key" ? { api_key: value, key_scope: "" } : { [key]: value });
     process.stdout.write(`${key}=${value}\n`);
+
+    // Warn if this key is interfered with by an environment variable.
+    // Two distinct cases: (a) NOT PERSISTED AT ALL, or (b) PERSISTED BUT SHADOWED ON READ.
+    warnIfEnvVarInterferes(key);
     return;
   }
 
   // Treat bare key as shorthand for "get"
   if (VALID_KEYS.includes(subcommand as keyof Config)) {
+    requireArgCount(args, 1);
     const cfg = loadConfig();
     const value = cfg[subcommand as keyof Config];
     if (value) {
@@ -68,6 +84,13 @@ export async function config(args: string[]): Promise<void> {
   process.exit(EXIT.USAGE);
 }
 
+function requireArgCount(args: string[], expected: number): void {
+  if (args.length !== expected) {
+    process.stderr.write("Usage: e2a config [list|get <key>|set <key> <value>]\n");
+    process.exit(EXIT.USAGE);
+  }
+}
+
 function showAll(): void {
   const cfg = loadConfig();
   for (const key of VALID_KEYS) {
@@ -77,5 +100,30 @@ function showAll(): void {
     } else {
       process.stdout.write(`${key}=${value || ""}\n`);
     }
+  }
+}
+
+/**
+ * Warn if an environment variable interferes with a config key.
+ * Settable values are persisted, but the corresponding environment variable
+ * stays authoritative until it is unset.
+ */
+function warnIfEnvVarInterferes(key: string): void {
+  if (key === "api_key" && process.env.E2A_API_KEY) {
+    process.stderr.write(
+      "e2a: api_key was saved, but E2A_API_KEY environment variable will take precedence.\n" +
+        "     `e2a config get api_key` will show the env var value, not your saved config.\n" +
+        "     Unset E2A_API_KEY to use the saved value.\n",
+    );
+    return;
+  }
+
+  if (key === "agent_email" && process.env.E2A_AGENT_EMAIL) {
+    process.stderr.write(
+      "e2a: agent_email was saved, but E2A_AGENT_EMAIL environment variable will take precedence.\n" +
+        "     `e2a config get agent_email` will show the env var value, not your saved config.\n" +
+        "     Unset E2A_AGENT_EMAIL to use the saved value.\n",
+    );
+    return;
   }
 }

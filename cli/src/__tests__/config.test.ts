@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -10,6 +10,7 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
+  chmodSync: vi.fn(),
 }));
 
 const CONFIG_DIR = join(homedir(), ".e2a");
@@ -141,13 +142,16 @@ describe("saveConfig", () => {
     vi.mocked(readFileSync).mockReset();
     vi.mocked(writeFileSync).mockReset();
     vi.mocked(mkdirSync).mockReset();
+    vi.mocked(chmodSync).mockReset();
     delete process.env.E2A_API_KEY;
     delete process.env.E2A_URL;
+    delete process.env.E2A_SHARED_DOMAIN;
   });
 
   afterEach(() => {
     delete process.env.E2A_API_KEY;
     delete process.env.E2A_URL;
+    delete process.env.E2A_SHARED_DOMAIN;
   });
 
   it("creates config directory and writes file with 0o600 permissions", () => {
@@ -163,6 +167,7 @@ describe("saveConfig", () => {
       expect.stringContaining("e2a_newkey"),
       { mode: 0o600 },
     );
+    expect(chmodSync).toHaveBeenCalledWith(CONFIG_PATH, 0o600);
   });
 
   it("preserves existing fields when updating", () => {
@@ -191,6 +196,30 @@ describe("saveConfig", () => {
     expect(saved.api_key).toBe("e2a_old");
     expect(saved.agent_email).toBeUndefined();
   });
+
+  it("persists api_url updates behind an E2A_URL override", () => {
+    vi.mocked(readFileSync).mockReturnValue(
+      JSON.stringify({ api_url: "https://old.selfhost.dev" }),
+    );
+    process.env.E2A_URL = "https://temporary.selfhost.dev";
+
+    saveConfig({ api_url: "https://new.selfhost.dev" });
+
+    const written = vi.mocked(writeFileSync).mock.calls[0][1] as string;
+    expect(JSON.parse(written).api_url).toBe("https://new.selfhost.dev");
+  });
+
+  it("persists shared_domain updates behind an environment override", () => {
+    vi.mocked(readFileSync).mockReturnValue(
+      JSON.stringify({ shared_domain: "agents.old.example" }),
+    );
+    process.env.E2A_SHARED_DOMAIN = "agents.temporary.example";
+
+    saveConfig({ shared_domain: "agents.new.example" });
+
+    const written = vi.mocked(writeFileSync).mock.calls[0][1] as string;
+    expect(JSON.parse(written).shared_domain).toBe("agents.new.example");
+  });
 });
 
 describe("requireApiKey", () => {
@@ -210,7 +239,7 @@ describe("requireApiKey", () => {
     ).toThrow("process.exit");
 
     expect(mockStderr).toHaveBeenCalledWith(
-      "Not authenticated. Run: e2a login (browser) or e2a login --with-key (headless), or set E2A_API_KEY\n",
+      "Not authenticated. Run: e2a login (browser), or set E2A_API_KEY\n",
     );
     // Missing credentials exit AUTH (4) per the scripting contract — not 1,
     // which scripts treat as a retryable transient error.

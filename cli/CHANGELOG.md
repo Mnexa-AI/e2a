@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+**Breaking:** `e2a login --agent <inbox>` is removed. The CLI is now
+account-credential only on the login path — the browser handoff always saves an
+account-scoped key. Mint a least-privilege inbox-bound key with
+`e2a keys create --agent <inbox>` after logging in.
+
+**Breaking:** `e2a login --with-key` is removed. `login` is now exclusively the
+interactive browser flow. Headless environments should set `E2A_API_KEY` (and
+may persist it with `e2a config set api_key <key>` before validating it with
+`e2a whoami`).
+
+`e2a config set` now accepts only `api_key` and `agent_email`; deployment URL,
+shared domain, and cached key scope are managed internally or through their
+documented environment variables.
+
+**Breaking:** `e2a login` no longer sets `agent_email`. It previously persisted
+whichever inbox the server's handoff happened to name first, which silently
+chose the `From:` address for every later `send`/`reply`. An account-scoped key
+spans every inbox, so there is no inbox to infer. Commands needing one resolve
+`--agent` → `E2A_AGENT_EMAIL` → an explicitly-set `agent_email`, or exit `2`.
+Set a default with `e2a config set agent_email <email>`; a value set that way is
+preserved across re-login.
+
 ## 1.6.0
 
 Current release. Adds the CLI's scripting/harness surface: `whoami`,
@@ -12,8 +36,8 @@ parsing JSON. Also adds:
   `protection get`/`set` — provision an inbox and a least-privilege key
   end to end without the dashboard.
 - `login --agent <inbox>` (mint a least-privilege agent-scoped key, revoking
-  the account bootstrap key) and `login --with-key` (headless: validate and
-  save a key from the arg, `$E2A_API_KEY`, or stdin).
+  the account bootstrap key — removed in Unreleased) and `login --with-key`
+  (headless: validate and save a key from the arg, `$E2A_API_KEY`, or stdin).
 - `listen --conversation`/`--once`/`--until`/`--text` — a blocking-wait
   primitive for a script waiting on one reply.
 

@@ -37,11 +37,6 @@ management (domains, webhooks, review queues) lives in the MCP tools, the SDKs
 
 Usage:
   e2a login                         Log in via browser (account-scoped key)
-        --agent <inbox>            Exchange for a least-privilege agent-scoped key
-                                   bound to <inbox> (bare slugs expand on the
-                                   shared domain); revokes the account bootstrap key
-        --with-key [<key>]         Headless: validate + save a key (from the arg,
-                                   $E2A_API_KEY, or stdin) — no browser needed
   e2a whoami [--json]               Show key identity: user, scope, bound agent, plan
   e2a agents list                   List owned inboxes (account key)
   e2a agents create <email> [--name <n>]   Create an inbox (account key)
@@ -87,11 +82,12 @@ Usage:
         --until <ISO>              With --once: deadline; prints TIMEOUT, exits 6
         --text                     With --once: print the message body text only
         --json                     Emit raw JSON notifications
-  e2a config [list|get|set]         View or update config
+  e2a config [list|get|set]         View config; set only api_key or agent_email
 
 Options:
-  --help     Show this help
-  --version  Show version
+  --help, -h     Show this help (works after any subcommand too, e.g.
+                 e2a send -h — always before any network call)
+  --version, -v  Show version
 
 Exit codes (stable scripting contract):
   0  success
@@ -141,7 +137,7 @@ function hasFlag(args: string[], flag: string): boolean {
 // message id.
 const BOOLEAN_FLAGS = new Set(["--json", "--text", "--once", "--help", "--version"]);
 
-function getPositionals(args: string[]): string[] {
+function getPositionals(args: string[], exactCount?: number, usage?: string): string[] {
   const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -150,6 +146,10 @@ function getPositionals(args: string[]): string[] {
       continue;
     }
     positionals.push(arg);
+  }
+  if (exactCount !== undefined && positionals.length !== exactCount) {
+    process.stderr.write((usage || "invalid number of arguments") + "\n");
+    process.exit(EXIT.USAGE);
   }
   return positionals;
 }
@@ -191,6 +191,30 @@ function getFlagChecked(args: string[], flag: string): string | undefined {
   return value;
 }
 
+/**
+ * --conversation-id and --conversation are aliases for the same filter,
+ * accepted on send/messages list/listen. FIX 3: precedence used to be
+ * INVERTED between commands — send preferred --conversation-id over
+ * --conversation, while messages list and listen preferred --conversation
+ * over --conversation-id. Passing both with different values therefore
+ * threaded a send onto one conversation while the "same" filter on
+ * messages list showed another — silent, opposite winners for one flag
+ * pair. Identical values are harmless and accepted; different values are
+ * an ambiguous invocation the caller must resolve, not a coin flip that
+ * lands differently per command.
+ */
+function getConversationId(args: string[]): string | undefined {
+  const id = getFlagChecked(args, "--conversation-id");
+  const alias = getFlagChecked(args, "--conversation");
+  if (id !== undefined && alias !== undefined && id !== alias) {
+    process.stderr.write(
+      "--conversation-id and --conversation are aliases for the same flag but were given different values\n",
+    );
+    process.exit(EXIT.USAGE);
+  }
+  return id ?? alias;
+}
+
 function getFlagsChecked(args: string[], flag: string): string[] {
   const values = getFlags(args, flag);
   const occurrences = args.filter((a) => a === flag).length;
@@ -206,69 +230,105 @@ function getFlagsChecked(args: string[], flag: string): string[] {
  * `--conversation-id` on `messages list` silently widens the query to the
  * whole mailbox with exit 0 — the silent-corruption class the exit-code
  * contract exists to prevent. Also rejects `--flag=value` (unsupported form)
- * with a pointer at the space-separated syntax.
+ * with a pointer at the space-separated syntax, and single-dash long-flag
+ * typos like `-limit` or `-json` (FIX 1) — those used to fall straight
+ * through `!arg.startsWith("--")` unvalidated and get silently dropped by
+ * the command along with whatever they meant to set. `-h`/`-v` are
+ * intercepted globally before any command's checkFlags runs (see main()),
+ * so a bare `-h`/`-v` reaching here is always a genuine typo, not a dropped
+ * help/version request.
  */
 function checkFlags(args: string[], allowed: string[]): void {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (!arg.startsWith("--")) continue;
-    if (arg.includes("=")) {
-      process.stderr.write(`${arg}: use space-separated values (--flag value), not --flag=value\n`);
-      process.exit(EXIT.USAGE);
+    if (arg.startsWith("--")) {
+      if (arg.includes("=")) {
+        process.stderr.write(`${arg}: use space-separated values (--flag value), not --flag=value\n`);
+        process.exit(EXIT.USAGE);
+      }
+      if (!allowed.includes(arg)) {
+        process.stderr.write(`unknown flag: ${arg} (see e2a --help)\n`);
+        process.exit(EXIT.USAGE);
+      }
+      // Skip the flag's value — including one that itself starts with "-"
+      // (e.g. `--subject -weird`) — so it's never re-examined as its own
+      // token by the single-dash check below.
+      if (!BOOLEAN_FLAGS.has(arg)) i++;
+      continue;
     }
-    if (!allowed.includes(arg)) {
+    // Reaching here means `arg` is in FLAG POSITION, not consumed above as
+    // a value. Positionals in this CLI (message ids, email addresses) never
+    // start with "-", so any dash-leading token here can only be a mistyped
+    // flag — reject it instead of silently ignoring it.
+    if (arg.length > 1 && arg.startsWith("-")) {
       process.stderr.write(`unknown flag: ${arg} (see e2a --help)\n`);
       process.exit(EXIT.USAGE);
     }
-    if (!BOOLEAN_FLAGS.has(arg)) i++; // skip the flag's value
   }
 }
 
 async function main() {
   const { command, args } = parseArgs(process.argv);
 
+  // FIX 2: `-h`/`-v` must short-circuit on EVERY subcommand, exactly like
+  // `--help`/`--version` — before any network call. Previously only the
+  // bare command ("e2a -h") and `--help` anywhere in args were checked, so
+  // `e2a whoami -h` silently ran a real authenticated API call and
+  // `e2a send -h --to …` attempted an actual send.
   if (
     command === "" ||
     command === "help" ||
     command === "--help" ||
     command === "-h" ||
-    hasBareFlag(args, "--help")
+    hasBareFlag(args, "--help") ||
+    hasBareFlag(args, "-h")
   ) {
     process.stdout.write(USAGE);
     return;
   }
 
-  if (command === "--version" || command === "-v" || hasBareFlag(args, "--version")) {
+  if (
+    command === "--version" ||
+    command === "-v" ||
+    hasBareFlag(args, "--version") ||
+    hasBareFlag(args, "-v")
+  ) {
     process.stdout.write(`e2a ${pkg.version}\n`);
     return;
   }
 
   switch (command) {
     case "login":
-      checkFlags(args, ["--agent", "--with-key"]);
-      await login({
-        agent: getFlagChecked(args, "--agent"),
-        withKey: hasFlag(args, "--with-key"),
-        // Unchecked on purpose: bare `--with-key` (no value) means "take the
-        // key from $E2A_API_KEY or stdin".
-        key: getFlag(args, "--with-key"),
-      });
+      checkFlags(args, []);
+      getPositionals(args, 0, "usage: e2a login");
+      await login();
       break;
     case "agents": {
       const sub = args[0];
       const rest = args.slice(1);
       if (sub === "list") {
         checkFlags(rest, ["--json"]);
+        getPositionals(rest, 0, "usage: e2a agents list [--json]");
         await agentsList({ json: hasFlag(rest, "--json") });
       } else if (sub === "create") {
         checkFlags(rest, ["--name", "--json"]);
-        await agentsCreate(getPositionals(rest)[0], {
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a agents create <email> [--name <n>] [--json]",
+        );
+        await agentsCreate(email, {
           name: getFlagChecked(rest, "--name"),
           json: hasFlag(rest, "--json"),
         });
       } else if (sub === "get") {
         checkFlags(rest, ["--json"]);
-        await agentsGet(getPositionals(rest)[0], { json: hasFlag(rest, "--json") });
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a agents get <email> [--json]",
+        );
+        await agentsGet(email, { json: hasFlag(rest, "--json") });
       } else {
         process.stderr.write("Usage: e2a agents [list|create <email>|get <email>]\n");
         process.exit(EXIT.USAGE);
@@ -280,6 +340,11 @@ async function main() {
       const rest = args.slice(1);
       if (sub === "create") {
         checkFlags(rest, ["--name", "--agent", "--json"]);
+        getPositionals(
+          rest,
+          0,
+          "usage: e2a keys create [--agent <inbox>] [--name <n>] [--json]",
+        );
         await keysCreate({
           name: getFlagChecked(rest, "--name"),
           agent: getFlagChecked(rest, "--agent"),
@@ -287,10 +352,11 @@ async function main() {
         });
       } else if (sub === "list") {
         checkFlags(rest, ["--json"]);
+        getPositionals(rest, 0, "usage: e2a keys list [--json]");
         await keysList({ json: hasFlag(rest, "--json") });
       } else if (sub === "delete") {
         checkFlags(rest, []);
-        await keysDelete(getPositionals(rest)[0]);
+        await keysDelete(getPositionals(rest, 1, "usage: e2a keys delete <key-id>")[0]);
       } else {
         process.stderr.write("Usage: e2a keys [create [--agent <inbox>]|list|delete <id>]\n");
         process.exit(EXIT.USAGE);
@@ -302,10 +368,20 @@ async function main() {
       const rest = args.slice(1);
       if (sub === "get") {
         checkFlags(rest, ["--json"]);
-        await protectionGet(getPositionals(rest)[0], { json: hasFlag(rest, "--json") });
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a protection get <agent-email> [--json]",
+        );
+        await protectionGet(email, { json: hasFlag(rest, "--json") });
       } else if (sub === "set") {
         checkFlags(rest, ["--outbound-review", "--inbound-review", "--suppress-notifications", "--json"]);
-        await protectionSet(getPositionals(rest)[0], {
+        const [email] = getPositionals(
+          rest,
+          1,
+          "usage: e2a protection set <agent-email> [options]",
+        );
+        await protectionSet(email, {
           outboundReview: getFlagChecked(rest, "--outbound-review"),
           inboundReview: getFlagChecked(rest, "--inbound-review"),
           suppressNotifications: getFlagChecked(rest, "--suppress-notifications"),
@@ -321,6 +397,7 @@ async function main() {
     }
     case "whoami":
       checkFlags(args, ["--json"]);
+      getPositionals(args, 0, "usage: e2a whoami [--json]");
       await whoami({ json: hasFlag(args, "--json") });
       break;
     case "send":
@@ -328,6 +405,7 @@ async function main() {
         "--to", "--subject", "--body", "--body-file", "--html-file", "--attach",
         "--conversation-id", "--conversation", "--reply-to", "--agent", "--idempotency-key", "--json",
       ]);
+      getPositionals(args, 0, "usage: e2a send [options]");
       await send({
         to: getFlagsChecked(args, "--to"),
         attach: getFlagsChecked(args, "--attach"),
@@ -336,9 +414,9 @@ async function main() {
         bodyFile: getFlagChecked(args, "--body-file"),
         htmlFile: getFlagChecked(args, "--html-file"),
         // --conversation accepted as an alias so send and messages list can't
-        // trip each other's spelling.
-        conversationId:
-          getFlagChecked(args, "--conversation-id") ?? getFlagChecked(args, "--conversation"),
+        // trip each other's spelling. Precedence (and conflicting-value
+        // rejection) is shared via getConversationId — see FIX 3.
+        conversationId: getConversationId(args),
         replyTo: getFlagChecked(args, "--reply-to"),
         agent: getFlagChecked(args, "--agent"),
         idempotencyKey: getFlagChecked(args, "--idempotency-key"),
@@ -349,7 +427,7 @@ async function main() {
       checkFlags(args, [
         "--body", "--body-file", "--html-file", "--attach", "--reply-to", "--agent", "--idempotency-key", "--json",
       ]);
-      await reply(getPositionals(args)[0], {
+      await reply(getPositionals(args, 1, "usage: e2a reply <message-id> [options]")[0], {
         attach: getFlagsChecked(args, "--attach"),
         body: getFlagChecked(args, "--body"),
         bodyFile: getFlagChecked(args, "--body-file"),
@@ -368,19 +446,19 @@ async function main() {
           "--direction", "--since", "--conversation", "--conversation-id",
           "--read-status", "--limit", "--agent", "--json",
         ]);
+        getPositionals(rest, 0, "usage: e2a messages list [options]");
         await messagesList({
           agent: getFlagChecked(rest, "--agent"),
           direction: getFlagChecked(rest, "--direction"),
           since: getFlagChecked(rest, "--since"),
-          conversation:
-            getFlagChecked(rest, "--conversation") ?? getFlagChecked(rest, "--conversation-id"),
+          conversation: getConversationId(rest),
           readStatus: getFlagChecked(rest, "--read-status"),
           limit: getFlagChecked(rest, "--limit"),
           json: hasFlag(rest, "--json"),
         });
       } else if (sub === "get") {
         checkFlags(rest, ["--text", "--json", "--agent"]);
-        await messagesGet(getPositionals(rest)[0], {
+        await messagesGet(getPositionals(rest, 1, "usage: e2a messages get <id> [options]")[0], {
           agent: getFlagChecked(rest, "--agent"),
           text: hasFlag(rest, "--text"),
           json: hasFlag(rest, "--json"),
@@ -396,6 +474,7 @@ async function main() {
         "--agent", "--forward", "--forward-token", "--json",
         "--conversation", "--conversation-id", "--once", "--until", "--text",
       ]);
+      getPositionals(args, 0, "usage: e2a listen [options]");
       await listen({
         agent: getFlagChecked(args, "--agent"),
         json: hasFlag(args, "--json"),
@@ -403,8 +482,7 @@ async function main() {
         // silently listen WITHOUT forwarding — the silent-drop class again.
         forward: getFlagChecked(args, "--forward"),
         forwardToken: getFlagChecked(args, "--forward-token"),
-        conversation:
-          getFlagChecked(args, "--conversation") ?? getFlagChecked(args, "--conversation-id"),
+        conversation: getConversationId(args),
         once: hasFlag(args, "--once"),
         until: getFlagChecked(args, "--until"),
         text: hasFlag(args, "--text"),
@@ -436,4 +514,13 @@ if (!isTestImport) {
   });
 }
 
-export { getFlag, getFlags, hasFlag, parseArgs, getPositionals, hasBareFlag };
+export {
+  getFlag,
+  getFlags,
+  hasFlag,
+  parseArgs,
+  getPositionals,
+  hasBareFlag,
+  checkFlags,
+  getConversationId,
+};

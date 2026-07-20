@@ -1,6 +1,7 @@
 import { createClient } from "../sdk.js";
 import { loadConfig } from "../config.js";
 import { EXIT, fail } from "../exit.js";
+import { sanitizeTsvField } from "./messages.js";
 
 export interface AgentsListOptions {
   json?: boolean;
@@ -28,7 +29,7 @@ export async function agentsList(opts: AgentsListOptions): Promise<void> {
       process.stdout.write(JSON.stringify(agent) + "\n");
     } else {
       process.stdout.write(
-        `${agent.email}\t${agent.name || ""}\t${agent.domainVerified ? "verified" : "unverified"}\n`,
+        `${agent.email}\t${sanitizeTsvField(agent.name || "")}\t${agent.domainVerified ? "verified" : "unverified"}\n`,
       );
     }
   }
@@ -39,8 +40,10 @@ export async function agentsCreate(
   opts: AgentsCreateOptions,
 ): Promise<void> {
   if (!email) fail(EXIT.USAGE, CREATE_USAGE);
-  // Bare names expand on the shared domain, same as `login --agent` — the two
-  // paths must not disagree on what `create myname` means.
+  // Bare names expand on the shared domain: `create myname` means
+  // myname@<shared_domain>. Both `agents create` and `keys create --agent`
+  // apply this expansion, so `agents create mybot` and `keys create --agent mybot`
+  // use the same address.
   const address = email.includes("@") ? email : `${email}@${loadConfig().shared_domain}`;
 
   const client = createClient();

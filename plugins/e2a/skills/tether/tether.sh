@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tether.sh — the runtime CLI the agent calls to stay in touch over email.
 #
-#   tether.sh setup [--email <addr>] [--new]   zero-to-tethered bootstrap (needs `e2a login`)
+#   tether.sh setup [--email <addr>] [--new]   zero-to-tethered bootstrap (needs an account key)
 #   tether.sh start <email> --title "<work>" [--for 2h|8h|30m|1d] [--until <ISO>]  open + arm
 #   tether.sh update "<message>"   send a threaded update ("as you see fit")
 #   tether.sh update --html <file> send an HTML update (+ auto text fallback)
@@ -282,7 +282,7 @@ question or instruction; reply \"stop\" to end early.
 
   setup)
     # Zero-to-tethered bootstrap on the e2a CLI. Needs an ACCOUNT credential in
-    # the CLI's own config (`e2a login`, or `e2a login --with-key` headless).
+    # the CLI's own config (`e2a login`, or `e2a config set api_key` headless).
     # Golden path: whoami → ensure inbox (verify/create) → outbound review off
     # → mint a least-privilege agent key → write ~/.e2a-tether.env. Every step
     # fails HARD: no protection clobber (the CLI never PUTs after a failed
@@ -302,7 +302,7 @@ question or instruction; reply \"stop\" to end early.
       echo "tether setup: the e2a CLI is unavailable or not logged in:"
       sed 's/^/        /' "$errf" | tail -5
       rm -f "$errf"
-      echo "        Fix: run 'e2a login' (browser) or 'e2a login --with-key' (headless), then re-run setup."
+      echo "        Fix: run 'e2a login' (browser), or persist an account key with 'e2a config set api_key <key>' (headless), then re-run setup."
       exit 1
     fi
     rm -f "$errf"
