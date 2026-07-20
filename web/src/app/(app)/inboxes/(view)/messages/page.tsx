@@ -43,15 +43,19 @@ function useUrlHash(): string {
 export default function AgentInboxPage() {
   return (
     <Suspense fallback={null}>
-      <AgentInboxContent />
+      <AgentInboxRoute />
     </Suspense>
   );
 }
 
-function AgentInboxContent() {
-  const router = useRouter();
+function AgentInboxRoute() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
+  return <AgentInboxContent key={email} email={email} />;
+}
+
+function AgentInboxContent({ email }: { email: string }) {
+  const router = useRouter();
 
   // Initial 100-row window. SWR keys by email so navigating between
   // agents fetches independently; mutations on the focus page call
