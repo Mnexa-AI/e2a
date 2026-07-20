@@ -1,0 +1,60 @@
+{
+  "event": {
+    "id": "evt_minimal",
+    "type": "email.received",
+    "schema_version": "1",
+    "created_at": "2026-07-02T12:00:00Z",
+    "data": {
+      "message_id": "msg_minimal",
+      "agent_email": "bot@example.com",
+      "direction": "inbound",
+      "header_from": "sender@example.net",
+      "envelope_from": "bounce@example.net",
+      "verified_domain": null,
+      "authentication": null,
+      "to": ["bot@example.com"],
+      "cc": [],
+      "reply_to": [],
+      "delivered_to": "bot@example.com",
+      "subject": "",
+      "received_at": "2026-07-02T12:00:00Z"
+    }
+  },
+  "message": {
+    "attachments": [],
+    "authentication": null,
+    "cc": [],
+    "conversation_id": "conv_minimal",
+    "created_at": "2026-07-02T12:00:01Z",
+    "delivered_to": "bot@example.com",
+    "direction": "inbound",
+    "envelope_from": "bounce@example.net",
+    "header_from": "sender@example.net",
+    "id": "msg_minimal",
+    "labels": [],
+    "raw_message": "",
+    "read_status": "unread",
+    "reply_to": [],
+    "subject": "",
+    "to": ["bot@example.com"],
+    "verified_domain": null
+  },
+  "expected": {
+    "id": "msg_minimal",
+    "inbox": "bot@example.com",
+    "conversation_id": "conv_minimal",
+    "from": "sender@example.net",
+    "envelope_from": "bounce@example.net",
+    "verified": false,
+    "to": ["bot@example.com"],
+    "cc": [],
+    "reply_to": [],
+    "reply_targets": ["sender@example.net"],
+    "subject": "",
+    "text": "",
+    "text_truncated": false,
+    "received_at": "2026-07-02T12:00:01.000Z",
+    "flagged": false,
+    "attachments": []
+  }
+}

@@ -27,9 +27,11 @@ from e2a.v1.client import AsyncE2AClient
 from e2a.v1.errors import E2AError, E2ALimitExceededError, E2ANotFoundError
 from e2a.v1.pagination import Page
 from e2a.v1.sync_client import SyncAutoPager, SyncStream
+from e2a.v1.inbound import InboundEmail
 from e2a.v1.generated.models import AgentView, TemplateSummaryView
 
 from .test_v1_client import _valid  # the real-model wire-JSON fixture builder
+from .test_v1_inbound import event_from_wire, load
 
 BASE = "http://test.local"
 
@@ -106,10 +108,11 @@ def test_parity_every_async_method_reachable_sync():
         # nested namespaces and both method shapes (async + pager-returning).
         expected = {
             "agents", "messages", "conversations", "domains", "events",
-            "webhooks", "account", "reviews", "templates", "info", "listen",
+            "webhooks", "inbound", "account", "reviews", "templates", "info", "listen",
             "agents.get", "agents.list", "agents.create", "agents.delete", "agents.restore",
             "messages.restore",
             "messages.send", "messages.reply", "webhooks.fetch_message",
+            "inbound.from_event",
             "account.suppressions", "account.suppressions.list",
             "account.api_keys", "account.api_keys.create",
             "templates.list_starters", "reviews.approve",
@@ -124,7 +127,7 @@ def test_dir_lists_mirrored_surface():
     c = _client()
     try:
         top = dir(c)
-        for name in ("agents", "messages", "templates", "info", "listen", "close"):
+        for name in ("agents", "messages", "inbound", "templates", "info", "listen", "close"):
             assert name in top
         assert "aclose" not in top
         assert "list" in dir(c.agents) and "get" in dir(c.agents)
@@ -140,6 +143,32 @@ def test_aclose_not_exposed_points_to_close():
             c.aclose
     finally:
         c.close()
+
+
+def test_inbound_facade_is_blocking_and_matches_shared_vector(httpx_mock):
+    vector = load("full.json")
+    httpx_mock.add_response(json=vector["message"])
+    httpx_mock.add_response(json={"message_id": "msg_reply", "status": "pending_review"})
+    httpx_mock.add_response(
+        json={
+            "index": 0,
+            "size_bytes": 12345,
+            "download_url": "https://download.example/invoice",
+            "expires_at": "2026-07-01T11:00:00Z",
+        }
+    )
+
+    with _client() as c:
+        email = c.inbound.from_event(event_from_wire(vector["event"]))
+        assert isinstance(email, InboundEmail)
+        assert not inspect.iscoroutinefunction(email.reply)
+        assert email.to_dict() == vector["expected"]
+        result = email.reply({"text": "Got it"}, idempotency_key="reply:evt")
+        attachment = email.attachments[0].get(inline=True)
+
+    assert result.message_id == "msg_reply"
+    assert result.status == "pending_review"
+    assert attachment.index == 0
 
 
 # ── CRUD round-trips over httpx mocks ───────────────────────────────

@@ -152,6 +152,7 @@ describe("E2AClient", () => {
     expect(client.domains).toBeDefined();
     expect(client.events).toBeDefined();
     expect(client.webhooks).toBeDefined();
+    expect(client.inbound).toBeDefined();
     expect(client.account).toBeDefined();
     expect(client.account.suppressions).toBeDefined();
     expect(client.templates).toBeDefined();

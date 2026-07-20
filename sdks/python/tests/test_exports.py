@@ -4,6 +4,9 @@
 def test_v1_exports():
     from e2a.v1 import (  # noqa: F401
         AsyncE2AClient,
+        AsyncInboundAttachment,
+        AsyncInboundEmail,
+        AsyncInboundResource,
         AutoPager,
         E2AClient,
         E2AError,
@@ -12,6 +15,8 @@ def test_v1_exports():
         Page,
         EmailBouncedData,
         EmailReceivedData,
+        InboundAttachment,
+        InboundEmail,
         SyncAutoPager,
         SyncStream,
         WebhookEvent,
@@ -26,6 +31,11 @@ def test_v1_exports():
     assert AsyncE2AClient is not None
     assert E2AClient is not None
     assert E2AError is not None
+    assert AsyncInboundResource is not None
+    assert AsyncInboundEmail is not None
+    assert AsyncInboundAttachment is not None
+    assert InboundEmail is not None
+    assert InboundAttachment is not None
     assert construct_event is not None
 
 
@@ -40,6 +50,8 @@ def test_toplevel_aliases_point_to_v1():
     assert e2a.construct_event is e2a.v1.construct_event
     assert e2a.verify_webhook_signature is e2a.v1.verify_webhook_signature
     assert e2a.WSStream is e2a.v1.WSStream
+    assert e2a.InboundEmail is e2a.v1.InboundEmail
+    assert e2a.AsyncInboundEmail is e2a.v1.AsyncInboundEmail
 
     for name in ("Authentication", "SPFResult", "DKIMResult", "DMARCResult"):
         assert getattr(e2a, name) is getattr(e2a.v1, name)
@@ -51,6 +63,11 @@ def test_v1_all_is_explicit():
     assert hasattr(e2a.v1, "__all__")
     expected = {
         "AsyncE2AClient",
+        "AsyncInboundResource",
+        "AsyncInboundEmail",
+        "AsyncInboundAttachment",
+        "InboundEmail",
+        "InboundAttachment",
         "E2AClient",
         "SyncAutoPager",
         "SyncStream",
@@ -99,7 +116,7 @@ def test_legacy_surface_is_gone():
     """The retired flat/sync surface must no longer import."""
     import e2a.v1
 
-    for name in ("E2AApi", "InboundEmail", "AuthHeaders"):
+    for name in ("E2AApi", "AuthHeaders"):
         assert not hasattr(e2a.v1, name), f"{name} should be retired"
 
 

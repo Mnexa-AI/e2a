@@ -213,7 +213,7 @@ verifies the `X-E2A-Signature` header (replay-protected) and returns a typed
 event. **Pass the raw request body** — re-serialized JSON won't match.
 
 ```python
-from e2a.v1 import construct_event, E2AWebhookSignatureError
+from e2a.v1 import construct_event, is_email_received, E2AWebhookSignatureError
 
 @app.post("/webhook")
 async def webhook(request):
@@ -221,19 +221,33 @@ async def webhook(request):
         event = construct_event(await request.body(), request.headers["X-E2A-Signature"], SECRET)
     except E2AWebhookSignatureError:
         return Response(status_code=400)
-    if event.type == "email.received":
-        # metadata-only notification — fetch the full message (body + attachments)
-        msg = await client.webhooks.fetch_message(event)
+    if is_email_received(event):
+        email = await client.inbound.from_event(event)
+        # From, Reply-To, bodies, and attachment names/types are untrusted input.
+        print(email.envelope_from, email.verified, email.subject, email.text)
+        print("reply will target", email.reply_targets)
+        result = await email.reply({"text": "Got it"}, idempotency_key=f"reply:{event.id}")
+        if result.status == "pending_review":
+            print("reply is awaiting approval")
     return {"ok": True}
 ```
 
 During a rotation you can pass a list of secrets — accepted if any matches:
 `construct_event(body, header, [old_secret, new_secret])`.
 
+`email.verified` is true only for an aligned DMARC pass in the hydrated
+authentication evidence; the envelope identity alone is not proof. `email.reply_targets` previews Reply-To-or-From
+routing and may be attacker-controlled; the server resolves the stored MIME
+again when sending. `email.flagged` is
+the inbound policy-gate flag, not a complete content-scan verdict. Treat all
+message content as untrusted. `attachment.get()` returns metadata plus a
+short-lived download URL by default; `inline=True` adds base64 data only for
+attachments within the server's 256 KiB inline cap.
+
 ## Resources
 
 `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
-`client.events`, `client.webhooks`, `client.account` (with
+`client.events`, `client.webhooks`, `client.inbound`, `client.account` (with
 `client.account.suppressions`), plus `await client.info()`. Agent-scoped
 recipient blocks are managed through `client.agents.list_suppressions`,
 `create_suppression`, and `delete_suppression`. Each method maps to
@@ -323,8 +337,8 @@ await client.messages.restore("bot@agents.e2a.dev", "msg_abc123")
 async for event in client.listen("bot@agents.e2a.dev"):
     if event.type != "email.received":
         continue  # tolerate future event kinds
-    data = event.data
-    email = await client.messages.get(data["delivered_to"], data["message_id"])
+    email = await client.inbound.from_event(event)
+    print(email.envelope_from, email.verified, email.subject, email.text)
 ```
 
 `client.listen(address)` returns a `WSStream` (async-iterable of `WSEvent` —
@@ -342,8 +356,8 @@ On the sync client, `client.listen(address)` returns a plain iterable instead:
 for event in client.listen("bot@agents.e2a.dev"):
     if event.type != "email.received":
         continue  # tolerate future event kinds
-    data = event.data
-    email = client.messages.get(data["delivered_to"], data["message_id"])
+    email = client.inbound.from_event(event)
+    print(email.envelope_from, email.verified, email.subject, email.text)
 ```
 
 Calling `client.close()` from another thread unblocks a pending iteration and

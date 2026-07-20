@@ -3,8 +3,9 @@
 // The canonical request/response types are the OpenAPI-Generator `generated/`
 // models; the hand-written ergonomic layer (E2AClient + resources, errors,
 // retry, pagination, webhook verification, WS) wraps them. The legacy
-// hand-written `api.ts` / `inbound-email.ts` surface and the old
-// swag-generated types have been retired in favour of this.
+// hand-written v2 `api.ts` / `inbound-email.ts` surface and the old
+// swag-generated types were retired. The current `inbound.ts` facade is an
+// additive v1 domain layer over the generated MessageView.
 
 // Generated request/response models (types + the small value classes).
 export * from "./generated/models/all.js";
@@ -21,6 +22,16 @@ export type {
   ListMessagesParams,
   ListEventsParams,
 } from "./client.js";
+
+// High-level inbound email facade for verified webhook and authenticated
+// WebSocket event envelopes.
+export { InboundResource, InboundEmail, InboundAttachment } from "./inbound.js";
+export type {
+  EmailReceivedEvent,
+  InboundMessageOperations,
+  InboundProjection,
+  InboundAttachmentProjection,
+} from "./inbound.js";
 
 // Typed error hierarchy.
 export {

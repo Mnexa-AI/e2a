@@ -54,6 +54,7 @@ from typing import Any, Callable, Coroutine, Generic, Iterator, List, Optional, 
 from .client import AsyncE2AClient
 from .errors import E2AError
 from .pagination import AutoPager, Page
+from .inbound import AsyncInboundResource, InboundResource
 
 __all__ = ["E2AClient", "SyncAutoPager", "SyncStream"]
 
@@ -248,6 +249,8 @@ def _wrap_attr(attr: Any, bridge: _EventLoopBridge) -> Any:
 
 
 def _wrap_value(value: Any, bridge: _EventLoopBridge) -> Any:
+    if isinstance(value, AsyncInboundResource):
+        return InboundResource(value, bridge)
     if isinstance(value, AutoPager):
         return SyncAutoPager(value, bridge)
     if inspect.iscoroutine(value):  # defensive: a plain method returned a coroutine

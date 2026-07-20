@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- `client.inbound.from_event(event)` returns `AsyncInboundEmail` on
+  `AsyncE2AClient` and a blocking `InboundEmail` on `E2AClient`. The facade
+  exposes explicit envelope/auth verdicts, reply targets, parsed-body
+  truncation, policy flags, bound reply/forward, and lazy attachment `get()`.
+  Shared cross-SDK vectors gate async/sync/TypeScript semantics.
+
 ### Breaking (pre-GA)
 - **Inbound sender and authentication fields now use the final DMARC-aligned
   contract.** Generated message models and raw webhook/WS payloads expose the

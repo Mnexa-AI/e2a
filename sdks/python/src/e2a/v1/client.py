@@ -90,6 +90,7 @@ from .generated.models import (
     WebhookView,
 )
 from .pagination import AutoPager, Page
+from .inbound import AsyncInboundResource
 
 __all__ = ["AsyncE2AClient"]
 
@@ -252,6 +253,7 @@ class AsyncE2AClient:
 
         self.agents = AgentsResource(AgentsApi(self._api_client), self)
         self.messages = MessagesResource(MessagesApi(self._api_client), self)
+        self.inbound = AsyncInboundResource(self.messages)
         self.conversations = ConversationsResource(ConversationsApi(self._api_client), self)
         self.domains = DomainsResource(DomainsApi(self._api_client), self)
         self.events = EventsResource(EventsApi(self._api_client), self)

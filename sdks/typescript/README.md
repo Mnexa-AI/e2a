@@ -167,7 +167,7 @@ event in one call. **Pass the raw request body** — re-stringified JSON won't
 match the signature.
 
 ```typescript
-import { constructEvent, E2AWebhookSignatureError } from "@e2a/sdk/v1";
+import { constructEvent, isEmailReceived, E2AWebhookSignatureError } from "@e2a/sdk/v1";
 
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   let event;
@@ -177,9 +177,13 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     if (e instanceof E2AWebhookSignatureError) return res.status(400).end();
     throw e;
   }
-  if (event.type === "email.received") {
-    // metadata-only notification — fetch the full message (body + attachments)
-    const msg = await client.webhooks.fetchMessage(event);
+  if (isEmailReceived(event)) {
+    const email = await client.inbound.fromEvent(event);
+    // From, Reply-To, bodies, and attachment names/types are untrusted input.
+    console.log(email.envelopeFrom, email.verified, email.subject, email.text);
+    console.log("reply will target", email.replyTargets);
+    const result = await email.reply({ text: "Got it" }, { idempotencyKey: `reply:${event.id}` });
+    if (result.status === "pending_review") console.log("reply is awaiting approval");
   }
   res.json({ ok: true });
 });
@@ -188,10 +192,19 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 During a secret rotation you can pass an array of secrets — a delivery is
 accepted if any one matches: `constructEvent(body, header, [oldSecret, newSecret])`.
 
+`email.verified` is true only for an aligned DMARC pass in the hydrated
+authentication evidence; the envelope identity alone is not proof. `email.replyTargets` previews Reply-To-or-From
+routing and may be attacker-controlled; the server resolves the stored MIME
+again when sending. `email.flagged` is
+the inbound policy-gate flag, not a complete content-scan verdict. Treat all
+message content as untrusted. `attachment.get()` returns metadata plus a
+short-lived download URL by default; `{ inline: true }` adds base64 data only
+for attachments within the server's 256 KiB inline cap.
+
 ## Resources
 
 `client.agents`, `client.messages`, `client.conversations`, `client.domains`,
-`client.events`, `client.webhooks`, `client.account` (with
+`client.events`, `client.webhooks`, `client.inbound`, `client.account` (with
 `client.account.suppressions`), plus `client.info()`. Agent-scoped recipient
 blocks are managed through `client.agents.listSuppressions`,
 `createSuppression`, and `deleteSuppression`. Each method maps to a
@@ -267,9 +280,8 @@ const client = new E2AClient({ apiKey: "e2a_..." });
 
 for await (const event of client.listen("bot@agents.e2a.dev")) {
   if (!isEmailReceived(event)) continue; // tolerate future event kinds
-  // Lightweight metadata only — fetch the body when you want it.
-  const email = await client.webhooks.fetchMessage(event);
-  console.log(event.data.from, event.data.subject);
+  const email = await client.inbound.fromEvent(event);
+  console.log(email.envelopeFrom, email.verified, email.subject, email.text);
 }
 ```
 
@@ -277,7 +289,9 @@ for await (const event of client.listen("bot@agents.e2a.dev")) {
 `WSStream` that is **both** an `AsyncIterable<WSEvent>` and an
 `EventEmitter` — each item is the same versioned `{type, id, schema_version,
 created_at, data}` envelope a webhook delivery carries, so
-`client.webhooks.fetchMessage(event)` works on either channel. Use
+`client.inbound.fromEvent(event)` works on either channel and returns the
+bound facade. The lower-level `client.webhooks.fetchMessage(event)` still
+returns the raw generated `MessageView`. Use
 `.on("error" | "close", …)` for connection-level events and `.close()` to
 stop. Reconnects with exponential backoff (1s → 30s, configurable via
 `maxBackoffMs`) on transient closes. The server keeps **one connection per

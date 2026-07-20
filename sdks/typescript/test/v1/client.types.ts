@@ -9,6 +9,7 @@ import type {
 import type { EmailSentData, WebhookEvent } from "../../src/v1/webhook-signature.js";
 import type { WSEvent } from "../../src/v1/ws.js";
 import { E2AClient } from "../../src/v1/client.js";
+import type { InboundEmail } from "../../src/v1/inbound.js";
 
 const senderFilter: ListMessagesParams = { from_: "alice@example.com" };
 void senderFilter;
@@ -93,3 +94,17 @@ managedClient.agents.deleteSuppression("sender@example.com", "recipient@example.
 // @ts-expect-error all five core envelope fields are required.
 const incompleteEventEnvelope: WebhookEvent = { type: "email.received", data: {} };
 void incompleteEventEnvelope;
+
+const inboundEmailPromise: Promise<InboundEmail> = managedClient.inbound.fromEvent(eventEnvelope);
+inboundEmailPromise.then((email) => {
+  const envelopeFrom: string | null = email.envelopeFrom;
+  const verified: boolean = email.verified;
+  const targets: readonly string[] = email.replyTargets;
+  const result = email.reply({ text: "ok" });
+  const attachment = email.attachments[0].get({ inline: true });
+  void envelopeFrom;
+  void verified;
+  void targets;
+  void result;
+  void attachment;
+});
