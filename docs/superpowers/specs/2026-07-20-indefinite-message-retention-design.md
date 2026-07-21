@@ -121,7 +121,8 @@ Implementation will proceed test-first and cover:
 - every inbound and outbound creation path stores `expires_at = NULL`;
 - messages with null or legacy past timestamps remain readable and are not
   naturally purged;
-- existing rows are converted to null by the migration;
+- the migration preserves existing timestamps without a full-table rewrite,
+  and runtime behavior ignores those legacy values;
 - outbound content survives approve, reject, TTL resolution, loopback, send,
   and failure transitions;
 - live messages survive janitor runs;

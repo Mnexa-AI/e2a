@@ -685,7 +685,7 @@ func TestMessageRetentionIsIndefinite(t *testing.T) {
 	}
 }
 
-func TestIndefiniteRetentionMigrationBackfillsExistingMessages(t *testing.T) {
+func TestIndefiniteRetentionMigrationPreservesLegacyTimestamps(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -697,7 +697,8 @@ func TestIndefiniteRetentionMigrationBackfillsExistingMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateInboundMessage: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(24*time.Hour), msg.ID); err != nil {
+	legacyExpiry := time.Now().Add(-24 * time.Hour).UTC().Truncate(time.Microsecond)
+	if _, err := pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, legacyExpiry, msg.ID); err != nil {
 		t.Fatalf("seed legacy expires_at: %v", err)
 	}
 
@@ -711,10 +712,10 @@ func TestIndefiniteRetentionMigrationBackfillsExistingMessages(t *testing.T) {
 
 	var expiresAt *time.Time
 	if err := pool.QueryRow(ctx, `SELECT expires_at FROM messages WHERE id = $1`, msg.ID).Scan(&expiresAt); err != nil {
-		t.Fatalf("read backfilled expires_at: %v", err)
+		t.Fatalf("read legacy expires_at: %v", err)
 	}
-	if expiresAt != nil {
-		t.Errorf("backfilled expires_at = %v, want NULL", expiresAt)
+	if expiresAt == nil || !expiresAt.Equal(legacyExpiry) {
+		t.Errorf("expires_at after migration = %v, want preserved legacy value %v", expiresAt, legacyExpiry)
 	}
 }
 

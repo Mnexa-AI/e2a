@@ -4,7 +4,7 @@
 
 **Goal:** Retain all live inbound and outbound message data indefinitely while permanently purging messages and inboxes after 30 days in trash by default.
 
-**Architecture:** Make `messages.expires_at` nullable and define `NULL` as no expiry. Remove natural-expiry predicates and cleanup, preserve all outbound content columns through terminal transitions, and keep `deleted_at` plus `TrashRetention` as the only automatic message-deletion clock. Propagate the nullable timestamp through internal models, OpenAPI, generated SDKs, and documentation.
+**Architecture:** Make `messages.expires_at` nullable and define `NULL` as no expiry for new rows. Preserve existing timestamps to avoid a full-table rewrite; runtime behavior ignores them. Remove natural-expiry predicates and cleanup, preserve all outbound content columns through terminal transitions, and keep `deleted_at` plus `TrashRetention` as the only automatic message-deletion clock. Propagate the nullable timestamp through internal models, OpenAPI, generated SDKs, and documentation.
 
 **Tech Stack:** PostgreSQL migrations, Go 1.25/1.26, Huma/OpenAPI 3.1, TypeScript, Python, npm workspaces, Docker-based OpenAPI Generator.
 
@@ -60,9 +60,11 @@ Create migration 072 with:
 ```sql
 ALTER TABLE messages ALTER COLUMN expires_at DROP NOT NULL;
 ALTER TABLE messages ALTER COLUMN expires_at DROP DEFAULT;
-UPDATE messages SET expires_at = NULL WHERE expires_at IS NOT NULL;
 DROP INDEX IF EXISTS idx_messages_expires;
 ```
+
+Do not backfill existing rows: `messages` is production-sized, and runtime
+reads and cleanup no longer use `expires_at` to decide liveness.
 
 - [ ] **Step 4: Make internal message expiry nullable**
 
