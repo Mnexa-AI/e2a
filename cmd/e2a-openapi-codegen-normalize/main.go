@@ -24,6 +24,20 @@ func main() {
 	if err := yaml.Unmarshal(raw, &document); err != nil {
 		fatal("parse input", err)
 	}
+	if err := normalizeDocument(document); err != nil {
+		fatal("normalize authentication", err)
+	}
+
+	out, err := yaml.Marshal(document)
+	if err != nil {
+		fatal("encode output", err)
+	}
+	if err := os.WriteFile(os.Args[2], out, 0o600); err != nil {
+		fatal("write output", err)
+	}
+}
+
+func normalizeDocument(document map[string]any) error {
 	// OpenAPI Generator 7.16 only honors nullable on referenced models when
 	// operating in its OpenAPI 3.0 compatibility mode.
 	document["openapi"] = "3.0.3"
@@ -37,24 +51,17 @@ func main() {
 		property, _ := properties["authentication"].(map[string]any)
 		alternatives, _ := property["anyOf"].([]any)
 		if len(alternatives) != 2 {
-			fatal("normalize authentication", fmt.Errorf("%s.authentication does not have the expected two-branch anyOf", name))
+			return fmt.Errorf("%s.authentication does not have the expected two-branch anyOf", name)
 		}
 		ref, _ := alternatives[0].(map[string]any)
 		if ref["$ref"] != "#/components/schemas/Authentication" {
-			fatal("normalize authentication", fmt.Errorf("%s.authentication has unexpected reference %v", name, ref["$ref"]))
+			return fmt.Errorf("%s.authentication has unexpected reference %v", name, ref["$ref"])
 		}
 		delete(property, "anyOf")
 		property["allOf"] = []any{ref}
 		property["nullable"] = true
 	}
-
-	out, err := yaml.Marshal(document)
-	if err != nil {
-		fatal("encode output", err)
-	}
-	if err := os.WriteFile(os.Args[2], out, 0o600); err != nil {
-		fatal("write output", err)
-	}
+	return nil
 }
 
 func normalize30(value any) {

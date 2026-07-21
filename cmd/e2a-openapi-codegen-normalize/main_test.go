@@ -2,6 +2,39 @@ package main
 
 import "testing"
 
+func TestNormalizeDocumentRewritesAuthenticationReferences(t *testing.T) {
+	schemas := map[string]any{}
+	for _, name := range []string{"MessageView", "Message", "EmailReceivedData"} {
+		schemas[name] = map[string]any{"properties": map[string]any{
+			"authentication": map[string]any{"anyOf": []any{
+				map[string]any{"$ref": "#/components/schemas/Authentication"},
+				map[string]any{"type": "null"},
+			}},
+		}}
+	}
+	document := map[string]any{"openapi": "3.1.0", "components": map[string]any{"schemas": schemas}}
+
+	if err := normalizeDocument(document); err != nil {
+		t.Fatal(err)
+	}
+	if document["openapi"] != "3.0.3" {
+		t.Fatalf("openapi = %v", document["openapi"])
+	}
+	for name, raw := range schemas {
+		property := raw.(map[string]any)["properties"].(map[string]any)["authentication"].(map[string]any)
+		if _, exists := property["anyOf"]; exists {
+			t.Errorf("%s.authentication still has anyOf", name)
+		}
+		if property["nullable"] != true {
+			t.Errorf("%s.authentication nullable = %v", name, property["nullable"])
+		}
+		allOf := property["allOf"].([]any)
+		if got := allOf[0].(map[string]any)["$ref"]; got != "#/components/schemas/Authentication" {
+			t.Errorf("%s.authentication ref = %v", name, got)
+		}
+	}
+}
+
 func TestNormalize30PreservesExistingGeneratorSemantics(t *testing.T) {
 	document := map[string]any{
 		"additionalProperties": false,

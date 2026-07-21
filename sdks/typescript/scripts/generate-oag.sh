@@ -26,6 +26,10 @@ find "$OUT" -name '*.ts' -delete 2>/dev/null || true
 # private-looking `_from`. Map it to `from_` so both SDKs uniformly expose
 # `from_` (matching Python's PEP-8 trailing-underscore convention). Wire JSON
 # stays `from` (baseName / setQueryParam are unchanged).
+# The canonical 3.1 document is validated by Huma's golden test. This command
+# consumes the deliberate 3.0 compatibility rewrite above, whose nullable-ref
+# shape OpenAPI Generator's validator rejects even though its generator needs
+# that exact shape; skip only this redundant generator-side validation.
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
   --skip-validate-spec \
   -i /work/sdks/typescript/.oag-openapi.yaml -g typescript \

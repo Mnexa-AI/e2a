@@ -31,6 +31,10 @@ trap 'rm -rf "$TMP"; rm -f "$CODEGEN_SPEC"' EXIT
 # same spelling the hand-written layer already uses for request-side params,
 # so the SDK teaches exactly one spelling. Wire JSON stays `from` (the pydantic
 # alias / query-param name are unchanged).
+# The canonical 3.1 document is validated by Huma's golden test. This command
+# consumes the deliberate 3.0 compatibility rewrite above, whose nullable-ref
+# shape OpenAPI Generator's validator rejects even though its generator needs
+# that exact shape; skip only this redundant generator-side validation.
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
   --skip-validate-spec \
   -i /work/sdks/python/.oag-openapi.yaml -g python \
