@@ -51,10 +51,17 @@ the two directions use different mechanisms:
 
 ## Setup (once)
 
-> **Prerequisites:** Node (the transport is the `e2a` CLI ≥ the version pinned
-> in `lib.sh` — resolved from `$E2A_CLI`, then PATH, then fetched automatically
-> via `npx -y @e2a/cli@^MIN`, so there is nothing to install by hand) and
-> Python 3 (local state handling only).
+> **Prerequisites:** Node (the transport is the `e2a` CLI, currently the **2.x**
+> line pinned as `TETHER_MIN_CLI` in `lib.sh` — resolved from `$E2A_CLI`, then
+> PATH, then fetched automatically via `npx -y @e2a/cli@^MIN`, so there is
+> nothing to install by hand) and Python 3 (local state handling only).
+>
+> The range is **major-bounded on purpose**. tether parses the CLI's TSV columns
+> and branches on its exit codes, and a major bump is allowed to change both —
+> 2.0.0 did. So a CLI newer than the pinned major is *not* adopted automatically
+> (tether falls back to npx and says so); someone re-verifies tether against the
+> new major and bumps `TETHER_MIN_CLI`. Failing inert beats failing silently in
+> an unattended session.
 
 ### Fast path (recommended): `tether.sh setup`
 
@@ -103,9 +110,14 @@ e2a config set agent_email <inbox>       # or export E2A_AGENT_EMAIL
 
 or put the agent key + inbox in `~/.e2a-tether.env` and leave the CLI config alone.
 
-> If e2a returns `pending_review`, the message was not dispatched. `tether.sh`
-> detects this on every send: an affected intro makes `start` **refuse to arm**,
-> and an affected `update`/`ask` exits non-zero so the session fails loudly.
+> **Two ways a send can be accepted but never delivered — both fail loudly.**
+> `pending_review` means the message was held for approval; a terminal `failed`
+> means the server persisted a delivery failure. `tether.sh` detects both on
+> every send: an affected intro makes `start` **refuse to arm**, and an affected
+> `update`/`ask` exits non-zero (**2** = held, **5** = terminal failure) so the
+> session never mistakes either for a delivered message. A terminal failure is
+> **not** retryable — the server already recorded an outcome for that message
+> id, so re-sending risks a duplicate. Inspect it with `e2a messages get <id>`.
 
 ## First run (new user) — set them up, then tether
 
@@ -161,8 +173,11 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    upload the file somewhere and send a link instead). Good moments: finished a
    slice, made a decision that's worth surfacing, hit a blocker, or before a
    long unattended stretch. Skip trivial
-   turns. If `update` reports `pending_review` (exit 2), the update did **not**
-   reach the user — stop and fix the inbox configuration before continuing.
+   turns. If `update` reports `pending_review` (**exit 2**), the update did
+   **not** reach the user — stop and fix the inbox configuration before
+   continuing. **Exit 5** means the send reached a terminal `failed` outcome:
+   also undelivered, but do **not** re-send it (the server already recorded that
+   message id) — inspect it with `e2a messages get <id>` first.
 4. **Need a decision from the user? Ask by email — never the terminal.** Run
    `"$T" ask "<question>"` (in the background); it emails the question and blocks
    until the user replies, then prints the answer. `--attach <file>` works here
@@ -173,8 +188,10 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    so a background `listen` pauses and can't swallow your answer). Handle its exit
    codes: **exit 3** = timed out with no reply (default 30m) — re-`ask`, send a
    nudge `update`, or keep working and listening, but never fall back to a
-   terminal prompt; **exit 4** = the question was not dispatched (fix the inbox
-   configuration).
+   terminal prompt; **exit 4** = the question was held for review and not
+   dispatched (fix the inbox configuration); **exit 5** = the question hit a
+   terminal `failed` outcome — it never reached the user, so `ask` returns
+   immediately instead of blocking for the full timeout; don't blindly re-ask.
 5. **Listen for the whole window**: run `"$T" listen` **in the background**. It
    waits on the CLI's WebSocket (real-time, no tokens while waiting; degrades
    to polling if the WS is unavailable) and exits with either:

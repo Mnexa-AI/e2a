@@ -293,9 +293,11 @@ Workspace identity, plan limits, keys, suppressions, and data rights.
   The export **envelope** (the top-level keys and `schema_version`) is stable;
   the **interior** record shapes are versioned by `schema_version` and may
   evolve — branch on `schema_version` before interpreting interior records.
-  The current export version is `3`; its suppression entries may include
-  `agent_email`, which identifies an exact-agent block. Entries without
-  `agent_email` remain account-wide.
+  The current export version is `4`; v4 messages expose canonical
+  `header_from`, `envelope_from`, `verified_domain`, and `authentication`
+  fields, and retain v3 suppression provenance — suppression entries may
+  include `agent_email`, which identifies an exact-agent block. Entries
+  without `agent_email` remain account-wide.
   Interior schemas carry `x-stability-level: beta` in the OpenAPI document to
   mark that exemption machine-readably; the operation itself is stable.
   Each exported message carries `attachments` as the same typed
@@ -363,7 +365,17 @@ or on the deployment's shared domain (see `GET /v1/info`).
 - `GET /v1/agents`, `POST /v1/agents` — list / register (body `{ email, name? }`).
 - `GET/PATCH/DELETE /v1/agents/{email}` — fetch / rename / delete. `PATCH` updates
   the display name only; screening/protection config lives on the sub-resource
-  below. `DELETE` requires `?confirm=DELETE`.
+  below. `DELETE` requires `?confirm=DELETE` and moves the agent to the trash: it
+  stops receiving mail, disappears from lists, and its held messages leave the
+  review queue. Restore it via `POST /v1/agents/{email}/restore` within the trash
+  retention window (30 days by default, deployment-configurable), after which
+  it's purged permanently. Pass `?permanent=true` to skip the trash and delete
+  irreversibly right away (accepts live and trashed agents).
+- `POST /v1/agents/{email}/restore` — bring a trashed agent back into service,
+  messages and configuration intact. For drafts still held for review,
+  `approval_expires_at` is shifted forward by the time the agent spent in trash
+  so a review hold can't lapse while the inbox was unavailable. `409
+  not_in_trash` if the agent isn't in the trash.
 - `GET/PUT /v1/agents/{email}/protection` — **(beta)** read / wholesale-replace the
   agent's protection posture: inbound/outbound trust gate, content-scan
   sensitivity, and the hold-queue mechanism (TTL + expiration action). Setting the
@@ -413,6 +425,9 @@ single message.
   after deletion by default; the trash retention window is deployment-configurable).
   Ordinary message lists, conversations, reply targets, and forward targets hide
   trashed messages; use `GET …/messages?deleted=true` to enumerate the trash.
+- `POST …/messages/{id}/restore` — bring a trashed message back into the inbox.
+  Restored message data is retained indefinitely unless deleted again. `409
+  not_in_trash` if the message isn't in the trash.
 - `PATCH …/messages/{id}` — apply a labels delta (`add_labels` / `remove_labels`).
 - `POST …/messages/{id}/reply`, `POST …/messages/{id}/forward` — reply to /
   forward a message; `202` when held for review.
@@ -534,6 +549,31 @@ before they are declared stable.
   `200 OK`.
 - `POST /v1/reviews/{id}/reject` — outbound draft discarded (never sent); inbound
   hold dropped (never reaches the agent; payload retained, hidden, for forensics).
+
+### Templates (`/v1/templates`, `/v1/starter-templates`) (beta)
+
+Reusable email sources (subject + plain-text body + optional HTML body),
+stored on the account and rendered server-side at send time via
+`{{variable}}` interpolation. Reference one on send with `template_id` or
+`template_alias` (mutually exclusive with literal `subject`/`text`/`html`)
+plus `template_data`. Full syntax, the raw-slot escaping warning, and the
+starter-template catalog are documented in
+[`docs/templates.md`](templates.md); this resource and its operations are
+beta and may change before they are declared stable.
+
+- `GET /v1/templates`, `POST /v1/templates` — list the account's templates
+  (metadata only) / create one (or copy a starter verbatim via
+  `from_starter`).
+- `GET/PATCH/DELETE /v1/templates/{id}` — fetch full sources / partially
+  update (changed parts are re-parsed) / delete (`?confirm=DELETE`; in-flight
+  sends using the template are unaffected since rendering happens at send
+  time).
+- `POST /v1/templates/validate` — dry-run template source without
+  persisting: per-part parse errors, a rendered preview, and `suggested_data`
+  (a placeholder value for every referenced variable).
+- `GET /v1/starter-templates`, `GET /v1/starter-templates/{alias}` — the
+  read-only, pre-built starter catalog; list returns metadata only, fetch by
+  alias returns full body sources.
 
 ### Webhooks (`/v1/webhooks`)
 

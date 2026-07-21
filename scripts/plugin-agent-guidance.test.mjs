@@ -5,7 +5,7 @@ import { test } from "node:test";
 const coreAgentFiles = [
   "plugins/e2a/README.md",
   "plugins/e2a/docs/auth.md",
-  "plugins/e2a/docs/e2a.md",
+  "plugins/e2a/docs/setup.md",
   "plugins/e2a/docs/llms.txt",
   "plugins/e2a/docs/sdk.md",
   "plugins/e2a/docs/templates.md",
@@ -56,6 +56,20 @@ test("the e2a skill bootstraps and verifies an MCP connection", async () => {
   assert.match(bootstrap, /list_messages/);
   assert.match(bootstrap, /resume.*original/i);
   assert.match(bootstrap, /never ask.*API key/i);
+});
+
+test("the setup guide reaches a verified first inbox", async () => {
+  const source = await readFile("plugins/e2a/docs/setup.md", "utf8");
+
+  assert.match(source, /^# Set up e2a$/m);
+  assert.match(source, /Claude Code/);
+  assert.match(source, /OpenAI Codex/);
+  assert.match(source, /Cursor \/ Windsurf \/ Claude Desktop/);
+  assert.match(source, /whoami/);
+  assert.match(source, /list_agents/);
+  assert.match(source, /create_agent/);
+  assert.match(source, /list_messages/);
+  assert.doesNotMatch(source, /Always call `tools\/list`/);
 });
 
 test("tether setup does not mutate review configuration", async () => {

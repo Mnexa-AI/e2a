@@ -71,10 +71,29 @@ t_now_iso()  { python3 -c 'import datetime;print(datetime.datetime.now(datetime.
 # --- e2a CLI resolution --------------------------------------------------------
 # The minimum CLI this skill's flags require (send --conversation-id, reply
 # --html-file/--attach, messages list TSV, listen --once, exit-code contract).
-# Bump in lockstep with any new flag use; the npx pin below follows it.
-TETHER_MIN_CLI="1.6.0"
+#
+# tether depends on the CLI's *contract*, not just its flags: the TSV column
+# order of `messages list`, the exit-code table (0/3/4/5/7), and the
+# whoami --json field names. A MAJOR bump is exactly the event that is allowed
+# to change all three — CLI 2.0.0 renamed AccountView.agent_address to
+# agent_email and added exit 7, both of which tether had to be taught. So the
+# accepted range is MAJOR-BOUNDED on BOTH resolution paths:
+#
+#   npx  → @e2a/cli@^2.0.0   (caret: 2.x, never 3.x)
+#   PATH → >= 2.0.0 AND major == 2
+#
+# The caret is deliberate, not an oversight. A bare floor (">=2.0.0") would
+# auto-adopt a future 3.0.0 whose renames silently break reply pickup — the
+# unattended-session failure this whole harness exists to avoid. Capping means
+# a new major is *inert* until someone verifies tether against it, which is the
+# safe direction to fail.
+#
+# MAINTENANCE: bump this on every CLI MAJOR (not just on new flag use — that
+# was the rule that let the 1.6.0 floor go stale across 2.0.0), and re-verify
+# the TSV columns, exit codes, and whoami fields before you do.
+TETHER_MIN_CLI="2.0.0"
 
-# t_ver_ge "<e2a 1.6.2>" "1.6.0" → 0 when the version (last token) >= min.
+# t_ver_ge "<e2a 2.0.1>" "2.0.0" → 0 when the version (last token) >= min.
 t_ver_ge() {
   python3 -c 'import sys
 def v(s):
@@ -83,10 +102,27 @@ def v(s):
 sys.exit(0 if v(sys.argv[1]) >= v(sys.argv[2]) else 1)' "$1" "$2" 2>/dev/null
 }
 
+# t_ver_major "<e2a 2.0.1>" → 2 (0 when unparseable).
+t_ver_major() {
+  python3 -c 'import sys
+s = sys.argv[1].strip()
+s = s.split()[-1] if s else "0"
+p = s.lstrip("v").split(".")[0]
+print(p if p.isdigit() else "0")' "$1" 2>/dev/null || echo 0
+}
+
+# t_ver_supported "<e2a 2.0.1>" → 0 when the version is inside tether's
+# supported range: >= TETHER_MIN_CLI and the same major.
+t_ver_supported() {
+  t_ver_ge "$1" "$TETHER_MIN_CLI" || return 1
+  [ "$(t_ver_major "$1")" = "$(t_ver_major "$TETHER_MIN_CLI")" ]
+}
+
 # t_cli <args...> — run the e2a CLI, bounded by a hard timeout. Resolution:
 #   1. $E2A_CLI override (multi-word ok, e.g. "node /repo/cli/dist/bin/e2a.js";
 #      paths containing SPACES are unsupported — use a wrapper script)
-#   2. `e2a` on PATH when --version >= TETHER_MIN_CLI (stale → warn, fall through)
+#   2. `e2a` on PATH when --version is inside tether's supported major range
+#      (too old OR too new → warn, fall through)
 #   3. npx -y @e2a/cli@^MIN  (auto-fetch; nothing for the user to install)
 # The result is exported (T_CLI_RESOLVED) so the many $(t_cli …) subshells
 # don't re-probe versions or re-print the staleness warning on every API call.
@@ -106,11 +142,19 @@ t_cli_resolve() {
       T_CLI=()
       return 127
     fi
-  elif command -v e2a >/dev/null 2>&1 && t_ver_ge "$(e2a --version 2>/dev/null)" "$TETHER_MIN_CLI"; then
+  elif command -v e2a >/dev/null 2>&1 && t_ver_supported "$(e2a --version 2>/dev/null)"; then
     T_CLI=(e2a)
   elif command -v npx >/dev/null 2>&1; then
     if command -v e2a >/dev/null 2>&1; then
-      echo "tether: global e2a CLI is older than ${TETHER_MIN_CLI} — using npx for this run (upgrade: npm i -g @e2a/cli@latest)" >&2
+      local gv; gv="$(e2a --version 2>/dev/null)"
+      # "too new" and "too old" need OPPOSITE fixes — never collapse them into
+      # one "upgrade" hint. A newer MAJOR is unverified against tether's TSV/
+      # exit-code contract, so upgrading further would make it worse.
+      if t_ver_ge "$gv" "$TETHER_MIN_CLI"; then
+        echo "tether: global e2a CLI (${gv}) is a NEWER major than tether supports (^${TETHER_MIN_CLI}) — using npx to pin ${TETHER_MIN_CLI%%.*}.x for this run. If that major is known good, bump TETHER_MIN_CLI in lib.sh." >&2
+      else
+        echo "tether: global e2a CLI (${gv}) is older than ${TETHER_MIN_CLI} — using npx for this run (upgrade: npm i -g @e2a/cli@latest)" >&2
+      fi
     fi
     T_CLI=(npx -y "@e2a/cli@^${TETHER_MIN_CLI}")
   else
@@ -141,7 +185,7 @@ t_cli() {
 # Human-readable description of what t_cli would run (for status/_selftest).
 t_cli_desc() {
   if [ -n "${E2A_CLI:-}" ]; then echo "\$E2A_CLI (${E2A_CLI})"
-  elif command -v e2a >/dev/null 2>&1 && t_ver_ge "$(e2a --version 2>/dev/null)" "$TETHER_MIN_CLI"; then
+  elif command -v e2a >/dev/null 2>&1 && t_ver_supported "$(e2a --version 2>/dev/null)"; then
     echo "e2a on PATH ($(e2a --version 2>/dev/null))"
   elif command -v npx >/dev/null 2>&1; then echo "npx @e2a/cli@^${TETHER_MIN_CLI}"
   else echo "MISSING (no e2a, no npx)"; fi
@@ -264,16 +308,30 @@ except Exception:print(2147483647)' "$exp"
 }
 
 # --- e2a API (via the CLI) -----------------------------------------------------
-# The CLI's exit-code contract does the heavy lifting: 0 sent / 3 HELD (any
-# non-"sent" status — accepted but NOT delivered) / 5 permanent request error /
-# 4 auth / 1 transient. These wrappers map it onto tether's internal codes
-# (0 ok, 2 held, 3 anchor-not-repliable) so tether.sh stays unchanged above.
+# The CLI's exit-code contract does the heavy lifting (CLI 2.x):
+#   0 sent OR accepted (durably queued — 2.0.0 stopped lumping `accepted` in
+#     with HELD, so a queued send no longer looks like a review hold)
+#   3 HELD (status pending_review — accepted by the API, NOT delivered)
+#   4 auth / 5 permanent request error / 7 terminal send outcome / 1 transient
+#
+# Exit 7 (SEND_OUTCOME) is new in 2.0.0: the server persisted a terminal
+# `failed` (or an unrecognized) status and returned a message id, so the send
+# must NOT be retried — a retry could duplicate. Before this mapping it fell
+# into the `*)` transient bucket, and because the CLI still prints the message
+# id on stdout, tether saw a non-empty id with a non-fatal code and cheerfully
+# reported "update sent" for a message that never went anywhere.
+#
+# These wrappers map the CLI's codes onto tether's internal ones:
+#   0 ok / 2 held / 3 anchor-not-repliable / 4 auth / 5 terminal (do not retry)
+#   1 transient
 # The CLI reads E2A_API_KEY / E2A_AGENT_EMAIL / E2A_URL straight from the
 # environment t_load_config resolves — no flag plumbing needed.
 
 # t_api_send <to> <subject> <body> <conversation_id> → prints message_id;
 # returns 2 if the send was HELD so the caller can refuse to arm; 4 = auth
-# failure (key revoked/invalid — callers must fail loud, not retry).
+# failure (key revoked/invalid — callers must fail loud, not retry); 5 = the
+# send reached a terminal failed/unknown outcome (do NOT retry — inspect the
+# printed message id instead).
 # The body travels via --body-file: free text may legitimately start with
 # "--" (which the flag parser rejects) and may exceed argv limits.
 t_api_send() {
@@ -283,7 +341,7 @@ t_api_send() {
   mid="$(t_cli send --to "$1" --subject "$2" --body-file "$bf" --conversation-id "$4")"; rc=$?
   rm -f "$bf"
   printf '%s' "$mid"
-  case "$rc" in 0) return 0;; 3) return 2;; 4) return 4;; *) return 1;; esac
+  case "$rc" in 0) return 0;; 3) return 2;; 4) return 4;; 7) return 5;; *) return 1;; esac
 }
 
 # Attachment cap: 15 MB of raw bytes total per send. Base64 inflates ~4/3 and
@@ -308,9 +366,11 @@ if total>maxb:
 # t_api_reply <in_reply_to_id> <body> [html_file] [attach_file ...] → prints
 # new message_id. NOTE the third arg is now an HTML *file path* (the CLI takes
 # --html-file and derives the plain-text fallback itself when body is empty).
-# Returns: 0 sent; 2 HELD (accepted, NOT delivered — CLI exit 3); 3 anchor not
-# repliable here (CLI exit 5, permanent request error) so t_reply_anchored can
-# try the next anchor; 4 auth failure (fail loud, don't retry); 1 anything
+# Returns: 0 sent; 2 HELD (pending_review, NOT delivered — CLI exit 3); 3 anchor
+# not repliable here (CLI exit 5, permanent request error) so t_reply_anchored
+# can try the next anchor; 4 auth failure (fail loud, don't retry); 5 terminal
+# send outcome (CLI exit 7 — the server persisted a failure; do NOT retry and do
+# NOT fall through to another anchor, which would risk a duplicate); 1 anything
 # else (transient).
 t_api_reply() {
   local rid="$1" body="${2:-}" htmlfile="${3:-}"
@@ -328,7 +388,7 @@ t_api_reply() {
   mid="$(t_cli "${args[@]}")"; rc=$?
   [ -n "$bf" ] && rm -f "$bf"
   printf '%s' "$mid"
-  case "$rc" in 0) return 0;; 3) return 2;; 4) return 4;; 5) return 3;; *) return 1;; esac
+  case "$rc" in 0) return 0;; 3) return 2;; 4) return 4;; 5) return 3;; 7) return 5;; *) return 1;; esac
 }
 
 # t_reply_anchored <body> <html_file> [attach_file ...] → send a threaded reply,
@@ -347,6 +407,10 @@ t_reply_anchored() {
     case " $tried " in *" $rid "*) continue;; esac
     tried="$tried $rid"
     mid="$(t_api_reply "$rid" "$body" "$html" "$@")"; rc=$?
+    # ONLY 3 (anchor not repliable) advances to the next anchor. A terminal
+    # outcome (5) means the server already persisted this send — retrying it
+    # against a different anchor would risk delivering a duplicate — so it
+    # propagates immediately, as do held (2) and auth (4).
     [ "$rc" = "3" ] && continue   # anchor not repliable here — try the next one
     printf '%s' "$mid"; return $rc
   done

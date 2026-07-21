@@ -32,6 +32,22 @@
 > `api/openapi.yaml` + the webhook-subscription and `/v1/events` enums all use it;
 > the `email.rejected` strings left in `internal/agent/api.go` are stale code
 > comments, not the wire value, which is `webhookpub.EventEmailRejected`).
+>
+> **Second as-built update (later pre-GA drift — read this too).** A few of the
+> "shipped" claims above were accurate when written but have since been
+> superseded by later, unrelated changes; `docs/api.md` + `api/openapi.yaml`
+> remain the single current source of truth. Concretely: the nested
+> `…/messages/{id}/approve`/`reject` routes described above and in §5 **were
+> themselves later removed** in the pre-GA vocabulary freeze, replaced by the
+> account-scoped **Reviews queue** (`POST /v1/reviews/{id}/approve`·`reject`);
+> decision 10's "no `/inbound-policies` CRUD, agent property only" **no longer
+> holds** — protection config now lives on the dedicated
+> `GET/PUT /v1/agents/{email}/protection` sub-resource; the API-key-lifecycle
+> decision's "dashboard-only, never an API-key-authed `/v1` endpoint" **no
+> longer holds** — `GET/POST /v1/account/api-keys` and
+> `DELETE /v1/account/api-keys/{id}` are live, bearer-authed operations; and
+> Decision 3's `reply_to` — called "deferred, not rejected" above — has since
+> **shipped** on the send/reply/forward bodies.
 
 ## 1. Problem statement
 

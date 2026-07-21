@@ -29,7 +29,7 @@ async function fixture() {
 
 test("maps every public agent document to its canonical plugin source", () => {
   assert.deepEqual(AGENT_DOC_MIRRORS, [
-    ["plugins/e2a/docs/e2a.md", "web/public/e2a.md"],
+    ["plugins/e2a/docs/setup.md", "web/public/setup.md"],
     ["plugins/e2a/docs/auth.md", "web/public/auth.md"],
     ["plugins/e2a/docs/sdk.md", "web/public/sdk.md"],
     ["plugins/e2a/docs/templates.md", "web/public/templates.md"],
@@ -64,7 +64,7 @@ test("check reports every missing or stale hosted mirror without writing", async
   await assert.rejects(
     syncAgentDocs({ repoRoot, check: true, log: () => {} }),
     (error) => {
-      assert.match(error.message, /missing hosted agent doc: web\/public\/e2a\.md/);
+      assert.match(error.message, /missing hosted agent doc: web\/public\/setup\.md/);
       assert.match(error.message, /stale hosted agent doc: web\/public\/templates\.md/);
       return true;
     },
@@ -83,7 +83,7 @@ test("sync fails clearly when a canonical source is missing", async () => {
 
   await assert.rejects(
     syncAgentDocs({ repoRoot, check: false, log: () => {} }),
-    /missing canonical agent doc: plugins\/e2a\/docs\/e2a\.md/,
+    /missing canonical agent doc: plugins\/e2a\/docs\/setup\.md/,
   );
 });
 
