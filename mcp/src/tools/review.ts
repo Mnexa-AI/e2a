@@ -11,7 +11,7 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       title: "List messages awaiting review",
       annotations: { readOnlyHint: true },
       description:
-        "Use when the user asks what's awaiting approval, or after a `send_message`/`reply_to_message` returned `pending_review` and they want to see the review queue. Lists held **outbound** messages (held by the agent's outbound policy or content scan) sorted by soonest-expiring first. Body content is summary-only — call `get_review` for the full draft of one. Read-only; cheap, but don't poll it on a loop. Note: this lists OUTBOUND holds only — a held **inbound** message (screening review) is surfaced by the `email.review_requested` webhook (with its `message_id`), not here, and is resolved with the same `approve_review`/`reject_review` tools.",
+        "Use when the user asks what's awaiting approval, or after a `send_message`/`reply_to_message` returned `pending_review` and they want to see the review queue. Lists every held message across the account's inboxes — outbound drafts awaiting send approval and inbound messages held by a screening gate — sorted by soonest-expiring first. Body content is summary-only; call `get_review` for full detail. The `email.review_requested` webhook is an additional push notification for either direction and carries the same `message_id`. Read-only; cheap, but don't poll it on a loop.",
       inputSchema: strictInputSchema({}),
     },
     async () => runTool(async () => ({ reviews: await client.listReviews() })),
@@ -67,8 +67,8 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       annotations: { destructiveHint: false },
       description:
         "Release a message held in `pending_review` (a review). The server branches on the message's direction:\n" +
-        "- **Outbound** (from the `list_reviews` queue): the draft is SENT via SES. Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / text / html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
-        "- **Inbound** (a screening hold, discovered via the `email.review_requested` webhook): the message is RELEASED to the agent's inbox so it becomes readable. There is no send and no draft — any override fields are ignored.\n" +
+        "- **Outbound** (a draft awaiting send approval): the draft is SENT via SES. Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / text / html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
+        "- **Inbound** (a screening hold, available in `list_reviews` and also announced by the `email.review_requested` webhook): the message is RELEASED to the agent's inbox so it becomes readable. There is no send and no draft — any override fields are ignored.\n" +
         "Returns 409 if the message is no longer pending (a human or the TTL sweep already resolved it).",
       inputSchema: strictInputSchema({
         message_id: z.string(),
