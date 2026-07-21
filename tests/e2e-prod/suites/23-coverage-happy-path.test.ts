@@ -81,6 +81,26 @@ test("updateMessage + getConversation: label an inbound message, fetch its conve
   assert.ok(conv.body, "conversation fetched");
 });
 
+test("getMessage: loopback self-send has null authentication/envelope_from/verified_domain", async () => {
+  // Providerless loopback delivery (a self-send) never touches a real SMTP peer,
+  // so there's no inbound evidence to authenticate — MessageView documents all
+  // three fields as null in this case (api/openapi.yaml MessageView.authentication
+  // description: "Null means there was no authenticating inbound SMTP peer, as
+  // with outbound or providerless loopback delivery"). This locks that contract;
+  // it can't exercise a real DMARC pass since this suite has no SMTP access.
+  const email = await freshAgent("covauth");
+  const { id } = await loopbackMessage(email, uniqueSubject("cov auth"));
+
+  const msg = await client.get<{
+    authentication: unknown;
+    envelope_from: string | null;
+    verified_domain: string | null;
+  }>(`/v1/agents/${encodeURIComponent(email)}/messages/${id}`, { expect: 200 });
+  assert.equal(msg.body?.authentication, null, "loopback message.authentication is null — no inbound SMTP peer");
+  assert.equal(msg.body?.envelope_from, null, "loopback message.envelope_from is null — no SMTP MAIL FROM");
+  assert.equal(msg.body?.verified_domain, null, "loopback message.verified_domain is null — no DMARC evaluation");
+});
+
 test("replyToMessage: reply to an inbound message (self-loopback → 200)", async () => {
   const email = await freshAgent("covrp");
   const { id } = await loopbackMessage(email, uniqueSubject("cov rp"));
