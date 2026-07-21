@@ -657,6 +657,35 @@ async def test_messages_list_deleted_lists_trash(httpx_mock):
 
 
 @pytest.mark.anyio
+async def test_messages_delete_soft_by_default(httpx_mock):
+    httpx_mock.add_response(json={"deleted": True, "id": "msg_1"})
+    async with _client() as c:
+        res = await c.messages.delete("bot@test.dev", "msg_1")
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "DELETE"
+    assert "/v1/agents/bot%40test.dev/messages/msg_1" in str(req.url)
+    # The soft delete is reversible, so `permanent` is omitted entirely (wire
+    # parity with the TS SDK); only the permanent path is gated on it.
+    assert "permanent" not in req.url.params
+    # 200 + typed deletion receipt (uniform delete contract).
+    assert res.deleted is True
+    assert res.id == "msg_1"
+
+
+@pytest.mark.anyio
+async def test_messages_delete_permanent_sends_confirm(httpx_mock):
+    httpx_mock.add_response(json={"deleted": True, "id": "msg_1"})
+    async with _client() as c:
+        res = await c.messages.delete("bot@test.dev", "msg_1", permanent=True)
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "DELETE"
+    assert req.url.params["permanent"] == "true"
+    # The typed call is the confirmation; the SDK supplies the raw-API guard.
+    assert "confirm=DELETE" in str(req.url)
+    assert res.deleted is True
+
+
+@pytest.mark.anyio
 async def test_messages_restore(httpx_mock):
     httpx_mock.add_response(json=_valid(MessageView, id="msg_1"))
     async with _client() as c:

@@ -41,6 +41,7 @@ describe("McpClient trash/restore delegation", () => {
         messages: {
           list: vi.fn(() => ({ page: messagesPage })),
           restore: vi.fn(async (email: string, id: string) => ({ email, id })),
+          delete: vi.fn(async (_email: string, id: string) => ({ deleted: true, id })),
         },
       },
     };
@@ -82,6 +83,22 @@ describe("McpClient trash/restore delegation", () => {
     const c = new McpClient(sdk as never, "bound@test.dev", "agent");
     await c.restoreMessage("msg_trashed", "other@test.dev");
     expect(sdk.messages.restore).toHaveBeenCalledWith("other@test.dev", "msg_trashed");
+  });
+
+  it("deleteMessage forwards message id and resolved explicit address, soft-delete only", async () => {
+    const { sdk } = mockTrashSdk();
+    const c = new McpClient(sdk as never, "bound@test.dev", "agent");
+    await c.deleteMessage("msg_1", "other@test.dev");
+    // No third argument: the MCP surface never passes { permanent: true }, so
+    // an irreversible purge is unreachable from a tool call.
+    expect(sdk.messages.delete).toHaveBeenCalledWith("other@test.dev", "msg_1");
+  });
+
+  it("deleteMessage falls back to the bound agent when no address is given", async () => {
+    const { sdk } = mockTrashSdk();
+    const c = new McpClient(sdk as never, "bound@test.dev", "agent");
+    await c.deleteMessage("msg_1");
+    expect(sdk.messages.delete).toHaveBeenCalledWith("bound@test.dev", "msg_1");
   });
 });
 
