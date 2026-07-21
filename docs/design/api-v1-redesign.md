@@ -33,7 +33,7 @@
 > the `email.rejected` strings left in `internal/agent/api.go` are stale code
 > comments, not the wire value, which is `webhookpub.EventEmailRejected`).
 >
-> **Second as-built update (post-GA drift — read this too).** A few of the
+> **Second as-built update (later pre-GA drift — read this too).** A few of the
 > "shipped" claims above were accurate when written but have since been
 > superseded by later, unrelated changes; `docs/api.md` + `api/openapi.yaml`
 > remain the single current source of truth. Concretely: the nested
