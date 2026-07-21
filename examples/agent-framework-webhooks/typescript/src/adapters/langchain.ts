@@ -27,7 +27,7 @@ function textContent(content: unknown): string {
 export class LangChainReplyAgent implements ReplyAgent {
   constructor(private readonly run: LangChainRun) {}
 
-  async reply(email: InboundEmail): Promise<string> {
+  async reply(email: InboundEmail, _conversationId: string): Promise<string> {
     const result = await this.run(emailPrompt(email));
     for (const message of [...(result.messages ?? [])].reverse()) {
       if (field(message, "type") === "ai" || field(message, "role") === "assistant") {

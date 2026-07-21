@@ -9,6 +9,14 @@ from typing import Literal
 ClaimResult = Literal["new", "processing", "processed"]
 
 
+def conversation_id_for(event_id: str, existing: str | None) -> str:
+    """Return the upstream thread id or a retry-stable first-contact anchor."""
+    if existing:
+        return existing
+    suffix = event_id.removeprefix("evt_")[:12]
+    return f"conv_{suffix}"
+
+
 class EventDeduper:
     """Track event claims so duplicate deliveries are side-effect safe."""
 

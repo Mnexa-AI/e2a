@@ -19,7 +19,7 @@ function textBlock(block: unknown): string | undefined {
 export class AnthropicReplyAgent implements ReplyAgent {
   constructor(private readonly run: AnthropicRun) {}
 
-  async reply(email: InboundEmail): Promise<string> {
+  async reply(email: InboundEmail, _conversationId: string): Promise<string> {
     const result = await this.run(emailPrompt(email));
     return result.content.flatMap((block) => {
       const text = textBlock(block);

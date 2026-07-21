@@ -34,7 +34,7 @@ class FakeMessageOperations implements InboundMessageOperations {
       dkim: [],
       dmarc: { status: "pass", domain: "example.net", policy: "reject", alignedBy: ["spf"] },
     },
-    cc: [], conversationId: "conv_dry_run", createdAt: new Date("2026-07-20T12:00:00.000Z"),
+    cc: [], conversationId: "", createdAt: new Date("2026-07-20T12:00:00.000Z"),
     deliveredTo: "agent@example.com", direction: "inbound", envelopeFrom: "sender@example.net",
     flagged: false, headerFrom: "Sender <sender@example.net>", id: "msg_dry_run", labels: [],
     parsed: { text: "Please send the deterministic response.", truncated: false },
@@ -62,7 +62,7 @@ function signedDelivery(): { body: Buffer; signature: string } {
     created_at: "2026-07-20T12:00:00.000Z",
     data: {
       message_id: "msg_dry_run", agent_email: "agent@example.com", direction: "inbound",
-      conversation_id: "conv_dry_run", header_from: "Sender <sender@example.net>",
+      conversation_id: "", header_from: "Sender <sender@example.net>",
       envelope_from: "sender@example.net", verified_domain: "example.net",
       to: ["agent@example.com"], cc: [], reply_to: [], delivered_to: "agent@example.com",
       subject: "Dry run", received_at: "2026-07-20T12:00:00.000Z", attachments: [],

@@ -49,7 +49,10 @@ class LangChainReplyAgent:
             )
         )
 
-    async def reply(self, email: AsyncInboundEmail) -> str:
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str:
+        del conversation_id
         result = await self._run(email_prompt(email))
         messages = result.get("messages", [])
         for message in reversed(messages):

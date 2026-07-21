@@ -5,7 +5,7 @@ from __future__ import annotations
 from e2a import construct_event
 
 from .contracts import InboundResource, ReplyAgent
-from .delivery_state import EventDeduper
+from .delivery_state import EventDeduper, conversation_id_for
 
 
 class DeliveryInProgress(Exception):
@@ -38,18 +38,19 @@ async def handle_delivery(
 
     try:
         email = await inbound.from_event(event)
-        reply_text = (await agent.reply(email)).strip()
+        conversation_id = conversation_id_for(event.id, email.conversation_id)
+        reply_text = (await agent.reply(email, conversation_id)).strip()
         if not reply_text:
             await deduper.complete(event.id)
-            return {"status": "no_reply", "conversation_id": email.conversation_id}
+            return {"status": "no_reply", "conversation_id": conversation_id}
 
         result = await email.reply(
-            {"text": reply_text, "conversation_id": email.conversation_id},
+            {"text": reply_text, "conversation_id": conversation_id},
             idempotency_key=event.id,
         )
         await deduper.complete(event.id)
         status = "replied" if result.status in {"accepted", "sent"} else result.status
-        return {"status": status, "conversation_id": email.conversation_id}
+        return {"status": status, "conversation_id": conversation_id}
     except BaseException:
         await deduper.release(event.id)
         raise

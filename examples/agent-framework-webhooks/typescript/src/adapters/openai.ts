@@ -13,7 +13,7 @@ export type OpenAIRun = (prompt: string) => Promise<OpenAIResult>;
 export class OpenAIReplyAgent implements ReplyAgent {
   constructor(private readonly run: OpenAIRun) {}
 
-  async reply(email: InboundEmail): Promise<string> {
+  async reply(email: InboundEmail, _conversationId: string): Promise<string> {
     const result = await this.run(emailPrompt(email));
     return result.finalOutput == null ? "" : String(result.finalOutput);
   }

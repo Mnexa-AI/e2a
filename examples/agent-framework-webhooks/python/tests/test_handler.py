@@ -6,7 +6,7 @@ import json
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 from e2a import E2AWebhookSignatureError, construct_event
 
@@ -17,7 +17,10 @@ SECRET = "whsec_test"
 
 
 def signed_delivery(
-    *, event_id: str = "evt_1", event_type: str = "email.received"
+    *,
+    event_id: str = "evt_1",
+    event_type: str = "email.received",
+    conversation_id: str = "conv_1",
 ) -> tuple[bytes, str]:
     payload = {
         "id": event_id,
@@ -28,7 +31,7 @@ def signed_delivery(
             "message_id": "msg_1",
             "agent_email": "agent@example.com",
             "direction": "inbound",
-            "conversation_id": "conv_1",
+            "conversation_id": conversation_id,
             "header_from": "sender@example.net",
             "envelope_from": "sender@example.net",
             "verified_domain": "example.net",
@@ -71,10 +74,13 @@ def signed_delivery(
 
 
 def collaborators(
-    *, agent_output: object = "Thanks", send_status: str = "accepted"
+    *,
+    agent_output: object = "Thanks",
+    send_status: str = "accepted",
+    conversation_id: str = "conv_1",
 ) -> tuple[SimpleNamespace, SimpleNamespace, SimpleNamespace]:
     email = SimpleNamespace(
-        conversation_id="conv_1",
+        conversation_id=conversation_id,
         reply=AsyncMock(return_value=SimpleNamespace(status=send_status)),
     )
     inbound = SimpleNamespace(from_event=AsyncMock(return_value=email))
@@ -95,10 +101,56 @@ class HandleDeliveryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "replied", "conversation_id": "conv_1"})
         expected_event = construct_event(body, signature, SECRET)
         inbound.from_event.assert_awaited_once_with(expected_event)
-        agent.reply.assert_awaited_once_with(email)
+        agent.reply.assert_awaited_once_with(email, "conv_1")
         email.reply.assert_awaited_once_with(
             {"text": "Thanks", "conversation_id": "conv_1"},
             idempotency_key="evt_1",
+        )
+
+    async def test_first_contact_uses_one_retry_stable_conversation_anchor(self) -> None:
+        body, signature = signed_delivery(
+            event_id="evt_first_contact_123", conversation_id=""
+        )
+        inbound, agent, email = collaborators(conversation_id="")
+        email.reply.side_effect = [
+            RuntimeError("send failed"),
+            SimpleNamespace(status="accepted"),
+        ]
+        deduper = EventDeduper()
+
+        with self.assertRaisesRegex(RuntimeError, "send failed"):
+            await handle_delivery(
+                body, signature, SECRET, inbound, agent, deduper
+            )
+
+        result = await handle_delivery(
+            body, signature, SECRET, inbound, agent, deduper
+        )
+
+        self.assertEqual(
+            result,
+            {"status": "replied", "conversation_id": "conv_first_contac"},
+        )
+        self.assertEqual(email.conversation_id, "")
+        self.assertEqual(
+            agent.reply.await_args_list,
+            [
+                call(email, "conv_first_contac"),
+                call(email, "conv_first_contac"),
+            ],
+        )
+        self.assertEqual(
+            email.reply.await_args_list,
+            [
+                call(
+                    {"text": "Thanks", "conversation_id": "conv_first_contac"},
+                    idempotency_key="evt_first_contact_123",
+                ),
+                call(
+                    {"text": "Thanks", "conversation_id": "conv_first_contac"},
+                    idempotency_key="evt_first_contact_123",
+                ),
+            ],
         )
 
     async def test_invalid_signature_has_no_effect_and_does_not_claim_event(self) -> None:

@@ -14,7 +14,7 @@ import { emailPrompt } from "../src/prompt.js";
 
 const SECRET = "whsec_test";
 
-function signedDelivery(options: { eventId?: string; eventType?: string } = {}): {
+function signedDelivery(options: { eventId?: string; eventType?: string; conversationId?: string } = {}): {
   body: string;
   signature: string;
 } {
@@ -27,7 +27,7 @@ function signedDelivery(options: { eventId?: string; eventType?: string } = {}):
       message_id: "msg_1",
       agent_email: "agent@example.com",
       direction: "inbound",
-      conversation_id: "conv_1",
+      conversation_id: options.conversationId ?? "conv_1",
       header_from: "sender@example.net",
       envelope_from: "sender@example.net",
       verified_domain: "example.net",
@@ -62,9 +62,9 @@ type FakeEmail = {
   reply: ReturnType<typeof vi.fn>;
 };
 
-function collaborators(options: { agentOutput?: string; sendStatus?: string } = {}) {
+function collaborators(options: { agentOutput?: string; sendStatus?: string; conversationId?: string } = {}) {
   const email: FakeEmail = {
-    conversationId: "conv_1",
+    conversationId: options.conversationId ?? "conv_1",
     from: "sender@example.net",
     subject: "Hello",
     verified: true,
@@ -162,13 +162,52 @@ describe("handleDelivery", () => {
       deduper: new EventDeduper(),
     });
 
-    expect(result).toEqual({ status: "replied", conversationId: "conv_1" });
+    expect(result).toEqual({ kind: "replied", status: "replied", conversationId: "conv_1" });
     expect(inbound.fromEvent).toHaveBeenCalledOnce();
     expect(inbound.fromEvent).toHaveBeenCalledWith(constructEvent(body, signature, SECRET));
-    expect(agent.reply).toHaveBeenCalledWith(inboundEmail);
+    expect(agent.reply).toHaveBeenCalledWith(inboundEmail, "conv_1");
     expect(email.reply).toHaveBeenCalledWith(
       { text: "Thanks", conversationId: "conv_1" },
       { idempotencyKey: "evt_1" },
+    );
+  });
+
+  it("uses one retry-stable conversation anchor for first contact", async () => {
+    const delivery = signedDelivery({
+      eventId: "evt_first_contact_123",
+      conversationId: "",
+    });
+    const { email, inboundEmail, inbound, agent } = collaborators({ conversationId: "" });
+    email.reply.mockRejectedValueOnce(new Error("send failed"));
+    const deduper = new EventDeduper();
+    const input = {
+      ...delivery,
+      secret: SECRET,
+      inbound,
+      agent,
+      deduper,
+    };
+
+    await expect(handleDelivery(input)).rejects.toThrow("send failed");
+    const result = await handleDelivery(input);
+
+    expect(result).toMatchObject({
+      kind: "replied",
+      status: "replied",
+      conversationId: "conv_first_contac",
+    });
+    expect(email.conversationId).toBe("");
+    expect(agent.reply).toHaveBeenNthCalledWith(1, inboundEmail, "conv_first_contac");
+    expect(agent.reply).toHaveBeenNthCalledWith(2, inboundEmail, "conv_first_contac");
+    expect(email.reply).toHaveBeenNthCalledWith(
+      1,
+      { text: "Thanks", conversationId: "conv_first_contac" },
+      { idempotencyKey: "evt_first_contact_123" },
+    );
+    expect(email.reply).toHaveBeenNthCalledWith(
+      2,
+      { text: "Thanks", conversationId: "conv_first_contac" },
+      { idempotencyKey: "evt_first_contact_123" },
     );
   });
 
@@ -206,7 +245,7 @@ describe("handleDelivery", () => {
       deduper,
     });
 
-    expect(result).toEqual({ status: "ignored" });
+    expect(result).toEqual({ kind: "ignored", status: "ignored" });
     expect(inbound.fromEvent).not.toHaveBeenCalled();
     expect(agent.reply).not.toHaveBeenCalled();
     expect(email.reply).not.toHaveBeenCalled();
@@ -219,8 +258,8 @@ describe("handleDelivery", () => {
     const deduper = new EventDeduper();
     const input = { ...delivery, secret: SECRET, inbound, agent, deduper };
 
-    expect(await handleDelivery(input)).toEqual({ status: "replied", conversationId: "conv_1" });
-    expect(await handleDelivery(input)).toEqual({ status: "duplicate" });
+    expect(await handleDelivery(input)).toEqual({ kind: "replied", status: "replied", conversationId: "conv_1" });
+    expect(await handleDelivery(input)).toEqual({ kind: "duplicate", status: "duplicate" });
     expect(inbound.fromEvent).toHaveBeenCalledOnce();
     expect(agent.reply).toHaveBeenCalledOnce();
     expect(email.reply).toHaveBeenCalledOnce();
@@ -248,10 +287,12 @@ describe("handleDelivery", () => {
     const deduper = new EventDeduper();
 
     expect(await handleDelivery({ ...delivery, secret: SECRET, inbound, agent, deduper })).toEqual({
+      kind: "no_reply",
       status: "no_reply",
       conversationId: "conv_1",
     });
     expect(await handleDelivery({ ...delivery, secret: SECRET, inbound, agent, deduper })).toEqual({
+      kind: "duplicate",
       status: "duplicate",
     });
     expect(email.reply).not.toHaveBeenCalled();
@@ -265,7 +306,7 @@ describe("handleDelivery", () => {
     const input = { ...delivery, secret: SECRET, inbound, agent, deduper };
 
     await expect(handleDelivery(input)).rejects.toThrow("agent failed");
-    await expect(handleDelivery(input)).resolves.toEqual({ status: "replied", conversationId: "conv_1" });
+    await expect(handleDelivery(input)).resolves.toEqual({ kind: "replied", status: "replied", conversationId: "conv_1" });
     expect(agent.reply).toHaveBeenCalledTimes(2);
     expect(email.reply).toHaveBeenCalledOnce();
   });
@@ -278,7 +319,7 @@ describe("handleDelivery", () => {
     const input = { ...delivery, secret: SECRET, inbound, agent, deduper };
 
     await expect(handleDelivery(input)).rejects.toThrow("send failed");
-    await expect(handleDelivery(input)).resolves.toEqual({ status: "replied", conversationId: "conv_1" });
+    await expect(handleDelivery(input)).resolves.toEqual({ kind: "replied", status: "replied", conversationId: "conv_1" });
     expect(inbound.fromEvent).toHaveBeenCalledTimes(2);
     expect(agent.reply).toHaveBeenCalledTimes(2);
     expect(email.reply).toHaveBeenCalledTimes(2);
@@ -290,7 +331,7 @@ describe("handleDelivery", () => {
 
     await expect(
       handleDelivery({ ...delivery, secret: SECRET, inbound, agent, deduper: new EventDeduper() }),
-    ).resolves.toEqual({ status: "replied", conversationId: "conv_1" });
+    ).resolves.toEqual({ kind: "replied", status: "replied", conversationId: "conv_1" });
   });
 
   it("preserves a pending_review send status", async () => {
@@ -299,6 +340,6 @@ describe("handleDelivery", () => {
 
     await expect(
       handleDelivery({ ...delivery, secret: SECRET, inbound, agent, deduper: new EventDeduper() }),
-    ).resolves.toEqual({ status: "pending_review", conversationId: "conv_1" });
+    ).resolves.toEqual({ kind: "send_result", status: "pending_review", conversationId: "conv_1" });
   });
 });

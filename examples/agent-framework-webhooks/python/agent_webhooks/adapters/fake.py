@@ -14,6 +14,9 @@ class FakeReplyAgent:
     def call_count(self) -> int:
         return len(self.prompts)
 
-    async def reply(self, email: AsyncInboundEmail) -> str:
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str:
+        del conversation_id
         self.prompts.append(email_prompt(email))
         return self.response

@@ -22,8 +22,12 @@ Both hosts perform the same steps:
    example deduper.
 4. Hydrate the ergonomic email object with
    `client.inbound.from_event(event)` or `client.inbound.fromEvent(event)`.
-5. Run the selected adapter on a small projection of normalized fields.
-6. Reply through the bound `email.reply(...)`, using `event.id` as the
+5. Reuse the hydrated conversation ID, or derive a deterministic
+   `conv_<event-id-suffix>` anchor when first contact has no conversation yet.
+   The same effective ID is passed to the adapter and the bound reply, so ADK
+   session memory and e2a threading cannot diverge on retries.
+6. Run the selected adapter on a small projection of normalized fields.
+7. Reply through the bound `email.reply(...)`, using `event.id` as the
    idempotency key, and return the e2a send status.
 
 An `accepted` or `sent` send is reported as `replied`. Other statuses, including
@@ -37,7 +41,7 @@ the in-memory deduper with a durable unique claim on `event.id`.
 
 ## Run without provider keys
 
-The fake adapter signs a fixture delivery and executes the real shared path,
+The fake adapter signs a first-contact fixture delivery and executes the real shared path,
 including signature verification, facade hydration, prompt projection,
 deduplication, and bound reply delegation. It makes no provider or e2a network
 request.

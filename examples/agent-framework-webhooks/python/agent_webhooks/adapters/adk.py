@@ -11,7 +11,7 @@ from e2a import AsyncInboundEmail
 from agent_webhooks.prompt import REPLY_INSTRUCTIONS, email_prompt
 
 APP_NAME = "e2a_email_assistant"
-ADKRun = Callable[[AsyncInboundEmail, str], AsyncIterable[Any]]
+ADKRun = Callable[[AsyncInboundEmail, str, str], AsyncIterable[Any]]
 
 
 def _user_id(email: AsyncInboundEmail) -> str:
@@ -42,10 +42,10 @@ class ADKReplyAgent:
         runner = Runner(agent=agent, app_name=APP_NAME, session_service=sessions)
 
         async def run(
-            email: AsyncInboundEmail, prompt: str
+            email: AsyncInboundEmail, prompt: str, conversation_id: str
         ) -> AsyncIterable[Any]:
             user_id = _user_id(email)
-            session_id = email.conversation_id
+            session_id = conversation_id
             session = await sessions.get_session(
                 app_name=APP_NAME,
                 user_id=user_id,
@@ -70,9 +70,11 @@ class ADKReplyAgent:
 
         return cls(run)
 
-    async def reply(self, email: AsyncInboundEmail) -> str:
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str:
         final_text = ""
-        async for event in self._run(email, email_prompt(email)):
+        async for event in self._run(email, email_prompt(email), conversation_id):
             if not event.is_final_response():
                 continue
             content = getattr(event, "content", None)

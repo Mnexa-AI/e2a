@@ -38,7 +38,10 @@ class AnthropicReplyAgent:
         if self._close is not None:
             await self._close()
 
-    async def reply(self, email: AsyncInboundEmail) -> str:
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str:
+        del conversation_id
         result = await self._run(email_prompt(email))
         return "\n".join(
             block.text

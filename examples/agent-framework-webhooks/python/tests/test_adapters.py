@@ -49,7 +49,7 @@ def test_openai_returns_final_output_and_passes_email_prompt(
         prompts.append(prompt)
         return SimpleNamespace(final_output="OpenAI")
 
-    assert wait(OpenAIReplyAgent(run).reply(email)) == "OpenAI"
+    assert wait(OpenAIReplyAgent(run).reply(email, "conversation-123")) == "OpenAI"
     assert prompts == [email_prompt(email)]
 
 
@@ -57,7 +57,7 @@ def test_openai_treats_none_final_output_as_empty(email: SimpleNamespace) -> Non
     async def run(_: str) -> Any:
         return SimpleNamespace(final_output=None)
 
-    assert wait(OpenAIReplyAgent(run).reply(email)) == ""
+    assert wait(OpenAIReplyAgent(run).reply(email, "conversation-123")) == ""
 
 
 def test_anthropic_joins_only_text_blocks_in_order(
@@ -76,7 +76,7 @@ def test_anthropic_joins_only_text_blocks_in_order(
             ]
         )
 
-    assert wait(AnthropicReplyAgent(run).reply(email)) == "First\nSecond"
+    assert wait(AnthropicReplyAgent(run).reply(email, "conversation-123")) == "First\nSecond"
     assert prompts == [email_prompt(email)]
 
 
@@ -120,7 +120,7 @@ def test_langchain_returns_last_assistant_message(
             ]
         }
 
-    assert wait(LangChainReplyAgent(run).reply(email)) == "Last"
+    assert wait(LangChainReplyAgent(run).reply(email, "conversation-123")) == "Last"
     assert prompts == [email_prompt(email)]
 
 
@@ -139,7 +139,7 @@ def test_langchain_supports_text_content_blocks(email: SimpleNamespace) -> None:
             ]
         }
 
-    assert wait(LangChainReplyAgent(run).reply(email)) == "One\nTwo"
+    assert wait(LangChainReplyAgent(run).reply(email, "conversation-123")) == "One\nTwo"
 
 
 def test_langchain_rejects_missing_final_assistant(
@@ -149,7 +149,7 @@ def test_langchain_rejects_missing_final_assistant(
         return {"messages": [SimpleNamespace(type="human", content="question")]}
 
     with pytest.raises(ValueError, match="assistant message"):
-        wait(LangChainReplyAgent(run).reply(email))
+        wait(LangChainReplyAgent(run).reply(email, "conversation-123"))
 
 
 class Event:
@@ -170,10 +170,12 @@ async def events(*items: Event) -> AsyncIterator[Event]:
 def test_adk_returns_last_final_text_and_ignores_nonfinal_events(
     email: SimpleNamespace,
 ) -> None:
-    calls: list[tuple[Any, str]] = []
+    calls: list[tuple[Any, str, str]] = []
 
-    def run(received_email: Any, prompt: str) -> AsyncIterator[Event]:
-        calls.append((received_email, prompt))
+    def run(
+        received_email: Any, prompt: str, conversation_id: str
+    ) -> AsyncIterator[Event]:
+        calls.append((received_email, prompt, conversation_id))
         return events(
             Event(final=False, text="draft"),
             Event(final=True, text="Earlier final"),
@@ -181,15 +183,15 @@ def test_adk_returns_last_final_text_and_ignores_nonfinal_events(
             Event(final=True, text="ADK"),
         )
 
-    assert wait(ADKReplyAgent(run).reply(email)) == "ADK"
-    assert calls == [(email, email_prompt(email))]
+    assert wait(ADKReplyAgent(run).reply(email, "conversation-123")) == "ADK"
+    assert calls == [(email, email_prompt(email), "conversation-123")]
 
 
 def test_adk_returns_empty_without_final_text(email: SimpleNamespace) -> None:
-    def run(_: Any, __: str) -> AsyncIterator[Event]:
+    def run(_: Any, __: str, ___: str) -> AsyncIterator[Event]:
         return events(Event(final=False, text="draft"), Event(final=True))
 
-    assert wait(ADKReplyAgent(run).reply(email)) == ""
+    assert wait(ADKReplyAgent(run).reply(email, "conversation-123")) == ""
 
 
 def test_adk_sender_formatting_maps_to_same_user_for_same_inbox() -> None:
@@ -214,7 +216,7 @@ def test_adk_same_sender_maps_to_different_users_for_different_inboxes() -> None
     assert _user_id(first) != _user_id(second)
 
 
-def test_adk_factory_uses_isolated_identity_and_conversation_session(
+def test_adk_factory_uses_isolated_identity_and_first_contact_session(
     email: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class FakeSessions:
@@ -267,8 +269,11 @@ def test_adk_factory_uses_isolated_identity_and_conversation_session(
     monkeypatch.setitem(sys.modules, "google.genai", genai)
     email.from_ = "Ada <ADA@example.com>"
     email.inbox = "Assistant@Example.com"
+    email.conversation_id = ""
 
-    assert wait(ADKReplyAgent.from_env().reply(email)) == "ADK factory"
+    assert wait(
+        ADKReplyAgent.from_env().reply(email, "conv_first_contac")
+    ) == "ADK factory"
 
     digest = hashlib.sha256(
         b"assistant@example.com\0ada@example.com"
@@ -276,7 +281,7 @@ def test_adk_factory_uses_isolated_identity_and_conversation_session(
     context = {
         "app_name": "e2a_email_assistant",
         "user_id": f"sender-{digest}",
-        "session_id": "conversation-123",
+        "session_id": "conv_first_contac",
     }
     assert FakeSessions.instance.get_calls == [context]
     assert FakeSessions.instance.create_calls == [context]
@@ -285,13 +290,14 @@ def test_adk_factory_uses_isolated_identity_and_conversation_session(
     assert run_call["user_id"] == context["user_id"]
     assert run_call["session_id"] == context["session_id"]
     assert run_call["new_message"].parts[0].text == email_prompt(email)
+    assert email.conversation_id == ""
 
 
 def test_fake_is_deterministic_and_records_prompts(email: SimpleNamespace) -> None:
     agent = FakeReplyAgent("Fake")
 
-    assert wait(agent.reply(email)) == "Fake"
-    assert wait(agent.reply(email)) == "Fake"
+    assert wait(agent.reply(email, "conversation-123")) == "Fake"
+    assert wait(agent.reply(email, "conversation-123")) == "Fake"
     assert agent.prompts == [email_prompt(email), email_prompt(email)]
     assert agent.call_count == 2
 

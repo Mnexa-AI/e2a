@@ -12,7 +12,7 @@ export class FakeReplyAgent implements ReplyAgent {
     return this.prompts.length;
   }
 
-  async reply(email: InboundEmail): Promise<string> {
+  async reply(email: InboundEmail, _conversationId: string): Promise<string> {
     this.prompts.push(emailPrompt(email));
     return this.response;
   }

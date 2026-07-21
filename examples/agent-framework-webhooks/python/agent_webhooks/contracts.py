@@ -15,4 +15,6 @@ class InboundResource(Protocol):
 class ReplyAgent(Protocol):
     """An agent that produces a reply for an inbound email."""
 
-    async def reply(self, email: AsyncInboundEmail) -> str: ...
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str: ...

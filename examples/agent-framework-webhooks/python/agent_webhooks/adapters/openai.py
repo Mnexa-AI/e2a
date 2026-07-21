@@ -26,7 +26,10 @@ class OpenAIReplyAgent:
         )
         return cls(lambda prompt: Runner.run(agent, prompt))
 
-    async def reply(self, email: AsyncInboundEmail) -> str:
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str:
+        del conversation_id
         result = await self._run(email_prompt(email))
         final_output = result.final_output
         return "" if final_output is None else str(final_output)

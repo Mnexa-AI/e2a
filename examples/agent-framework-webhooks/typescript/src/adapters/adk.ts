@@ -18,8 +18,8 @@ export type ADKRun = (input: ADKRunInput) => AsyncIterable<Event>;
 
 function canonicalMailbox(sender: string | null): string {
   const value = (sender ?? "").trim();
-  const angleAddress = value.match(/<\s*([^<>]+?)\s*>\s*$/u)?.[1];
-  return (angleAddress ?? value).trim().toLocaleLowerCase("en-US") || "missing-sender";
+  const angleAddress = value.match(/<\s*([^<>\s]+@[^<>\s]+)\s*>/u)?.[1];
+  return (angleAddress ?? value).trim().toLowerCase() || "missing-sender";
 }
 
 /** Derive an opaque identity while preventing session sharing across e2a inboxes. */
@@ -39,12 +39,12 @@ function eventText(event: Event): string {
 export class ADKReplyAgent implements ReplyAgent {
   constructor(private readonly run: ADKRun) {}
 
-  async reply(email: InboundEmail): Promise<string> {
+  async reply(email: InboundEmail, conversationId: string): Promise<string> {
     let reply = "";
     const input = {
       prompt: emailPrompt(email),
       userId: senderUserId(email),
-      sessionId: email.conversationId,
+      sessionId: conversationId,
     };
     for await (const event of this.run(input)) {
       if (isFinalResponse(event)) reply = eventText(event);

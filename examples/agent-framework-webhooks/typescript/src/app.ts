@@ -169,7 +169,8 @@ export function createApp(options: AppOptions = {}): Express {
           agent: runtime.agent,
           deduper: runtime.deduper,
         });
-        return response.json(result);
+        const { kind: _kind, ...publicResult } = result;
+        return response.json(publicResult);
       } catch (error: unknown) {
         if (error instanceof E2AWebhookSignatureError) {
           return response.status(401).json({ error: "invalid signature" });

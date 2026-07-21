@@ -1,6 +1,13 @@
 /** Result of trying to claim one at-least-once webhook delivery. */
 export type ClaimResult = "new" | "processing" | "processed";
 
+/** Return the upstream thread id or a retry-stable first-contact anchor. */
+export function conversationIdFor(eventId: string, existing: string | null | undefined): string {
+  if (existing) return existing;
+  const suffix = eventId.startsWith("evt_") ? eventId.slice(4, 16) : eventId.slice(0, 12);
+  return `conv_${suffix}`;
+}
+
 /** Bounded in-process state for side-effect-safe duplicate deliveries. */
 export class EventDeduper {
   private readonly maxProcessed: number;

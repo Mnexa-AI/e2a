@@ -88,13 +88,16 @@ The shared host owns only transport and delivery concerns:
 3. Ignore non-`email.received` event types.
 4. Claim the stable event ID in the bounded, in-memory tutorial deduper.
 5. Call `client.inbound.from_event(event)` / `client.inbound.fromEvent(event)`.
-6. Pass the resulting safe, normalized `InboundEmail` fields to the selected
-   adapter. Raw MIME and the full transport model are not included in prompts.
+6. Resolve one effective conversation ID: keep the hydrated value when present,
+   or derive a retry-stable `conv_<event-id-suffix>` anchor for first contact.
+   Pass the safe, normalized `InboundEmail` fields and that effective ID to the
+   selected adapter. Raw MIME and the full transport model are not included in
+   prompts.
 7. Reject an empty framework result without sending an empty email.
 8. Call Python
-   `email.reply({"text": reply_text, "conversation_id": email.conversation_id}, idempotency_key=event.id)`
+   `email.reply({"text": reply_text, "conversation_id": conversation_id}, idempotency_key=event.id)`
    or TypeScript
-   `email.reply({ text: replyText, conversationId: email.conversationId }, { idempotencyKey: event.id })`,
+   `email.reply({ text: replyText, conversationId }, { idempotencyKey: event.id })`,
    then report the existing send status.
 9. Mark the event complete only after the reply request succeeds; release the
    claim on failure so e2a can retry.
@@ -110,14 +113,16 @@ Python adapters implement an async protocol equivalent to:
 
 ```python
 class ReplyAgent(Protocol):
-    async def reply(self, email: AsyncInboundEmail) -> str: ...
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str: ...
 ```
 
 TypeScript adapters implement:
 
 ```ts
 interface ReplyAgent {
-  reply(email: InboundEmail): Promise<string>;
+  reply(email: InboundEmail, conversationId: string): Promise<string>;
 }
 ```
 
@@ -130,7 +135,8 @@ The real implementations use the current official SDK calls:
 - LangChain: `create_agent` / `createAgent`, invoked with one user message and
   reduced to the final assistant text.
 - ADK: the official Python and TypeScript ADK runners with in-memory session
-  services, keyed by e2a conversation ID where the API requires a session.
+  services, keyed by the effective e2a conversation ID where the API requires
+  a session.
 
 Provider model names are environment-configurable and receive documented,
 current defaults. Provider keys are required only for real mode.

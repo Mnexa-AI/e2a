@@ -1,7 +1,7 @@
 import { constructEvent, type SendResultView } from "@e2a/sdk/v1";
 
 import type { InboundResource, ReplyAgent } from "./contracts.js";
-import { EventDeduper } from "./delivery-state.js";
+import { EventDeduper, conversationIdFor } from "./delivery-state.js";
 
 export class DeliveryInProgress extends Error {
   readonly eventId: string;
@@ -23,8 +23,11 @@ export interface HandleDeliveryOptions {
 }
 
 export type HandleDeliveryResult =
-  | { status: "ignored" | "duplicate" }
-  | { status: string; conversationId: string };
+  | { kind: "ignored"; status: "ignored" }
+  | { kind: "duplicate"; status: "duplicate" }
+  | { kind: "no_reply"; status: "no_reply"; conversationId: string }
+  | { kind: "replied"; status: "replied"; conversationId: string }
+  | { kind: "send_result"; status: string; conversationId: string };
 
 /** Verify, claim, and process one webhook delivery. */
 export async function handleDelivery({
@@ -37,27 +40,30 @@ export async function handleDelivery({
 }: HandleDeliveryOptions): Promise<HandleDeliveryResult> {
   const rawBody = typeof body === "string" ? body : Buffer.from(body.buffer, body.byteOffset, body.byteLength);
   const event = constructEvent(rawBody, signature, secret);
-  if (event.type !== "email.received") return { status: "ignored" };
+  if (event.type !== "email.received") return { kind: "ignored", status: "ignored" };
 
   const claim = await deduper.claim(event.id);
-  if (claim === "processed") return { status: "duplicate" };
+  if (claim === "processed") return { kind: "duplicate", status: "duplicate" };
   if (claim === "processing") throw new DeliveryInProgress(event.id);
 
   try {
     const email = await inbound.fromEvent(event);
-    const replyText = (await agent.reply(email)).trim();
+    const conversationId = conversationIdFor(event.id, email.conversationId);
+    const replyText = (await agent.reply(email, conversationId)).trim();
     if (replyText.length === 0) {
       await deduper.complete(event.id);
-      return { status: "no_reply", conversationId: email.conversationId };
+      return { kind: "no_reply", status: "no_reply", conversationId };
     }
 
     const result: SendResultView = await email.reply(
-      { text: replyText, conversationId: email.conversationId },
+      { text: replyText, conversationId },
       { idempotencyKey: event.id },
     );
     await deduper.complete(event.id);
     const status = result.status === "accepted" || result.status === "sent" ? "replied" : result.status;
-    return { status, conversationId: email.conversationId };
+    return status === "replied"
+      ? { kind: "replied", status, conversationId }
+      : { kind: "send_result", status, conversationId };
   } catch (error: unknown) {
     await deduper.release(event.id);
     throw error;
