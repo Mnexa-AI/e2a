@@ -87,6 +87,7 @@ import { E2AError, fromApiException, connectionError } from "./errors.js";
 import { AutoPager } from "./pagination.js";
 import { WSStream } from "./ws.js";
 import type { WebhookEvent, EmailReceivedData } from "./webhook-signature.js";
+import { InboundResource } from "./inbound.js";
 
 export interface E2AClientOptions {
   /** Account (`e2a_acct_`) or agent (`e2a_agt_`) key, or an OAuth access token.
@@ -176,6 +177,7 @@ export class E2AClient {
   readonly domains: DomainsResource;
   readonly events: EventsResource;
   readonly webhooks: WebhooksResource;
+  readonly inbound: InboundResource;
   readonly account: AccountResource;
   readonly reviews: ReviewsResource;
   readonly templates: TemplatesResource;
@@ -214,6 +216,7 @@ export class E2AClient {
     this.domains = new DomainsResource(new PromiseDomainsApi(config));
     this.events = new EventsResource(new PromiseEventsApi(config));
     this.webhooks = new WebhooksResource(new PromiseWebhooksApi(config), this.messages);
+    this.inbound = new InboundResource(this.messages);
     this.account = new AccountResource(new PromiseAccountApi(config));
     this.reviews = new ReviewsResource(new PromiseReviewsApi(config));
     this.templates = new TemplatesResource(new PromiseTemplatesApi(config));
@@ -229,11 +232,12 @@ export class E2AClient {
    * Open a notification stream for an agent's inbox. Yields versioned
    * {@link WSEvent} envelopes — the same shape as webhook deliveries
    * (`email.received` today; tolerate unknown types). Fetch the body with
-   * `client.webhooks.fetchMessage(event)` when you need it.
+   * `client.inbound.fromEvent(event)` when you need the bound facade (or
+   * `client.webhooks.fetchMessage(event)` for the raw MessageView).
    *
    *     for await (const event of client.listen("bot@acme.dev")) {
    *       if (!isEmailReceived(event)) continue;
-   *       const email = await client.webhooks.fetchMessage(event);
+   *       const email = await client.inbound.fromEvent(event);
    *     }
    */
   listen(email: string): WSStream {

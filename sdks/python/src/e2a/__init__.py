@@ -8,6 +8,9 @@
 
 from e2a.v1 import (  # noqa: F401
     AsyncE2AClient,
+    AsyncInboundAttachment,
+    AsyncInboundEmail,
+    AsyncInboundResource,
     Authentication,
     AttachmentMetaView,
     AutoPager,
@@ -36,6 +39,9 @@ from e2a.v1 import (  # noqa: F401
     EmailFailedData,
     EmailReceivedData,
     EmailSentData,
+    InboundAttachment,
+    InboundEmail,
+    InboundResource,
     Page,
     SyncAutoPager,
     SyncStream,
@@ -61,6 +67,12 @@ from e2a.v1 import (  # noqa: F401
 __all__ = [
     "E2AClient",
     "AsyncE2AClient",
+    "AsyncInboundResource",
+    "AsyncInboundEmail",
+    "AsyncInboundAttachment",
+    "InboundEmail",
+    "InboundAttachment",
+    "InboundResource",
     "SyncAutoPager",
     "SyncStream",
     "E2AError",

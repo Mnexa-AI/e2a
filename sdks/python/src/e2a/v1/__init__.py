@@ -20,6 +20,16 @@ from e2a.v1.generated.models import *  # noqa: F401,F403
 # High-level async client.
 from e2a.v1.client import AsyncE2AClient  # noqa: F401
 
+# High-level inbound email facade.
+from e2a.v1.inbound import (  # noqa: F401
+    AsyncInboundAttachment,
+    AsyncInboundEmail,
+    AsyncInboundResource,
+    InboundAttachment,
+    InboundEmail,
+    InboundResource,
+)
+
 # Synchronous facade over the async client.
 from e2a.v1.sync_client import E2AClient, SyncAutoPager, SyncStream  # noqa: F401
 
@@ -83,6 +93,12 @@ from e2a.v1.websocket import WS_CLOSE_REPLACED, WSEvent, WSStream  # noqa: F401
 
 __all__ = [
     "AsyncE2AClient",
+    "AsyncInboundResource",
+    "AsyncInboundEmail",
+    "AsyncInboundAttachment",
+    "InboundEmail",
+    "InboundAttachment",
+    "InboundResource",
     "E2AClient",
     "SyncAutoPager",
     "SyncStream",

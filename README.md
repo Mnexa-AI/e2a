@@ -144,8 +144,11 @@ try:
 except E2AWebhookSignatureError:
     abort(400)  # bad signature — reject the delivery
 if event.type == "email.received":
-    # metadata-only notification — fetch the full message (body + attachments)
-    msg = await client.webhooks.fetch_message(event)
+    email = await client.inbound.from_event(event)
+    print(email.envelope_from, email.verified, email.reply_targets)
+    result = await email.reply({"text": "Got it"})
+    if result.status == "pending_review":
+        notify_human(result.message_id)
 ```
 
 ```typescript
@@ -159,8 +162,10 @@ try {
   throw err;
 }
 if (event.type === "email.received") {
-  // metadata-only notification — fetch the full message (body + attachments)
-  const msg = await client.webhooks.fetchMessage(event);
+  const email = await client.inbound.fromEvent(event);
+  console.log(email.envelopeFrom, email.verified, email.replyTargets);
+  const result = await email.reply({ text: "Got it" });
+  if (result.status === "pending_review") notifyHuman(result.messageId);
 }
 ```
 
@@ -266,11 +271,11 @@ from e2a.v1 import AsyncE2AClient, construct_event
 client = AsyncE2AClient()                                       # reads E2A_API_KEY
 event = construct_event(request_body, signature_header, webhook_secret)  # parse + HMAC-verify
 if event.type == "email.received":
-    # event.data is metadata only — replying needs just the recipient + message_id
-    # fetch the full body with client.webhooks.fetch_message(event) if needed
-    meta = event.data
-    await client.messages.reply(meta["delivered_to"], meta["message_id"],
-                                {"text": "Got it!", "conversation_id": "conv_123"})
+    email = await client.inbound.from_event(event)
+    print(email.envelope_from, email.verified, email.reply_targets)
+    result = await email.reply({"text": "Got it!"})
+    if result.status == "pending_review":
+        print("awaiting approval", result.message_id)
 ```
 
 WebSocket (no public URL needed):
@@ -282,10 +287,10 @@ async with AsyncE2AClient(api_key="e2a_…") as client:
     async for event in client.listen("bot@your-domain.com"):
         if event.type != "email.received":
             continue  # tolerate future event kinds
-        # The event is lightweight metadata — fetch the body when you want it.
-        meta = event.data
-        email = await client.webhooks.fetch_message(event)
-        await client.messages.reply(meta["delivered_to"], meta["message_id"], {"text": "Got it!"})
+        email = await client.inbound.from_event(event)
+        result = await email.reply({"text": "Got it!"})
+        if result.status == "pending_review":
+            print("awaiting approval", result.message_id)
 ```
 
 See [sdks/python/README.md](sdks/python/README.md).

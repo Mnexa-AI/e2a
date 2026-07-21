@@ -1,0 +1,13 @@
+[
+  {"name": "wrong type", "patch": {"type": "email.sent"}},
+  {"name": "wrong schema", "patch": {"schema_version": "2"}},
+  {"name": "non-object data", "patch": {"data": null}},
+  {"name": "missing message id", "data_patch": {"message_id": "__delete__"}},
+  {"name": "null message id", "data_patch": {"message_id": null}},
+  {"name": "empty message id", "data_patch": {"message_id": ""}},
+  {"name": "non-string message id", "data_patch": {"message_id": 42}},
+  {"name": "missing delivered to", "data_patch": {"delivered_to": "__delete__"}},
+  {"name": "null delivered to", "data_patch": {"delivered_to": null}},
+  {"name": "empty delivered to", "data_patch": {"delivered_to": ""}},
+  {"name": "non-string delivered to", "data_patch": {"delivered_to": []}}
+]

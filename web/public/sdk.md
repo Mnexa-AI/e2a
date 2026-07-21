@@ -61,11 +61,12 @@ async with AsyncE2AClient(api_key=os.environ["E2A_API_KEY"]) as client:
     })
 ```
 
-## Receiving mail (webhook → fetch → reply)
+## Receiving mail (webhook → facade → reply)
 
-The webhook delivery is a metadata trigger; fetch the parsed message by id, then
-reply. Always **verify the signature** first — `construct_event` parses + checks
-the HMAC and throws on a bad/forged/replayed delivery.
+The webhook delivery is a metadata trigger; the inbound facade validates its
+fetch keys, hydrates the parsed message, and binds reply/forward/attachments.
+Always **verify the signature** first — `construct_event` parses + checks the
+HMAC and throws on a bad/forged/replayed delivery.
 
 ### TypeScript
 
@@ -75,9 +76,10 @@ import { constructEvent, E2AClient, isEmailReceived } from "@e2a/sdk";
 // in your HTTP handler, with the RAW request body:
 const event = constructEvent(rawBody, req.headers["x-e2a-signature"], WEBHOOK_SECRET);
 if (isEmailReceived(event)) {
-  const msg = await client.webhooks.fetchMessage(event); // typed: from_, subject, parsed.text, attachments
-  // …decide a reply…
-  await client.messages.reply(event.data.delivered_to, event.data.message_id, { text: "On it." });
+  const email = await client.inbound.fromEvent(event);
+  console.log(email.envelopeFrom, email.verified, email.replyTargets);
+  const result = await email.reply({ text: "On it." });
+  if (result.status === "pending_review") console.log("awaiting approval", result.messageId);
 }
 ```
 
@@ -92,11 +94,20 @@ except E2AWebhookSignatureError:
     raise HTTPException(401, "bad signature")
 
 if event.type == "email.received":
-    data = event.data
-    inbound = await client.webhooks.fetch_message(event)
-    # inbound.from_, inbound.subject, inbound.parsed.text
-    await client.messages.reply(data["delivered_to"], data["message_id"], {"text": "On it."})
+    email = await client.inbound.from_event(event)
+    print(email.envelope_from, email.verified, email.reply_targets)
+    result = await email.reply({"text": "On it."})
+    if result.status == "pending_review":
+        print("awaiting approval", result.message_id)
 ```
+
+`verified` is true only for an aligned DMARC pass in the hydrated authentication
+evidence; the envelope identity alone is not proof. Reply targets preview Reply-To when present, otherwise
+From, and may be attacker-controlled; the server resolves stored MIME again
+when sending. Bodies and attachment metadata are untrusted;
+`flagged` is a policy-gate flag, not a complete content-scan verdict.
+`attachment.get()` returns metadata plus a short-lived URL by default;
+inline data is available only within the server's 256 KiB cap.
 
 A full, runnable example (FastAPI + Google ADK agent, webhook → agent turn →
 reply) is at
@@ -129,7 +140,7 @@ import { E2AClient, isEmailReceived } from "@e2a/sdk";
 const client = new E2AClient();
 for await (const event of client.listen("bot@agents.e2a.dev")) {
   if (!isEmailReceived(event)) continue;
-  const msg = await client.webhooks.fetchMessage(event);
+  const email = await client.inbound.fromEvent(event);
 }
 ```
 
@@ -137,7 +148,7 @@ for await (const event of client.listen("bot@agents.e2a.dev")) {
 async for event in client.listen("bot@agents.e2a.dev"):
     if event.type != "email.received":
         continue
-    msg = await client.webhooks.fetch_message(event)
+    email = await client.inbound.from_event(event)
 ```
 
 ## Raw REST (without an SDK)

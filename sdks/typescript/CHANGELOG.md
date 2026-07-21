@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- `client.inbound.fromEvent(event)` returns a client-bound `InboundEmail`
+  facade for verified webhook or authenticated WebSocket `email.received`
+  envelopes. It exposes explicit envelope/auth verdicts, reply targets,
+  parsed-body truncation, policy flags, bound reply/forward, and lazy
+  attachment `get()`. Shared cross-SDK vectors gate the facade semantics.
+
 ### Breaking (pre-GA)
 - **Inbound sender and authentication fields now use the final DMARC-aligned
   contract.** Generated message models and raw webhook/WS payloads expose the
