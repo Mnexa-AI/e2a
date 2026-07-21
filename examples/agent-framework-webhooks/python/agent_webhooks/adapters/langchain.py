@@ -6,9 +6,7 @@ from typing import Any
 
 from e2a import AsyncInboundEmail
 
-from agent_webhooks.prompt import email_prompt
-
-from .openai import INSTRUCTIONS
+from agent_webhooks.prompt import REPLY_INSTRUCTIONS, email_prompt
 
 LangChainRun = Callable[[str], Awaitable[Mapping[str, Any]]]
 
@@ -43,7 +41,7 @@ class LangChainReplyAgent:
         agent = create_agent(
             model=os.getenv("LANGCHAIN_MODEL", "openai:gpt-5.5"),
             tools=[],
-            system_prompt=INSTRUCTIONS,
+            system_prompt=REPLY_INSTRUCTIONS,
         )
         return cls(
             lambda prompt: agent.ainvoke(

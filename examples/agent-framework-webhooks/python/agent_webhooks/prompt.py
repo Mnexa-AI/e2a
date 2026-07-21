@@ -2,6 +2,11 @@
 
 from e2a import AsyncInboundEmail
 
+REPLY_INSTRUCTIONS = (
+    "Reply helpfully and concisely to the email. Write 1-3 short paragraphs of "
+    "body text only; do not include a Subject line or quote the original email."
+)
+
 
 def email_prompt(email: AsyncInboundEmail) -> str:
     """Project normalized facade fields into a framework-neutral prompt.

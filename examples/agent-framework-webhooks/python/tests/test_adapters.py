@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
+import sys
 from collections.abc import AsyncIterator, Coroutine
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any, TypeVar
 
 import pytest
@@ -25,6 +27,7 @@ def wait(coro: Coroutine[Any, Any, T]) -> T:
 def email() -> SimpleNamespace:
     return SimpleNamespace(
         from_="sender@example.com",
+        inbox="assistant@example.com",
         subject="A useful subject",
         text="Please send a concise answer.",
         verified=True,
@@ -161,6 +164,101 @@ def test_adk_returns_empty_without_final_text(email: SimpleNamespace) -> None:
     assert wait(ADKReplyAgent(run).reply(email)) == ""
 
 
+def test_adk_sender_formatting_maps_to_same_user_for_same_inbox() -> None:
+    from agent_webhooks.adapters.adk import _user_id
+
+    display = SimpleNamespace(
+        from_="Ada <ADA@example.com>", inbox="Assistant@Example.com"
+    )
+    mailbox = SimpleNamespace(
+        from_="ada@example.com", inbox="assistant@example.com"
+    )
+
+    assert _user_id(display) == _user_id(mailbox)
+
+
+def test_adk_same_sender_maps_to_different_users_for_different_inboxes() -> None:
+    from agent_webhooks.adapters.adk import _user_id
+
+    first = SimpleNamespace(from_="ada@example.com", inbox="one@example.com")
+    second = SimpleNamespace(from_="ada@example.com", inbox="two@example.com")
+
+    assert _user_id(first) != _user_id(second)
+
+
+def test_adk_factory_uses_isolated_identity_and_conversation_session(
+    email: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeSessions:
+        instance: "FakeSessions"
+
+        def __init__(self) -> None:
+            self.get_calls: list[dict[str, str]] = []
+            self.create_calls: list[dict[str, str]] = []
+            FakeSessions.instance = self
+
+        async def get_session(self, **kwargs: str) -> None:
+            self.get_calls.append(kwargs)
+            return None
+
+        async def create_session(self, **kwargs: str) -> SimpleNamespace:
+            self.create_calls.append(kwargs)
+            return SimpleNamespace()
+
+    class FakeRunner:
+        instance: "FakeRunner"
+
+        def __init__(self, **kwargs: Any) -> None:
+            self.init_kwargs = kwargs
+            self.run_calls: list[dict[str, Any]] = []
+            FakeRunner.instance = self
+
+        async def run_async(self, **kwargs: Any) -> AsyncIterator[Event]:
+            self.run_calls.append(kwargs)
+            yield Event(final=True, text="ADK factory")
+
+    agents = ModuleType("google.adk.agents")
+    setattr(agents, "LlmAgent", lambda **kwargs: SimpleNamespace(**kwargs))
+    runners = ModuleType("google.adk.runners")
+    setattr(runners, "Runner", FakeRunner)
+    sessions = ModuleType("google.adk.sessions")
+    setattr(sessions, "InMemorySessionService", FakeSessions)
+    genai = ModuleType("google.genai")
+    setattr(
+        genai,
+        "types",
+        SimpleNamespace(
+            Content=lambda **kwargs: SimpleNamespace(**kwargs),
+            Part=lambda **kwargs: SimpleNamespace(**kwargs),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "google.adk", ModuleType("google.adk"))
+    monkeypatch.setitem(sys.modules, "google.adk.agents", agents)
+    monkeypatch.setitem(sys.modules, "google.adk.runners", runners)
+    monkeypatch.setitem(sys.modules, "google.adk.sessions", sessions)
+    monkeypatch.setitem(sys.modules, "google.genai", genai)
+    email.from_ = "Ada <ADA@example.com>"
+    email.inbox = "Assistant@Example.com"
+
+    assert wait(ADKReplyAgent.from_env().reply(email)) == "ADK factory"
+
+    digest = hashlib.sha256(
+        b"assistant@example.com\0ada@example.com"
+    ).hexdigest()[:20]
+    context = {
+        "app_name": "e2a_email_assistant",
+        "user_id": f"sender-{digest}",
+        "session_id": "conversation-123",
+    }
+    assert FakeSessions.instance.get_calls == [context]
+    assert FakeSessions.instance.create_calls == [context]
+    assert FakeRunner.instance.init_kwargs["app_name"] == context["app_name"]
+    run_call = FakeRunner.instance.run_calls[0]
+    assert run_call["user_id"] == context["user_id"]
+    assert run_call["session_id"] == context["session_id"]
+    assert run_call["new_message"].parts[0].text == email_prompt(email)
+
+
 def test_fake_is_deterministic_and_records_prompts(email: SimpleNamespace) -> None:
     agent = FakeReplyAgent("Fake")
 
@@ -168,3 +266,11 @@ def test_fake_is_deterministic_and_records_prompts(email: SimpleNamespace) -> No
     assert wait(agent.reply(email)) == "Fake"
     assert agent.prompts == [email_prompt(email), email_prompt(email)]
     assert agent.call_count == 2
+
+
+def test_shared_reply_instructions_define_body_only_output() -> None:
+    from agent_webhooks.prompt import REPLY_INSTRUCTIONS
+
+    assert "1-3 short paragraphs" in REPLY_INSTRUCTIONS
+    assert "body text only" in REPLY_INSTRUCTIONS
+    assert "do not include a Subject line" in REPLY_INSTRUCTIONS

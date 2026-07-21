@@ -3,21 +3,22 @@
 import hashlib
 import os
 from collections.abc import AsyncIterable, Callable
+from email.utils import parseaddr
 from typing import Any
 
 from e2a import AsyncInboundEmail
 
-from agent_webhooks.prompt import email_prompt
-
-from .openai import INSTRUCTIONS
+from agent_webhooks.prompt import REPLY_INSTRUCTIONS, email_prompt
 
 APP_NAME = "e2a_email_assistant"
 ADKRun = Callable[[AsyncInboundEmail, str], AsyncIterable[Any]]
 
 
 def _user_id(email: AsyncInboundEmail) -> str:
-    sender = email.from_ or "missing-sender"
-    digest = hashlib.sha256(sender.encode("utf-8")).hexdigest()[:20]
+    sender = parseaddr(email.from_ or "")[1].strip().casefold() or "missing-sender"
+    inbox = email.inbox.strip().casefold() or "missing-inbox"
+    namespace = f"{inbox}\0{sender}"
+    digest = hashlib.sha256(namespace.encode("utf-8")).hexdigest()[:20]
     return f"sender-{digest}"
 
 
@@ -35,7 +36,7 @@ class ADKReplyAgent:
         agent = LlmAgent(
             name="email_assistant",
             model=os.getenv("ADK_MODEL", "gemini-flash-latest"),
-            instruction=INSTRUCTIONS,
+            instruction=REPLY_INSTRUCTIONS,
         )
         sessions = InMemorySessionService()
         runner = Runner(agent=agent, app_name=APP_NAME, session_service=sessions)

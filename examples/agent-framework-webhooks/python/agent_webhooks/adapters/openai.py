@@ -6,12 +6,7 @@ from typing import Any
 
 from e2a import AsyncInboundEmail
 
-from agent_webhooks.prompt import email_prompt
-
-INSTRUCTIONS = (
-    "Reply helpfully and concisely to the email. Write 1-3 short paragraphs of "
-    "body text only; do not include a Subject line or quote the original email."
-)
+from agent_webhooks.prompt import REPLY_INSTRUCTIONS, email_prompt
 
 OpenAIRun = Callable[[str], Awaitable[Any]]
 
@@ -26,7 +21,7 @@ class OpenAIReplyAgent:
 
         agent = Agent(
             name="Email assistant",
-            instructions=INSTRUCTIONS,
+            instructions=REPLY_INSTRUCTIONS,
             model=os.getenv("OPENAI_MODEL", "gpt-5.6"),
         )
         return cls(lambda prompt: Runner.run(agent, prompt))

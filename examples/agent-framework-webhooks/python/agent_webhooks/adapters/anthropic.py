@@ -6,9 +6,7 @@ from typing import Any
 
 from e2a import AsyncInboundEmail
 
-from agent_webhooks.prompt import email_prompt
-
-from .openai import INSTRUCTIONS
+from agent_webhooks.prompt import REPLY_INSTRUCTIONS, email_prompt
 
 AnthropicRun = Callable[[str], Awaitable[Any]]
 
@@ -26,7 +24,7 @@ class AnthropicReplyAgent:
             lambda prompt: client.messages.create(
                 model=os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8"),
                 max_tokens=1024,
-                system=INSTRUCTIONS,
+                system=REPLY_INSTRUCTIONS,
                 messages=[{"role": "user", "content": prompt}],
             )
         )
