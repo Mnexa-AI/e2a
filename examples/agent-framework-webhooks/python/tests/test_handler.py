@@ -219,3 +219,15 @@ class HandleDeliveryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result, {"status": "pending_review", "conversation_id": "conv_1"}
         )
+
+    async def test_sent_send_status_is_mapped_to_replied(self) -> None:
+        body, signature = signed_delivery()
+        inbound, agent, _ = collaborators(send_status="sent")
+
+        result = await handle_delivery(
+            body, signature, SECRET, inbound, agent, EventDeduper()
+        )
+
+        self.assertEqual(
+            result, {"status": "replied", "conversation_id": "conv_1"}
+        )
