@@ -405,6 +405,28 @@ describe("e2a MCP server", () => {
     }
   });
 
+  it("documents how conversation_id binds email to an agent runtime thread", async () => {
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+
+    for (const name of ["send_message", "reply_to_message"]) {
+      const properties = (byName.get(name)?.inputSchema as {
+        properties?: Record<string, { description?: string }>;
+      })?.properties ?? {};
+      const description = properties.conversation_id?.description ?? "";
+
+      expect(description, `${name}.conversation_id description`).toMatch(/agent runtime/i);
+      expect(description, `${name}.conversation_id description`).toMatch(/thread\/session ID/i);
+      expect(description, `${name}.conversation_id description`).toMatch(/reuse/i);
+      expect(description, `${name}.conversation_id description`).toMatch(/non-sensitive|opaque alias/i);
+    }
+
+    const replyProperties = (byName.get("reply_to_message")?.inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    })?.properties ?? {};
+    expect(replyProperties.conversation_id?.description).toMatch(/message_id still preserves/i);
+  });
+
   it("documents claimed sender and DMARC trust semantics on list_messages", async () => {
     const { tools } = await client.listTools();
     const tool = tools.find((candidate) => candidate.name === "list_messages");

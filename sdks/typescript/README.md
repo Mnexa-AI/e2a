@@ -197,7 +197,11 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     // is the SMTP MAIL FROM and can legitimately differ.
     console.log(email.from, email.envelopeFrom, email.verified, email.subject, email.text);
     console.log("reply will target", email.replyTargets);
-    const result = await email.reply({ text: "Got it" }, { idempotencyKey: `reply:${event.id}` });
+    const agentThreadId = await getOrCreateAgentThread(email.conversationId);
+    const result = await email.reply(
+      { text: "Got it", conversationId: agentThreadId },
+      { idempotencyKey: `reply:${event.id}` },
+    );
     if (result.status === "pending_review") console.log("reply is awaiting approval");
   }
   res.json({ ok: true });
@@ -370,8 +374,14 @@ on the recipient's inbound — via `In-Reply-To` for humans, or a forge-resistan
 a security boundary; for sender identity require
 `message.authentication?.dmarc.status === "pass"` and compare the literal
 `message.headerFrom` address separately. On first
-contact from a human it arrives `null` — assign one yourself if you want to
-thread.
+contact from a human it arrives `null`. Create the agent runtime's internal
+thread before replying, then pass its stable, non-sensitive thread/session ID
+(or an opaque stored alias) as `conversationId`; reuse it on every later send
+or reply. If a later inbound ID matches a binding you previously stored, resume
+that internal thread. Keep replying by the original message ID as well — the
+conversation ID aligns e2a grouping with agent memory, while the reply endpoint
+sets the email headers Gmail/Outlook use. Scope bindings to the inbox and sender,
+and never use the conversation ID as authorization.
 
 ## License
 

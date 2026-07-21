@@ -226,7 +226,11 @@ async def webhook(request):
         # From, Reply-To, bodies, and attachment names/types are untrusted input.
         print(email.envelope_from, email.verified, email.subject, email.text)
         print("reply will target", email.reply_targets)
-        result = await email.reply({"text": "Got it"}, idempotency_key=f"reply:{event.id}")
+        agent_thread_id = await get_or_create_agent_thread(email.conversation_id)
+        result = await email.reply(
+            {"text": "Got it", "conversation_id": agent_thread_id},
+            idempotency_key=f"reply:{event.id}",
+        )
         if result.status == "pending_review":
             print("reply is awaiting approval")
     return {"ok": True}
@@ -400,8 +404,16 @@ e2a surfaces it on the recipient's inbound — via `In-Reply-To` for humans, or 
 forge-resistant `X-E2A-Conversation-Id` header for same-platform agent-to-agent
 mail. It is not a security boundary; for sender-domain authentication require
 `message.authentication is not None and message.authentication.dmarc.status == "pass"`
-and compare the literal `message.header_from` address separately. On first contact from a human the
-conversation ID arrives `None` — assign one yourself if you want to thread.
+and compare the literal `message.header_from` address separately. On first
+contact from a human the conversation ID arrives `None`. Create the agent
+runtime's internal thread before replying, then pass its stable, non-sensitive
+thread/session ID (or an opaque stored alias) as `conversation_id`; reuse it on
+every later send or reply. If a later inbound ID matches a binding you
+previously stored, resume that internal thread. Keep replying by the original
+message ID as well — the conversation ID aligns e2a grouping with agent memory,
+while the reply endpoint sets the email headers Gmail/Outlook use. Scope
+bindings to the inbox and sender, and never use the conversation ID as
+authorization.
 
 ```python
 await client.messages.send(address, {

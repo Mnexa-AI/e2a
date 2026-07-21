@@ -54,7 +54,9 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         conversation_id: z
           .string()
           .optional()
-          .describe("Optional conversation grouping ID. Server generates one if omitted."),
+          .describe(
+            "Optional stable conversation grouping ID. When bridging email to an agent runtime, pass that runtime's non-sensitive thread/session ID (or an opaque alias) and reuse it on later sends and replies so e2a grouping follows the agent's internal conversation. Maximum 200 characters; no CR/LF. Server generates one if omitted.",
+          ),
         reply_to: z
           .string()
           .optional()
@@ -127,7 +129,12 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         cc: z.array(z.string()).optional(),
         bcc: z.array(z.string()).optional(),
         attachments: attachmentsArraySchema,
-        conversation_id: z.string().optional(),
+        conversation_id: z
+          .string()
+          .optional()
+          .describe(
+            "Optional conversation grouping override. On the first reply to received mail, set this to the agent runtime's stable, non-sensitive thread/session ID (or an opaque alias), then reuse it on later replies. This aligns e2a grouping with internal memory; message_id still preserves the recipient's email-client thread. Maximum 200 characters; no CR/LF.",
+          ),
         reply_to: z
           .string()
           .optional()
