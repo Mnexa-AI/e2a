@@ -34,7 +34,7 @@ the install itself goes through the same human gate the framework runs on.
 |---|---|
 | `autonomous-repo.config.yml.tmpl` | `autonomous-repo.config.yml` (the only file the adopter owns) |
 | `runtime-skill/**` | `.claude/skills/autonomous-repo/**` |
-| `scripts/ticket_card.sh` | `scripts/ticket_card.sh` |
+| `scripts/*.sh` (`ticket_card.sh`, `comms_send.sh`, `released_markers.sh`) | `scripts/*.sh` |
 | `workflows/*.yml.tmpl` | `.github/workflows/*.yml` |
 
 ## Deploy procedure
