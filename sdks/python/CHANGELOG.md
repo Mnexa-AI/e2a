@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- **`client.messages.delete(email, message_id, *, permanent=False)`** — move a
+  message to the trash, reversible via `client.messages.restore(...)` until the
+  trash retention window expires (30 days by default), so the soft delete needs
+  no confirmation. Pass `permanent=True` to delete forever a message that is
+  already in the trash (irreversible, account scope only; the SDK supplies the
+  `?confirm=DELETE` guard the raw API requires on that path). Available on both
+  `AsyncE2AClient` and the synchronous `E2AClient`.
+
+## 5.2.0
+
+The first publish to PyPI since 4.0.1: 5.0.0, 5.1.0, and 5.2.0 all reach users
+in this release, so read those three sections together when upgrading from 4.x.
+
+### Added
 - `client.inbound.from_event(event)` returns `AsyncInboundEmail` on
   `AsyncE2AClient` and a blocking `InboundEmail` on `E2AClient`. The facade
   exposes explicit envelope/auth verdicts, reply targets, parsed-body
@@ -41,20 +55,23 @@
   ``EventJSON`` → ``EventView``, ``Suppression`` → ``SuppressionView``,
   ``Result`` → ``AuthVerdict``, ``AttachmentMeta`` → ``AttachmentMetaView``.
 
-## 5.2.0
-
-### Breaking (pre-GA)
-- **The reserved-word wire field `from` is now uniformly exposed as `from_`
-  (PEP 8 trailing underscore) on generated models** (was the generator-mangled
-  `var_from`). Affected models: `Message`, `MessageView`, `MessageSummaryView`,
-  `ReviewView`, `EmailReceivedData`, `EmailSentData`, `EmailFailedData`
-  (generated), plus the generated `list_messages` sender filter parameter. The
+- **The reserved-word wire field `from` is exposed as `from_` (PEP 8 trailing
+  underscore) where a sender is still projected** (was the generator-mangled
+  `var_from`). This is the generated `list_messages` sender filter parameter
+  and the outbound-only `EmailSentData` / `EmailFailedData` models; the
   hand-written layer's `messages.list(from_=...)` already used `from_`, so the
-  SDK now teaches exactly one spelling; the TypeScript SDK exposes the same
+  SDK teaches exactly one spelling, and the TypeScript SDK exposes the same
   `from_`. The wire JSON is unchanged — requests and responses still carry
   `from` (pydantic alias). The webhook/WS `data` payload TypedDicts are
-  wire-true dicts and keep the literal `"from"` key (access as
-  `data["from"]`). Migrate: `message.var_from` → `message.from_`.
+  wire-true dicts and keep the literal `"from"` key (access as `data["from"]`).
+
+  An intermediate step on `main` also renamed the *inbound* sender projection
+  on `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`, and
+  `EmailReceivedData` from `var_from` to `from_`. The DMARC-aligned contract
+  above replaced that projection with `header_from` before this release, so
+  `from_` never reached PyPI on those models and there is nothing to migrate
+  off — 4.x callers reading `message.var_from` go straight to
+  `message.header_from`.
 
 ## 5.1.0
 
