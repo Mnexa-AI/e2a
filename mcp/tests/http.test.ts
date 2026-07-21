@@ -292,6 +292,7 @@ describe("HTTP MCP server", () => {
         "get_message",
         "get_attachment",
         "restore_message",
+        "delete_message",
         "list_agents",
         "get_agent",
         "whoami",
@@ -360,9 +361,10 @@ describe("HTTP MCP server", () => {
 
     const { client, transport } = await connect();
     const names = new Set((await client.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(14);
+    expect(names.size).toBe(15);
     expect(names.has("send_message")).toBe(true); // runtime present
     expect(names.has("restore_message")).toBe(true); // per-agent trash lifecycle
+    expect(names.has("delete_message")).toBe(true); // soft delete is per-agent too
     expect(names.has("create_agent")).toBe(false); // admin hidden
     expect(names.has("list_agents")).toBe(false); // REST requires account scope
     expect(names.has("restore_agent")).toBe(false); // account administration

@@ -324,15 +324,26 @@ The lower-level `WSListener` is also exported for advanced use.
 
 ## Trash and restore
 
-Soft-deleted agents and messages remain restorable for about 30 days. List the
-trash with `deleted: true`, then restore an item through the same resource:
+`delete()` is a soft delete: agents and messages move to the trash and stay
+restorable for about 30 days. List the trash with `deleted: true`, then restore
+an item through the same resource:
 
 ```ts
+await client.agents.delete("bot@agents.e2a.dev");
 const trashedAgents = client.agents.list({ deleted: true });
 await client.agents.restore("bot@agents.e2a.dev");
 
+await client.messages.delete("bot@agents.e2a.dev", "msg_abc123");
 const trashedMessages = client.messages.list("bot@agents.e2a.dev", { deleted: true });
 await client.messages.restore("bot@agents.e2a.dev", "msg_abc123");
+```
+
+A message already in the trash can be purged early and irreversibly. That path
+needs an account-scoped credential; the SDK supplies the API's `?confirm=DELETE`
+guard for you:
+
+```ts
+await client.messages.delete("bot@agents.e2a.dev", "msg_abc123", { permanent: true });
 ```
 
 ## Conversation threading

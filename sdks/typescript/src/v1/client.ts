@@ -60,6 +60,7 @@ import type {
   UserExport,
   DeleteUserDataResult,
   DeleteAgentResult,
+  DeleteMessageResult,
   DeleteDomainResult,
   DeleteSuppressionResult,
   DeleteApiKeyResult,
@@ -345,6 +346,24 @@ class MessagesResource {
   }
   get(email: string, id: string): Promise<MessageView> {
     return call(() => this.api.getMessage(email, id));
+  }
+  /**
+   * Move a message to the trash. Reversible via `restore()` until the trash
+   * retention window expires (30 days by default), so the default soft delete
+   * needs no confirmation.
+   *
+   * Pass `{ permanent: true }` to permanently delete a message that is ALREADY
+   * in the trash ("delete forever") — irreversible, account-scoped credentials
+   * only. The typed .delete() call is itself the confirmation; the SDK supplies
+   * the ?confirm=DELETE guard the raw API requires on that path (the query
+   * guard exists to protect raw/curl callers). It is ignored when permanent is
+   * unset.
+   *
+   * A message held for review cannot be deleted (409 message_held) — resolve it
+   * on the review queue first. Returns the deletion receipt ({deleted:true, id}).
+   */
+  delete(email: string, id: string, opts: { permanent?: boolean } = {}): Promise<DeleteMessageResult> {
+    return call(() => this.api.deleteMessage(email, id, opts.permanent, "DELETE"));
   }
   /** Restore a soft-deleted message and resume its retention clock. */
   restore(email: string, id: string): Promise<MessageView> {

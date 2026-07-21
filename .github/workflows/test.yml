@@ -472,6 +472,26 @@ jobs:
       - name: Check generated code is up to date
         run: make generate-sdk-check
 
+  sdk-operation-coverage:
+    # Guardrail: the generated layer is regenerated from api/openapi.yaml, but the
+    # ergonomic client users actually call is hand-written — so a new operation can
+    # land generated-but-unreachable with every other gate green. That is exactly
+    # how deleteMessage shipped: #466 added the endpoint, #480 wired up only the
+    # restore half, and the SDK READMEs documented a trash lifecycle you could not
+    # actually trash with. Sibling of tests/e2e-prod/coverage_gate.py ("is every
+    # operation EXERCISED?"); this one asks "is every operation EXPOSED?".
+    name: SDK operation coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: Check every operation is reachable from both SDKs
+        run: python3 scripts/check-sdk-operation-coverage.py
+
   design-system-dist:
     name: Design system dist freshness
     runs-on: ubuntu-latest

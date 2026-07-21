@@ -337,16 +337,27 @@ page = client.messages.list("bot@agents.e2a.dev", limit=100).page()
 
 ### Trash and restore
 
-Soft-deleted agents and messages remain restorable for about 30 days. List the
-trash with `deleted=True`, then restore an item through the same resource. The
-sync client exposes the same methods without `await`.
+`delete()` is a soft delete: agents and messages move to the trash and stay
+restorable for about 30 days. List the trash with `deleted=True`, then restore
+an item through the same resource. The sync client exposes the same methods
+without `await`.
 
 ```python
+await client.agents.delete("bot@agents.e2a.dev")
 trashed_agents = client.agents.list(deleted=True)
 await client.agents.restore("bot@agents.e2a.dev")
 
+await client.messages.delete("bot@agents.e2a.dev", "msg_abc123")
 trashed_messages = client.messages.list("bot@agents.e2a.dev", deleted=True)
 await client.messages.restore("bot@agents.e2a.dev", "msg_abc123")
+```
+
+A message already in the trash can be purged early and irreversibly. That path
+needs an account-scoped credential; the SDK supplies the API's `?confirm=DELETE`
+guard for you:
+
+```python
+await client.messages.delete("bot@agents.e2a.dev", "msg_abc123", permanent=True)
 ```
 
 ## WebSocket (real-time delivery for local agents)

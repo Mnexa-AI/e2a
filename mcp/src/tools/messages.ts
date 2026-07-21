@@ -437,6 +437,35 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
   );
 
   server.registerTool(
+    "delete_message",
+    {
+      title: "Delete a message (move to trash)",
+      annotations: { destructiveHint: true, idempotentHint: true },
+      description:
+        "Move a message to the trash. It disappears from lists, threads, and reply targets, but stays restorable with `restore_message` until the trash-retention window expires (30 days by default). Permanent deletion (\"delete forever\") is deliberately NOT exposed here — use the REST API/SDK for that. A message held for review cannot be deleted (`message_held`) — resolve it in the review queue first. Requires `confirm: true` — set it explicitly to acknowledge the destructive action.",
+      inputSchema: strictInputSchema({
+        message_id: z.string().describe("ID of the message to move to trash."),
+        email: z.string().optional().describe("Owning agent; defaults to the bound agent."),
+        confirm: z
+          .literal(true)
+          .describe(
+            "Must be set to true to proceed. Guard against an LLM hallucinating a delete from ambiguous context.",
+          ),
+      }),
+    },
+    async (args) =>
+      runTool(async () => {
+        if (args.confirm !== true) {
+          throw new Error(
+            "delete_message requires confirm:true — refusing to proceed without explicit confirmation.",
+          );
+        }
+        // Return the server's deletion receipt verbatim: {deleted:true, id}.
+        return client.deleteMessage(args.message_id, args.email);
+      }),
+  );
+
+  server.registerTool(
     "get_message",
     {
       title: "Get a message",

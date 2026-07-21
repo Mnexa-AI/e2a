@@ -110,7 +110,7 @@ def test_parity_every_async_method_reachable_sync():
             "agents", "messages", "conversations", "domains", "events",
             "webhooks", "inbound", "account", "reviews", "templates", "info", "listen",
             "agents.get", "agents.list", "agents.create", "agents.delete", "agents.restore",
-            "messages.restore",
+            "messages.delete", "messages.restore",
             "messages.send", "messages.reply", "webhooks.fetch_message",
             "inbound.from_event",
             "account.suppressions", "account.suppressions.list",
@@ -222,6 +222,21 @@ def test_send_uses_caller_idempotency_key(httpx_mock):
             idempotency_key="caller-key-123",
         )
     assert httpx_mock.get_requests()[-1].headers["Idempotency-Key"] == "caller-key-123"
+
+
+def test_messages_delete_blocks_and_returns_receipt(httpx_mock):
+    # The sync facade mirrors the async coroutine: it blocks and hands back the
+    # typed receipt, and the keyword-only `permanent` flag survives the bridge.
+    httpx_mock.add_response(json={"deleted": True, "id": "msg_1"})
+    with _client() as c:
+        res = c.messages.delete("bot@test.dev", "msg_1", permanent=True)
+    assert res.deleted is True
+    assert res.id == "msg_1"
+    req = httpx_mock.get_requests()[-1]
+    assert req.method == "DELETE"
+    assert "/v1/agents/bot%40test.dev/messages/msg_1" in str(req.url)
+    assert req.url.params["permanent"] == "true"
+    assert "confirm=DELETE" in str(req.url)
 
 
 def test_templates_list_multi_page_walk_and_page_resume(httpx_mock):

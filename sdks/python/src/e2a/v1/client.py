@@ -45,6 +45,7 @@ from .generated.models import (
     DeleteAgentResult,
     DeleteApiKeyResult,
     DeleteDomainResult,
+    DeleteMessageResult,
     DeleteSuppressionResult,
     DeleteTemplateResult,
     DeleteUserDataResult,
@@ -476,6 +477,33 @@ class MessagesResource:
 
     async def get(self, email: str, message_id: str) -> MessageView:
         return await self._c._read(lambda h: self._api.get_message(email, message_id, _headers=h))
+
+    async def delete(
+        self, email: str, message_id: str, *, permanent: bool = False
+    ) -> DeleteMessageResult:
+        """Move a message to the trash.
+
+        Reversible via ``restore()`` until the trash retention window expires
+        (30 days by default), so the default soft delete needs no confirmation.
+
+        Pass ``permanent=True`` to permanently delete a message that is ALREADY
+        in the trash ("delete forever") — irreversible, account scope only. The
+        typed .delete() call is the confirmation; the SDK supplies the
+        ?confirm=DELETE guard the raw API requires on that path (it is ignored
+        when permanent is unset).
+
+        A message held for review cannot be deleted (409 message_held) — resolve
+        it on the review queue first. Returns the deletion receipt
+        ({deleted, id}).
+        """
+        return await self._c._write_idempotent(
+            lambda h: self._api.delete_message(
+                # `permanent or None` omits the param entirely on the soft path,
+                # matching the TS SDK's wire shape (the server treats an absent
+                # and a false `permanent` identically).
+                email, message_id, permanent=permanent or None, confirm="DELETE", _headers=h
+            )
+        )
 
     async def restore(self, email: str, message_id: str) -> MessageView:
         """Restore a soft-deleted message and resume its retention clock."""

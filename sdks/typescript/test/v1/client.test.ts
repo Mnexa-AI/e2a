@@ -322,6 +322,31 @@ describe("E2AClient", () => {
     expect(new URL(lastCall().url).searchParams.get("deleted")).toBe("true");
   });
 
+  it("messages.delete soft-deletes by default and returns the deletion receipt", async () => {
+    globalThis.fetch = mockFetch(200, { deleted: true, id: "msg_1" });
+    const res = await client.messages.delete("bot@test.dev", "msg_1");
+    const { url, init } = lastCall();
+    expect(init.method).toBe("DELETE");
+    expect(url).toContain("/v1/agents/bot%40test.dev/messages/msg_1");
+    // The soft delete is reversible, so `permanent` is omitted entirely — only
+    // the permanent path is gated on it server-side.
+    expect(new URL(url).searchParams.get("permanent")).toBeNull();
+    expect(res.deleted).toBe(true);
+    expect(res.id).toBe("msg_1");
+  });
+
+  it("messages.delete({ permanent: true }) auto-sends confirm=DELETE", async () => {
+    globalThis.fetch = mockFetch(200, { deleted: true, id: "msg_1" });
+    const res = await client.messages.delete("bot@test.dev", "msg_1", { permanent: true });
+    const { url, init } = lastCall();
+    expect(init.method).toBe("DELETE");
+    const params = new URL(url).searchParams;
+    expect(params.get("permanent")).toBe("true");
+    // The typed call is the confirmation; the SDK supplies the raw-API guard.
+    expect(params.get("confirm")).toBe("DELETE");
+    expect(res.deleted).toBe(true);
+  });
+
   it("messages.restore POSTs to the restore endpoint", async () => {
     globalThis.fetch = mockFetch(200, {
       id: "msg_1", conversation_id: "conv_1", created_at: "2026-01-01T00:00:00Z",

@@ -38,6 +38,7 @@ import type {
   StarterTemplateView,
   StarterTemplateDetailView,
   DeleteAgentResult,
+  DeleteMessageResult,
   DeleteDomainResult,
   DeleteWebhookResult,
   DeleteTemplateResult,
@@ -291,6 +292,14 @@ export class McpClient {
 
   restoreMessage(messageId: string, explicitAddress?: string): Promise<MessageView> {
     return this.sdk.messages.restore(this.resolveAddress(explicitAddress), messageId);
+  }
+
+  deleteMessage(messageId: string, explicitAddress?: string): Promise<DeleteMessageResult> {
+    // Soft delete only — the MCP surface deliberately does not expose
+    // permanent=true ("delete forever"). An LLM should never be one hallucinated
+    // tool call away from an irreversible purge; restore_message is the safety
+    // net, and permanent deletion stays a deliberate REST/SDK action.
+    return this.sdk.messages.delete(this.resolveAddress(explicitAddress), messageId);
   }
 
   // ── Conversations ───────────────────────────────────────────────

@@ -165,6 +165,7 @@ function makeStubClient(
       ],
     })),
     restoreMessage: vi.fn(async (id: string, _addr?: string) => ({ id })),
+    deleteMessage: vi.fn(async (id: string, _addr?: string) => ({ deleted: true, id })),
     getAttachment: vi.fn(async (id: string, index: number, opts?: { inline?: boolean }) => ({
       index,
       filename: "report.pdf",
@@ -318,6 +319,7 @@ describe("e2a MCP server", () => {
         "get_message",
         "get_attachment",
         "restore_message",
+        "delete_message",
         "list_agents",
         "get_agent",
         "whoami",
@@ -442,7 +444,7 @@ describe("e2a MCP server", () => {
     registerTemplateTools(recorder, stub);
     registerApiKeyTools(recorder, stub);
 
-    expect(names).toHaveLength(50);
+    expect(names).toHaveLength(51);
     // Throws if any registered tool is untiered / double-tiered / phantom.
     expect(() => assertToolTiersComplete(names)).not.toThrow();
   });
@@ -451,28 +453,28 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(RUNTIME_TOOLS.size).toBe(14);
+    expect(RUNTIME_TOOLS.size).toBe(15);
     expect(ADMIN_TOOLS.size).toBe(36);
-    expect(toolNamesForScope("account").size).toBe(50);
+    expect(toolNamesForScope("account").size).toBe(51);
   });
 
-  it("account scope exposes all 50 tools (runtime + admin)", async () => {
+  it("account scope exposes all 51 tools (runtime + admin)", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
-    expect(tools).toHaveLength(50);
+    expect(tools).toHaveLength(51);
   });
 
-  it("agent scope exposes only the 14 runtime tools — admin tools hidden", async () => {
+  it("agent scope exposes only the 15 runtime tools — admin tools hidden", async () => {
     const ag = await connect(makeStubClient({ scope: "agent" }));
     const names = new Set((await ag.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(14);
+    expect(names.size).toBe(15);
     // Runtime tools present (an agent can send + read its own pending queue,
     // but NOT approve/reject — that's an account-owner action, see below):
     for (const n of [
       "whoami", "get_agent", "list_messages", "get_message",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
-      "list_reviews", "get_review", "restore_message",
+      "list_reviews", "get_review", "restore_message", "delete_message",
     ]) {
       expect(names.has(n), `runtime tool ${n} should be visible to agent scope`).toBe(true);
     }
@@ -515,7 +517,7 @@ describe("e2a MCP server", () => {
   // ── §6a tool annotations (#2) ───────────────────────────────────────
 
   it("every tool carries MCP annotations with the correct hints", async () => {
-    const { tools } = await client.listTools(); // account scope → all 50
+    const { tools } = await client.listTools(); // account scope → all 51
     const byName = new Map(tools.map((t) => [t.name, t.annotations ?? {}]));
 
     // Every tool has an annotations object.
@@ -528,7 +530,7 @@ describe("e2a MCP server", () => {
       expect(byName.get(n)?.readOnlyHint, `${n} readOnlyHint`).toBe(true);
     }
     // Deletes → destructive + idempotent.
-    for (const n of ["delete_agent", "delete_domain", "delete_webhook", "delete_template", "delete_api_key"]) {
+    for (const n of ["delete_agent", "delete_message", "delete_domain", "delete_webhook", "delete_template", "delete_api_key"]) {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(true);
       expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);
     }
@@ -680,6 +682,51 @@ describe("e2a MCP server", () => {
     const res = await client.callTool({ name: "restore_message", arguments: { message_id: "msg_1" } });
     expect(stub.restoreMessage).toHaveBeenCalledWith("msg_1", undefined);
     expect(JSON.parse((res.content as Array<{ text: string }>)[0]!.text).id).toBe("msg_1");
+  });
+
+  it("delete_message requires confirm:true — server-side schema rejects when omitted", async () => {
+    // Same guard as delete_agent: `confirm` is a required literal(true), so the
+    // validator errors before the runTool body and deleteMessage is never called.
+    const res = await client.callTool({
+      name: "delete_message",
+      arguments: { message_id: "msg_1" },
+    });
+    expect(res.isError).toBe(true);
+    expect(stub.deleteMessage).not.toHaveBeenCalled();
+  });
+
+  it("delete_message trashes through the bound agent on explicit confirm:true", async () => {
+    const res = await client.callTool({
+      name: "delete_message",
+      arguments: { message_id: "msg_1", confirm: true },
+    });
+    expect(stub.deleteMessage).toHaveBeenCalledWith("msg_1", undefined);
+    const content = res.content as Array<{ type: string; text: string }>;
+    expect(JSON.parse(content[0]!.text)).toEqual({ deleted: true, id: "msg_1" });
+  });
+
+  it("delete_message forwards an explicit owning agent", async () => {
+    await client.callTool({
+      name: "delete_message",
+      arguments: { message_id: "msg_1", email: "other@test.dev", confirm: true },
+    });
+    expect(stub.deleteMessage).toHaveBeenCalledWith("msg_1", "other@test.dev");
+  });
+
+  it("delete_message does not expose a permanent/purge input (MCP is soft-delete only)", async () => {
+    // "Delete forever" is deliberately absent from the MCP surface — an LLM must
+    // not be one hallucinated call away from an irreversible purge. strictInputSchema
+    // rejects unknown keys, so even a hand-crafted permanent:true is refused.
+    const { tools } = await client.listTools();
+    const schema = tools.find((t) => t.name === "delete_message")!.inputSchema as {
+      properties: Record<string, unknown>;
+    };
+    expect(Object.keys(schema.properties).sort()).toEqual(["confirm", "email", "message_id"]);
+    const res = await client.callTool({
+      name: "delete_message",
+      arguments: { message_id: "msg_1", confirm: true, permanent: true },
+    });
+    expect(res.isError).toBe(true);
   });
 
   it("list_messages surfaces next_cursor when more pages remain", async () => {
