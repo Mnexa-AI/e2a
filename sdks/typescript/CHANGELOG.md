@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **`client.messages.delete(email, messageId, { permanent })`** — move a message
+  to the trash, reversible via `client.messages.restore(...)` until the trash
+  retention window expires (30 days by default), so the soft delete needs no
+  confirmation. Pass `permanent: true` to delete forever a message that is
+  already in the trash (irreversible, account scope only; the SDK supplies the
+  `?confirm=DELETE` guard the raw API requires on that path).
+
+## 5.2.0
+
+The first publish to npm since 4.0.1: 5.0.0, 5.1.0, and 5.2.0 all reach users
+in this release, so read those three sections together when upgrading from 4.x.
+
+### Added
 - `client.inbound.fromEvent(event)` returns a client-bound `InboundEmail`
   facade for verified webhook or authenticated WebSocket `email.received`
   envelopes. It exposes explicit envelope/auth verdicts, reply targets,
@@ -39,20 +52,23 @@
   `EventJSON` → `EventView`, `Suppression` → `SuppressionView`,
   `Result` → `AuthVerdict`, `AttachmentMeta` → `AttachmentMetaView`.
 
-## 5.2.0
+- **The reserved-word wire field `from` is exposed as `from_` where a sender is
+  still projected** (was the private-looking `_from`, an OpenAPI Generator
+  escape artifact). This is the `listMessages` sender filter and the
+  outbound-only `EmailSentData` / `EmailFailedData` payloads; the Python SDK
+  exposes the same `from_` spelling, so both SDKs teach exactly one name. The
+  wire JSON is unchanged — requests and responses still carry `from`. The
+  hand-written webhook/WS payload interfaces in `webhook-signature.ts` are
+  wire-true and keep the literal `from` property (legal in TS) — those are
+  raw-JSON shapes, not generated models. Migrate:
+  `list(..., { _from })` → `{ from_ }`.
 
-### Breaking (pre-GA)
-- **The reserved-word wire field `from` is now uniformly exposed as `from_` on
-  generated models and the `listMessages` sender filter** (was the
-  private-looking `_from`, an OpenAPI Generator escape artifact). Affected
-  models: `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`,
-  `EmailReceivedData`, `EmailSentData`, `EmailFailedData` (generated). The
-  Python SDK exposes the same `from_` spelling, so both SDKs now teach exactly
-  one name. The wire JSON is unchanged — requests and responses still carry
-  `from`. The hand-written webhook/WS payload interfaces in
-  `webhook-signature.ts` are wire-true and keep the literal `from` property
-  (legal in TS) — those are raw-JSON shapes, not generated models. Migrate:
-  `message._from` → `message.from_`; `list(..., { _from })` → `{ from_ }`.
+  An intermediate step on `main` also renamed the *inbound* sender projection
+  on `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`, and
+  `EmailReceivedData` from `_from` to `from_`. The DMARC-aligned contract above
+  replaced that projection with `headerFrom` before this release, so `from_`
+  never reached npm on those models and there is nothing to migrate off — 4.x
+  callers reading `message._from` go straight to `message.headerFrom`.
 
 ## 5.1.0
 
