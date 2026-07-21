@@ -58,6 +58,14 @@ const sampleDomain = {
       purpose: "inbound_mx",
       status: "pending",
     },
+    {
+      type: "MX",
+      name: "*.mail.example.com",
+      value: "mx.e2a.dev",
+      priority: 10,
+      purpose: "inbound_mx_wildcard",
+      status: "pending",
+    },
   ],
   created_at: "2026-01-01T00:00:00Z",
   verified_at: null,
@@ -72,6 +80,7 @@ const verifiedDomain = {
   dns_records: [
     { ...sampleDomain.dns_records[0], status: "verified" },
     { ...sampleDomain.dns_records[1], status: "verified" },
+    { ...sampleDomain.dns_records[2], status: "verified" },
   ],
 };
 
@@ -403,6 +412,8 @@ describe("Domains page — unified sending records (by purpose)", () => {
     expect(screen.queryByText("Outbound sending")).not.toBeInTheDocument();
     // The inbound records still render, by purpose.
     expect(screen.getByText("Route email to e2a")).toBeInTheDocument();
+    expect(screen.getByText("Route email for all subdomains")).toBeInTheDocument();
+    expect(screen.queryByText("inbound_mx_wildcard")).not.toBeInTheDocument();
     expect(screen.getByText(/Prove domain ownership/)).toBeInTheDocument();
   });
 });

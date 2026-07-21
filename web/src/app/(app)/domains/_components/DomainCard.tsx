@@ -30,6 +30,10 @@ const PURPOSE_META: Record<
     group: "inbound",
   },
   inbound_mx: { label: "Route email to e2a", group: "inbound" },
+  inbound_mx_wildcard: {
+    label: "Route email for all subdomains",
+    group: "inbound",
+  },
   dkim: { label: "Authenticate outbound mail (DKIM)", group: "inbound" },
   mail_from_mx: {
     label: "Return path for bounces (MAIL FROM)",
