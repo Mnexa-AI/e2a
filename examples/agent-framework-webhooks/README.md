@@ -4,18 +4,12 @@ Copyable e2a webhook integrations for four agent stacks in both Python and
 TypeScript. Every adapter uses the same authenticated inbound lifecycle; the
 provider-specific file only turns normalized email fields into one model turn.
 
-| Framework | Python | TypeScript | Runtime credential |
+| Framework | Python implementation and docs | TypeScript implementation and docs | Runtime credential |
 |---|---|---|---|
-| OpenAI Agents SDK | [`openai.py`](python/agent_webhooks/adapters/openai.py) | [`openai.ts`](typescript/src/adapters/openai.ts) | `OPENAI_API_KEY` |
-| Anthropic Messages SDK | [`anthropic.py`](python/agent_webhooks/adapters/anthropic.py) | [`anthropic.ts`](typescript/src/adapters/anthropic.ts) | `ANTHROPIC_API_KEY` |
-| LangChain | [`langchain.py`](python/agent_webhooks/adapters/langchain.py) | [`langchain.ts`](typescript/src/adapters/langchain.ts) | `OPENAI_API_KEY` |
-| Google ADK | [`adk.py`](python/agent_webhooks/adapters/adk.py) | [`adk.ts`](typescript/src/adapters/adk.ts) | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
-
-The adapters follow the official framework APIs: [OpenAI Agents
-SDK](https://openai.github.io/openai-agents-python/), [Anthropic client
-SDKs](https://docs.anthropic.com/en/api/client-sdks), [LangChain
-agents](https://docs.langchain.com/oss/python/langchain/agents), and [Google
-ADK](https://google.github.io/adk-docs/).
+| OpenAI Agents SDK | [`openai.py`](python/agent_webhooks/adapters/openai.py) · [Python SDK docs](https://openai.github.io/openai-agents-python/) | [`openai.ts`](typescript/src/adapters/openai.ts) · [TypeScript SDK docs](https://openai.github.io/openai-agents-js/) | `OPENAI_API_KEY` |
+| Anthropic Messages SDK | [`anthropic.py`](python/agent_webhooks/adapters/anthropic.py) · [Python SDK docs](https://platform.claude.com/docs/en/cli-sdks-libraries/sdks/python) | [`anthropic.ts`](typescript/src/adapters/anthropic.ts) · [TypeScript SDK docs](https://platform.claude.com/docs/en/cli-sdks-libraries/sdks/typescript) | `ANTHROPIC_API_KEY` |
+| LangChain | [`langchain.py`](python/agent_webhooks/adapters/langchain.py) · [Python agent docs](https://docs.langchain.com/oss/python/langchain/agents) | [`langchain.ts`](typescript/src/adapters/langchain.ts) · [JavaScript agent docs](https://docs.langchain.com/oss/javascript/langchain/agents) | `OPENAI_API_KEY` |
+| Google ADK | [`adk.py`](python/agent_webhooks/adapters/adk.py) · [Python quickstart](https://adk.dev/get-started/python/) | [`adk.ts`](typescript/src/adapters/adk.ts) · [TypeScript quickstart](https://adk.dev/get-started/typescript/) | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
 
 ## What happens for each delivery
 

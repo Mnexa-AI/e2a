@@ -200,11 +200,6 @@ jobs:
         run: |
           python -m pytest -q
           python -m mypy agent_webhooks tests
-      # This tutorial now imports the real FastAPI/e2a/ADK stack. Keep its
-      # tests beside the matrix suite that installs those dependencies rather
-      # than in the dependency-free repository text-integrity job.
-      - name: Test expanded ADK webhook tutorial
-        run: python -m unittest discover -s examples/adk-cloud-webhook -p 'test_*.py'
       - name: Dry-run Python webhook without provider credentials
         working-directory: examples/agent-framework-webhooks/python
         run: python -m agent_webhooks.dry_run
@@ -222,6 +217,29 @@ jobs:
       - name: Dry-run TypeScript webhook without provider credentials
         working-directory: examples/agent-framework-webhooks/typescript
         run: npm run dry-run
+
+  adk-cloud-webhook-example:
+    # This expanded tutorial deliberately pins ADK 1.x while the matrix suite
+    # exercises current ADK 2.x. A separate job gives each project an isolated
+    # dependency environment and verifies the tutorial's own metadata.
+    name: Expanded ADK 1.x webhook example
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            sdks/python/pyproject.toml
+            examples/adk-cloud-webhook/pyproject.toml
+      - name: Install local Python SDK and ADK tutorial
+        run: python -m pip install -e ./sdks/python -e ./examples/adk-cloud-webhook
+      - name: Verify ADK 1.x dependency resolution
+        run: python -c 'import importlib.metadata as m; version = m.version("google-adk"); assert version.startswith("1."), version; print(f"google-adk={version}")'
+      - name: Test expanded ADK webhook tutorial
+        run: python -m unittest discover -s examples/adk-cloud-webhook -p 'test_*.py'
 
   ts-contract:
     name: TypeScript SDK contract tests

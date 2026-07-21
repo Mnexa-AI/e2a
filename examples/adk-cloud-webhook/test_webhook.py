@@ -15,12 +15,10 @@ os.environ.setdefault("E2A_API_KEY", "e2a_test")
 os.environ.setdefault("E2A_WEBHOOK_SECRET", "whsec_test")
 os.environ.setdefault("GOOGLE_API_KEY", "google_test")
 
-from starlette.exceptions import StarletteDeprecationWarning
-
 warnings.filterwarnings(
     "ignore",
     message="Using `httpx` with `starlette.testclient` is deprecated.*",
-    category=StarletteDeprecationWarning,
+    category=DeprecationWarning,
 )
 from starlette.testclient import TestClient
 

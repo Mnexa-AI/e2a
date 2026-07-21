@@ -26,6 +26,17 @@ const requiredAgentFrameworkDocs = new Map([
   ["sdks/typescript/README.md", [/examples\/agent-framework-webhooks\/README\.md/]],
 ]);
 
+const requiredAgentFrameworkSource = new Map([
+  ["examples/agent-framework-webhooks/python/agent_webhooks/handler.py", [
+    /inbound\.from_event\(event\)/,
+    /await email\.reply\(/,
+  ]],
+  ["examples/agent-framework-webhooks/typescript/src/handler.ts", [
+    /inbound\.fromEvent\(event\)/,
+    /await email\.reply\(/,
+  ]],
+]);
+
 const checks = new Map([
   ["README.md", [
     /meta\["recipient"\]/,
@@ -75,6 +86,21 @@ for (const [file, patterns] of requiredAgentFrameworkDocs) {
   for (const pattern of patterns) {
     if (!pattern.test(source)) {
       console.error(`${file}: required agent-framework example contract missing ${pattern}`);
+      failed = true;
+    }
+  }
+}
+
+for (const [file, patterns] of requiredAgentFrameworkSource) {
+  if (!fs.existsSync(file)) {
+    console.error(`${file}: required agent-framework handler is missing`);
+    failed = true;
+    continue;
+  }
+  const source = fs.readFileSync(file, "utf8");
+  for (const pattern of patterns) {
+    if (!pattern.test(source)) {
+      console.error(`${file}: required ergonomic inbound operation missing ${pattern}`);
       failed = true;
     }
   }
