@@ -43,9 +43,10 @@ tone), `Eyebrow` (uppercase mono kicker), `ThemeToggle` (controlled — pass
 input; controlled `value`/`onChange`), `Avatar` (initials square, deterministic
 `--av-*` color from `email`/`name`), `Collapsible` (disclosure with `label` +
 `children`), `Card` (the panel surface container — wrap content blocks in it).
-Read each component's `.prompt.md` for props and examples, and its `.d.ts` for
-the exact API. The stylesheet (`styles.css`, which defines all the tokens above)
-is the authority on the visual language — read it before inventing styling.
+Read each component's `.stories.tsx` (under `src/<Component>/`) for usage
+examples, and its `dist/<Component>/<Component>.d.ts` for the exact API. The
+stylesheet (`styles.css`, which defines all the tokens above) is the
+authority on the visual language — read it before inventing styling.
 
 ## Idiomatic example
 
