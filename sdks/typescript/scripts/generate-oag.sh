@@ -55,10 +55,14 @@ python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
   MessageViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
   ReviewViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
   SPFResultStatusEnum "$OUT/models/ObjectSerializer.ts" \
+  Authentication "$OUT/types/PromiseAPI.ts" \
+  DKIMResult "$OUT/types/PromiseAPI.ts" \
   SendingRampView "$OUT/types/PromiseAPI.ts" \
   Authentication "$OUT/types/ObjectParamAPI.ts" \
   DKIMResult "$OUT/types/ObjectParamAPI.ts" \
   SendingRampView "$OUT/types/ObjectParamAPI.ts" \
+  Authentication "$OUT/types/ObservableAPI.ts" \
+  DKIMResult "$OUT/types/ObservableAPI.ts" \
   SendingRampView "$OUT/types/ObservableAPI.ts"
 
 # The upstream template emits a whitespace-only JSDoc line in standalone

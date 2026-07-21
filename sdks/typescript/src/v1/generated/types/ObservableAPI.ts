@@ -15,7 +15,6 @@ import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
-import { Authentication } from '../models/Authentication.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
@@ -25,7 +24,6 @@ import { CreateAgentSuppressionRequest } from '../models/CreateAgentSuppressionR
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
-import { DKIMResult } from '../models/DKIMResult.js';
 import { DMARCResult } from '../models/DMARCResult.js';
 import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
