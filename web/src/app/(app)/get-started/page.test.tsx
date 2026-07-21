@@ -221,7 +221,7 @@ describe("Address type choice", () => {
     });
   });
 
-  it("shows the agentic MCP setup when With an agent is clicked", async () => {
+  it("shows plugin and MCP setup for Claude Code by default", async () => {
     mockFreshUser();
     render(<GetStartedPage />);
 
@@ -230,27 +230,54 @@ describe("Address type choice", () => {
     });
     fireEvent.click(screen.getByText("With an agent"));
 
-    await waitFor(() => {
-      expect(screen.getByText(/Paste into your agent/i)).toBeInTheDocument();
-    });
-    // Both connect paths present, addressed at the hosted MCP endpoint.
-    expect(screen.getByText("Copy prompt")).toBeInTheDocument();
-    expect(screen.getByText("Copy command")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Claude Code setup")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Claude Code" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(
-      screen.getByText(/claude mcp add --transport http e2a https:\/\/api\.e2a\.dev\/mcp/),
+      screen.getByText(/claude plugin marketplace add tokencanopy\/e2a/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/claude plugin install e2a@e2a/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /claude mcp add --transport http --scope user e2a https:\/\/api\.e2a\.dev\/mcp/,
+      ),
     ).toBeInTheDocument();
   });
 
-  it("copies the connect command to the clipboard", async () => {
+  it("switches between Codex and generic MCP instructions", async () => {
     mockFreshUser();
     render(<GetStartedPage />);
     await waitFor(() => expect(screen.getByText("With an agent")).toBeInTheDocument());
     fireEvent.click(screen.getByText("With an agent"));
-    await waitFor(() => expect(screen.getByText("Copy command")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Claude Code setup")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText("Copy command"));
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.getByText("Codex setup")).toBeInTheDocument();
+    expect(
+      screen.getByText(/codex plugin marketplace add tokencanopy\/e2a/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/codex mcp add e2a --url https:\/\/api\.e2a\.dev\/mcp/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/codex mcp login e2a/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Other agents" }));
+    expect(screen.getByText("Connect any MCP client")).toBeInTheDocument();
+    expect(screen.getByText(/"url": "https:\/\/api\.e2a\.dev\/mcp"/)).toBeInTheDocument();
+  });
+
+  it("copies the Claude Code plugin install commands", async () => {
+    mockFreshUser();
+    render(<GetStartedPage />);
+    await waitFor(() => expect(screen.getByText("With an agent")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("With an agent"));
+    await waitFor(() => expect(screen.getByText("Copy plugin commands")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Copy plugin commands"));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      expect.stringContaining("claude mcp add --transport http e2a https://api.e2a.dev/mcp"),
+      expect.stringContaining("claude plugin marketplace add tokencanopy/e2a"),
     );
   });
 });

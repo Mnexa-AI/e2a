@@ -1,26 +1,29 @@
 "use client";
 
-// Agentic onboarding: instead of the browser forms, let the user's AI agent
-// stand up an inbox headlessly over e2a's hosted MCP server. Two paths mirror
-// how agents actually connect:
-//   1. Paste a prompt into a no-terminal agent (Claude Desktop, a chat box) —
-//      it fetches the e2a skill, connects over MCP, and provisions the inbox.
-//   2. One CLI command for OAuth-capable MCP clients (Claude Code, Cursor, …).
-// e2a's MCP is hosted with OAuth 2.1, so neither path needs an API key pasted.
-
 import { useState } from "react";
 
-// Hosted, account-scoped MCP endpoint (mcp/README.md). OAuth 2.1 → the
-// `mcp add` command opens a browser consent flow; no key to copy.
 const MCP_URL = "https://api.e2a.dev/mcp";
-// Stable hosted mirror of the canonical agent-facing setup doc at
-// plugins/e2a/docs/e2a.md. The pasted agent fetches it to learn how to connect
-// over MCP + drive e2a, so the prompt just points the agent at it.
 const DOC_URL = "https://e2a.dev/e2a.md";
+const CLAUDE_PLUGIN_COMMANDS = [
+  "claude plugin marketplace add tokencanopy/e2a",
+  "claude plugin install e2a@e2a",
+].join("\n");
+const CLAUDE_MCP_COMMAND =
+  "claude mcp add --transport http --scope user e2a " + MCP_URL;
+const CODEX_PLUGIN_COMMAND = "codex plugin marketplace add tokencanopy/e2a";
+const CODEX_MCP_COMMANDS = [
+  "codex mcp add e2a --url " + MCP_URL,
+  "codex mcp login e2a",
+].join("\n");
+const GENERIC_MCP_CONFIG = [
+  "{",
+  '  "mcpServers": {',
+  '    "e2a": { "url": "' + MCP_URL + '" }',
+  "  }",
+  "}",
+].join("\n");
 
-const PASTE_PROMPT = `Give yourself an email inbox with e2a. Read ${DOC_URL} and follow it to connect over MCP (${MCP_URL}) and set up my inbox, then walk me through it.`;
-
-const CONNECT_COMMAND = `claude mcp add --transport http e2a ${MCP_URL}`;
+type Client = "claude" | "codex" | "other";
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -48,7 +51,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 function CodeBlock({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="font-mono text-[12px] leading-[1.6] p-3.5 mb-2.5 overflow-x-auto whitespace-pre-wrap"
+      className="font-mono text-[12px] leading-[1.7] p-3.5 mb-2.5 overflow-x-auto whitespace-pre-wrap"
       style={{
         background: "var(--ink, #1c1917)",
         color: "var(--ink-fg, #e7e5e4)",
@@ -60,38 +63,159 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SetupCard({
-  step,
-  title,
-  blurb,
-  children,
-}: {
-  step: string;
-  title: string;
-  blurb: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function MethodLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="p-5"
+    <span
+      className="inline-flex mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] px-2 py-1"
       style={{
-        background: "var(--bg-panel)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--r-lg)",
+        color: "var(--accent-strong)",
+        background: "var(--accent-soft)",
+        borderRadius: "var(--r-sm)",
       }}
     >
-      <div className="text-[14px] font-semibold mb-1" style={{ color: "var(--fg)" }}>
-        {step} · {title}
-      </div>
-      <p className="text-[12px] mb-3 leading-[1.6]" style={{ color: "var(--fg-muted)" }}>
-        {blurb}
-      </p>
+      {children}
+    </span>
+  );
+}
+
+function SetupSteps({ children }: { children: React.ReactNode }) {
+  return (
+    <ol
+      className="mt-3.5 mb-0 text-[12px] leading-[1.8] list-decimal pl-5"
+      style={{ color: "var(--fg-muted)" }}
+    >
+      {children}
+    </ol>
+  );
+}
+
+function SecondaryMethod({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-5 pt-5" style={{ borderTop: "1px solid var(--border)" }}>
       {children}
     </div>
   );
 }
 
+function ClaudeSetup() {
+  return (
+    <div>
+      <h3 className="text-[16px] font-semibold mb-1" style={{ color: "var(--fg)" }}>
+        Claude Code setup
+      </h3>
+      <p className="text-[12px] mb-3 leading-[1.6]" style={{ color: "var(--fg-muted)" }}>
+        Install the plugin to get both the e2a MCP tools and built-in guidance for
+        handling email correctly.
+      </p>
+      <MethodLabel>Recommended · Plugin + MCP</MethodLabel>
+      <CodeBlock>{CLAUDE_PLUGIN_COMMANDS}</CodeBlock>
+      <CopyButton value={CLAUDE_PLUGIN_COMMANDS} label="Copy plugin commands" />
+      <SetupSteps>
+        <li>Run both commands, then open or restart Claude Code.</li>
+        <li>
+          Run <code>/mcp</code>, choose <strong>e2a</strong>, and authorize in your
+          browser.
+        </li>
+        <li>Ask Claude: “Create my first inbox on the shared e2a domain.”</li>
+      </SetupSteps>
+
+      <SecondaryMethod>
+        <MethodLabel>MCP only</MethodLabel>
+        <p className="text-[12px] mb-3 leading-[1.6]" style={{ color: "var(--fg-muted)" }}>
+          Connect the tools without installing the e2a skill.
+        </p>
+        <CodeBlock>{CLAUDE_MCP_COMMAND}</CodeBlock>
+        <CopyButton value={CLAUDE_MCP_COMMAND} label="Copy MCP command" />
+        <p className="text-[12px] mt-3 mb-0" style={{ color: "var(--fg-muted)" }}>
+          Then run <code>/mcp</code> and complete OAuth in your browser.
+        </p>
+      </SecondaryMethod>
+    </div>
+  );
+}
+
+function CodexSetup() {
+  return (
+    <div>
+      <h3 className="text-[16px] font-semibold mb-1" style={{ color: "var(--fg)" }}>
+        Codex setup
+      </h3>
+      <p className="text-[12px] mb-3 leading-[1.6]" style={{ color: "var(--fg-muted)" }}>
+        Install the plugin to add the e2a skill and hosted MCP server together.
+      </p>
+      <MethodLabel>Recommended · Plugin + MCP</MethodLabel>
+      <CodeBlock>{CODEX_PLUGIN_COMMAND}</CodeBlock>
+      <CopyButton value={CODEX_PLUGIN_COMMAND} label="Copy marketplace command" />
+      <SetupSteps>
+        <li>
+          Launch Codex, run <code>/plugins</code>, search for <strong>e2a</strong>,
+          and install it.
+        </li>
+        <li>Follow the browser prompt to authorize e2a.</li>
+        <li>Ask Codex: “Create my first inbox on the shared e2a domain.”</li>
+      </SetupSteps>
+      <p className="text-[12px] mt-3 mb-0" style={{ color: "var(--fg-muted)" }}>
+        Codex desktop: open <strong>Plugins → Add more +</strong> and paste{" "}
+        <code>https://github.com/tokencanopy/e2a</code>.
+      </p>
+
+      <SecondaryMethod>
+        <MethodLabel>MCP only</MethodLabel>
+        <p className="text-[12px] mb-3 leading-[1.6]" style={{ color: "var(--fg-muted)" }}>
+          Add the hosted server directly if you only need the MCP tools.
+        </p>
+        <CodeBlock>{CODEX_MCP_COMMANDS}</CodeBlock>
+        <CopyButton value={CODEX_MCP_COMMANDS} label="Copy MCP commands" />
+      </SecondaryMethod>
+    </div>
+  );
+}
+
+function OtherSetup() {
+  return (
+    <div>
+      <h3 className="text-[16px] font-semibold mb-1" style={{ color: "var(--fg)" }}>
+        Connect any MCP client
+      </h3>
+      <p className="text-[12px] mb-3 leading-[1.6]" style={{ color: "var(--fg-muted)" }}>
+        For Cursor, Claude Desktop, VS Code, Windsurf, Goose, Zed, and other clients
+        that support remote MCP servers and OAuth.
+      </p>
+      <MethodLabel>Hosted MCP endpoint</MethodLabel>
+      <CodeBlock>{MCP_URL}</CodeBlock>
+      <CopyButton value={MCP_URL} label="Copy MCP URL" />
+
+      <SecondaryMethod>
+        <MethodLabel>Common mcp.json format</MethodLabel>
+        <CodeBlock>{GENERIC_MCP_CONFIG}</CodeBlock>
+        <CopyButton value={GENERIC_MCP_CONFIG} label="Copy JSON config" />
+      </SecondaryMethod>
+
+      <SetupSteps>
+        <li>Add e2a as a remote HTTP MCP server in your client.</li>
+        <li>Complete OAuth when your browser opens. No API key is required.</li>
+        <li>Ask your agent to create an inbox on the shared e2a domain.</li>
+      </SetupSteps>
+      <p className="text-[12px] mt-3 mb-0" style={{ color: "var(--fg-muted)" }}>
+        Need client-specific config? Read the{" "}
+        <a
+          href={DOC_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="underline"
+          style={{ color: "var(--accent-strong)" }}
+        >
+          full connection guide
+        </a>
+        .
+      </p>
+    </div>
+  );
+}
+
 export function AgentSetupCards({ onBack }: { onBack: () => void }) {
+  const [client, setClient] = useState<Client>("claude");
+
   return (
     <div>
       <button
@@ -103,49 +227,58 @@ export function AgentSetupCards({ onBack }: { onBack: () => void }) {
         ← Back
       </button>
 
-      <div className="flex flex-col gap-3.5">
-        <SetupCard
-          step="1"
-          title="Paste into your agent"
-          blurb={
-            <>
-              For any agent without a terminal (Claude Desktop, a chat box). It
-              fetches the e2a skill, connects over MCP, and sets up your inbox —
-              no API key, nothing on your end.
-            </>
-          }
-        >
-          <CodeBlock>{PASTE_PROMPT}</CodeBlock>
-          <CopyButton value={PASTE_PROMPT} label="Copy prompt" />
-        </SetupCard>
+      <div
+        className="p-5"
+        style={{
+          background: "var(--bg-panel)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--r-lg)",
+        }}
+      >
+        <h2 className="text-[18px] font-semibold mb-1" style={{ color: "var(--fg)" }}>
+          Connect e2a to your agent
+        </h2>
+        <p className="text-[12px] mb-4 leading-[1.6]" style={{ color: "var(--fg-muted)" }}>
+          Choose your client. Plugins include the e2a skill and MCP tools; direct MCP
+          connections provide the tools only.
+        </p>
 
-        <SetupCard
-          step="2"
-          title="Or connect a client directly"
-          blurb={
-            <>
-              For Claude Code, Cursor, Goose, Windsurf, Zed, or any MCP client
-              that supports OAuth. One command — no API key to copy.
-            </>
-          }
+        <div
+          className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5"
+          role="group"
+          aria-label="Choose your agent client"
         >
-          <CodeBlock>
-            <span style={{ color: "var(--ok, #4ade80)" }}>$ </span>
-            {CONNECT_COMMAND}
-          </CodeBlock>
-          <CopyButton value={CONNECT_COMMAND} label="Copy command" />
-          <ol
-            className="mt-3.5 mb-0 text-[12px] leading-[1.8] list-decimal pl-5"
-            style={{ color: "var(--fg-muted)" }}
-          >
-            <li>Run the command — your browser opens automatically.</li>
-            <li>Sign in to e2a (the account you&apos;re in right now).</li>
-            <li>
-              Approve, then ask your agent to set up an inbox (e.g. “create me an
-              inbox on the shared domain”).
-            </li>
-          </ol>
-        </SetupCard>
+          {[
+            ["claude", "Claude Code"],
+            ["codex", "Codex"],
+            ["other", "Other agents"],
+          ].map(([value, label]) => {
+            const selected = client === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setClient(value as Client)}
+                className="px-3 py-2 text-[12px] font-semibold transition"
+                style={{
+                  color: selected ? "var(--accent-strong)" : "var(--fg-muted)",
+                  background: selected ? "var(--accent-soft)" : "var(--bg)",
+                  border: selected
+                    ? "1px solid var(--accent-strong)"
+                    : "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {client === "claude" && <ClaudeSetup />}
+        {client === "codex" && <CodexSetup />}
+        {client === "other" && <OtherSetup />}
       </div>
     </div>
   );
