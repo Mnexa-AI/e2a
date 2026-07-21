@@ -120,6 +120,15 @@ question or instruction; reply \"stop\" to end early.
       echo "tether: intro NOT sent — auth failed (key invalid/revoked). Check 'e2a whoami' / E2A_API_KEY."
       exit 4
     fi
+    if [ "$rc" = "5" ]; then
+      # Terminal server-side outcome. The message id IS populated (the send was
+      # persisted), so this must be checked before the empty-id test below —
+      # otherwise it reads as a success and arms a session whose intro never
+      # reached the user.
+      echo "tether: intro reached a terminal FAILED outcome (${mid}) — it was NOT delivered, so NOT arming."
+      echo "        Do not retry blindly; inspect it: e2a messages get ${mid}"
+      exit 5
+    fi
     [ -n "$mid" ] || { echo "tether: intro send failed (check credentials and base URL)"; exit 1; }
     if [ "$rc" = "2" ]; then
       echo "tether: intro returned pending_review — it was not dispatched, so NOT arming."
@@ -158,6 +167,15 @@ question or instruction; reply \"stop\" to end early.
     if [ "$rc" = "4" ]; then
       echo "tether: update NOT sent — auth failed (key invalid/revoked). Check 'e2a whoami' / E2A_API_KEY."
       exit 4
+    fi
+    if [ "$rc" = "5" ]; then
+      # Checked BEFORE the empty-id test and before last_message_id is advanced:
+      # the CLI prints the id of a terminally-failed send, so the old code fell
+      # through to the success path and reported "update sent" for a message the
+      # user never received.
+      echo "tether: update reached a terminal FAILED outcome (${mid}) — it did NOT reach the user."
+      echo "        Do not retry blindly; inspect it: e2a messages get ${mid}"
+      exit 5
     fi
     if [ -z "$mid" ]; then
       echo "tether: update send failed (if anchors are exhausted, 'tether.sh stop' and start a fresh session)"
@@ -257,6 +275,14 @@ question or instruction; reply \"stop\" to end early.
       echo "tether: ask NOT sent — auth failed (key invalid/revoked). Check 'e2a whoami' / E2A_API_KEY."
       exit 1
     fi
+    if [ "$rc" = "5" ]; then
+      # A terminally-failed question must never fall through to the wait loop:
+      # the user never got it, so blocking would burn the full ask timeout
+      # waiting for an answer to a question that was never asked.
+      echo "tether: question reached a terminal FAILED outcome (${mid}) — it did NOT reach the user, so not waiting."
+      echo "        Do not retry blindly; inspect it: e2a messages get ${mid}"
+      exit 5
+    fi
     [ -n "$mid" ] || { echo "tether: ask send failed"; exit 1; }
     t_state_set last_message_id "$mid"
     if [ "$rc" = "2" ]; then
@@ -308,8 +334,12 @@ question or instruction; reply \"stop\" to end early.
 try:print(json.load(sys.stdin).get("scope",""))
 except Exception:print("")')"
     if [ "$scope" = "agent" ]; then
+      # `agentEmail`, not the pre-2.0.0 `agentAddress`: CLI 2.0.0 renamed
+      # AccountView.agent_address → agent_email as part of the agent-reference
+      # unification. Reading the old name silently yielded an empty string, so
+      # this line reported "already holds an agent-scoped key ()".
       bound="$(printf '%s' "$who" | python3 -c 'import json,sys
-try:print(json.load(sys.stdin).get("agentAddress",""))
+try:print(json.load(sys.stdin).get("agentEmail",""))
 except Exception:print("")')"
       echo "tether setup: the CLI already holds an agent-scoped key (${bound}) — nothing to mint."
       echo "              tether will pick it up from ~/.e2a/config.json; run 'tether.sh status' to confirm."
@@ -456,9 +486,40 @@ except Exception:print("")')"
     rm -rf "$sb" "$armf"
 
     echo "# CLI resolution:"
-    ck "version compare: 1.6.2 >= 1.6.0" "$(t_ver_ge "e2a 1.6.2" "1.6.0" && echo yes)" "yes"
-    ck "version compare: 1.5.9 <  1.6.0" "$(t_ver_ge "e2a 1.5.9" "1.6.0" || echo no)" "no"
+    ck "version compare: 2.0.2 >= 2.0.0" "$(t_ver_ge "e2a 2.0.2" "2.0.0" && echo yes)" "yes"
+    ck "version compare: 1.6.0 <  2.0.0" "$(t_ver_ge "e2a 1.6.0" "2.0.0" || echo no)" "no"
+    ck "major parse" "$(t_ver_major "e2a 2.0.1")" "2"
+    # The floor must track the CLI major tether was actually verified against.
+    ck "min CLI is 2.x" "$(t_ver_major "$TETHER_MIN_CLI")" "2"
+    # Supported range is major-BOUNDED at both ends: the pre-2.0.0 CLI is too
+    # old, and an unverified next major is too new (it may rename the TSV
+    # columns / whoami fields again, exactly as 2.0.0 did).
+    ck "supported: 2.0.0"      "$(t_ver_supported "e2a 2.0.0" && echo yes)" "yes"
+    ck "supported: 2.9.3"      "$(t_ver_supported "e2a 2.9.3" && echo yes)" "yes"
+    ck "unsupported: 1.6.0 (too old)" "$(t_ver_supported "e2a 1.6.0" || echo no)" "no"
+    ck "unsupported: 3.0.0 (too new)" "$(t_ver_supported "e2a 3.0.0" || echo no)" "no"
     ck "E2A_CLI override is honored" "$(E2A_CLI="/bin/echo e2a-override" bash -c '. "'"${here}"'/lib.sh"; t_cli ping' 2>/dev/null)" "e2a-override ping"
+
+    echo "# CLI exit-code mapping (2.x contract):"
+    # A stub CLI that prints a message id and exits 7 (SEND_OUTCOME) — the
+    # server persisted a terminal `failed`. The id being non-empty is the trap:
+    # tether must NOT read that as a delivered message.
+    stub7=/tmp/tether-selftest-exit7.sh
+    printf '#!/usr/bin/env bash\necho msg_selftest_terminal\nexit 7\n' > "$stub7"; chmod +x "$stub7"
+    armf7=/tmp/tether-selftest-exit7.json
+    printf '{"armed":"1","conversation_id":"tether-x","to":"a@b.c","last_message_id":"msg_anchor"}' > "$armf7"
+    out="$(env E2A_API_KEY='e2a_agt_selftest123' E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
+      E2A_CLI="$stub7" TETHER_STATE="$armf7" bash "${here}/tether.sh" update "terminal failure" 2>&1)"; rc=$?
+    ck "update: CLI exit 7 → exit 5, reported NOT delivered" \
+      "$rc:$(printf '%s' "$out" | grep -c 'terminal FAILED outcome')" "5:1"
+    # And the state pointer must NOT advance onto an undelivered message.
+    ck "update: exit 7 leaves last_message_id untouched" \
+      "$(TETHER_STATE="$armf7" bash -c '. "'"${here}"'/lib.sh"; t_state_get last_message_id')" "msg_anchor"
+    out="$(env E2A_API_KEY='e2a_agt_selftest123' E2A_AGENT_EMAIL='selftest@agents.e2a.dev' \
+      E2A_CLI="$stub7" TETHER_STATE="$armf7" bash "${here}/tether.sh" ask "will this block?" 2>&1)"; rc=$?
+    ck "ask: CLI exit 7 → exit 5, does not wait" \
+      "$rc:$(printf '%s' "$out" | grep -c 'not waiting')" "5:1"
+    rm -f "$stub7" "$armf7" "${armf7%.json}.ask.lock" "${armf7}.lock"
 
     echo "# attachments:"
     af=/tmp/tether-selftest-att.txt; printf 'hello attachment' > "$af"
