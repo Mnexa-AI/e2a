@@ -16,6 +16,11 @@ export const AGENT_PROMPTS = {
     blurb:
       "Creating and wiring an inbox is a one-time setup your coding agent can do headlessly — paste this into Claude Code, Cursor, or any agent connected to e2a.",
     prompt: "Help me set up an e2a inbox using https://api.e2a.dev/mcp",
+    notice: {
+      label: "Want every outbound email reviewed first?",
+      instruction:
+        "Configure this inbox so every outbound email requires human review.",
+    },
   },
   domains: {
     blurb:
@@ -28,12 +33,20 @@ export const AGENT_PROMPTS = {
 export type AgentPromptCardProps = {
   blurb: string;
   prompt: string;
+  notice?: {
+    label: string;
+    instruction: string;
+  };
 };
 
 // A copy-paste prompt card: these surfaces are one-time-setup shaped, so
 // the card hands the developer's coding agent the whole job instead of
 // walking the human through clicks.
-export function AgentPromptCard({ blurb, prompt }: AgentPromptCardProps) {
+export function AgentPromptCard({
+  blurb,
+  prompt,
+  notice,
+}: AgentPromptCardProps) {
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -93,6 +106,23 @@ export function AgentPromptCard({ blurb, prompt }: AgentPromptCardProps) {
       >
         {prompt}
       </pre>
+      {notice ? (
+        <aside
+          role="note"
+          aria-label="Optional outbound review setup"
+          className="mt-3 rounded-[var(--r-md)] border px-3.5 py-3 text-[12px] leading-[1.6]"
+          style={{
+            color: "var(--fg-muted)",
+            background: "var(--bg)",
+            borderColor: "var(--border)",
+          }}
+        >
+          <span className="font-semibold" style={{ color: "var(--fg)" }}>
+            {notice.label}
+          </span>{" "}
+          Ask your agent: “{notice.instruction}”
+        </aside>
+      ) : null}
     </section>
   );
 }
