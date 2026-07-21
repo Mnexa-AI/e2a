@@ -193,7 +193,17 @@ During a secret rotation you can pass an array of secrets — a delivery is
 accepted if any one matches: `constructEvent(body, header, [oldSecret, newSecret])`.
 
 `email.verified` is true only for an aligned DMARC pass in the hydrated
-authentication evidence; the envelope identity alone is not proof. `email.replyTargets` previews Reply-To-or-From
+authentication evidence; the envelope identity alone is not proof. `email.verified === false` /
+`verified_domain === null` is NOT by itself a spam or spoofing signal — it is
+common and expected for legitimate senders whose domain simply publishes no
+DMARC record (`authentication.dmarc.status === "none"`); treat that as
+"unproven," not "malicious," and reserve suspicion for an actual
+`authentication.dmarc.status === "fail"`. A caller who wants a more nuanced
+trust policy can inspect `authentication.spf`/`authentication.dkim`
+individually, but doing so reopens the spoofing gap DMARC closes: alignment
+(tying a passing SPF or DKIM identity back to the visible From domain) can
+only be computed when the sender publishes a DMARC record, so a bare SPF or
+DKIM pass proves nothing about the From header on its own. `email.replyTargets` previews Reply-To-or-From
 routing and may be attacker-controlled; the server resolves the stored MIME
 again when sending. `email.flagged` is
 the inbound policy-gate flag, not a complete content-scan verdict. Treat all

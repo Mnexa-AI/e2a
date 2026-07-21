@@ -46,7 +46,7 @@ type DKIMResult struct {
 }
 
 type DMARCResult struct {
-	Status Status  `json:"status" enum:"pass,fail,none,temperror,permerror" doc:"DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain."`
+	Status Status  `json:"status" enum:"pass,fail,none,temperror,permerror" doc:"DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain. none means the sender publishes no DMARC record (common, not itself suspicious) and is distinct from fail, an actual alignment mismatch."`
 	Domain *string `json:"domain" nullable:"true" doc:"RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists."`
 	// Closed response enum: exhaustive DMARC policy classification.
 	Policy *DMARCPolicy `json:"policy" nullable:"true" enum:"none,quarantine,reject" doc:"Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength."`

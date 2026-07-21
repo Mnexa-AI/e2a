@@ -43,7 +43,7 @@ class EmailReceivedData(BaseModel):
     reply_to: List[StrictStr]
     subject: StrictStr
     to: List[StrictStr]
-    verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.")
+    verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated. A null caused by dmarc.status=none (sender publishes no DMARC record) is common and NOT itself suspicious — distinct from dmarc.status=fail, an actual mismatch. Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["agent_email", "attachments", "authentication", "cc", "conversation_id", "delivered_to", "direction", "envelope_from", "header_from", "message_id", "received_at", "reply_to", "subject", "to", "verified_domain"]
 

@@ -71,7 +71,7 @@ class Message(BaseModel):
     text: Optional[StrictStr] = None
     to: Optional[List[StrictStr]] = None
     type: Optional[StrictStr] = None
-    verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.")
+    verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated. A null caused by dmarc.status=none (sender publishes no DMARC record) is common and NOT itself suspicious — distinct from dmarc.status=fail, an actual mismatch. Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not.")
     webhook_attempts: Optional[StrictInt] = None
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None

@@ -29,7 +29,7 @@ export class DMARCResult {
     */
     'policy': DMARCResultPolicyEnum | null;
     /**
-    * DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.
+    * DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain. none means the sender publishes no DMARC record (common, not itself suspicious) and is distinct from fail, an actual alignment mismatch.
     */
     'status': DMARCResultStatusEnum;
 

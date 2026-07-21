@@ -48,7 +48,7 @@ class MessageSummaryView(BaseModel):
     size_bytes: Optional[StrictInt] = Field(default=None, description="RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from an attachment's size_bytes, which is its DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes).")
     subject: StrictStr
     to: List[StrictStr]
-    verified_domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.")
+    verified_domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise — including dmarc.status=none (no DMARC record published, common and NOT itself suspicious), not just dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content.")
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
