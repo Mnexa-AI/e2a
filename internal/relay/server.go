@@ -177,7 +177,7 @@ func (b *backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
 	}
 	sid := newSessionID()
 	log.Printf("[%s] new session from %s", sid, remoteIP)
-	return &session{relay: b.relay, id: sid, remoteIP: remoteIP}, nil
+	return &session{relay: b.relay, id: sid, remoteIP: remoteIP, heloDomain: c.Hostname()}, nil
 }
 
 func newSessionID() string {
@@ -192,6 +192,7 @@ type session struct {
 	from       string
 	recipients []string
 	remoteIP   net.IP
+	heloDomain string
 }
 
 func (s *session) AuthPlain(username, password string) error {
@@ -275,6 +276,7 @@ func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 		in := inboundInput{
 			Body:         body,
 			EnvelopeFrom: extractEmail(s.from),
+			HELODomain:   s.heloDomain,
 			RemoteIP:     s.remoteIP,
 			Recipient:    rcpt,
 			TraceID:      s.id,
@@ -301,6 +303,7 @@ func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 type inboundInput struct {
 	Body         []byte
 	EnvelopeFrom string // SMTP MAIL FROM
+	HELODomain   string // SMTP HELO/EHLO identity (null-reverse-path SPF)
 	RemoteIP     net.IP // connecting IP (SPF); the worker parses the stored text form
 	Recipient    string // RCPT TO
 	TraceID      string // log correlation (session id / intake id)
@@ -329,7 +332,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	headerFrom := threadInfo.From
 	// SPF/DKIM/DMARC against the TRUE envelope MAIL FROM (RFC 7208), not the From
 	// header — else SPF-alignment is a tautology (adversarial review F5).
-	authentication := emailauth.CheckAuthenticationForAuthor(ctx, in.RemoteIP, envelopeFrom, in.Body, author)
+	authentication := emailauth.CheckAuthenticationForAuthorWithHELO(ctx, in.RemoteIP, envelopeFrom, in.HELODomain, in.Body, author)
 	log.Printf("[%s] [%s] email auth from %s (envelope %s): SPF=%s DKIM=%d DMARC=%s", in.TraceID, headerFrom, in.RemoteIP, envelopeFrom, authentication.SPF.Status, len(authentication.DKIM), authentication.DMARC.Status)
 
 	agent, err := srv.resolveAgent(ctx, in.Recipient)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -402,23 +403,35 @@ func parseDMARCRecord(value string) (*dmarcRecord, error) {
 	if values["v"] != "DMARC1" {
 		return nil, fmt.Errorf("%w: missing v=DMARC1", errInvalidDMARCRecord)
 	}
-	policy, err := parseDMARCPolicy(strings.ToLower(values["p"]))
-	if err != nil {
-		return nil, err
+	policy := DMARCPolicyNone
+	if value, ok := values["p"]; ok {
+		parsed, err := parseDMARCPolicy(strings.ToLower(value))
+		if err != nil {
+			if !hasValidDMARCReportURI(values["rua"]) {
+				return nil, nil
+			}
+			return &dmarcRecord{Policy: DMARCPolicyNone, PSD: "u"}, nil
+		} else {
+			policy = parsed
+		}
 	}
-	record := &dmarcRecord{Policy: policy}
+	record := &dmarcRecord{Policy: policy, PSD: "u"}
 	if value, ok := values["sp"]; ok {
 		parsed, parseErr := parseDMARCPolicy(strings.ToLower(value))
 		if parseErr != nil {
-			return nil, parseErr
+			if !hasValidDMARCReportURI(values["rua"]) {
+				return nil, nil
+			}
+			return &dmarcRecord{Policy: DMARCPolicyNone, PSD: "u"}, nil
+		} else {
+			record.SubdomainPolicy = &parsed
 		}
-		record.SubdomainPolicy = &parsed
 	}
 	for tag, destination := range map[string]*bool{"aspf": &record.SPFStrict, "adkim": &record.DKIMStrict} {
 		if value, ok := values[tag]; ok {
 			value = strings.ToLower(value)
 			if value != "r" && value != "s" {
-				return nil, fmt.Errorf("%w: invalid %s value %q", errInvalidDMARCRecord, tag, value)
+				continue
 			}
 			*destination = value == "s"
 		}
@@ -426,11 +439,25 @@ func parseDMARCRecord(value string) (*dmarcRecord, error) {
 	if value, ok := values["psd"]; ok {
 		value = strings.ToLower(value)
 		if value != "y" && value != "n" && value != "u" {
-			return nil, fmt.Errorf("%w: invalid psd value %q", errInvalidDMARCRecord, value)
+			value = "u"
 		}
 		record.PSD = value
 	}
 	return record, nil
+}
+
+func hasValidDMARCReportURI(value string) bool {
+	for _, candidate := range strings.Split(value, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if before, _, ok := strings.Cut(candidate, "!"); ok {
+			candidate = before
+		}
+		parsed, err := url.ParseRequestURI(candidate)
+		if err == nil && parsed.Scheme != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func parseDMARCPolicy(value string) (DMARCPolicy, error) {

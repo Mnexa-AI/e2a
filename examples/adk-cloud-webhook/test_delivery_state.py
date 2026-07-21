@@ -65,6 +65,14 @@ class WebhookExampleContractTest(unittest.TestCase):
         self.assertIn('data.get("header_from")', self.source)
         self.assertNotIn('data["from"]', self.source)
 
+    def test_fetched_message_uses_header_from_with_event_fallback(self) -> None:
+        self.assertIn("inbound.header_from", self.source)
+        self.assertNotIn("inbound.from_", self.source)
+        self.assertIn(
+            "_format_email_for_agent(inbound, data.get(\"header_from\"))",
+            self.source,
+        )
+
     def test_reply_uses_event_id_as_idempotency_key(self) -> None:
         reply_calls = [
             node

@@ -1882,7 +1882,7 @@ func (s *Store) CreateInboundMessage(ctx context.Context, id, agentID, senderEma
 // authentication model. The legacy CreateInboundMessage remains temporarily
 // available while older tests and relay call sites migrate.
 func (s *Store) CreateInboundMessageAuthenticated(ctx context.Context, id, agentID string, auth InboundAuth, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, flagged bool, flagReason string, toRecipients, cc, replyTo []string, screening InboundScreening) (*Message, error) {
-	return createInboundMessage(ctx, s.pool, id, agentID, auth.HeaderFrom, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, nil, nil, flagged, flagReason, toRecipients, cc, replyTo, screening, &auth)
+	return createInboundMessage(ctx, s.pool, id, agentID, storedInboundSender(auth), recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, nil, nil, flagged, flagReason, toRecipients, cc, replyTo, screening, &auth)
 }
 
 // WithTx opens a transaction, runs fn inside it, and commits if fn
@@ -1919,11 +1919,14 @@ func (s *Store) CreateInboundMessageInTx(ctx context.Context, tx pgx.Tx, id, age
 }
 
 func (s *Store) CreateInboundMessageAuthenticatedInTx(ctx context.Context, tx pgx.Tx, id, agentID string, auth InboundAuth, recipient, emailMessageID, subject, conversationID, deliveryStatus string, rawMessage []byte, flagged bool, flagReason string, toRecipients, cc, replyTo []string, screening InboundScreening) (*Message, error) {
-	storedSender := auth.StoredSender
-	if storedSender == "" {
-		storedSender = auth.HeaderFrom
+	return createInboundMessage(ctx, tx, id, agentID, storedInboundSender(auth), recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, nil, nil, flagged, flagReason, toRecipients, cc, replyTo, screening, &auth)
+}
+
+func storedInboundSender(auth InboundAuth) string {
+	if auth.StoredSender != "" {
+		return auth.StoredSender
 	}
-	return createInboundMessage(ctx, tx, id, agentID, storedSender, recipient, emailMessageID, subject, conversationID, deliveryStatus, rawMessage, nil, nil, flagged, flagReason, toRecipients, cc, replyTo, screening, &auth)
+	return auth.HeaderFrom
 }
 
 // messageExecutor is the subset of *pgxpool.Pool and pgx.Tx that

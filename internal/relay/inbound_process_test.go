@@ -50,7 +50,7 @@ func TestInbound_ProcessIntake_RealPath(t *testing.T) {
 	raw := []byte("From: alice@sender.test\r\nTo: " + agentEmail + "\r\nMessage-ID: <rp1@sender.test>\r\nSubject: real path\r\n\r\nbody")
 	id := identity.NewInboundIntakeID()
 	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := store.InsertInboundIntakeTx(ctx, tx, id, agentEmail, "alice@sender.test", "1.2.3.4", "<rp1@sender.test>", "hash-rp", raw)
+		_, e := store.InsertInboundIntakeTx(ctx, tx, id, agentEmail, "alice@sender.test", "mx.sender.test", "1.2.3.4", "<rp1@sender.test>", "hash-rp", raw)
 		return e
 	}); err != nil {
 		t.Fatalf("plant intake: %v", err)

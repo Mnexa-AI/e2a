@@ -66,27 +66,39 @@ func Check(remoteIP net.IP, senderEmail string, rawMessage []byte) *AuthVerdict 
 // CheckAuthentication evaluates and retains the complete SPF, DKIM, and DMARC
 // evidence for an inbound message.
 func CheckAuthentication(ctx context.Context, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
-	return CheckAuthenticationForAuthor(ctx, remoteIP, envelopeFrom, rawMessage, ParseAuthorIdentity(rawMessage))
+	return CheckAuthenticationWithHELO(ctx, remoteIP, envelopeFrom, "", rawMessage)
+}
+
+// CheckAuthenticationWithHELO evaluates authentication with the SMTP greeting
+// retained for RFC 7208 null-reverse-path SPF processing.
+func CheckAuthenticationWithHELO(ctx context.Context, remoteIP net.IP, envelopeFrom, heloDomain string, rawMessage []byte) *Authentication {
+	return CheckAuthenticationForAuthorWithHELO(ctx, remoteIP, envelopeFrom, heloDomain, rawMessage, ParseAuthorIdentity(rawMessage))
 }
 
 // CheckAuthenticationForAuthor evaluates authentication using an AuthorIdentity
 // that was parsed once by the caller. This keeps the header_from projection and
 // DMARC decision on the same security-critical interpretation of From.
 func CheckAuthenticationForAuthor(ctx context.Context, remoteIP net.IP, envelopeFrom string, rawMessage []byte, author AuthorIdentity) *Authentication {
-	return checkWithEvaluatorForAuthor(ctx, defaultDMARCEvaluator, remoteIP, envelopeFrom, rawMessage, author)
+	return CheckAuthenticationForAuthorWithHELO(ctx, remoteIP, envelopeFrom, "", rawMessage, author)
+}
+
+// CheckAuthenticationForAuthorWithHELO is CheckAuthenticationForAuthor with
+// the connection's SMTP HELO/EHLO identity for null-reverse-path SPF.
+func CheckAuthenticationForAuthorWithHELO(ctx context.Context, remoteIP net.IP, envelopeFrom, heloDomain string, rawMessage []byte, author AuthorIdentity) *Authentication {
+	return checkWithEvaluatorForAuthor(ctx, defaultDMARCEvaluator, remoteIP, envelopeFrom, heloDomain, rawMessage, author)
 }
 
 func checkWithResolver(ctx context.Context, resolver TXTResolver, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
-	return checkWithEvaluator(ctx, newDMARCEvaluator(resolver), remoteIP, envelopeFrom, rawMessage)
+	return checkWithEvaluator(ctx, newDMARCEvaluator(resolver), remoteIP, envelopeFrom, "", rawMessage)
 }
 
-func checkWithEvaluator(ctx context.Context, evaluator *dmarcEvaluator, remoteIP net.IP, envelopeFrom string, rawMessage []byte) *Authentication {
-	return checkWithEvaluatorForAuthor(ctx, evaluator, remoteIP, envelopeFrom, rawMessage, ParseAuthorIdentity(rawMessage))
+func checkWithEvaluator(ctx context.Context, evaluator *dmarcEvaluator, remoteIP net.IP, envelopeFrom, heloDomain string, rawMessage []byte) *Authentication {
+	return checkWithEvaluatorForAuthor(ctx, evaluator, remoteIP, envelopeFrom, heloDomain, rawMessage, ParseAuthorIdentity(rawMessage))
 }
 
-func checkWithEvaluatorForAuthor(ctx context.Context, evaluator *dmarcEvaluator, remoteIP net.IP, envelopeFrom string, rawMessage []byte, author AuthorIdentity) *Authentication {
+func checkWithEvaluatorForAuthor(ctx context.Context, evaluator *dmarcEvaluator, remoteIP net.IP, envelopeFrom, heloDomain string, rawMessage []byte, author AuthorIdentity) *Authentication {
 	authentication := &Authentication{
-		SPF:  checkSPF(remoteIP, envelopeFrom),
+		SPF:  checkSPF(remoteIP, envelopeFrom, heloDomain),
 		DKIM: checkDKIM(rawMessage),
 	}
 	evaluator.evaluateAuthentication(ctx, author.Domain, authentication)
@@ -145,19 +157,30 @@ func ParseAuthorIdentity(rawMessage []byte) AuthorIdentity {
 	return AuthorIdentity{Address: addresses[0].Address, Domain: domain}
 }
 
-// fromHeaderDomain extracts the unambiguous RFC 5322 Author Domain.
-func checkSPF(remoteIP net.IP, senderEmail string) SPFResult {
+func checkSPF(remoteIP net.IP, envelopeFrom, heloDomain string) SPFResult {
 	if remoteIP == nil {
 		return SPFResult{Status: StatusNone, Detail: "no remote IP available"}
 	}
 
+	senderEmail := spfSenderIdentity(envelopeFrom, heloDomain)
 	domain := extractDomain(senderEmail)
 	if domain == "" {
-		return SPFResult{Status: StatusPermError, Detail: "cannot extract domain from sender"}
+		return SPFResult{Status: StatusNone, Detail: "no usable MAIL FROM or HELO identity"}
 	}
 
 	result, err := spf.CheckHostWithSender(remoteIP, domain, senderEmail)
 	return mapSPFResult(result, err, domain)
+}
+
+func spfSenderIdentity(envelopeFrom, heloDomain string) string {
+	if strings.TrimSpace(envelopeFrom) != "" {
+		return envelopeFrom
+	}
+	heloDomain = normDomain(heloDomain)
+	if !validDomainName(heloDomain) || !strings.Contains(heloDomain, ".") {
+		return ""
+	}
+	return "postmaster@" + heloDomain
 }
 
 func mapSPFResult(result spf.Result, err error, domain string) SPFResult {

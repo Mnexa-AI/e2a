@@ -35,6 +35,7 @@ type InboundIntake struct {
 	ID           string
 	Recipient    string
 	EnvelopeFrom string
+	HELODomain   string
 	RemoteIP     string
 	Raw          []byte
 	MessageID    string // sender's RFC 5322 Message-ID
@@ -47,14 +48,14 @@ type InboundIntake struct {
 // returns inserted=false (no error) when the row is a duplicate — the dedup unique
 // index (recipient, message_id, content_hash) suppressed it — so the caller knows
 // NOT to enqueue a second job and to still answer 250 (idempotent accept).
-func (s *Store) InsertInboundIntakeTx(ctx context.Context, tx pgx.Tx, id, recipient, envelopeFrom, remoteIP, messageID, contentHash string, raw []byte) (inserted bool, err error) {
+func (s *Store) InsertInboundIntakeTx(ctx context.Context, tx pgx.Tx, id, recipient, envelopeFrom, heloDomain, remoteIP, messageID, contentHash string, raw []byte) (inserted bool, err error) {
 	var returnedID string
 	err = tx.QueryRow(ctx,
-		`INSERT INTO inbound_intake (id, recipient, envelope_from, remote_ip, raw_message, message_id, content_hash, status)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'accepted')
+		`INSERT INTO inbound_intake (id, recipient, envelope_from, helo_domain, remote_ip, raw_message, message_id, content_hash, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'accepted')
 		 ON CONFLICT (recipient, message_id, content_hash) DO NOTHING
 		 RETURNING id`,
-		id, recipient, envelopeFrom, remoteIP, raw, messageID, contentHash,
+		id, recipient, envelopeFrom, heloDomain, remoteIP, raw, messageID, contentHash,
 	).Scan(&returnedID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil // duplicate — dedup index suppressed the insert
@@ -77,10 +78,10 @@ func (s *Store) StampInboundIntakeJobIDTx(ctx context.Context, tx pgx.Tx, intake
 func (s *Store) LoadInboundIntake(ctx context.Context, intakeID string) (*InboundIntake, error) {
 	var it InboundIntake
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, recipient, envelope_from, remote_ip, raw_message, message_id, content_hash, status, created_at
+		`SELECT id, recipient, envelope_from, helo_domain, remote_ip, raw_message, message_id, content_hash, status, created_at
 		   FROM inbound_intake WHERE id = $1`,
 		intakeID,
-	).Scan(&it.ID, &it.Recipient, &it.EnvelopeFrom, &it.RemoteIP, &it.Raw, &it.MessageID, &it.ContentHash, &it.Status, &it.CreatedAt)
+	).Scan(&it.ID, &it.Recipient, &it.EnvelopeFrom, &it.HELODomain, &it.RemoteIP, &it.Raw, &it.MessageID, &it.ContentHash, &it.Status, &it.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

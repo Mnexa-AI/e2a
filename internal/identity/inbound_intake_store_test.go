@@ -23,7 +23,7 @@ func TestInboundIntake_InsertLoadDedup(t *testing.T) {
 		var inserted bool
 		if err := store.WithTx(ctx, func(tx pgx.Tx) error {
 			var e error
-			inserted, e = store.InsertInboundIntakeTx(ctx, tx, iid, recipient, "a@b.test", "1.2.3.4", msgID, hash, raw)
+			inserted, e = store.InsertInboundIntakeTx(ctx, tx, iid, recipient, "a@b.test", "mx.b.test", "1.2.3.4", msgID, hash, raw)
 			return e
 		}); err != nil {
 			t.Fatalf("insert: %v", err)
@@ -50,7 +50,7 @@ func TestInboundIntake_InsertLoadDedup(t *testing.T) {
 		t.Fatalf("load: err=%v it=%v", err, it)
 	}
 	if it.Recipient != "bot@x.test" || it.MessageID != "<m1@b.test>" || it.ContentHash != "hash1" ||
-		string(it.Raw) != string(raw) || it.Status != identity.IntakeStatusAccepted || it.RemoteIP != "1.2.3.4" {
+		string(it.Raw) != string(raw) || it.Status != identity.IntakeStatusAccepted || it.HELODomain != "mx.b.test" || it.RemoteIP != "1.2.3.4" {
 		t.Fatalf("loaded intake mismatch: %+v", it)
 	}
 	miss, err := store.LoadInboundIntake(ctx, "intk_missing")
@@ -69,7 +69,7 @@ func TestInboundIntake_StampProcessAndFail(t *testing.T) {
 
 	id := identity.NewInboundIntakeID()
 	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := store.InsertInboundIntakeTx(ctx, tx, id, "bot@x.test", "a@b.test", "1.2.3.4", "<m@b.test>", "h", []byte("raw"))
+		_, e := store.InsertInboundIntakeTx(ctx, tx, id, "bot@x.test", "a@b.test", "", "1.2.3.4", "<m@b.test>", "h", []byte("raw"))
 		return e
 	}); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -103,7 +103,7 @@ func TestInboundIntake_StampProcessAndFail(t *testing.T) {
 
 	id2 := identity.NewInboundIntakeID()
 	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := store.InsertInboundIntakeTx(ctx, tx, id2, "bot@x.test", "a@b.test", "1.2.3.4", "<m2@b.test>", "h2", []byte("raw2"))
+		_, e := store.InsertInboundIntakeTx(ctx, tx, id2, "bot@x.test", "a@b.test", "", "1.2.3.4", "<m2@b.test>", "h2", []byte("raw2"))
 		return e
 	}); err != nil {
 		t.Fatalf("insert 2: %v", err)

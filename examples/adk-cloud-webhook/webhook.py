@@ -156,7 +156,7 @@ async def webhook(request: Request) -> dict[str, str]:
 
         prompt = types.Content(
             role="user",
-            parts=[types.Part(text=_format_email_for_agent(inbound))],
+            parts=[types.Part(text=_format_email_for_agent(inbound, data.get("header_from")))],
         )
 
         runner: Runner = request.app.state.runner
@@ -199,15 +199,16 @@ async def webhook(request: Request) -> dict[str, str]:
         raise
 
 
-def _format_email_for_agent(inbound) -> str:
+def _format_email_for_agent(inbound, fallback_header_from: str | None = None) -> str:
     """Flatten the parsed message into a single text block for the agent.
 
     A more sophisticated agent could be given the headers as a separate
     structured tool call. For a tutorial, plain prose is enough.
     """
     body = inbound.parsed.text if inbound.parsed else ""
+    header_from = inbound.header_from or fallback_header_from or "(missing)"
     return (
-        f"From: {inbound.from_}\n"
+        f"From: {header_from}\n"
         f"Subject: {inbound.subject}\n"
         f"\n"
         f"{body}"

@@ -35,7 +35,7 @@ func (s *session) acceptInbound(ctx context.Context, body []byte, info threadInf
 	err := s.relay.store.WithTx(ctx, func(tx pgx.Tx) error {
 		for _, rcpt := range s.recipients {
 			intakeID := identity.NewInboundIntakeID()
-			inserted, e := s.relay.store.InsertInboundIntakeTx(ctx, tx, intakeID, rcpt, envelopeFrom, remoteIP, messageID, contentHash, body)
+			inserted, e := s.relay.store.InsertInboundIntakeTx(ctx, tx, intakeID, rcpt, envelopeFrom, s.heloDomain, remoteIP, messageID, contentHash, body)
 			if e != nil {
 				return e
 			}
@@ -82,6 +82,7 @@ func (srv *Server) ProcessIntake(ctx context.Context, it *identity.InboundIntake
 	in := inboundInput{
 		Body:         it.Raw,
 		EnvelopeFrom: it.EnvelopeFrom,
+		HELODomain:   it.HELODomain,
 		RemoteIP:     net.ParseIP(it.RemoteIP),
 		Recipient:    it.Recipient,
 		TraceID:      it.ID,

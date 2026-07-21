@@ -23,7 +23,7 @@ func TestPruneProcessedIntake(t *testing.T) {
 
 	insert := func(id, msgID, hash string) {
 		if err := store.WithTx(ctx, func(tx pgx.Tx) error {
-			_, e := store.InsertInboundIntakeTx(ctx, tx, id, "bot@prune.test", "a@b.test", "1.2.3.4", msgID, hash, []byte("raw"))
+			_, e := store.InsertInboundIntakeTx(ctx, tx, id, "bot@prune.test", "a@b.test", "", "1.2.3.4", msgID, hash, []byte("raw"))
 			return e
 		}); err != nil {
 			t.Fatalf("insert %s: %v", id, err)
@@ -100,7 +100,7 @@ func TestReconcilePending(t *testing.T) {
 	// Plant an accepted intake with NO job (stamp step skipped).
 	id := identity.NewInboundIntakeID()
 	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := store.InsertInboundIntakeTx(ctx, tx, id, "bot@recon.test", "a@b.test", "1.2.3.4", "<recon@b.test>", "h", []byte("raw"))
+		_, e := store.InsertInboundIntakeTx(ctx, tx, id, "bot@recon.test", "a@b.test", "", "1.2.3.4", "<recon@b.test>", "h", []byte("raw"))
 		return e
 	}); err != nil {
 		t.Fatalf("insert: %v", err)

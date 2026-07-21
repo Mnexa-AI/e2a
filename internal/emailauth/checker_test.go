@@ -152,6 +152,27 @@ func TestAuthenticationAlignedDKIMPassesDMARC(t *testing.T) {
 	}
 }
 
+func TestSPFSenderIdentityUsesHELOForNullReversePath(t *testing.T) {
+	tests := []struct {
+		name         string
+		envelopeFrom string
+		heloDomain   string
+		want         string
+	}{
+		{"mail from mailbox", "alice@example.com", "mx.example.net", "alice@example.com"},
+		{"null reverse path", "", "mx.example.net", "postmaster@mx.example.net"},
+		{"null reverse path without usable helo", "", "localhost", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := spfSenderIdentity(tc.envelopeFrom, tc.heloDomain); got != tc.want {
+				t.Fatalf("spfSenderIdentity() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCheckNoRemoteIP(t *testing.T) {
 	result := Check(nil, "alice@example.com", []byte("From: alice@example.com\r\n\r\nHello"))
 	if result.SPF.Status != StatusNone {

@@ -178,3 +178,76 @@ func TestParseDMARCRecord(t *testing.T) {
 		t.Fatalf("duplicate p error = %v", err)
 	}
 }
+
+func TestParseDMARCRecordUsesRFC9989Defaults(t *testing.T) {
+	tests := []struct {
+		name             string
+		value            string
+		wantRecord       bool
+		wantPolicy       DMARCPolicy
+		wantSPFStrict    bool
+		wantDKIMStrict   bool
+		wantPSD          string
+		wantSubdomainNil bool
+	}{
+		{
+			name:       "missing p defaults to none",
+			value:      "v=DMARC1; rua=mailto:reports@example.com",
+			wantRecord: true,
+			wantPolicy: DMARCPolicyNone,
+			wantPSD:    "u",
+		},
+		{
+			name:       "invalid alignment and psd values use defaults",
+			value:      "v=DMARC1; p=reject; aspf=x; adkim=x; psd=x",
+			wantRecord: true,
+			wantPolicy: DMARCPolicyReject,
+			wantPSD:    "u",
+		},
+		{
+			name:             "invalid p with valid rua becomes none",
+			value:            "v=DMARC1; p=invalid; rua=mailto:reports@example.com",
+			wantRecord:       true,
+			wantPolicy:       DMARCPolicyNone,
+			wantPSD:          "u",
+			wantSubdomainNil: true,
+		},
+		{
+			name:             "invalid sp with valid rua becomes none",
+			value:            "v=DMARC1; p=reject; sp=invalid; rua=mailto:reports@example.com",
+			wantRecord:       true,
+			wantPolicy:       DMARCPolicyNone,
+			wantPSD:          "u",
+			wantSubdomainNil: true,
+		},
+		{
+			name:       "invalid p without valid rua disables processing",
+			value:      "v=DMARC1; p=invalid",
+			wantRecord: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			record, err := parseDMARCRecord(tc.value)
+			if err != nil {
+				t.Fatalf("parseDMARCRecord() error = %v", err)
+			}
+			if !tc.wantRecord {
+				if record != nil {
+					t.Fatalf("record = %+v, want nil", record)
+				}
+				return
+			}
+			if record == nil {
+				t.Fatal("record is nil")
+			}
+			if record.Policy != tc.wantPolicy || record.SPFStrict != tc.wantSPFStrict || record.DKIMStrict != tc.wantDKIMStrict || record.PSD != tc.wantPSD {
+				t.Fatalf("record = %+v", record)
+			}
+			if tc.wantSubdomainNil && record.SubdomainPolicy != nil {
+				t.Fatalf("subdomain policy = %v, want nil", *record.SubdomainPolicy)
+			}
+		})
+	}
+}
