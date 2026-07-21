@@ -1,6 +1,59 @@
 # Changelog
 
-## Unreleased
+## 2.0.0
+
+Current release. A major bump: the published 1.6.0 and this tree had diverged
+under one version number, and the intervening work removes login flags, renames
+output fields, and changes exit codes — every script driving the CLI should be
+re-read against the breaking notes below before upgrading.
+
+**Breaking:** `messages list` renamed both of its output identity fields.
+The TSV's first column is now the message's bare `id` (was `message_id`) and its
+second column is the claimed header From (was the unqualified `from`); `--json`
+likewise emits `id` and `headerFrom`. The CLI no longer rewrites the SDK's
+escaped `_from` property back to `from` on output — that rewrite existed to hide
+a codegen artifact that the field rename made obsolete. A poll loop reading
+`while IFS=$'\t' read -r id from at` keeps working positionally, but anything
+selecting `.message_id` or `.from` out of `--json` must be updated. Note that
+`listen`'s output is a different surface and still names the field `message_id`:
+it carries the WebSocket notification envelope, not the REST message model.
+
+**Breaking:** the CLI no longer reads `E2A_BASE_URL`. That name now configures
+the SDKs and points at the API host alone; the CLI's deployment root is
+`E2A_URL`, which must serve the `e2a login` browser flow as well as proxy `/v1`.
+Setting `E2A_BASE_URL` to steer the CLI used to work and now silently would not,
+so the CLI prints a warning naming the host it actually resolved. Self-host
+users must switch to `E2A_URL`.
+
+**Breaking:** `send`/`reply` exit codes changed for non-`sent` outcomes. The
+old rule was "anything other than `sent` exits `3` (HELD)", which wrongly failed
+a durably-queued async send. The CLI now branches on the response body's status:
+`accepted` is a success and exits `0`, `pending_review` still exits `3`, and a
+terminal `failed` or an unrecognized 2xx outcome exits the new code `7`
+(`SEND_OUTCOME`) — a persisted result that must not be blindly retried, since
+the returned message id proves the server already created something observable.
+
+**Breaking:** `listen`'s WebSocket close codes are now distinct — `4000` for a
+connection replaced by a newer one, `1008` for a rejected connection. Scripts
+that treated every `1008` as "replaced" (or as a retryable blip) will now
+misclassify a genuine rejection.
+
+**Breaking:** outbound attachments are enforced against documented limits —
+10 MB per attachment, 10 attachments, 25 MB total. `--attach` invocations that
+previously went out are now rejected at the API.
+
+**Breaking:** list pagination converged on a single cap and default of `100`
+(the default was `50`). `messages list` asks for the maximum page size, so a
+caller relying on the old implicit 50-row page will see larger pages.
+
+Delete operations now return `200` with a typed deletion object rather than a
+bare `204`, and enqueued async work returns `202 Accepted`. The CLI surfaces the
+new bodies through `--json`.
+
+The CLI now runs on the 5.x TypeScript SDK (`@e2a/sdk` `^5.0.0`).
+
+`send` and `reply` accept `--reply-to <email>` to set a caller-supplied
+`Reply-To` on the outbound message.
 
 **Breaking:** inbound JSON uses `headerFrom` instead of `from` and includes
 structured `authentication` evidence. Plain `listen` output labels the address
@@ -40,7 +93,7 @@ stream and printed to stdout.
 
 ## 1.6.0
 
-Current release. Adds the CLI's scripting/harness surface: `whoami`,
+Adds the CLI's scripting/harness surface: `whoami`,
 `send`/`reply` (with `--attach`), `messages list`/`get`, and a stable 0–7
 exit-code contract (`cli/src/exit.ts`) for shell-based harnesses (skills,
 hooks, CI) — scripts can branch on the process exit status instead of
@@ -50,7 +103,7 @@ parsing JSON. Also adds:
   `protection get`/`set` — provision an inbox and a least-privilege key
   end to end without the dashboard.
 - `login --agent <inbox>` (mint a least-privilege agent-scoped key, revoking
-  the account bootstrap key — removed in Unreleased) and `login --with-key`
+  the account bootstrap key — removed in 2.0.0) and `login --with-key`
   (headless: validate and save a key from the arg, `$E2A_API_KEY`, or stdin).
 - `listen --conversation`/`--once`/`--until`/`--text` — a blocking-wait
   primitive for a script waiting on one reply.
