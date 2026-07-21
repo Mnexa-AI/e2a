@@ -165,6 +165,9 @@ func checkSPF(remoteIP net.IP, envelopeFrom, heloDomain string) SPFResult {
 	senderEmail := spfSenderIdentity(envelopeFrom, heloDomain)
 	domain := extractDomain(senderEmail)
 	if domain == "" {
+		if strings.TrimSpace(envelopeFrom) != "" {
+			return SPFResult{Status: StatusPermError, Detail: "malformed MAIL FROM identity"}
+		}
 		return SPFResult{Status: StatusNone, Detail: "no usable MAIL FROM or HELO identity"}
 	}
 

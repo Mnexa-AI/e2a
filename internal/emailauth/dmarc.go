@@ -388,7 +388,7 @@ func parseDMARCRecord(value string) (*dmarcRecord, error) {
 		}
 		key, tagValue, ok := strings.Cut(part, "=")
 		key, tagValue = strings.ToLower(strings.TrimSpace(key)), strings.TrimSpace(tagValue)
-		if !ok || key == "" || tagValue == "" {
+		if !ok || key == "" || (tagValue == "" && key != "p" && key != "sp") {
 			return nil, fmt.Errorf("%w: malformed tag %q", errInvalidDMARCRecord, part)
 		}
 		if first && (key != "v" || tagValue != "DMARC1") {
@@ -483,7 +483,7 @@ func stringPtr(value string) *string { return &value }
 func boolPtr(value bool) *bool { return &value }
 
 func validDomainName(domain string) bool {
-	if domain == "" || len(domain) > 253 {
+	if domain == "" || len(domain) > 253 || strings.HasPrefix(domain, "[") || strings.HasSuffix(domain, "]") {
 		return false
 	}
 	for _, label := range strings.Split(domain, ".") {

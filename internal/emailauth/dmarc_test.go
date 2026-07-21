@@ -213,6 +213,14 @@ func TestParseDMARCRecordUsesRFC9989Defaults(t *testing.T) {
 			wantSubdomainNil: true,
 		},
 		{
+			name:             "empty p with valid rua becomes none",
+			value:            "v=DMARC1; p=; rua=mailto:reports@example.com",
+			wantRecord:       true,
+			wantPolicy:       DMARCPolicyNone,
+			wantPSD:          "u",
+			wantSubdomainNil: true,
+		},
+		{
 			name:             "invalid sp with valid rua becomes none",
 			value:            "v=DMARC1; p=reject; sp=invalid; rua=mailto:reports@example.com",
 			wantRecord:       true,

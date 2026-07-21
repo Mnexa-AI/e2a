@@ -162,6 +162,7 @@ func TestSPFSenderIdentityUsesHELOForNullReversePath(t *testing.T) {
 		{"mail from mailbox", "alice@example.com", "mx.example.net", "alice@example.com"},
 		{"null reverse path", "", "mx.example.net", "postmaster@mx.example.net"},
 		{"null reverse path without usable helo", "", "localhost", ""},
+		{"null reverse path with address literal helo", "", "[192.0.2.1]", ""},
 	}
 
 	for _, tc := range tests {
@@ -170,6 +171,16 @@ func TestSPFSenderIdentityUsesHELOForNullReversePath(t *testing.T) {
 				t.Fatalf("spfSenderIdentity() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCheckSPFMalformedNonEmptyMailFromIsPermError(t *testing.T) {
+	result := checkSPF(net.ParseIP("192.0.2.1"), "bogus", "mx.example.net")
+	if result.Status != StatusPermError {
+		t.Fatalf("SPF status = %q, want %q: %+v", result.Status, StatusPermError, result)
+	}
+	if result.Domain != nil {
+		t.Fatalf("SPF domain = %q, want nil", *result.Domain)
 	}
 }
 
