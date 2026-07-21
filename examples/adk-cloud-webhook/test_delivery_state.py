@@ -18,12 +18,30 @@ class ConversationIDTest(unittest.TestCase):
 
 
 class SenderUserIDTest(unittest.TestCase):
-    def test_uses_header_from(self) -> None:
-        self.assertEqual(sender_user_id("Alice@Example.com", "msg_1"), "Alice@Example.com")
+    def test_display_name_and_case_variants_share_one_private_id(self) -> None:
+        first = sender_user_id(
+            "Alice Example <Alice@Example.com>", "Bot@Agents.E2A.dev", "msg_1"
+        )
+        second = sender_user_id(
+            "alice@example.COM", "bot@agents.e2a.dev", "msg_2"
+        )
+
+        self.assertEqual(first, second)
+        self.assertTrue(first.startswith("sender_"))
+        self.assertNotIn("alice", first)
+
+    def test_same_sender_is_isolated_across_inboxes(self) -> None:
+        first = sender_user_id("alice@example.com", "one@agents.e2a.dev", "msg_1")
+        second = sender_user_id("alice@example.com", "two@agents.e2a.dev", "msg_1")
+
+        self.assertNotEqual(first, second)
 
     def test_missing_header_from_is_isolated_per_message(self) -> None:
-        self.assertEqual(sender_user_id(None, "msg_1"), "unknown-sender:msg_1")
-        self.assertNotEqual(sender_user_id(None, "msg_1"), sender_user_id(None, "msg_2"))
+        first = sender_user_id(None, "bot@agents.e2a.dev", "msg_1")
+        second = sender_user_id(None, "bot@agents.e2a.dev", "msg_2")
+
+        self.assertNotEqual(first, second)
+        self.assertNotIn("msg_1", first)
 
 
 class EventDeduperTest(unittest.IsolatedAsyncioTestCase):
@@ -56,6 +74,9 @@ class EventDeduperTest(unittest.IsolatedAsyncioTestCase):
 
 
 class WebhookExampleContractTest(unittest.TestCase):
+    source: str
+    tree: ast.Module
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = Path(__file__).with_name("webhook.py").read_text()
@@ -92,6 +113,7 @@ class WebhookExampleContractTest(unittest.TestCase):
             None,
         )
         self.assertIsNotNone(keyword)
+        assert keyword is not None
         self.assertEqual(ast.unparse(keyword.value), "event.id")
 
     def test_lifespan_closes_the_async_client(self) -> None:

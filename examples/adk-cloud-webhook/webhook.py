@@ -55,6 +55,7 @@ load_dotenv()
 log = logging.getLogger("adk-webhook")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 event_deduper = EventDeduper()
+MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 
 
 def _require_env(name: str) -> str:
@@ -96,6 +97,30 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="ADK + e2a webhook", lifespan=lifespan)
 
 
+async def _read_limited_body(request: Request) -> bytes:
+    """Read exact signed bytes while enforcing the limit on streamed input."""
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > MAX_WEBHOOK_BODY_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="webhook body too large",
+                )
+        except ValueError:
+            pass
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="webhook body too large",
+            )
+        body.extend(chunk)
+    return bytes(body)
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -103,7 +128,7 @@ async def health() -> dict[str, str]:
 
 @app.post("/webhook")
 async def webhook(request: Request) -> dict[str, str]:
-    body = await request.body()
+    body = await _read_limited_body(request)
     # construct_event does parse + HMAC-verify in one call and raises
     # E2AWebhookSignatureError on a bad signature or replay. Anyone can reach a
     # public webhook URL; this verification is what proves the payload came from
@@ -144,7 +169,7 @@ async def webhook(request: Request) -> dict[str, str]:
 
         # user_id scopes a session to a particular human counterpart. Different
         # senders get isolated session histories even on the same agent.
-        user_id = sender_user_id(email.from_, email.id)
+        user_id = sender_user_id(email.from_, email.inbox, email.id)
 
         sessions = request.app.state.sessions
         session = await sessions.get_session(

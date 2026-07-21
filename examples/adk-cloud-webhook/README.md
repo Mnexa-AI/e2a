@@ -128,7 +128,9 @@ e2a delivers webhooks at least once. The example claims each event ID before
 running ADK and reuses that ID as the reply's `Idempotency-Key`, so a timed-out
 delivery cannot send the same reply twice in the single-process demo. A
 duplicate that is still running receives a retryable 503; a completed duplicate
-is acknowledged without another agent turn.
+is acknowledged without another agent turn. The endpoint streams the exact
+signed request bytes through a 1 MiB limit before signature verification, so a
+chunked request cannot bypass the bound or allocate an unbounded body.
 
 See [webhook.py](webhook.py) for the implementation, including
 [HMAC signature verification](https://github.com/tokencanopy/e2a/blob/main/sdks/python/README.md#quick-start)
@@ -143,6 +145,13 @@ normalized fields such as `email.from_`, `email.subject`, `email.text`, and
 signature status. Sender-controlled address, subject, and body values remain
 untrusted model input even when the webhook signature is valid. This example
 does not place the full `MessageView` or raw MIME in the prompt or logs.
+
+ADK's `user_id` is a truncated SHA-256 identifier derived from the canonical
+sender mailbox and the receiving e2a inbox. Display-name and address-case
+variants therefore reuse the same history, the same sender remains isolated
+across different agent inboxes, and session storage does not receive the
+sender's literal address. Unparseable senders receive a message-scoped private
+identifier instead.
 
 For shorter integrations across OpenAI Agents SDK, Anthropic, LangChain, and
 ADK in both Python and TypeScript, see the
