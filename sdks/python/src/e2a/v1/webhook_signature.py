@@ -32,6 +32,10 @@ __all__ = [
     "WebhookEvent",
     # Typed per-event payloads (stable events).
     "AttachmentMetaView",
+    "SPFResult",
+    "DKIMResult",
+    "DMARCResult",
+    "Authentication",
     "EmailReceivedData",
     "EmailSentData",
     "EmailFailedData",
@@ -146,7 +150,7 @@ class AttachmentMetaView(TypedDict):
 
 
 class SPFResult(TypedDict):
-    status: Literal["pass", "fail", "none", "neutral", "softfail", "policy", "temperror", "permerror"]
+    status: Literal["pass", "fail", "none", "neutral", "softfail", "temperror", "permerror"]
     domain: Optional[str]
     aligned: Optional[bool]
     detail: NotRequired[str]

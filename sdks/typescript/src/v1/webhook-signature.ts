@@ -105,7 +105,7 @@ export interface AttachmentMetaView {
 }
 
 export interface SPFResult {
-  status: "pass" | "fail" | "none" | "neutral" | "softfail" | "policy" | "temperror" | "permerror";
+  status: "pass" | "fail" | "none" | "neutral" | "softfail" | "temperror" | "permerror";
   domain: string | null;
   aligned: boolean | null;
   detail?: string;

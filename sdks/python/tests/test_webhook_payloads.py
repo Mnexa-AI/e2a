@@ -11,9 +11,13 @@ import hashlib
 import hmac
 import json
 import time
+import typing
 from pathlib import Path
 
 import pytest
+from typing_extensions import is_typeddict
+
+from e2a.v1 import Authentication, DKIMResult, DMARCResult, SPFResult
 
 from e2a.v1.webhook_signature import (
     WebhookEvent,
@@ -36,6 +40,12 @@ pytestmark = pytest.mark.skipif(
     not FIXTURE_DIR.is_dir(),
     reason="golden fixtures only present in the monorepo checkout",
 )
+
+
+def test_public_authentication_types_are_wire_typed_dicts():
+    assert all(is_typeddict(t) for t in (Authentication, SPFResult, DKIMResult, DMARCResult))
+    status = typing.get_type_hints(SPFResult)["status"]
+    assert "policy" not in typing.get_args(status)
 
 
 def _construct(name: str) -> WebhookEvent:
