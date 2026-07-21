@@ -503,7 +503,7 @@ function FocusContent({
               setEditingDraft(true);
               // Even if the user hasn't typed yet, opening the
               // editor signals intent to control the body — a
-              // revalidation mid-edit (focus event, scrubbed TTL)
+              // revalidation mid-edit (for example, a focus event)
               // must not overwrite the textarea out from under them.
               hasUserEditedRef.current = true;
             }}
@@ -599,10 +599,9 @@ function BodyCard({
   const attachments = msg.data.attachments ?? [];
   const agentEmail = msg.direction === "inbound" ? msg.data.recipient : inboxEmail;
   const chipAttachments = downloadableAttachments(attachments, bodyHtml);
-  // A non-pending outbound row with no body_text is a sent/scrubbed
-  // draft — its body is no longer available. Keyed off the threaded
-  // pending flag rather than the (delivery-rollup) detail `status`.
-  const isTerminal = isOutbound && !isPending && !msg.data.body_text;
+  // Legacy terminal outbound rows can predate indefinite content retention.
+  // Key off the threaded pending flag rather than delivery-rollup `status`.
+  const isBodyUnavailable = isOutbound && !isPending && !bodyText && !bodyHtml;
   const wordCount = bodyText.trim() ? bodyText.trim().split(/\s+/).length : 0;
   const bytes = bodyText.length;
 
@@ -644,9 +643,9 @@ function BodyCard({
             whiteSpace: bodyHtml.trim() !== "" ? "normal" : "pre-wrap",
           }}
         >
-          {isTerminal ? (
+          {isBodyUnavailable ? (
             <span style={{ color: "var(--fg-muted)", fontStyle: "italic" }}>
-              Body no longer available (scrubbed after delivery).
+              Body not available for this message.
             </span>
           ) : bodyHtml.trim() !== "" ? (
             <EmailHtmlBody
@@ -662,7 +661,7 @@ function BodyCard({
               </span>
             )
           )}
-          {!isTerminal && chipAttachments.length > 0 && agentEmail && (
+          {!isBodyUnavailable && chipAttachments.length > 0 && agentEmail && (
             <AttachmentChips
               email={agentEmail}
               messageId={msg.data.id}

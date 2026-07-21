@@ -109,7 +109,7 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       title: "Reject a held message (review)",
       annotations: { destructiveHint: false },
       description:
-        "Reject a message held in `pending_review` (a review). The server branches on direction: an **outbound** hold is discarded (never sent; body columns scrubbed), and an **inbound** screening hold is dropped so it never reaches the agent (its raw payload is retained, hidden, for forensics). The optional `reason` is stored for audit. Returns 409 if the message is no longer pending.",
+        "Reject a message held in `pending_review` (a review). The server branches on direction: an **outbound** hold is discarded without sending and retained with its body and attachments, while an **inbound** screening hold is dropped so it never reaches the agent and its raw payload remains retained and hidden for forensics. The optional `reason` is stored for audit. Returns 409 if the message is no longer pending.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         reason: z.string().optional(),

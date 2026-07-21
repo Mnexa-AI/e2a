@@ -260,7 +260,7 @@ func TestApproveAndSendHappyPath(t *testing.T) {
 		t.Error("edited should be false for approve-as-is")
 	}
 
-	// DB: row is now sent, body scrubbed
+	// DB: row is now sent and its accepted content remains retained.
 	var dbStatus, dbProviderID string
 	var dbBodyText, dbBodyHTML *string
 	var dbAttachments []byte
@@ -278,11 +278,11 @@ func TestApproveAndSendHappyPath(t *testing.T) {
 	if dbProviderID != "<ses-123@amazonses.com>" {
 		t.Errorf("db provider_id = %q", dbProviderID)
 	}
-	if dbBodyText != nil || dbBodyHTML != nil {
-		t.Errorf("body columns not scrubbed: text=%v html=%v", dbBodyText, dbBodyHTML)
+	if dbBodyText == nil || *dbBodyText != "body" || dbBodyHTML == nil || *dbBodyHTML != "<p>body</p>" {
+		t.Errorf("body columns not retained: text=%v html=%v", dbBodyText, dbBodyHTML)
 	}
-	if dbAttachments != nil {
-		t.Errorf("attachments_json not scrubbed: %v", dbAttachments)
+	if len(dbAttachments) == 0 {
+		t.Error("attachments_json was not retained")
 	}
 	if dbEdited {
 		t.Error("db edited should be false")
@@ -743,11 +743,11 @@ func TestRejectPendingHappyPath(t *testing.T) {
 	if got.ReviewedAt == nil {
 		t.Error("ReviewedAt nil")
 	}
-	if got.BodyText != "" || got.BodyHTML != "" || len(got.AttachmentsJSON) != 0 {
-		t.Error("returned message still carries body fields after reject")
+	if got.BodyText != "bodyX" || got.BodyHTML != "<p>htmlX</p>" || len(got.AttachmentsJSON) == 0 {
+		t.Errorf("returned message lost retained content: text=%q html=%q attachments=%s", got.BodyText, got.BodyHTML, got.AttachmentsJSON)
 	}
 
-	// DB: body scrubbed to NULL
+	// DB: rejected content remains retained.
 	var bodyText, bodyHTML *string
 	var attachments []byte
 	var reason *string
@@ -758,8 +758,8 @@ func TestRejectPendingHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bodyText != nil || bodyHTML != nil || attachments != nil {
-		t.Errorf("body not scrubbed: text=%v html=%v att=%v", bodyText, bodyHTML, attachments)
+	if bodyText == nil || *bodyText != "bodyX" || bodyHTML == nil || *bodyHTML != "<p>htmlX</p>" || len(attachments) == 0 {
+		t.Errorf("body not retained: text=%v html=%v att=%v", bodyText, bodyHTML, attachments)
 	}
 	if reason == nil || *reason != "inappropriate tone" {
 		t.Errorf("reason = %v", reason)

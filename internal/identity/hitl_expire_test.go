@@ -154,8 +154,8 @@ func TestExpireApproveAndSendHappyPath(t *testing.T) {
 	if dbStatus != identity.MessageStatusReviewExpiredApproved {
 		t.Errorf("db status = %q", dbStatus)
 	}
-	if dbBodyText != nil {
-		t.Errorf("body_text should be scrubbed, got %v", dbBodyText)
+	if dbBodyText == nil || *dbBodyText != "body" {
+		t.Errorf("body_text should be retained, got %v", dbBodyText)
 	}
 }
 
@@ -273,8 +273,8 @@ func TestExpireRejectHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bodyText != nil || bodyHTML != nil || attachments != nil {
-		t.Errorf("not scrubbed: text=%v html=%v att=%v", bodyText, bodyHTML, attachments)
+	if bodyText == nil || *bodyText != "body" || bodyHTML == nil || *bodyHTML != "<p>html</p>" || len(attachments) == 0 {
+		t.Errorf("content not retained: text=%v html=%v att=%v", bodyText, bodyHTML, attachments)
 	}
 }
 

@@ -29,7 +29,7 @@ class LimitsUsageView(BaseModel):
     agents: StrictInt
     domains: StrictInt
     messages_month: StrictInt
-    storage_bytes: StrictInt = Field(description="Bytes of stored message content counted against the storage quota: per message, the RAW MIME length (its size_bytes) plus any retained held-draft body/attachment columns (pending_review only; scrubbed on terminal transitions).")
+    storage_bytes: StrictInt = Field(description="Bytes of retained message content counted against the storage quota: per message, RAW MIME plus any retained outbound body and attachment columns, including content retained after terminal transitions.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["agents", "domains", "messages_month", "storage_bytes"]
 

@@ -29,7 +29,7 @@ because that status can survive a worker crash or span River retry handling.
 ### Messages
 
 - **Trash** (`SoftDeleteMessage`): sets `deleted_at = now()`. Only live
-  (`expires_at > now()`, not deleted) messages can be trashed. A held
+  (not deleted) messages can be trashed. A held
   outbound draft or held inbound message (`status = 'pending_review'`) can
   NOT be trashed — the review queue is its resolution surface (approve /
   reject first); attempting returns `ErrMessageHeld` → HTTP 409.
@@ -53,15 +53,12 @@ because that status can survive a worker crash or span River retry handling.
   threading lookup (`LookupConversationID`) still resolves conversation ids
   off trashed anchors, so a reply arriving while the original sits in the
   trash keeps threading correctly.
-- **Expiry clock pauses in trash**: messages already carry a natural TTL
-  (`expires_at`, `MessageTTL` = 10 days). Restore shifts the deadline by the
-  time spent in trash (`expires_at += now() - deleted_at`), so a restored
-  message gets back exactly the active lifetime it had left when trashed and
-  a restore can never resurrect an already-expired husk.
-- **Purge**: the janitor's `DeleteExpiredMessages` now deletes
-  `(deleted_at IS NULL AND expires_at <= now())` — the pre-existing rule —
-  OR `(deleted_at <= now() - TrashRetention)`. While a row is in trash its
-  natural expiry is suspended; the trash clock alone governs.
+- **Indefinite live retention**: live message data has no natural TTL;
+  `expires_at` is `NULL`. Restore clears `deleted_at` and the message returns
+  to indefinite retention.
+- **Purge**: the janitor's `DeleteExpiredMessages` deletes only rows where
+  `deleted_at <= now() - TrashRetention`. Live rows are never selected by the
+  automatic message purge.
 - **Delete forever** (`PurgeMessage`): hard DELETE, allowed only on rows
   already in trash (Gmail journey: delete → trash → delete forever). A fresh
   provider-call lease returns HTTP 409 `send_in_progress`; retry after it ends.
@@ -85,13 +82,10 @@ because that status can survive a worker crash or span River retry handling.
   - A trashed agent does NOT consume a `max_agents` plan slot
     (`usage.CountAgentsByUser` mirrors the live list's trash exclusion), so
     a replacement can be created immediately.
-- **Message clocks pause with the inbox**: the janitor's natural-expiry arm
-  skips messages whose agent is trashed, and `RestoreAgent` shifts every
-  live message's `expires_at` — and a still-held draft's
-  `approval_expires_at` — forward by the time spent in the trash. Restore
-  therefore returns the inbox exactly as it was: no mail silently expired
-  mid-window, and no held draft auto-resolves because its review TTL
-  "lapsed" while the inbox was invisible.
+- **Review clocks pause with the inbox**: live message data remains indefinite
+  while its agent is trashed. `RestoreAgent` shifts a still-held draft's
+  `approval_expires_at` forward by the time spent in trash, so no held draft
+  auto-resolves because its review TTL lapsed while the inbox was invisible.
 - **Purge**: janitor `PurgeDeletedAgents` hard-deletes agents with
   `deleted_at <= now() - TrashRetention`, one agent per transaction, its
   messages deleted explicitly BEFORE the agent row (not via `ON DELETE
@@ -109,8 +103,9 @@ because that status can survive a worker crash or span River retry handling.
 
 ### Retention
 
-`identity.TrashRetention` (exported var) = 30 days. A var, not a const, so a
-deployment (or test) can tune it; no config knob until someone needs one.
+`identity.TrashRetention` defaults to 30 days. Deployments configure it with
+`trash.retention_days` or `E2A_TRASH_RETENTION_DAYS`; tests can override the
+exported variable directly.
 
 ## API surface (/v1)
 

@@ -31,10 +31,10 @@ const janitorInterval = 1 * time.Hour
 // method(s)) so the sweep is unit-testable with a single fake and never
 // depends on a concrete store. Signatures match the real store methods.
 
-// MessagePruner prunes expired messages, expired user sessions, and trashed
+// MessagePruner purges messages past trash retention, expired user sessions, and trashed
 // agents past their retention window (all live on *identity.Store today).
 // DeleteExpiredMessages covers both message arms: live rows past their
-// natural expiry AND trashed rows past TrashRetention.
+// trashed rows past TrashRetention.
 type MessagePruner interface {
 	DeleteExpiredMessages(ctx context.Context) (int64, error)
 	DeleteExpiredUserSessions(ctx context.Context) (int64, error)
@@ -118,10 +118,10 @@ func (j *Janitor) Sweep(ctx context.Context) error {
 	var errs []error
 
 	if deleted, err := j.messages.DeleteExpiredMessages(ctx); err != nil {
-		log.Printf("Failed to clean up expired messages: %v", err)
+		log.Printf("Failed to purge messages past trash retention: %v", err)
 		errs = append(errs, err)
 	} else if deleted > 0 {
-		log.Printf("Cleaned up %d expired message(s)", deleted)
+		log.Printf("Purged %d message(s) past trash retention", deleted)
 		j.metrics.JanitorRowsDeleted("messages", int(deleted))
 	}
 

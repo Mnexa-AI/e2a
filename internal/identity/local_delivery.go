@@ -167,10 +167,7 @@ func finalizeLocalDeliveryTx(
 		        reviewed_at           = now(),
 		        reviewed_by_user_id   = $11,
 		        raw_message           = $12::bytea,
-		        sent_as               = 'own_address',
-		        body_text             = NULL,
-		        body_html             = NULL,
-		        attachments_json      = NULL
+		        sent_as               = 'own_address'
 		  WHERE id = $1`,
 		m.ID,
 		targetStatus,

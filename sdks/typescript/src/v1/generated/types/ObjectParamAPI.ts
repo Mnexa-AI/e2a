@@ -641,7 +641,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages\' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). Live message data is otherwise retained indefinitely. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param param the request object
      */
@@ -650,7 +650,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). While the agent sits in the trash its messages\' expiry clocks are paused; restore resumes them exactly where they stopped. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
+     * Move an agent the caller owns to the trash. Requires ?confirm=DELETE. A trashed agent stops receiving mail, disappears from lists, and its held messages leave the review queue; restore it via POST /v1/agents/{email}/restore within the trash retention window — 30 days by default (deployment-configurable) — after which it is purged permanently (messages included). Live message data is otherwise retained indefinitely. Pass permanent=true to skip the trash and delete irreversibly right away (accepts live and trashed agents). Returns 200 with a deletion receipt; messages_deleted is zero when the agent is moved to trash.
      * Delete an agent
      * @param param the request object
      */
@@ -767,7 +767,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent\'s live messages resume their clocks exactly where they stopped: each message\'s expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Live message retention is indefinite. For drafts still held for review, approval_expires_at is shifted forward by the time the agent spent in trash so a review hold cannot lapse while the inbox is unavailable. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
      * Restore an agent from the trash
      * @param param the request object
      */
@@ -776,7 +776,7 @@ export class ObjectAgentsApi {
     }
 
     /**
-     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. The agent\'s live messages resume their clocks exactly where they stopped: each message\'s expires_at — and, for drafts still held for review, approval_expires_at — is shifted forward by the time the agent spent in the trash, so a restore never resurrects an inbox whose mail immediately expires, and a review hold can never lapse the instant the agent returns. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
+     * Bring a trashed (soft-deleted) agent back into service, messages and configuration intact. Live message retention is indefinite. For drafts still held for review, approval_expires_at is shifted forward by the time the agent spent in trash so a review hold cannot lapse while the inbox is unavailable. Returns the restored agent. 409 not_in_trash when the agent is not in the trash.
      * Restore an agent from the trash
      * @param param the request object
      */
@@ -1572,7 +1572,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). Live message data is otherwise retained indefinitely. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
      * Delete a message (move to trash)
      * @param param the request object
      */
@@ -1581,7 +1581,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+     * Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). Live message data is otherwise retained indefinitely. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
      * Delete a message (move to trash)
      * @param param the request object
      */
@@ -1680,7 +1680,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Bring a trashed (soft-deleted) message back to the inbox. Restored message data is retained indefinitely unless it is deleted again. Returns the restored message. 409 not_in_trash when the message is not in the trash.
      * Restore a message from the trash
      * @param param the request object
      */
@@ -1689,7 +1689,7 @@ export class ObjectMessagesApi {
     }
 
     /**
-     * Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message\'s normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+     * Bring a trashed (soft-deleted) message back to the inbox. Restored message data is retained indefinitely unless it is deleted again. Returns the restored message. 409 not_in_trash when the message is not in the trash.
      * Restore a message from the trash
      * @param param the request object
      */

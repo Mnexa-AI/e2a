@@ -70,7 +70,7 @@ class MessagesApi:
     ) -> DeleteMessageResult:
         """Delete a message (move to trash)
 
-        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). Live message data is otherwise retained indefinitely. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -149,7 +149,7 @@ class MessagesApi:
     ) -> ApiResponse[DeleteMessageResult]:
         """Delete a message (move to trash)
 
-        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). Live message data is otherwise retained indefinitely. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -228,7 +228,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Delete a message (move to trash)
 
-        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
+        Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). Live message data is otherwise retained indefinitely. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -2145,7 +2145,7 @@ class MessagesApi:
     ) -> MessageView:
         """Restore a message from the trash
 
-        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+        Bring a trashed (soft-deleted) message back to the inbox. Restored message data is retained indefinitely unless it is deleted again. Returns the restored message. 409 not_in_trash when the message is not in the trash.
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -2216,7 +2216,7 @@ class MessagesApi:
     ) -> ApiResponse[MessageView]:
         """Restore a message from the trash
 
-        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+        Bring a trashed (soft-deleted) message back to the inbox. Restored message data is retained indefinitely unless it is deleted again. Returns the restored message. 409 not_in_trash when the message is not in the trash.
 
         :param email: The agent's full email address. (required)
         :type email: str
@@ -2287,7 +2287,7 @@ class MessagesApi:
     ) -> RESTResponseType:
         """Restore a message from the trash
 
-        Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.
+        Bring a trashed (soft-deleted) message back to the inbox. Restored message data is retained indefinitely unless it is deleted again. Returns the restored message. 409 not_in_trash when the message is not in the trash.
 
         :param email: The agent's full email address. (required)
         :type email: str

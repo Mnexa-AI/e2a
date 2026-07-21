@@ -114,8 +114,8 @@ export async function messagesGet(
     // ||) so a legitimately-empty parsed result ("" = the reply was ALL quoted
     // history) doesn't fall through to the unstripped raw body. An inbound
     // message that prints "" truly has no textual content — parsing is
-    // synchronous server-side, there is no async-parse race to retry. Outbound
-    // rows can print "" because rejected/expired drafts are scrubbed.
+    // synchronous server-side, there is no async-parse race to retry. An
+    // outbound row can print "" when its retained body is legitimately empty.
     const text = message.parsed?.text ?? message.body?.text ?? "";
     process.stdout.write(text.trim() + "\n");
     return;

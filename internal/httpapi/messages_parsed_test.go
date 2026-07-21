@@ -121,7 +121,8 @@ func TestMessageViewParsed(t *testing.T) {
 		t.Fatalf("parsed.text = %q, want quoted-stripped %q", in.Parsed.Text, "My reply.")
 	}
 
-	// Sent outbound carries raw MIME (draft body columns are scrubbed at send),
+	// Sent outbound carries raw MIME while retained draft columns preserve the
+	// accepted outbound content,
 	// so it now gets the same parsed view — fixing the empty-body thread render.
 	out := messageViewFromIdentity(&identity.Message{
 		ID: "msg_2", Direction: "outbound", RawMessage: raw,

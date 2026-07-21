@@ -45,7 +45,7 @@ class Message(BaseModel):
     edited: Optional[StrictBool] = None
     email_message_id: Optional[StrictStr] = None
     envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery.")
-    expires_at: datetime
+    expires_at: Optional[datetime] = Field(description="Message expiry. Null means the message is retained indefinitely.")
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
     header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To.")
@@ -158,6 +158,11 @@ class Message(BaseModel):
         # and model_fields_set contains the field
         if self.envelope_from is None and "envelope_from" in self.model_fields_set:
             _dict['envelope_from'] = None
+
+        # set to None if expires_at (nullable) is None
+        # and model_fields_set contains the field
+        if self.expires_at is None and "expires_at" in self.model_fields_set:
+            _dict['expires_at'] = None
 
         # set to None if header_from (nullable) is None
         # and model_fields_set contains the field

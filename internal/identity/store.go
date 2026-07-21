@@ -355,13 +355,14 @@ type Message struct {
 	// messages.sent_as.
 	SentAs    string    `json:"sent_as,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	// ExpiresAt is nil for indefinitely retained messages. It remains on the
+	// model for compatibility with account exports and legacy database rows.
+	ExpiresAt *time.Time `json:"expires_at" nullable:"true" format:"date-time" doc:"Message expiry. Null means the message is retained indefinitely."`
 	// DeletedAt is non-nil while the message is in the trash (soft-deleted,
 	// migration 063): hidden from every agent-facing read path except the
 	// single-message get (so the trash view can open it), restorable until
-	// the janitor purges it after TrashRetention. While trashed the natural
-	// expiry clock (ExpiresAt) is suspended; RestoreMessage shifts ExpiresAt
-	// by the time spent in trash.
+	// the janitor purges it after TrashRetention. Live data otherwise remains
+	// indefinitely retained.
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 	WebhookStatus   string     `json:"webhook_status,omitempty"`
 	WebhookError    string     `json:"webhook_error,omitempty"`
@@ -408,9 +409,8 @@ type Message struct {
 	// caller writes that try to set them are rejected at the API layer.
 	Labels []string `json:"labels,omitempty"`
 
-	// HITL approval fields. Status defaults to 'sent'; body and attachments
-	// are populated only while a message is in 'pending_review', and are
-	// scrubbed on any terminal transition.
+	// HITL approval fields. Body and attachments are retained through terminal
+	// transitions so outbound history remains complete.
 	Status            string     `json:"status,omitempty"`
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
 	ReviewedAt        *time.Time `json:"reviewed_at,omitempty"`
@@ -432,8 +432,8 @@ type Message struct {
 	// AttachmentsJSON is the INTERNAL storage blob for a held draft's
 	// attachments (messages.attachments_json): the []outbound.Attachment
 	// shape {filename, content_type, data} with data as base64 bytes. It
-	// exists only while status=pending_review (scrubbed on terminal
-	// transitions) and is what the approve path recomposes the send from.
+	// is populated for reviewed outbound drafts and retained after terminal
+	// transitions. It is what the approve path recomposes the send from.
 	// Never serialized — the wire representation is Attachments below.
 	AttachmentsJSON    json.RawMessage `json:"-"`
 	ManagedUnsubscribe bool            `json:"-"`
@@ -1712,11 +1712,9 @@ func (s *Store) SoftDeleteAgent(ctx context.Context, agentID, userID string) err
 }
 
 // RestoreAgent brings a trashed agent back to life, messages and config
-// intact. The agent's live messages resume their clocks exactly where they
-// stopped: expires_at (and, for still-held drafts, approval_expires_at) are
-// shifted forward by the time spent in the trash, so a restore never
-// resurrects an inbox whose mail immediately expires — nor auto-resolves a
-// hold whose review TTL silently lapsed while the inbox was trashed.
+// intact. Live messages never expire; for still-held drafts only
+// approval_expires_at is shifted forward by the time spent in the trash so a
+// hold cannot silently lapse while the inbox is trashed.
 // Returns ErrNotInTrash when the agent exists but is live, and ErrAgentNotFound
 // when it doesn't exist (or isn't the caller's).
 func (s *Store) RestoreAgent(ctx context.Context, agentID, userID string) error {
@@ -1739,12 +1737,11 @@ func (s *Store) RestoreAgent(ctx context.Context, agentID, userID string) error 
 			`UPDATE agent_identities SET deleted_at = NULL WHERE id = $1`, agentID); err != nil {
 			return err
 		}
-		// Give back the trash time to the agent's LIVE messages only —
-		// message-level trash rows keep their own suspended clock.
+		// Give back the trash time to pending holds on the agent's LIVE
+		// messages only. Message retention itself is indefinite.
 		_, err = tx.Exec(ctx,
 			`UPDATE messages
-			    SET expires_at = expires_at + (now() - $2::timestamptz),
-			        approval_expires_at = CASE
+			    SET approval_expires_at = CASE
 			          WHEN status = 'pending_review' AND approval_expires_at IS NOT NULL
 			          THEN approval_expires_at + (now() - $2::timestamptz)
 			          ELSE approval_expires_at END
@@ -1804,28 +1801,10 @@ func (s *Store) PurgeDeletedAgents(ctx context.Context) (int64, error) {
 
 // --- Messages ---
 
-// MessageTTL is the per-row lifetime for `messages`. The janitor at
-// DeleteExpiredMessages drops rows whose expires_at has passed.
-//
-// 10 days is chosen to strictly exceed HITLMaxTTLSeconds (7 days) with
-// a 3-day buffer. The buffer guarantees:
-//   - the HITL worker (60s cadence) always wins the race against the
-//     messages janitor (hourly cadence) on max-HITL pending rows;
-//   - terminal HITL rows retain ≥3 days of post-resolution audit
-//     visibility before the metadata row is dropped;
-//   - reply-composition can load a parent inbound up to 10 days old
-//     for quoting context.
-//
-// If HITLMaxTTLSeconds is ever raised, raise this too — keep
-// MessageTTL > HITLMaxTTLSeconds by at least 1 day.
-const MessageTTL = 10 * 24 * time.Hour // 10 days
-
 // TrashRetention is how long a soft-deleted resource (agent inbox or
 // message) stays in the trash before the janitor purges it permanently —
-// the Gmail-style 30-day window (docs/design/trash-soft-delete.md). While a
-// message sits in the trash its natural expiry clock (MessageTTL /
-// expires_at) is suspended; the trash clock alone governs. A var (not a
-// const): cmd/e2a/main.go assigns it at startup from the deployment config
+// the Gmail-style 30-day window (docs/design/trash-soft-delete.md). A var
+// (not a const): cmd/e2a/main.go assigns it at startup from the deployment config
 // (trash.retention_days / E2A_TRASH_RETENTION_DAYS, validated ≥1 day), and
 // tests may tune it directly. Default 30 days — the number the stable API
 // contract documents ("30 days by default, deployment-configurable").
@@ -1989,7 +1968,7 @@ func createInboundMessage(ctx context.Context, exec messageExecutor, id, agentID
 		Status:            status,
 		ApprovalExpiresAt: screening.ApprovalExpiresAt,
 		CreatedAt:         now,
-		ExpiresAt:         now.Add(MessageTTL),
+		ExpiresAt:         nil,
 	}
 	if canonical != nil {
 		m.HeaderFrom = canonical.HeaderFrom
@@ -2030,7 +2009,7 @@ func (s *Store) GetInboundMessage(ctx context.Context, id string) (*Message, err
 	var authentication, authVerdict []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, agent_id, direction, sender, COALESCE(header_from, ''), COALESCE(envelope_from, ''), authentication, recipient, to_recipients, cc, reply_to, subject, email_message_id, raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), COALESCE(method, ''), created_at, expires_at
-		 FROM messages WHERE id = $1 AND direction = 'inbound' AND expires_at > now()
+		 FROM messages WHERE id = $1 AND direction = 'inbound'
 		   AND deleted_at IS NULL
 		   AND status NOT IN (`+heldInboundStatuses+`)`, id,
 	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.Method, &m.CreatedAt, &m.ExpiresAt)
@@ -2072,9 +2051,8 @@ func (m *Message) ThreadMessageID() string {
 //
 // The held-status exclusion is kept for BOTH directions: a message still in
 // review (pending/rejected/expired) has not actually been delivered, so it is
-// not a legitimate reply/forward anchor. `expires_at > now()` keeps expired
-// rows out the same way GetInboundMessage does. Callers still scope the result
-// to the owning agent (id-only lookup here does not).
+// not a legitimate reply/forward anchor. Callers still scope the result to the
+// owning agent (id-only lookup here does not).
 //
 // method + delivery_status are loaded (beyond GetInboundMessage's column list)
 // because `status` is the review/hold axis, not the delivery axis: an outbound
@@ -2089,7 +2067,7 @@ func (s *Store) GetRepliableMessage(ctx context.Context, id string) (*Message, e
 	var authentication, authVerdict []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, agent_id, direction, sender, COALESCE(header_from, ''), COALESCE(envelope_from, ''), authentication, recipient, to_recipients, cc, reply_to, subject, email_message_id, COALESCE(provider_message_id, ''), COALESCE(method, ''), COALESCE(delivery_status, ''), raw_message, auth_verdict, COALESCE(flagged, false), COALESCE(flag_reason, ''), COALESCE(conversation_id, ''), created_at, expires_at
-		 FROM messages WHERE id = $1 AND expires_at > now()
+		 FROM messages WHERE id = $1
 		   AND deleted_at IS NULL
 		   AND status NOT IN (`+heldInboundStatuses+`)`, id,
 	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ProviderMessageID, &m.Method, &m.DeliveryStatus, &m.RawMessage, &authVerdict, &m.Flagged, &m.FlagReason, &m.ConversationID, &m.CreatedAt, &m.ExpiresAt)
@@ -2209,7 +2187,6 @@ func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMe
 		 WHERE agent_id = $1
 		   AND direction = 'inbound'
 		   AND email_message_id = $2
-		   AND expires_at > now()
 		   AND deleted_at IS NULL
 		   AND status NOT IN (`+heldInboundStatuses+`)
 		 ORDER BY created_at DESC LIMIT 1`,
@@ -2247,7 +2224,6 @@ func (s *Store) GetMessageByEmailMessageID(ctx context.Context, agentID, message
 		 FROM messages
 		 WHERE agent_id = $1
 		   AND (email_message_id = $2 OR provider_message_id = $2)
-		   AND expires_at > now()
 		   AND deleted_at IS NULL
 		   AND status NOT IN (`+heldInboundStatuses+`)
 		 ORDER BY created_at DESC LIMIT 1`,
@@ -2284,7 +2260,7 @@ func (s *Store) CreateOutboundMessage(ctx context.Context, agentID string, toRec
 		ProviderMessageID: providerMessageID,
 		ConversationID:    conversationID,
 		CreatedAt:         now,
-		ExpiresAt:         now.Add(MessageTTL),
+		ExpiresAt:         nil,
 		ToRecipients:      toRecipients,
 		CC:                cc,
 		BCC:               bcc,
@@ -2336,7 +2312,7 @@ func (s *Store) CreateOutboundMessageTx(ctx context.Context, tx pgx.Tx, agentID 
 		ProviderMessageID: providerMessageID,
 		ConversationID:    conversationID,
 		CreatedAt:         now,
-		ExpiresAt:         now.Add(MessageTTL),
+		ExpiresAt:         nil,
 		ToRecipients:      toRecipients,
 		CC:                cc,
 		BCC:               bcc,
@@ -2442,7 +2418,7 @@ func createPendingOutboundMessage(ctx context.Context, exec messageExecutor, age
 		Type:               msgType,
 		ConversationID:     conversationID,
 		CreatedAt:          now,
-		ExpiresAt:          now.Add(MessageTTL),
+		ExpiresAt:          nil,
 		ToRecipients:       toRecipients,
 		CC:                 cc,
 		BCC:                bcc,
@@ -2539,8 +2515,8 @@ func (s *Store) LoadPendingNotify(ctx context.Context, messageID string) (*Pendi
 }
 
 // nullIfEmptyString returns nil interface when s is empty so the column is
-// inserted as SQL NULL rather than ”. Keeps body columns distinguishable
-// between "scrubbed" (NULL) and "empty body" once scrubbing is wired up.
+// inserted as SQL NULL rather than ”. Keeps absent content distinguishable
+// from a non-empty retained body.
 func nullIfEmptyString(s string) interface{} {
 	if s == "" {
 		return nil
@@ -2782,8 +2758,8 @@ type SendResult struct {
 // a caller-supplied send function inside a transaction that holds a row lock
 // on the pending row. If send returns an error the transaction rolls back
 // and the message remains pending. On success the row is updated to
-// 'sent' with the provider-assigned Message-ID and the body/attachments
-// columns are scrubbed.
+// 'sent' with the provider-assigned Message-ID while body and attachment
+// columns remain retained.
 //
 // edits, if any fields are populated, are applied to the in-memory message
 // before send is called and the 'edited' column is set to true when any
@@ -2966,10 +2942,7 @@ func (s *Store) ApproveAndSend(
 		        edited            = $10,
 		        reviewed_at       = now(),
 		        reviewed_by_user_id = $11,
-		        raw_message       = $12::bytea,
-		        body_text         = NULL,
-		        body_html         = NULL,
-		        attachments_json  = NULL
+		        raw_message       = $12::bytea
 		  WHERE id = $1`,
 		messageID,
 		MessageStatusSent,
@@ -2982,8 +2955,8 @@ func (s *Store) ApproveAndSend(
 		m.Subject,
 		editedByReviewer || m.Edited,
 		userID,
-		// Retain the sent MIME as the canonical Sent-folder copy, replacing the
-		// scrubbed draft columns. Empty on the rare already-sent replay path
+		// Retain the sent MIME as the canonical Sent-folder copy alongside the
+		// accepted draft columns. Empty on the rare already-sent replay path
 		// (send_attempts doesn't cache bytes) -> NULL, best-effort.
 		nullIfEmptyBytes(result.Raw),
 	)
@@ -3010,9 +2983,6 @@ func (s *Store) ApproveAndSend(
 	m.ReviewedAt = &now
 	reviewerID := userID
 	m.ReviewedByUserID = &reviewerID
-	m.BodyText = ""
-	m.BodyHTML = ""
-	m.AttachmentsJSON = nil
 	return &m, nil
 }
 
@@ -3238,10 +3208,7 @@ func (s *Store) ExpireApproveAndSend(
 		        bcc               = $7,
 		        recipient         = $8,
 		        reviewed_at       = now(),
-		        raw_message       = $9::bytea,
-		        body_text         = NULL,
-		        body_html         = NULL,
-		        attachments_json  = NULL
+		        raw_message       = $9::bytea
 		  WHERE id = $1`,
 		messageID,
 		MessageStatusReviewExpiredApproved,
@@ -3272,9 +3239,6 @@ func (s *Store) ExpireApproveAndSend(
 	}
 	now := time.Now()
 	m.ReviewedAt = &now
-	m.BodyText = ""
-	m.BodyHTML = ""
-	m.AttachmentsJSON = nil
 	return &m, nil
 }
 
@@ -3309,7 +3273,7 @@ type AcceptedSend struct {
 // pre-checks (the TTL sweep's candidate SELECT, or a human path's ownership load)
 // must NOT resolve — trashed holds stay pending_review with their clock paused
 // until RestoreAgent shifts approval_expires_at (or the trash purge drops them).
-// Body columns are scrubbed exactly like ApproveAndSend.
+// Draft body and attachment columns remain retained after approval.
 func (s *Store) ApproveAndAccept(
 	ctx context.Context,
 	messageID, reviewedByUserID, targetStatus string,
@@ -3338,8 +3302,7 @@ func (s *Store) ApproveAndAccept(
 			        provider_message_id = '',
 			        reviewed_at         = now(),
 			        reviewed_by_user_id = $12,
-			        edited              = $13,
-			        body_text = NULL, body_html = NULL, attachments_json = NULL
+			        edited              = $13
 			  WHERE id = $1 AND direction = 'outbound' AND status = 'pending_review'
 			    AND NOT EXISTS (SELECT 1 FROM agent_identities ai
 			                     WHERE ai.id = messages.agent_id AND ai.deleted_at IS NOT NULL)
@@ -3433,10 +3396,10 @@ func (s *Store) LoadOutboundDraft(ctx context.Context, messageID string) (*Messa
 }
 
 // ExpireReject transitions a pending_review message to review_expired_rejected
-// and scrubs body columns. No user ownership check — this is the worker
+// while retaining its content. No user ownership check — this is the worker
 // path. If the row is no longer pending (racing worker, already handled),
 // or the agent was moved to the trash after the sweep listed the row (the
-// hold must survive intact — its scrubbed body would be unrecoverable, and
+// hold must survive intact, and
 // RestoreAgent shifts approval_expires_at so the clock resumes on restore),
 // returns ErrNotPendingApproval; caller can treat as a no-op. The trash
 // guard lives INSIDE the CAS so it is atomic with the transition — a
@@ -3446,10 +3409,7 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 		`UPDATE messages
 		    SET status = $2,
 		        rejection_reason = $3,
-		        reviewed_at = now(),
-		        body_text = NULL,
-		        body_html = NULL,
-		        attachments_json = NULL
+		        reviewed_at = now()
 		  WHERE id = $1 AND status = 'pending_review' AND direction = 'outbound'
 		    AND NOT EXISTS (SELECT 1 FROM agent_identities ai
 		                     WHERE ai.id = messages.agent_id AND ai.deleted_at IS NOT NULL)`,
@@ -3475,7 +3435,8 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 		        conversation_id, created_at, expires_at,
 		        to_recipients, cc, bcc,
 		        status, approval_expires_at, reviewed_at,
-		        rejection_reason, edited
+		        rejection_reason, edited,
+		        COALESCE(body_text, ''), COALESCE(body_html, ''), attachments_json
 		 FROM messages WHERE id = $1`, messageID,
 	).Scan(
 		&m.ID, &m.AgentID, &m.Direction, &m.Subject, &m.EmailMessageID,
@@ -3484,6 +3445,7 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 		&m.ToRecipients, &m.CC, &m.BCC,
 		&m.Status, &approvalExpiresAt, &reviewedAt,
 		&rejectionReason, &m.Edited,
+		&m.BodyText, &m.BodyHTML, &m.AttachmentsJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -3502,9 +3464,9 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 	return m, nil
 }
 
-// RejectPending transitions a pending_review message to rejected,
-// records the reviewer's reason (empty string allowed), and scrubs
-// body_text / body_html / attachments_json. Ownership checked; missing
+// RejectPending transitions a pending_review message to rejected, records the
+// reviewer's reason (empty string allowed), and retains outbound content.
+// Ownership checked; missing
 // rows return ErrMessageNotFound. Non-pending rows return ErrNotPendingApproval.
 func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason string) (*Message, error) {
 	// Single atomic UPDATE with status guard. We distinguish "not found" from
@@ -3515,10 +3477,7 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 		    SET status = $3,
 		        rejection_reason = $4,
 		        reviewed_at = now(),
-		        reviewed_by_user_id = $2,
-		        body_text = NULL,
-		        body_html = NULL,
-		        attachments_json = NULL
+		        reviewed_by_user_id = $2
 		  WHERE id = $1
 		    AND status = 'pending_review'
 		    AND direction = 'outbound'
@@ -3557,7 +3516,7 @@ func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit i
 		        COALESCE(m.flagged, false), COALESCE(m.flag_reason, '')
 		 FROM messages m
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
-		 WHERE m.agent_id = $1 AND m.expires_at > now()
+		 WHERE m.agent_id = $1
 		   AND m.deleted_at IS NULL
 		   AND NOT (m.direction = 'inbound' AND m.status IN (`+heldInboundStatuses+`))
 		 ORDER BY m.created_at DESC
@@ -3635,10 +3594,8 @@ type MessageListFilter struct {
 	// rows. Handler-layer validates each entry against the same charset
 	// rule used on writes so callers can't smuggle SQL through here.
 	Labels []string
-	// Deleted flips the query to the TRASH view: only soft-deleted rows,
-	// with the natural-expiry filter dropped (a trashed row's expiry clock
-	// is suspended — see TrashRetention). False (default) lists live rows
-	// only.
+	// Deleted flips the query to the TRASH view: only soft-deleted rows.
+	// False (default) lists indefinitely retained live rows only.
 	Deleted bool
 }
 
@@ -3673,12 +3630,11 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1`
 
-	// Live view: exclude trash + expired. Trash view: only soft-deleted
-	// rows; no expiry filter (the clock is suspended in the trash).
+	// Live view excludes trash. Trash view returns only soft-deleted rows.
 	if f.Deleted {
 		baseSelect += ` AND m.deleted_at IS NOT NULL`
 	} else {
-		baseSelect += ` AND m.deleted_at IS NULL AND m.expires_at > now()`
+		baseSelect += ` AND m.deleted_at IS NULL`
 	}
 
 	switch f.Direction {
@@ -3834,7 +3790,7 @@ func (s *Store) GetMessagesByAgent(ctx context.Context, f MessageListFilter) ([]
 // Marks the message as 'read' if it was 'unread'.
 //
 // Unlike the list/reply/threading paths, this deliberately returns TRASHED
-// rows too (DeletedAt set, natural-expiry filter waived while trashed) so
+// rows too (DeletedAt set) so
 // the dashboard trash can open a deleted message — Gmail's "view message in
 // trash". Callers branch on DeletedAt when trash rows must not qualify.
 func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID string) (*Message, error) {
@@ -3849,7 +3805,7 @@ func (s *Store) GetMessageWithContent(ctx context.Context, messageID, agentID st
 	err := s.pool.QueryRow(ctx,
 		`WITH upd AS (
 		   UPDATE messages SET inbox_status = CASE WHEN inbox_status = 'unread' THEN 'read' ELSE inbox_status END
-		   WHERE id = $1 AND agent_id = $2 AND (expires_at > now() OR deleted_at IS NOT NULL)
+		   WHERE id = $1 AND agent_id = $2
 		     AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`))
 		   RETURNING id, agent_id, direction, sender, COALESCE(header_from, '') AS header_from, COALESCE(envelope_from, '') AS envelope_from, authentication, recipient, to_recipients, cc, reply_to, subject, email_message_id, conversation_id, COALESCE(inbox_status, '') AS inbox_status, raw_message, auth_headers, auth_verdict, COALESCE(flagged, false) AS flagged, COALESCE(flag_reason, '') AS flag_reason, created_at, expires_at, deleted_at, labels, COALESCE(delivery_status, '') AS delivery_status, COALESCE(delivery_detail, '') AS delivery_detail, COALESCE(sent_as, '') AS sent_as, COALESCE(body_text, '') AS body_text, COALESCE(body_html, '') AS body_html, COALESCE(status, '') AS status, COALESCE(method, '') AS method
 		 )
@@ -3903,7 +3859,7 @@ const MaxLabelsPerMessage = 100
 // dedup'd within each list, e2a:* gated). The store layer:
 //   - applies adds first, then removes (so a label in both lists ends up removed)
 //   - rejects if the post-add total would exceed MaxLabelsPerMessage
-//   - returns ErrMessageNotFound if the row is missing / expired / cross-agent
+//   - returns ErrMessageNotFound if the row is missing / trashed / cross-agent
 //
 // The whole thing runs as one UPDATE so a concurrent PATCH from a
 // second client can't observe a partial state.
@@ -3920,7 +3876,7 @@ func (s *Store) ModifyMessageLabels(ctx context.Context, messageID, agentID stri
 
 	var current []string
 	err = tx.QueryRow(ctx,
-		`SELECT labels FROM messages WHERE id = $1 AND agent_id = $2 AND expires_at > now() AND deleted_at IS NULL AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`)) FOR UPDATE`,
+		`SELECT labels FROM messages WHERE id = $1 AND agent_id = $2 AND deleted_at IS NULL AND NOT (direction = 'inbound' AND status IN (`+heldInboundStatuses+`)) FOR UPDATE`,
 		messageID, agentID,
 	).Scan(&current)
 	if err != nil {
@@ -3985,27 +3941,18 @@ func (s *Store) UpdateMessageDeliveryStatus(ctx context.Context, messageID, agen
 // const) so tests can shrink it to exercise the multi-batch loop cheaply.
 var expiredDeleteBatch int64 = 5000
 
-// DeleteExpiredMessages drops (a) live rows past their natural expiry —
-// the pre-trash rule, now scoped to deleted_at IS NULL — and (b) trashed
-// rows whose TrashRetention window has lapsed. A row in the trash is NOT
-// subject to natural expiry (the clock is suspended; RestoreMessage gives
-// the time back), so the two arms are disjoint.
-//
-// Arm (a) also skips messages whose AGENT is in the trash: a trashed inbox
-// must come back "messages included" for the full TrashRetention window
-// (docs/design/trash-soft-delete.md), so its messages' natural-expiry clocks
-// are suspended exactly like message-level trash — RestoreAgent gives the
-// time back, and PurgeDeletedAgents removes them with the agent at day 30.
+// DeleteExpiredMessages purges message rows whose TrashRetention window has
+// lapsed. Live rows are retained indefinitely. Messages belonging to an agent
+// in trash are removed by PurgeDeletedAgents when that agent reaches the same
+// retention boundary.
 func (s *Store) DeleteExpiredMessages(ctx context.Context) (int64, error) {
 	var total int64
 	for {
 		tag, err := s.pool.Exec(ctx,
 			`DELETE FROM messages WHERE ctid IN (
 			   SELECT m.ctid FROM messages m
-			    WHERE (m.deleted_at IS NULL AND m.expires_at <= now()
-			           AND NOT EXISTS (SELECT 1 FROM agent_identities a
-			                            WHERE a.id = m.agent_id AND a.deleted_at IS NOT NULL))
-			       OR (m.deleted_at IS NOT NULL AND m.deleted_at <= now() - make_interval(secs => $2))
+			    WHERE m.deleted_at IS NOT NULL
+			      AND m.deleted_at <= now() - make_interval(secs => $2)
 			    LIMIT $1)`,
 			expiredDeleteBatch, TrashRetention.Seconds())
 		if err != nil {
@@ -4022,13 +3969,12 @@ func (s *Store) DeleteExpiredMessages(ctx context.Context) (int64, error) {
 // SoftDeleteMessage moves a live message to the trash. Idempotent on an
 // already-trashed message (nil). A held message (status pending_review,
 // either direction) cannot be trashed — the review queue is its resolution
-// surface — and returns ErrMessageHeld. A missing/expired message returns
+// surface — and returns ErrMessageHeld. A missing message returns
 // ErrMessageNotFound.
 func (s *Store) SoftDeleteMessage(ctx context.Context, messageID, agentID string) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE messages SET deleted_at = now()
 		  WHERE id = $1 AND agent_id = $2 AND deleted_at IS NULL
-		    AND expires_at > now()
 		    AND COALESCE(status, '') <> 'pending_review'`,
 		messageID, agentID,
 	)
@@ -4041,16 +3987,13 @@ func (s *Store) SoftDeleteMessage(ctx context.Context, messageID, agentID string
 	return nil
 }
 
-// RestoreMessage brings a trashed message back to the inbox, shifting its
-// natural expiry forward by the time it spent in the trash so it resumes
-// with exactly the active lifetime it had left when deleted. Returns
-// ErrNotInTrash when the message exists but is live, ErrMessageNotFound
-// otherwise.
+// RestoreMessage brings an indefinitely retained trashed message back to the
+// inbox. Returns ErrNotInTrash when the message exists but is live,
+// ErrMessageNotFound otherwise.
 func (s *Store) RestoreMessage(ctx context.Context, messageID, agentID string) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE messages
-		    SET expires_at = expires_at + (now() - deleted_at),
-		        deleted_at = NULL
+		    SET deleted_at = NULL
 		  WHERE id = $1 AND agent_id = $2 AND deleted_at IS NOT NULL`,
 		messageID, agentID,
 	)
@@ -4105,7 +4048,7 @@ func (s *Store) classifyTrashMiss(ctx context.Context, messageID, agentID string
 	var status string
 	err := s.pool.QueryRow(ctx,
 		`SELECT deleted_at, COALESCE(status, '') FROM messages
-		  WHERE id = $1 AND agent_id = $2 AND (deleted_at IS NOT NULL OR expires_at > now())`,
+		  WHERE id = $1 AND agent_id = $2`,
 		messageID, agentID,
 	).Scan(&deletedAt, &status)
 	if err != nil {
@@ -4233,7 +4176,7 @@ type ConversationListFilter struct {
 // can either ask for higher (we'll bump it) or paginate (slice 2).
 const ConversationListHardCap = 100
 
-// ListConversationsByAgent groups the agent's non-expired messages
+// ListConversationsByAgent groups the agent's live messages
 // by conversation_id and returns one row per conversation sorted by
 // most-recent activity. Messages without a conversation_id are not
 // included in any conversation — they remain individually visible
@@ -4266,7 +4209,6 @@ func (s *Store) ListConversationsByAgent(ctx context.Context, f ConversationList
 		FROM messages
 		WHERE agent_id = $1
 		  AND conversation_id <> ''
-		  AND expires_at > now()
 		  AND deleted_at IS NULL
 		  AND NOT (direction = 'inbound' AND status IN (` + heldInboundStatuses + `))
 		GROUP BY conversation_id`
@@ -4318,7 +4260,7 @@ func (s *Store) ListConversationsByAgent(ctx context.Context, f ConversationList
 
 // GetConversationByID returns the aggregate summary fields plus every
 // member message, ordered oldest-first (chronological reading order).
-// Returns ErrMessageNotFound when no non-expired messages exist for
+// Returns ErrMessageNotFound when no live messages exist for
 // the given (agentID, conversationID) — mirrors the
 // "looks-like-not-found-on-cross-agent" convention used by single-
 // message reads. The same code path handles "wrong agent" and "real
@@ -4345,7 +4287,6 @@ func (s *Store) GetConversationByID(ctx context.Context, agentID, conversationID
 		 LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		 WHERE m.agent_id = $1
 		   AND m.conversation_id = $2
-		   AND m.expires_at > now()
 		   AND m.deleted_at IS NULL
 		   AND NOT (m.direction = 'inbound' AND m.status IN (`+heldInboundStatuses+`))
 		 ORDER BY m.created_at ASC, m.id ASC`,

@@ -173,10 +173,9 @@ func TestSoftDeleteMessageHeldGuard(t *testing.T) {
 	_ = pool // pool used via store
 }
 
-// TestRestoreMessageShiftsExpiry: the natural-expiry clock is suspended while
-// a message sits in the trash — restore pushes expires_at forward by the time
-// spent trashed, so the message resumes with the lifetime it had left.
-func TestRestoreMessageShiftsExpiry(t *testing.T) {
+// TestRestoreMessageKeepsIndefiniteRetention: restoring a message clears the
+// trash marker without introducing a live-message expiry.
+func TestRestoreMessageKeepsIndefiniteRetention(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -186,11 +185,9 @@ func TestRestoreMessageShiftsExpiry(t *testing.T) {
 	if err := store.SoftDeleteMessage(ctx, m.ID, agentID); err != nil {
 		t.Fatalf("SoftDeleteMessage: %v", err)
 	}
-	// Simulate 20 days in the trash: the message would be past its natural
-	// 10-day TTL if the clock kept ticking.
+	// Simulate 20 days in the trash, still within the default purge window.
 	if _, err := pool.Exec(ctx,
 		`UPDATE messages SET deleted_at = deleted_at - interval '20 days',
-		                     expires_at = expires_at - interval '20 days',
 		                     created_at = created_at - interval '20 days'
 		  WHERE id = $1`, m.ID); err != nil {
 		t.Fatalf("backdate: %v", err)
@@ -198,15 +195,12 @@ func TestRestoreMessageShiftsExpiry(t *testing.T) {
 	if err := store.RestoreMessage(ctx, m.ID, agentID); err != nil {
 		t.Fatalf("RestoreMessage: %v", err)
 	}
-	var expires time.Time
+	var expires *time.Time
 	if err := pool.QueryRow(ctx, `SELECT expires_at FROM messages WHERE id = $1`, m.ID).Scan(&expires); err != nil {
 		t.Fatalf("read expires_at: %v", err)
 	}
-	// It had ~10 days of life left when trashed, so post-restore expiry must
-	// be ~10 days out (not in the past).
-	left := time.Until(expires)
-	if left < 9*24*time.Hour || left > 11*24*time.Hour {
-		t.Errorf("post-restore lifetime = %v, want ~10 days", left)
+	if expires != nil {
+		t.Errorf("post-restore expires_at = %v, want NULL", expires)
 	}
 	// And it is visible again.
 	if _, ok := listIDs(t, store, agentID, false)[m.ID]; !ok {
@@ -214,10 +208,9 @@ func TestRestoreMessageShiftsExpiry(t *testing.T) {
 	}
 }
 
-// TestDeleteExpiredMessagesTrashArms: the janitor deletes live rows past
-// natural expiry and trashed rows past TrashRetention — but never a trashed
-// row still inside its retention window, even when its (suspended) natural
-// expiry has passed.
+// TestDeleteExpiredMessagesTrashArms: the janitor deletes only trashed rows
+// past TrashRetention. Legacy live expiry timestamps are ignored, and a
+// trashed row inside its retention window remains available for restore.
 func TestDeleteExpiredMessagesTrashArms(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -229,11 +222,11 @@ func TestDeleteExpiredMessagesTrashArms(t *testing.T) {
 	staleTrash := trashInbound(t, store, agentID, "bot@janitor-trash.example.com", "stale-trash")
 	keeper := trashInbound(t, store, agentID, "bot@janitor-trash.example.com", "keeper")
 
-	// Live row past natural expiry → deleted.
+	// Live row with a legacy past expiry → retained indefinitely.
 	if _, err := pool.Exec(ctx, `UPDATE messages SET expires_at = now() - interval '1 hour' WHERE id = $1`, expired.ID); err != nil {
 		t.Fatalf("backdate expired: %v", err)
 	}
-	// Trashed yesterday, natural expiry long past → kept (clock suspended).
+	// Trashed yesterday with a legacy expires_at in the past → kept.
 	if _, err := pool.Exec(ctx,
 		`UPDATE messages SET deleted_at = now() - interval '1 day', expires_at = now() - interval '5 days' WHERE id = $1`,
 		freshTrash.ID); err != nil {
@@ -262,9 +255,14 @@ func TestDeleteExpiredMessagesTrashArms(t *testing.T) {
 		}
 		got = append(got, id)
 	}
-	want := map[string]bool{freshTrash.ID: true, keeper.ID: true}
-	if len(got) != 2 || !want[got[0]] || !want[got[1]] {
-		t.Errorf("survivors = %v, want exactly {freshTrash=%s, keeper=%s}", got, freshTrash.ID, keeper.ID)
+	want := map[string]bool{expired.ID: true, freshTrash.ID: true, keeper.ID: true}
+	if len(got) != 3 {
+		t.Fatalf("survivors = %v, want three rows", got)
+	}
+	for _, id := range got {
+		if !want[id] {
+			t.Errorf("unexpected survivor %s; survivors = %v", id, got)
+		}
 	}
 }
 
@@ -345,11 +343,9 @@ func TestAgentTrashLifecycle(t *testing.T) {
 	}
 }
 
-// TestAgentTrashPausesMessageClocks: while an inbox sits in the trash its
-// messages' natural expiry is suspended (the janitor must not eat them), and
-// RestoreAgent gives the time back — expires_at and a held draft's
-// approval_expires_at shift forward by the time spent trashed, so restore
-// returns the inbox exactly as it was.
+// TestAgentTrashPausesHoldClock: live message retention remains indefinite
+// while an inbox is in trash. RestoreAgent shifts only a held draft's
+// approval_expires_at so review time does not elapse in trash.
 func TestAgentTrashPausesMessageClocks(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -367,22 +363,20 @@ func TestAgentTrashPausesMessageClocks(t *testing.T) {
 	if err := store.SoftDeleteAgent(ctx, agentID, userID); err != nil {
 		t.Fatalf("SoftDeleteAgent: %v", err)
 	}
-	// Simulate 20 days in the trash: both messages would be far past their
-	// natural clocks if those kept ticking.
+	// Simulate 20 days in the trash and 20 days of elapsed hold time.
 	if _, err := pool.Exec(ctx,
 		`UPDATE agent_identities SET deleted_at = deleted_at - interval '20 days' WHERE id = $1`, agentID); err != nil {
 		t.Fatalf("backdate agent: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
-		`UPDATE messages SET expires_at = expires_at - interval '20 days',
-		                     created_at = created_at - interval '20 days',
+		`UPDATE messages SET created_at = created_at - interval '20 days',
 		                     approval_expires_at = approval_expires_at - interval '20 days'
 		  WHERE agent_id = $1`, agentID); err != nil {
 		t.Fatalf("backdate messages: %v", err)
 	}
 
-	// The janitor must not touch the trashed inbox's messages even though
-	// their expires_at is long past.
+	// The message-level trash janitor must not touch an agent's messages; the
+	// agent purge owns that deletion after the agent trash window elapses.
 	if _, err := store.DeleteExpiredMessages(ctx); err != nil {
 		t.Fatalf("DeleteExpiredMessages: %v", err)
 	}
@@ -394,14 +388,14 @@ func TestAgentTrashPausesMessageClocks(t *testing.T) {
 	if err := store.RestoreAgent(ctx, agentID, userID); err != nil {
 		t.Fatalf("RestoreAgent: %v", err)
 	}
-	// The inbound message resumes with ~10 days of life left (it had all of
-	// MessageTTL left when the agent was trashed).
-	var expires, approval time.Time
+	// The inbound message remains indefinitely retained.
+	var expires *time.Time
+	var approval time.Time
 	if err := pool.QueryRow(ctx, `SELECT expires_at FROM messages WHERE id = $1`, msg.ID).Scan(&expires); err != nil {
 		t.Fatalf("read expires_at: %v", err)
 	}
-	if left := time.Until(expires); left < 9*24*time.Hour || left > 11*24*time.Hour {
-		t.Errorf("restored message lifetime = %v, want ~10 days", left)
+	if expires != nil {
+		t.Errorf("restored message expires_at = %v, want NULL", expires)
 	}
 	// The held draft resumes with ~1h of review window left — NOT already
 	// lapsed (which would let the TTL sweep auto-resolve it immediately).

@@ -317,8 +317,8 @@ export function ProtectionEditor({
       <p className="text-[11px] text-muted leading-snug">
         Gates decide who may send; the scan flags risky content. A non-match
         or flagged message is delivered, held for review, or blocked per the
-        action above. Held messages keep their body + attachments for up to
-        the approval window, then are scrubbed on any terminal transition.
+        action above. Held messages and their body + attachments remain in
+        message history after the review reaches a terminal state.
       </p>
 
       <div className="flex items-center gap-2">

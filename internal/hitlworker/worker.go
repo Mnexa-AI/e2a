@@ -2,7 +2,7 @@
 // holds whose TTL has elapsed. Outbound holds become sent (auto-approved) or
 // review_expired_rejected; inbound holds become review_expired_approved
 // (released to the agent) or review_expired_rejected — per the owning agent's
-// hitl_expiration_action column. Body columns are scrubbed in both cases.
+// hitl_expiration_action column. Message content remains retained in both cases.
 package hitlworker
 
 import (

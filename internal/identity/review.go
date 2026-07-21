@@ -56,7 +56,7 @@ func (s *Store) ListReviews(ctx context.Context, userID string, limit int, after
 	   FROM messages m
 	   JOIN agent_identities a ON a.id = m.agent_id
 	  WHERE a.user_id = $1 AND a.deleted_at IS NULL
-	    AND m.status = 'pending_review' AND m.expires_at > now()`
+	    AND m.status = 'pending_review'`
 	args := []interface{}{userID}
 	if !afterCreatedAt.IsZero() {
 		i := len(args) + 1
@@ -111,7 +111,7 @@ func (s *Store) GetReviewWithContent(ctx context.Context, userID, messageID stri
 		   FROM messages m
 		   JOIN agent_identities a ON a.id = m.agent_id
 		   LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
-		  WHERE m.id = $1 AND a.user_id = $2 AND a.deleted_at IS NULL AND m.expires_at > now()`,
+		  WHERE m.id = $1 AND a.user_id = $2 AND a.deleted_at IS NULL`,
 		messageID, userID,
 	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Method, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.ReviewReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
 	if err != nil {
@@ -277,7 +277,7 @@ func (s *Store) ApproveInboundReview(ctx context.Context, messageID, agentID, re
 // RejectInboundReview drops a held inbound message (status review_rejected → stays
 // hidden from the agent). Scoped to agentID for tenant isolation; reviewerID
 // identifies the human; reason is operator-facing. The raw payload is retained
-// (hidden) until the message TTL for security forensics — see design §4.4.
+// (hidden) indefinitely for security forensics unless the message is deleted.
 func (s *Store) RejectInboundReview(ctx context.Context, messageID, agentID, reviewerID, reason string) error {
 	return s.transitionReview(ctx, messageID, agentID, MessageStatusReviewRejected, &reviewerID, reason)
 }

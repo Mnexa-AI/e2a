@@ -142,7 +142,7 @@ func TestProtectionEvents_Idempotent(t *testing.T) {
 
 // TestProtectionEvents_SoftRefAndAgentList proves message_id is a soft reference
 // (events insert and list with no corresponding messages row — so the audit trail
-// outlives the 30-day message TTL) and exercises ListProtectionEventsByAgent.
+// outlives any individual message lifecycle) and exercises ListProtectionEventsByAgent.
 func TestProtectionEvents_SoftRefAndAgentList(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

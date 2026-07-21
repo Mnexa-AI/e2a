@@ -390,9 +390,8 @@ export function projectPending(
     created_at: w.created_at,
     hold_reason: w.hold_reason,
     protection: w.protection,
-    // Outbound drafts carry an editable `body`; sent outbound and inbound holds
-    // carry the content as `parsed` (the draft columns are scrubbed at send).
-    // Fall back so the body shows either way.
+    // Outbound drafts and terminal outbound messages retain `body`; inbound
+    // content is exposed through `parsed`. Fall back for legacy rows.
     body_text: w.body?.text ?? w.parsed?.text,
     body_html: w.body?.html ?? w.parsed?.html,
     attachments: w.attachments ?? [],
