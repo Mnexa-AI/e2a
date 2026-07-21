@@ -75,7 +75,10 @@ make test-integration   # integration tests (needs Postgres on :5433)
 make test-e2e           # discovers every package with //go:build integration tests
 make cover              # coverage profile cover.out across internal/... (needs Postgres)
 make cover-check        # cover + enforce per-package floors in .testcoverage.yml
-make docker-up          # local Postgres (:5433) + Mailpit (SMTP :1025, UI :8025)
+make docker-up          # docker compose up -d: full stack — Postgres (:5433), Mailpit
+                        # (SMTP :1025, UI :8025), dockerized API/SMTP (:8080/:2525),
+                        # dashboard (:3000), MCP (:8765). For host-binary dev use
+                        # `docker compose up -d postgres mailpit` instead (see below).
 make migrate            # manually apply migrations/*.sql to the local DB
 make spec               # regenerate api/openapi.yaml from the live Huma handlers
 make spec-check         # drift gate: committed spec must byte-equal handler output
@@ -132,7 +135,10 @@ npm run build   # Next.js static export
 
 ```bash
 cp config.example.yaml config.yaml
-make docker-up     # Postgres :5433 + Mailpit :1025/:8025
+docker compose up -d postgres mailpit   # Postgres :5433 + Mailpit :1025/:8025 only
+                                         # (plain `make docker-up` also starts the
+                                         # dockerized API on :8080/:2525 — conflicts
+                                         # with `make run` below)
 make run           # API on :8080, SMTP relay on :2525; auto-applies migrations
 ./bin/e2a -config config.yaml -bootstrap-email you@example.com  # create user + API key
 ```
