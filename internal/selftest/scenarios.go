@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tokencanopy/e2a/internal/emailauth"
 )
 
 // defaultRoundTripTimeout bounds how long the inbound round-trip waits for the
@@ -127,7 +129,35 @@ func scenarioInboundRoundTrip(ctx context.Context, p *Probe) Result {
 	if !verifyHMAC(d.Headers.Get("X-E2A-Signature"), d.Body, p.WebhookSecret) {
 		return fail("webhook HMAC verification failed")
 	}
-	return pass("inbound round-trip + HMAC ok")
+
+	// This is the only scenario that originates real inbound SMTP (every other
+	// scenario is loopback or outbound), so it's the only place `authentication`
+	// evidence can be checked over the wire at all — the conformance suite runs
+	// off a GitHub-hosted runner with no SMTP access and can only assert the
+	// null-for-loopback case. The synthetic sender domain (e2a-selftest.invalid,
+	// an RFC 2606 reserved TLD) publishes no SPF/DKIM/DMARC records and is never
+	// signed, so a genuine DMARC pass isn't achievable here — but the field must
+	// still be present, well-formed, and correctly reflect "evaluated, did not
+	// authenticate" rather than being silently dropped, null, or malformed.
+	var env struct {
+		Data struct {
+			Authentication *emailauth.Authentication `json:"authentication"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(d.Body, &env); err != nil {
+		return fail("decode email.received envelope: %v", err)
+	}
+	auth := env.Data.Authentication
+	if auth == nil {
+		return fail("email.received data.authentication is null for a real inbound SMTP delivery (want populated evidence, even unauthenticated)")
+	}
+	if len(auth.DKIM) != 0 {
+		return fail("data.authentication.dkim: want empty (unsigned synthetic message), got %d signature(s)", len(auth.DKIM))
+	}
+	if auth.DMARC.Status == emailauth.StatusPass {
+		return fail("data.authentication.dmarc.status: want not-pass (e2a-selftest.invalid has no DNS/SPF/DKIM/DMARC infrastructure), got pass")
+	}
+	return pass(fmt.Sprintf("inbound round-trip + HMAC ok; authentication evidence present (dmarc=%s)", auth.DMARC.Status))
 }
 
 // scenarioOutboundSend is the real-egress counterpart to the inbound round-trip:
