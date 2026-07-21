@@ -67,10 +67,12 @@ jobs:
             dockerfile: Dockerfile.prober
           - image: e2a-sdk-monitor
             display_name: SDK monitor image
-            # Continuously exercises the *published* Python SDK against prod
+            # Continuously exercises the *published* client surfaces (raw API,
+            # Python SDK, MCP, TypeScript SDK, CLI) against prod
             # (tests/sdk-monitor). Context is deliberately the service directory,
             # not the repo root: the build must not be able to see sdks/python,
-            # so the SDK can only come from a real PyPI install.
+            # sdks/typescript, or cli/, so every dependency can only come from a
+            # real PyPI/npm install of the published package.
             context: tests/sdk-monitor
             dockerfile: tests/sdk-monitor/Dockerfile
     steps:
