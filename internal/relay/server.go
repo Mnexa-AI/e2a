@@ -58,7 +58,13 @@ type Server struct {
 	// inboundEnq forces the synchronous path regardless (fail-safe).
 	inboundAsync bool
 	inboundEnq   InboundEnqueuer
+	authenticate AuthenticationChecker
 }
+
+// AuthenticationChecker evaluates the connection and message identities used
+// by the inbound trust gate. It is injectable so end-to-end tests can exercise
+// deterministic DMARC-pass paths without depending on public DNS.
+type AuthenticationChecker func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication
 
 // InboundEnqueuer inserts the inbound_process job in the SMTP accept-tx (the same
 // transaction as the inbound_intake insert). *inboundprocess.Jobs satisfies it.
@@ -75,6 +81,14 @@ func (s *Server) SetInboundEnqueuer(e InboundEnqueuer) { s.inboundEnq = e }
 // messages row and the webhook_events outbox row in a single transaction (per
 // design §4.2); the drain fans out and enqueues River delivery jobs.
 func (s *Server) SetOutbox(o webhookpub.Outbox) { s.outbox = o }
+
+// SetAuthenticationChecker replaces the default DNS-backed evaluator. This is
+// intended for deterministic tests; production leaves the default in place.
+func (s *Server) SetAuthenticationChecker(check AuthenticationChecker) {
+	if check != nil {
+		s.authenticate = check
+	}
+}
 
 // SetEnforcer wires in the resource-limits enforcer used to reject
 // inbound recipients whose owner has hit the message-flow or storage
@@ -93,6 +107,7 @@ func NewServer(cfg *config.Config, store *identity.Store, usage usage.UsageTrack
 		smtpDomain:         cfg.SMTP.Domain,
 		outboundFromDomain: cfg.OutboundSMTP.FromDomain,
 		inboundAsync:       cfg.Inbound.Mode == "async",
+		authenticate:       emailauth.CheckAuthenticationForAuthorWithHELO,
 	}
 
 	be := &backend{relay: s}
@@ -332,7 +347,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	headerFrom := threadInfo.From
 	// SPF/DKIM/DMARC against the TRUE envelope MAIL FROM (RFC 7208), not the From
 	// header — else SPF-alignment is a tautology (adversarial review F5).
-	authentication := emailauth.CheckAuthenticationForAuthorWithHELO(ctx, in.RemoteIP, envelopeFrom, in.HELODomain, in.Body, author)
+	authentication := srv.authenticate(ctx, in.RemoteIP, envelopeFrom, in.HELODomain, in.Body, author)
 	log.Printf("[%s] [%s] email auth from %s (envelope %s): SPF=%s DKIM=%d DMARC=%s", in.TraceID, headerFrom, in.RemoteIP, envelopeFrom, authentication.SPF.Status, len(authentication.DKIM), authentication.DMARC.Status)
 
 	agent, err := srv.resolveAgent(ctx, in.Recipient)

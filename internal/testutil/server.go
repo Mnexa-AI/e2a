@@ -19,6 +19,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/apiserver"
 	"github.com/tokencanopy/e2a/internal/config"
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/jobs"
@@ -44,6 +45,7 @@ type testServerOpts struct {
 	outboundSMTPFromDomain      string
 	outboundSMTPMessageIDDomain string
 	manualJobs                  bool
+	inboundAuthentication       *emailauth.Authentication
 }
 
 type TestServerOption func(*testServerOpts)
@@ -81,6 +83,13 @@ func WithOutboundSMTPMessageIDDomain(domain string) TestServerOption {
 // on: the client is started and drains the queue on its own.
 func WithManualJobs() TestServerOption {
 	return func(o *testServerOpts) { o.manualJobs = true }
+}
+
+// WithInboundAuthentication injects deterministic SMTP authentication
+// evidence. It lets integration tests cover DMARC-pass policy paths without
+// relying on mutable public DNS.
+func WithInboundAuthentication(authentication *emailauth.Authentication) TestServerOption {
+	return func(o *testServerOpts) { o.inboundAuthentication = authentication }
 }
 
 type E2ATestServer struct {
@@ -273,6 +282,11 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		Env: "development",
 	}
 	smtpServer := relay.NewServer(cfg, store, noopUsage, wsHub)
+	if o.inboundAuthentication != nil {
+		smtpServer.SetAuthenticationChecker(func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication {
+			return o.inboundAuthentication
+		})
+	}
 	smtpServer.SetOutbox(outbox)
 
 	go func() {

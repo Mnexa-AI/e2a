@@ -228,11 +228,6 @@ func TestOutboundResponseFormat(t *testing.T) {
 }
 
 func TestPollMode_E2E(t *testing.T) {
-	// The reply portion of this test sends to a non-e2a recipient
-	// (alice-poll@gmail.com), which requires an outbound SMTP relay
-	// configured in testutil.TestServer — currently empty config.
-	// Tracked as test-infra work.
-	t.Skip("requires an outbound SMTP relay configured in testutil.TestServer")
 	pool := testutil.TestDB(t)
 	ts := testutil.TestServer(t, pool)
 
@@ -297,6 +292,7 @@ func TestPollMode_E2E(t *testing.T) {
 	var msgResp struct {
 		ID             string         `json:"id"`
 		HeaderFrom     *string        `json:"header_from"`
+		EnvelopeFrom   *string        `json:"envelope_from"`
 		Authentication map[string]any `json:"authentication"`
 		To             []string       `json:"to"`
 		RawMessage     string         `json:"raw_message"`
@@ -311,8 +307,13 @@ func TestPollMode_E2E(t *testing.T) {
 	if msgResp.HeaderFrom == nil || *msgResp.HeaderFrom != "alice-poll@gmail.com" {
 		t.Errorf("HeaderFrom = %v", msgResp.HeaderFrom)
 	}
+	if msgResp.EnvelopeFrom == nil || *msgResp.EnvelopeFrom != "alice-poll@gmail.com" {
+		t.Errorf("EnvelopeFrom = %v", msgResp.EnvelopeFrom)
+	}
 	if msgResp.Authentication == nil {
 		t.Error("Authentication is nil for external SMTP inbound")
+	} else if dmarc, ok := msgResp.Authentication["dmarc"].(map[string]any); !ok || dmarc["status"] == "" {
+		t.Errorf("Authentication.dmarc = %v, want status", msgResp.Authentication["dmarc"])
 	}
 	if msgResp.Status != "read" {
 		t.Errorf("Status = %q, want read", msgResp.Status)
@@ -332,17 +333,6 @@ func TestPollMode_E2E(t *testing.T) {
 		t.Errorf("expected 0 unread messages after read, got %d", len(emptyResp.Items))
 	}
 
-	// Reply via API should work (reply path is unchanged, only de-prefixed).
-	replyPayload := `{"text":"Got your message!"}`
-	req4, _ := http.NewRequest("POST", ts.HTTPServer.URL+"/v1/agents/"+url.PathEscape("agent@poll.example.com")+"/messages/"+msgID+"/reply", bytes.NewBufferString(replyPayload))
-	req4.Header.Set("Content-Type", "application/json")
-	req4.Header.Set("Authorization", "Bearer "+apiKey.PlaintextKey)
-	resp4, _ := http.DefaultClient.Do(req4)
-	defer resp4.Body.Close()
-
-	if resp4.StatusCode != 200 {
-		t.Errorf("reply status = %d, want 200", resp4.StatusCode)
-	}
 }
 
 func TestRcptRejectsUnknownRecipient(t *testing.T) {

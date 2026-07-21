@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 )
@@ -24,11 +25,11 @@ import (
 // flaggedFixture wires a verified agent with the given ingestion policy and a
 // subscriber listening for both email.received and email.flagged. Returns the
 // pool (to read the persisted row), the agent, and the capturing receiver.
-func setupFlaggedAgent(t *testing.T, policy string, allowlist []string, email, domain string) (*testutil.E2ATestServer, *pgxpool.Pool, *identity.AgentIdentity, *testutil.SubscriberReceiverResult) {
+func setupFlaggedAgent(t *testing.T, policy string, allowlist []string, email, domain string, opts ...testutil.TestServerOption) (*testutil.E2ATestServer, *pgxpool.Pool, *identity.AgentIdentity, *testutil.SubscriberReceiverResult) {
 	t.Helper()
 	pool := testutil.TestDB(t)
 	receiver := testutil.SubscriberReceiver(t)
-	ts := testutil.TestServer(t, pool)
+	ts := testutil.TestServer(t, pool, opts...)
 
 	user, _, agent := setupDomainAndAgent(t, ts, email, domain, "", "")
 	if err := ts.Store.UpdateAgentInboundPolicy(context.Background(), agent.ID, user.ID, policy, allowlist); err != nil {
@@ -37,6 +38,60 @@ func setupFlaggedAgent(t *testing.T, policy string, allowlist []string, email, d
 	registerWebhook(t, ts, user.ID, receiver.Server.URL+"/received",
 		[]string{"email.received", "email.flagged"}, identity.WebhookFilters{})
 	return ts, pool, agent, receiver
+}
+
+func passingAuthentication(domain string) *emailauth.Authentication {
+	aligned := true
+	policy := emailauth.DMARCPolicyReject
+	return &emailauth.Authentication{
+		SPF: emailauth.SPFResult{
+			Status: emailauth.StatusPass, Domain: &domain, Aligned: &aligned,
+		},
+		DKIM: []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{
+			Status: emailauth.StatusPass, Domain: &domain, Policy: &policy,
+			AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF},
+		},
+	}
+}
+
+func TestInboundPolicy_GatedPolicyAcceptsAuthenticatedMember(t *testing.T) {
+	tests := []struct {
+		name      string
+		policy    string
+		allowlist []string
+	}{
+		{name: "allowlist", policy: "allowlist", allowlist: []string{"friend@trusted.com"}},
+		{name: "domain", policy: "domain", allowlist: []string{"trusted.com"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, pool, agent, receiver := setupFlaggedAgent(
+				t, tt.policy, tt.allowlist, "agent@pass-"+tt.name+".example.com", "pass-"+tt.name+".example.com",
+				testutil.WithInboundAuthentication(passingAuthentication("trusted.com")),
+			)
+
+			msg := "From: friend@trusted.com\r\nTo: " + agent.EmailAddress() + "\r\nSubject: Hi\r\n\r\nHello"
+			if err := smtp.SendMail(ts.SMTPAddr, nil, "friend@trusted.com", []string{agent.EmailAddress()}, []byte(msg)); err != nil {
+				t.Fatalf("SendMail: %v", err)
+			}
+
+			tick(t, ts)
+			got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool {
+				return eventTypes(c)["email.received"] >= 1
+			})
+			if n := eventTypes(got)["email.flagged"]; n != 0 {
+				t.Errorf("authenticated member emitted %d email.flagged events", n)
+			}
+			if flagged, reason := readFlagged(t, pool, agent.ID); flagged {
+				t.Errorf("authenticated member persisted as flagged: %s", reason)
+			}
+			received := eventData(got, "email.received")
+			if received["verified_domain"] != "trusted.com" {
+				t.Errorf("verified_domain = %v", received["verified_domain"])
+			}
+		})
+	}
 }
 
 func eventTypes(caps []testutil.SubscriberCaptured) map[string]int {

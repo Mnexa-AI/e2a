@@ -193,10 +193,18 @@ scenarios:
         path: /v1/agents/{agent_email}/messages/{injected_message_id}
         expect:
           status: 200
-          body_contains:
-            - id
-            - authentication
-            - raw_message
+          body_match:
+            header_from: alice@example.com
+            envelope_from: alice@example.com
+            verified_domain: example.com
+            authentication.spf.status: pass
+            authentication.spf.domain: example.com
+            authentication.spf.aligned: true
+            authentication.dkim.length: 0
+            authentication.dmarc.status: pass
+            authentication.dmarc.domain: example.com
+            authentication.dmarc.policy: reject
+            "authentication.dmarc.aligned_by[0]": spf
 
       - id: list_unread_after
         action: request
