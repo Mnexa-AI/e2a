@@ -98,6 +98,14 @@ const verifiedDomain = {
       purpose: "inbound_mx",
       status: "verified",
     },
+    {
+      type: "MX",
+      name: "*.verified.example.com",
+      value: "mx.e2a.dev",
+      priority: 10,
+      purpose: "inbound_mx_wildcard",
+      status: "verified",
+    },
   ],
   created_at: "2026-01-01T00:00:00Z",
   verified_at: "2026-01-15T00:00:00Z",
@@ -457,6 +465,8 @@ describe("Query param support", () => {
       expect(screen.getByText("Configure DNS records")).toBeInTheDocument();
     });
     expect(screen.getByText("Route email to e2a")).toBeInTheDocument();
+    expect(screen.getByText("Route email for all subdomains")).toBeInTheDocument();
+    expect(screen.queryByText("inbound_mx_wildcard")).not.toBeInTheDocument();
     expect(screen.getByText("Verify domain ownership")).toBeInTheDocument();
   });
 });
