@@ -76,7 +76,7 @@ func contentHashHex(body []byte) string {
 // calls the shared processInbound with a hook that flips the intake to 'processed'
 // ATOMICALLY with the messages insert + event publish — the worker's idempotency
 // gate. The stored remote_ip text is parsed back to net.IP for SPF; an unparseable
-// value yields nil, which emailauth.Check treats as an unauthenticated source
+// value yields nil, which the authentication evaluator treats as unavailable
 // (fail-safe, not a crash).
 func (srv *Server) ProcessIntake(ctx context.Context, it *identity.InboundIntake) error {
 	in := inboundInput{

@@ -13,7 +13,7 @@ const log = (line) => appendFileSync(LOG, line + '\n');
 const messages = JSON.parse(readFileSync(`${FIX}/messages.json`, 'utf8'));
 const summary = (m) => ({
   message_id: m.message_id, conversation_id: m.conversation_id,
-  header_from: m.header_from, authentication: m.authentication, subject: m.subject,
+  header_from: m.header_from, verified_domain: m.verified_domain, subject: m.subject,
 });
 
 const server = new McpServer({ name: 'e2a-stub', version: '0' });

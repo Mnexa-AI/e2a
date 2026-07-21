@@ -163,6 +163,9 @@ func TestInboundPolicy_AllowlistFlagsNonMember(t *testing.T) {
 	if reason == "" {
 		t.Error("flagged row has empty flag_reason")
 	}
+	if reason != "sender did not pass aligned DMARC authentication, so it cannot satisfy a gated inbound policy" {
+		t.Errorf("flag_reason = %q", reason)
+	}
 }
 
 // TestInboundPolicy_AllowlistFlagsUnauthenticatedMember: matching an address is

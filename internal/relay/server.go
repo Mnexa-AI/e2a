@@ -330,7 +330,7 @@ type inboundInput struct {
 // message (its idempotency gate); the sync path passes nil.
 type postPersistHook func(ctx context.Context, tx pgx.Tx, messageID string) error
 
-// processInbound runs the full inbound chain — parse, SPF/DKIM, HMAC sign, ingestion
+// processInbound runs the full inbound chain — parse, SPF/DKIM/DMARC, ingestion
 // gate, content screening, persist, and event publish — for one recipient. It is the
 // SINGLE implementation shared by the synchronous SMTP session and the async River
 // worker (internal/inboundprocess); the post-persist hook is the only difference.
@@ -371,9 +371,8 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	messageID := identity.NewMessageID()
 
 	// Inbound trust policy ingestion gate (decision 10 / Slice 7a). Evaluate the
-	// agent's policy against the AUTHENTICATED From identity (senderEmail — what
-	// SPF/DKIM/DMARC pertain to), NOT displaySender (Reply-To is attacker-
-	// controllable). A non-match is FLAGGED — still delivered (never dropped),
+	// agent's policy against the claimed From identity plus the DMARC verdict,
+	// NOT Reply-To (attacker-controllable). A non-match is FLAGGED — still delivered,
 	// marked on the row, and emits email.flagged so operators get a signal.
 	//
 	// senderResolvable fails the gate closed for shared-relay "via e2a" mail,

@@ -102,7 +102,8 @@ type Request struct {
 	Direction Direction
 	Segments  []Segment
 	Signals   DecodedSignals
-	// Sender is the authenticated From (inbound) or the agent identity (outbound).
+	// Sender is the claimed RFC 5322 From (inbound) or the agent identity
+	// (outbound). Consult Auth.DMARC before treating the inbound domain as verified.
 	Sender string
 	// Auth is the parsed inbound auth verdict; nil on outbound.
 	Auth *emailauth.Authentication

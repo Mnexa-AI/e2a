@@ -69,7 +69,7 @@ Usage:
         --read-status <s>          unread|read|all (default all — safe for poll loops)
         --limit <n>                Stop after n messages
         --agent <email>            Inbox to list (or config agent_email)
-        --json                     NDJSON instead of TSV (id, from, created_at)
+        --json                     NDJSON instead of TSV (id, header_from, created_at)
   e2a messages get <id> [--text]    Fetch one message; marks it read
         --text                     Print body text only (parsed reply-text preferred)
         --agent <email>            Inbox to read (or config agent_email)

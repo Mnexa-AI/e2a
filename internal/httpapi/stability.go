@@ -182,9 +182,9 @@ func (s *Server) applyEvolutionStance() {
 	// the beta marker, EXCEPT:
 	//   - the envelope itself (top-level keys + schema_version stay frozen);
 	//   - any schema the stable surface reaches on its own — via another
-	//     stable operation (CheckResult, through the message endpoints'
-	//     AuthVerdict) or via a stable operation-unreachable documentation
-	//     component (AttachmentMeta, through the email.received event payload
+	//     stable operation (Authentication, through the message endpoints) or
+	//     via a stable operation-unreachable documentation component
+	//     (AttachmentMetaView, through the email.received event payload
 	//     EmailReceivedData). Marking those would silently degrade stable
 	//     endpoints/event payloads to beta.
 	// The set is computed, not enumerated, so a new export entry type can't
