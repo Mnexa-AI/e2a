@@ -342,7 +342,7 @@ export type MessageViewWire = {
   delivered_to: string;
   subject: string;
   conversation_id?: string;
-  direction?: "inbound" | "outbound";
+  direction: "inbound" | "outbound";
   delivery_status?: string;
   review_status?: string;
   read_status?: string;
@@ -406,6 +406,7 @@ export function projectInbound(
 ): InboundMessageDetail {
   return {
     id: w.id,
+    direction: "inbound",
     header_from: w.header_from,
     envelope_from: w.envelope_from,
     verified_domain: w.verified_domain,
@@ -416,7 +417,8 @@ export function projectInbound(
     recipient: w.delivered_to,
     subject: w.subject,
     conversation_id: w.conversation_id ?? "",
-    status: w.delivery_status ?? "",
+    review_status: w.review_status,
+    status: w.read_status ?? "",
     created_at: w.created_at,
     parsed: w.parsed,
     body: w.body,
@@ -425,15 +427,8 @@ export function projectInbound(
   };
 }
 
-// A MessageView projected for whichever direction the caller knows it to
-// be. `/v1` returns one MessageView for both directions, and that detail
-// shape has a direction field, but callers still thread the authoritative
-// list-row direction into this projection for compatibility with deep links.
-// payload. The authoritative direction lives on the MessageSummaryView
-// list row, so callers thread it in (the focus page via its `?direction=`
-// query param). When the caller can't supply one (a deep link with no
-// param), we fall back to inbound — the safe default that never offers
-// approve/reject on a message we can't prove is a held outbound draft.
+// A MessageView projected by its authoritative wire direction. The optional
+// fallback keeps older cached payloads and pre-contract deep links readable.
 export type LoadedMessageDetail =
   | { direction: "outbound"; data: PendingMessageDetail }
   | { direction: "inbound"; data: InboundMessageDetail };
@@ -441,8 +436,9 @@ export type LoadedMessageDetail =
 export function projectMessageDetail(
   email: string,
   w: MessageViewWire,
-  direction: "inbound" | "outbound" = "inbound",
+  fallbackDirection: "inbound" | "outbound" = "inbound",
 ): LoadedMessageDetail {
+  const direction = w.direction ?? fallbackDirection;
   return direction === "outbound"
     ? { direction: "outbound", data: projectPending(email, w) }
     : { direction: "inbound", data: projectInbound(w) };

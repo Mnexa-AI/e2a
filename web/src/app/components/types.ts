@@ -204,6 +204,7 @@ export type ListMessagesResponse = {
 // through `body.text`.
 export type InboundMessageDetail = {
   id: string;
+  direction: "inbound";
   header_from: string | null;
   envelope_from: string | null;
   verified_domain: string | null;
@@ -214,6 +215,8 @@ export type InboundMessageDetail = {
   recipient: string;
   subject: string;
   conversation_id: string;
+  review_status?: string;
+  // UI projection aliases for delivered_to and read_status.
   status: string;
   created_at: string;
   // Backend-derived body (preferred): `text` is the injection-reduced plain

@@ -111,8 +111,9 @@ current signatures and treat that as the source of truth. The surface, by area:
 - **HITL.** A send may come back `pending_review` instead of `sent`. That's the
   human-approval gate, not an error; it resolves when a human approves/rejects
   (or the review TTL expires).
-- **Verification.** Inbound mail carries SPF/DKIM/DMARC results — trust the
-  authenticated sender, not the display name.
+- **Verification.** Inbound mail carries SPF/DKIM/DMARC results. Only a DMARC
+  pass authenticates domain-authorized use of the RFC 5322 From domain; it does
+  not authenticate the mailbox local part, a person, or the display name.
 - **Webhook signatures.** Verify inbound webhook deliveries with the per-webhook
   secret via the SDK's `construct_event` / `constructEvent`.
 

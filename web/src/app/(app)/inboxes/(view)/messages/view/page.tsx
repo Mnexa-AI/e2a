@@ -6,12 +6,10 @@
 //   GET /v1/agents/{address}/messages/{id} → MessageView
 // There is no bare-id endpoint, so the agent address is threaded in via
 // the ?email= query param (the inbox list page links here with it). We
-// fetch the same MessageView twice-shaped: once projected to the
-// outbound PendingMessageDetail (for the draft/HITL surfaces) and once
+// project the MessageView into either the
+// outbound PendingMessageDetail (for the draft/HITL surfaces) or
 // to the inbound InboundMessageDetail (for the received-mail surfaces),
-// keyed off the row's `direction`-derived state. The outbound fetch is
-// tried first (focus is most often a held draft); inbound is the
-// fallback when the outbound projection isn't a pending draft.
+// keyed off its authoritative `direction` field.
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -117,13 +115,9 @@ function FocusPageRouter() {
   const email = searchParams.get("email") ?? "";
   const id = searchParams.get("id") ?? "";
   const initialHeadersOpen = searchParams.get("headers") === "1";
-  // The `/v1` detail endpoint (MessageView) carries NEITHER `direction`
-  // nor `review_status`, and blanks `from`/`status` on outbound rows — so
-  // direction and pending-state can't be recovered from the fetch. The
-  // list/pending rows (MessageSummaryView) have both, so they thread the
-  // authoritative values in via query params. Missing → inbound /
-  // not-pending: a deep link can't prove a held outbound draft, so we
-  // default to the safe shape that hides approve/reject.
+  // Direction and review state come from MessageView. Preserve URL values as
+  // fallbacks for old cached payloads and links created before those fields
+  // were added to the detail contract.
   const direction: "inbound" | "outbound" =
     searchParams.get("direction") === "outbound" ? "outbound" : "inbound";
   const pending = searchParams.get("pending") === "1";
@@ -188,9 +182,8 @@ function FocusContent({
     },
   );
 
-  // The wire has no `direction` — it can't be recovered from the payload —
-  // so the authoritative value threaded in via `?direction=` selects the
-  // projection. Cheap and pure, so it re-derives on any cache write
+  // The wire direction selects the projection; the query value is only a
+  // compatibility fallback. Cheap and pure, so it re-derives on any cache write
   // (including one made by another surface sharing this key).
   const msg: LoadedMessage | null = useMemo(
     () =>
@@ -223,13 +216,10 @@ function FocusContent({
     setDraftBody(outboundData.body_text ?? "");
   }, [outboundData]);
 
-  // The detail MessageView's `status` is the DELIVERY rollup
-  // (queued/sent/…), never the HITL lifecycle — "pending_review" only
-  // ever lives in `review_status` on the summary view, which the detail
-  // doesn't return. So we gate the approve/reject affordances on the
-  // `pending` flag threaded from the list/pending row (alongside
-  // `direction`). Absent param → not pending → approve/reject hidden.
-  const isPending = msg?.direction === "outbound" && threadedPending;
+  // review_status is authoritative; the query flag remains a compatibility
+  // fallback for an older cached MessageView.
+  const isPending = msg?.direction === "outbound" &&
+    (detailSWR.data?.review_status === "pending_review" || threadedPending);
 
   const inboxLink = `/inboxes/messages?email=${encodeURIComponent(email)}`;
   const convLink = msg?.direction === "outbound"
@@ -883,12 +873,6 @@ function buildOutboundHeaderLines(d: PendingMessageDetail): InkLine[] {
         </span>
       ),
     });
-  }
-  if (d.inbound) {
-	lines.push({ c: "comment", text: "# parent inbound auth" });
-	lines.push(d.inbound.authentication
-	  ? dmarcHeaderLine(d.inbound.authentication.dmarc.status)
-	  : dmarcNotEvaluatedLine());
   }
   return lines;
 }

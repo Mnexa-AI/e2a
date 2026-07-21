@@ -141,9 +141,8 @@ function AgentInboxContent({ email }: { email: string }) {
     }
   };
 
-  // The focus page's MessageView detail carries NEITHER `direction` nor
-  // `review_status` (and blanks `from`/`status` on outbound), so we thread
-  // both off the list row (MessageSummaryView has them) into the URL:
+  // MessageView now carries direction and review_status. Keep copies from the
+  // list row in the URL for compatibility with older cached detail payloads:
   //   &direction=<inbound|outbound>  → picks the detail projection
   //   &pending=1                     → gates approve/reject
   // The focus page defaults to inbound / not-pending when absent.

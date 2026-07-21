@@ -4,13 +4,8 @@
 //
 // In /v1 there's one agent-scoped detail endpoint
 // (GET /v1/agents/{address}/messages/{id} → MessageView). That detail
-// shape carries NEITHER `direction` NOR `review_status`, and on outbound
-// rows the wire `from` and `status` come back as EMPTY strings — so the
-// page CANNOT recover direction or pending-state from the fetch. The
-// list/pending rows (MessageSummaryView) carry both, so they thread the
-// authoritative values into the URL: `?direction=<inbound|outbound>` and
-// `&pending=1`. A deep link with no params defaults to inbound /
-// not-pending (no approve/reject), which we also assert below.
+// shape carries `direction` and `review_status`. URL copies remain only as a
+// compatibility fallback for older deep links and cached payloads.
 
 import { render, screen, waitFor, within } from "../../../../../../test-utils/swr";
 import { render as rawRender } from "@testing-library/react";
@@ -74,22 +69,22 @@ const minutesAgo = (n: number) =>
 const AGENT_EMAIL = "support@acme.io";
 
 // REAL MessageView wire (GET /v1/agents/{address}/messages/{id}) for a
-// held outbound draft. Per the server: the detail view has NO `direction`
-// and NO `review_status`, and on an outbound row `from` and `status` are
-// EMPTY strings. Direction + pending-state are NOT recoverable here —
-// they're threaded via the URL params. Body comes through `body.text`.
+// held outbound draft. Body comes through `body.text`.
 const OUTBOUND_PENDING = {
   id: "msg_pending",
+  direction: "outbound",
   header_from: AGENT_EMAIL,
   envelope_from: null,
+  verified_domain: null,
   authentication: null,
   to: ["maya@stripe.com"],
   cc: [],
   reply_to: [],
-  recipient: "maya@stripe.com",
+  delivered_to: "maya@stripe.com",
   subject: "Re: Q3 contract renewal",
   conversation_id: "conv_K3p9aQ",
-  status: "",
+  read_status: "",
+  review_status: "pending_review",
   created_at: minutesAgo(13),
   body: {
     text: "Hi Maya,\n\nThanks for sending over the renewal draft…\n\nBest,\nAcme Support",
@@ -98,8 +93,10 @@ const OUTBOUND_PENDING = {
 
 const INBOUND_DETAIL = {
   id: "msg_in1",
+  direction: "inbound",
   header_from: "maya@stripe.com",
   envelope_from: "bounce@stripe.com",
+  verified_domain: "stripe.com",
   authentication: {
     spf: { status: "pass", domain: "stripe.com", aligned: true },
     dkim: [],
@@ -108,10 +105,11 @@ const INBOUND_DETAIL = {
   to: [AGENT_EMAIL],
   cc: [],
   reply_to: [],
-  recipient: AGENT_EMAIL,
+  delivered_to: AGENT_EMAIL,
   subject: "Q3 contract renewal",
   conversation_id: "conv_K3p9aQ",
-  status: "read",
+  read_status: "read",
+  review_status: "",
   created_at: minutesAgo(25),
   raw_message: btoa(
     "From: maya@stripe.com\r\n" +
@@ -228,6 +226,7 @@ describe("AgentMessageFocusPage", () => {
     mockDetail({
       ...INBOUND_DETAIL,
       id: "msg_dmarc_fail",
+      verified_domain: null,
       authentication: {
         ...INBOUND_DETAIL.authentication,
         dmarc: {
@@ -422,15 +421,7 @@ describe("AgentMessageFocusPage", () => {
     });
   });
 
-  // Regression (Bug 2 + Bug 3): the detail MessageView for an outbound
-  // row has `from:""` and `status:""` and no direction/review_status. A
-  // deep link with NO `?direction=`/`&pending=` params must therefore
-  // default to inbound + not-pending — render WITHOUT crashing and
-  // WITHOUT offering approve/reject. (The old code derived direction
-  // from `from === email`; with `from:""` it would have classified this
-  // as inbound too, but the load-bearing guarantee now is the explicit
-  // default + no action card.)
-  it("deep link with no direction/pending params renders as inbound, no approve/reject", async () => {
+  it("deep link uses the detail payload direction and review status", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending" });
     mockDetail(OUTBOUND_PENDING);
 
@@ -439,16 +430,12 @@ describe("AgentMessageFocusPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("message-focus")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("message-focus").dataset.direction).toBe("inbound");
-    expect(screen.queryByTestId("action-card")).not.toBeInTheDocument();
+    expect(screen.getByTestId("message-focus").dataset.direction).toBe("outbound");
+    expect(screen.getByTestId("message-focus").dataset.status).toBe("pending_review");
+    expect(screen.getByTestId("action-card")).toBeInTheDocument();
   });
 
-  // Regression (Bug 2 + Bug 3): the SAME wire payload (from:"", status:"")
-  // surfaces the approve/reject action card ONLY because direction +
-  // pending are threaded in via the URL. The pre-fix code gated on the
-  // detail `status === "pending_review"` (always false here) so the
-  // action card never appeared on the focus page.
-  it("threaded ?direction=outbound&pending=1 surfaces approve/reject even though wire from/status are empty", async () => {
+  it("keeps accepting redundant direction and pending query parameters", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_pending", direction: "outbound", pending: "1" });
     mockDetail(OUTBOUND_PENDING);
 
