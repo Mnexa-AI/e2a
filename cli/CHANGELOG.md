@@ -25,8 +25,8 @@ Set a default with `e2a config set agent_email <email>`; a value set that way is
 preserved across re-login.
 
 `listen` now exits `1` (previously `0`) in two cases that used to look like a
-clean stop: a long-running listen whose stream ends for any reason, including
-a server-side close during a deploy drain; and, under `--once --forward`, a
+clean stop: a long-running listen whose stream ends for any reason, such as a
+peer's normal WebSocket close (code 1000); and, under `--once --forward`, a
 forward POST that fails after the message was already consumed off the
 stream and printed to stdout.
 
