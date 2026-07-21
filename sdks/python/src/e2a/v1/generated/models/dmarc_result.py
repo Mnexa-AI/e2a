@@ -29,7 +29,7 @@ class DMARCResult(BaseModel):
     detail: Optional[StrictStr] = Field(default=None, description="Free-text diagnostic for humans and logs. Never parse or branch on this field.")
     domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists.")
     policy: Optional[StrictStr] = Field(description="Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength.")
-    status: StrictStr = Field(description="DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.")
+    status: StrictStr = Field(description="DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain. none means the sender publishes no DMARC record (common, not itself suspicious) and is distinct from fail, an actual alignment mismatch.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["aligned_by", "detail", "domain", "policy", "status"]
 

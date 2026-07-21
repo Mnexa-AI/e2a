@@ -323,7 +323,7 @@ type Message struct {
 	// remain separate from ReplyTo and from the legacy Sender projection.
 	HeaderFrom        string                    `json:"header_from" doc:"Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To."`
 	EnvelopeFrom      string                    `json:"envelope_from" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery."`
-	VerifiedDomain    *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated."`
+	VerifiedDomain    *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated. A null caused by dmarc.status=none (sender publishes no DMARC record) is common and NOT itself suspicious — distinct from dmarc.status=fail, an actual mismatch. Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not."`
 	Authentication    *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	Recipient         string                    `json:"delivered_to"`
 	Subject           string                    `json:"subject"`

@@ -46,7 +46,7 @@ export class ReviewView {
     'subject': string;
     'to': Array<string>;
     /**
-    * RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+    * RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise — including dmarc.status=none (no DMARC record published, common and NOT itself suspicious), not just dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content.
     */
     'verifiedDomain': string | null;
 

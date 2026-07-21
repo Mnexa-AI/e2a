@@ -779,7 +779,7 @@ components:
             - string
             - "null"
         status:
-          description: DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.
+          description: DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain. none means the sender publishes no DMARC record (common, not itself suspicious) and is distinct from fail, an actual alignment mismatch.
           enum:
             - pass
             - fail
@@ -1335,7 +1335,7 @@ components:
             type: string
           type: array
         verified_domain:
-          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated. A null caused by dmarc.status=none (sender publishes no DMARC record) is common and NOT itself suspicious — distinct from dmarc.status=fail, an actual mismatch. Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not.
           type:
             - string
             - "null"
@@ -2130,7 +2130,7 @@ components:
         type:
           type: string
         verified_domain:
-          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated. A null caused by dmarc.status=none (sender publishes no DMARC record) is common and NOT itself suspicious — distinct from dmarc.status=fail, an actual mismatch. Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not.
           type:
             - string
             - "null"
@@ -2251,7 +2251,7 @@ components:
             type: string
           type: array
         verified_domain:
-          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise — including dmarc.status=none (no DMARC record published, common and NOT itself suspicious), not just dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content.
           type:
             - string
             - "null"
@@ -2381,7 +2381,7 @@ components:
             type: string
           type: array
         verified_domain:
-          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content.
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation — this includes dmarc.status=none (sender publishes no DMARC record, common and NOT itself suspicious) as well as dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content.
           type:
             - string
             - "null"
@@ -3119,7 +3119,7 @@ components:
             type: string
           type: array
         verified_domain:
-          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise — including dmarc.status=none (no DMARC record published, common and NOT itself suspicious), not just dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content.
           type:
             - string
             - "null"
@@ -5024,7 +5024,7 @@ paths:
       tags:
         - messages
     get:
-      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence.
+      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.
       operationId: getMessage
       parameters:
         - description: The agent's full email address.

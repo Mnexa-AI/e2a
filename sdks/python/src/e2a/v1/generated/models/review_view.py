@@ -41,7 +41,7 @@ class ReviewView(BaseModel):
     review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")
     subject: StrictStr
     to: List[StrictStr]
-    verified_domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.")
+    verified_domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise — including dmarc.status=none (no DMARC record published, common and NOT itself suspicious), not just dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content.")
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["agent_email", "conversation_id", "created_at", "direction", "envelope_from", "flag_reason", "flagged", "header_from", "hold_reason", "id", "review_status", "subject", "to", "verified_domain"]
 

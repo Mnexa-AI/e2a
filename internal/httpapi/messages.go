@@ -25,7 +25,7 @@ type MessageView struct {
 	ID             string                    `json:"id"`
 	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To."`
 	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery."`
-	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content."`
+	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation — this includes dmarc.status=none (sender publishes no DMARC record, common and NOT itself suspicious) as well as dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content."`
 	Authentication *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	To             []string                  `json:"to" nullable:"false"`
 	CC             []string                  `json:"cc" nullable:"false"`
@@ -253,7 +253,7 @@ type MessageSummaryView struct {
 	Direction      string   `json:"direction" enum:"inbound,outbound"`
 	HeaderFrom     *string  `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To."`
 	EnvelopeFrom   *string  `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery."`
-	VerifiedDomain *string  `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content."`
+	VerifiedDomain *string  `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise — including dmarc.status=none (no DMARC record published, common and NOT itself suspicious), not just dmarc.status=fail (an actual mismatch). Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not. This authenticates the domain, not the address local part, individual sender, or message content."`
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc,omitempty" nullable:"false"`
 	ReplyTo        []string `json:"reply_to,omitempty" nullable:"false" doc:"The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field and is not echoed back here)."`
@@ -432,7 +432,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Get a message",
-		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence.",
+		Description: "Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, func(ctx context.Context, in *MessageIDParam) (*messageOutput, error) {

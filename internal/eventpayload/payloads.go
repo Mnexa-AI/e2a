@@ -71,7 +71,7 @@ type EmailReceivedData struct {
 	ConversationID string                    `json:"conversation_id,omitempty"`
 	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
 	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery."`
-	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated."`
+	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated. A null caused by dmarc.status=none (sender publishes no DMARC record) is common and NOT itself suspicious — distinct from dmarc.status=fail, an actual mismatch. Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not."`
 	To             []string                  `json:"to" nullable:"false"`
 	CC             []string                  `json:"cc" nullable:"false"`
 	ReplyTo        []string                  `json:"reply_to" nullable:"false"`
