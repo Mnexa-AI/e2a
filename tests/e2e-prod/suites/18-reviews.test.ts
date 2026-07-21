@@ -27,7 +27,9 @@ interface Review {
   id: string;
   agent_email: string;
   direction: string;
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  verified_domain: string | null;
   to: string[];
   subject: string;
   conversation_id?: string;
@@ -84,10 +86,12 @@ test("reviews: listReviews returns PageReviewView envelope with the new held rev
     );
     const mine = r.body!.items.find((v) => v.id === id);
     assert.ok(mine, `the just-created held review ${id} should appear in the account queue`);
-    // ReviewView fields: id, agent_email, direction, from, to, subject, review_status, created_at.
+    // ReviewView fields: id, agent_email, direction, header_from, envelope_from,
+    // verified_domain, to, subject, review_status, created_at.
     assert.equal(mine!.agent_email, email, "review.agent_email is the sending inbox");
     assert.equal(mine!.direction, "outbound", "held outbound draft");
-    assert.equal(mine!.from, email, "review.from is the sending agent");
+    assert.equal(mine!.header_from, email, "review.header_from is the sending agent identity for outbound mail");
+    assert.equal(mine!.envelope_from, null, "review.envelope_from is null for outbound messages");
     assert.ok(Array.isArray(mine!.to) && mine!.to.includes(SINK), "review.to carries the recipient");
     assert.equal(mine!.subject, subject, "review.subject matches the sent subject");
     assert.equal(mine!.review_status, "pending_review", "queued item is pending_review");
