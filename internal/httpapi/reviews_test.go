@@ -75,6 +75,12 @@ func TestReviews_ListReturnsBothDirections(t *testing.T) {
 		if m["review_status"] != "pending_review" {
 			t.Errorf("item missing review_status: %v", m)
 		}
+		if m["direction"] == "inbound" && m["header_from"] != nil {
+			t.Errorf("legacy inbound sender must not be relabeled as header_from: %v", m)
+		}
+		if m["direction"] == "outbound" && m["header_from"] != "support@acme.dev" {
+			t.Errorf("outbound header_from = %v, want composed sender", m["header_from"])
+		}
 	}
 	if !dirs["inbound"] || !dirs["outbound"] {
 		t.Fatalf("expected both directions, got %v", dirs)

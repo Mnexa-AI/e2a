@@ -67,7 +67,10 @@ func reviewHeaderFrom(it identity.ReviewListItem) *string {
 	if it.HeaderFrom != "" {
 		return nullableMessageString(it.HeaderFrom)
 	}
-	return nullableMessageString(it.Sender)
+	if it.Direction == "outbound" {
+		return nullableMessageString(it.Sender)
+	}
+	return nil
 }
 
 type listReviewsOutput struct{ Body Page[ReviewView] }
