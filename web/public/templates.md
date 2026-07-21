@@ -68,9 +68,6 @@ curl -X POST https://api.e2a.dev/v1/agents/billing-bot%40agents.e2a.dev/messages
   }'
 ```
 
-Rendering happens **before** any human-in-the-loop review hold, so reviewers
-see the final subject and body.
-
 > **Wire change.** To make room for the template shape, `subject` and `text`
 > moved from schema-required to handler-enforced on
 > `POST /v1/agents/{email}/messages`. A literal send that omits them now
@@ -93,7 +90,7 @@ copy freely afterwards.
 | `receipt` | Order receipt with a line-item table and hosted-receipt link | `company_name`, `support_email`, `company_address`, `preheader`*, `order_id`, `order_date`, **`items_html`** (raw), `items_text`, `total`, `receipt_url` |
 | `agent-status` | Numbers-first status report from an automated agent | `company_name`, `support_email`, `company_address`, `preheader`*, `agent_name`, `run_summary`, **`sections_html`** (raw), `sections_text`, `dashboard_url` |
 | `daily-digest` | Recurring daily summary with an unsubscribe link | `company_name`, `support_email`, `company_address`, `preheader`*, `agent_name`, `date`, `headline`, **`sections_html`** (raw), `sections_text`, `dashboard_url`, **`unsubscribe_html`** (raw) |
-| `approval-request` | Human-in-the-loop approval request with Approve/Reject buttons and expiry | `company_name`, `support_email`, `company_address`, `preheader`*, `agent_name`, `action_summary`, **`details_html`** (raw), `details_text`, `approve_url`, `reject_url`, `expires_at` |
+| `approval-request` | Human approval request with Approve/Reject buttons and expiry | `company_name`, `support_email`, `company_address`, `preheader`*, `agent_name`, `action_summary`, **`details_html`** (raw), `details_text`, `approve_url`, `reject_url`, `expires_at` |
 
 \* optional; **bold** = raw (`{{{…}}}`) slot. `GET /v1/starter-templates`
 returns the authoritative per-variable metadata (required/raw flags,

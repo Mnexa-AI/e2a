@@ -29,8 +29,8 @@ import { E2AClient } from "@e2a/sdk";
 const client = new E2AClient({ apiKey: process.env.E2A_API_KEY });
 const messageId = "msg_..."; // an inbound message id from a webhook, WebSocket, or list call
 
-// Send (held drafts come back status="pending_review", not an error)
-await client.messages.send("bot@agents.e2a.dev", {
+// Send; if status is pending_review, report it and do not retry.
+const result = await client.messages.send("bot@agents.e2a.dev", {
   to: ["person@example.com"],
   subject: "Hello from my agent",
   text: "This was sent by an AI agent via e2a.",
@@ -79,7 +79,7 @@ if (isEmailReceived(event)) {
   const email = await client.inbound.fromEvent(event);
   console.log(email.envelopeFrom, email.verified, email.replyTargets);
   const result = await email.reply({ text: "On it." });
-  if (result.status === "pending_review") console.log("awaiting approval", result.messageId);
+  if (result.status === "pending_review") console.log("not dispatched", result.messageId);
 }
 ```
 
@@ -98,7 +98,7 @@ if event.type == "email.received":
     print(email.envelope_from, email.verified, email.reply_targets)
     result = await email.reply({"text": "On it."})
     if result.status == "pending_review":
-        print("awaiting approval", result.message_id)
+        print("not dispatched", result.message_id)
 ```
 
 `verified` is true only for an aligned DMARC pass in the hydrated authentication
@@ -112,23 +112,6 @@ inline data is available only within the server's 256 KiB cap.
 A full, runnable example (FastAPI + Google ADK agent, webhook → agent turn →
 reply) is at
 [examples/adk-cloud-webhook](https://github.com/tokencanopy/e2a/tree/main/examples/adk-cloud-webhook).
-
-## Human-in-the-loop
-
-Held messages (outbound drafts + screened inbound) are the account-scoped review
-queue. With an account-scoped key:
-
-```ts
-const held = await client.reviews.list().toArray({ limit: 100 });   // both directions
-await client.reviews.approve(id);                      // outbound: send; inbound: release
-await client.reviews.reject(id, { reason: "spam" });
-```
-
-```python
-held = await client.reviews.list().to_list(limit=100)
-await client.reviews.approve(message_id)
-await client.reviews.reject(message_id, {"reason": "spam"})
-```
 
 ## Real-time (no webhook)
 
@@ -166,13 +149,13 @@ Conventions:
   (null when exhausted).
 - **Errors** — non-2xx bodies are `{"error": {"code", "message", "request_id"}}`;
   branch on the machine `code`.
-- **Idempotency** — sends (`send`/`reply`/`forward`/approve) accept an
+- **Idempotency** — sends (`send`/`reply`/`forward`) accept an
   `Idempotency-Key` header; a retried call replays instead of double-sending.
-- **Scopes** — account keys manage agents/domains/keys/reviews; agent keys are
+- **Scopes** — account keys manage agents/domains/keys; agent keys are
   pinned to one inbox.
 
 The endpoint map, exact request/response bodies, enums, and error codes are all
 in the OpenAPI 3.1 contract — generated from the live handlers and checked for
 drift in CI: **https://e2a.dev/openapi.yaml**. The core resources are `agents`
-(inboxes), `messages` (send/reply/forward/get/list/attachments), `reviews`
-(HITL), `domains`, `webhooks`, `events`, and `account`.
+(inboxes), `messages` (send/reply/forward/get/list/attachments), `domains`,
+`webhooks`, `events`, and `account`.

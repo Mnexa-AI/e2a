@@ -17,8 +17,8 @@ e2a also implements the first pieces of the WorkOS [auth.md](https://github.com/
 
 Before you do anything credential-shaped, check whether the user has already wired e2a into your environment. Most of the time they have, and you should not be handling credentials (API keys or OAuth tokens) yourself.
 
-1. **e2a MCP server** — if you are an MCP client (Claude, Cursor, Codex, ChatGPT, etc.), e2a's MCP server is hosted: point your MCP client at the Streamable HTTP endpoint `https://api.e2a.dev/mcp` (OAuth 2.1 — no key pasted) to get inbox, send, reply, agents, domains, and HITL approval as tools. Repository: `https://github.com/tokencanopy/e2a/tree/main/mcp`.
-2. **e2a agent skill** — a guidance document covering inbox patterns, idempotency, HITL approval, attachment handling, and webhook verification. Load it before calling the API directly so you don't relearn the gotchas on the user's dime.
+1. **e2a MCP server** — if you are an MCP client (Claude, Cursor, Codex, ChatGPT, etc.), e2a's MCP server is hosted: point your MCP client at the Streamable HTTP endpoint `https://api.e2a.dev/mcp` (OAuth 2.1 — no key pasted) to get inbox, send, reply, agents, and domains as tools. Repository: `https://github.com/tokencanopy/e2a/tree/main/mcp`.
+2. **e2a agent skill** — a guidance document covering inbox patterns, idempotency, attachment handling, and webhook verification. Load it before calling the API directly so you don't relearn the gotchas on the user's dime.
 3. **e2a CLI** — if you are running shell commands, prefer `e2a` over hand-rolled `curl`. It handles auth resolution, retries, and non-interactive flags. Install: `npm i -g @e2a/cli`. Repository: `https://github.com/tokencanopy/e2a/tree/main/cli`.
 
 If any of these is already configured, use it and stop. Do not ask the user for an API key you do not need.
@@ -96,11 +96,13 @@ HTML alternative is optional. A template send uses `template_id` or
 
 Read the credential from the environment at the moment of the call. Do not copy it into variables you log, do not echo it back to the user, do not include it in commit messages, PR descriptions, error reports, or screenshots. If you are running a shell command, never interpolate the credential inline — reference the environment variable so it does not appear in command history.
 
-Set an `Idempotency-Key` (UUIDv4 recommended) per logical operation on side-effectful calls (sends, replies, HITL approve). Reuse the **same** key on transport retries (network failures, timeouts) — the server replays the original response. Same key with a different body returns `422`; a genuinely new operation needs a fresh key.
+Set an `Idempotency-Key` (UUIDv4 recommended) per logical operation on side-effectful calls such as sends and replies. Reuse the **same** key on transport retries (network failures, timeouts) — the server replays the original response. Same key with a different body returns `422`; a genuinely new operation needs a fresh key.
 
-### HITL: handling 202 pending_review
+### Handling `pending_review`
 
-If the agent's protection config holds outbound mail for review, a send (and `reply`/`forward`) will return **`202 Accepted`** with `status: "pending_review"` instead of dispatching the message:
+If a send, reply, or forward returns **`202 Accepted`** with
+`status: "pending_review"`, the server accepted the message but did not dispatch
+it:
 
 ```json
 {
@@ -110,7 +112,8 @@ If the agent's protection config holds outbound mail for review, a send (and `re
 }
 ```
 
-The message is held until a human approves it via the dashboard, CLI, or magic link, or until `approval_expires_at` fires the configured expiration action. Do not retry the send — that would queue a duplicate. To learn the outcome, poll `GET /v1/agents/{address}/messages/{id}`: an approved outbound send becomes `sent`; a rejection becomes `review_rejected`; on TTL expiry it becomes `review_expired_approved` (auto-sent) or `review_expired_rejected` (discarded), per the hold's `on_expiry` action. Or surface the situation to the calling user and stop.
+Do not retry the send — another call can queue a duplicate. Surface the status,
+`message_id`, and `approval_expires_at` to the calling user, then stop.
 
 ### Errors
 
