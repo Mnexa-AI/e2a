@@ -174,6 +174,16 @@ for the same agent connects (a second `e2a listen`, or an SDK
 auto-reconnecting would steal the socket back from the newer listener and
 loop.
 
+`listen` also participates in the exit-code contract below: a long-running
+listen (no `--once`) exits `1` whenever the stream actually ends, such as
+after a peer's normal WebSocket close (code 1000). Deploy drains use close code
+1001 and reconnect with backoff, so they do not end the stream. A supervisor
+(`systemd Restart=on-failure`, a retry loop) should treat exit `1` as
+"restart me," not "stopped on purpose." Under `--once`, a forward that never
+reaches the `--forward` endpoint also exits `1` even though the message itself
+was printed to stdout — the message was consumed off the stream, so a silent
+exit `0` would read as a successful hand-off to a harness when it wasn't.
+
 #### OpenAI Responses auto-reply
 
 When the `--forward <url>` path ends in `/v1/responses`, `listen` switches to
@@ -230,9 +240,10 @@ environment-only (`E2A_URL` and `E2A_SHARED_DOMAIN`).
 
 ## Exit codes
 
-`whoami`, `send`, `reply`, and `messages` publish a stable, frozen exit-code
-contract (`cli/src/exit.ts`) so shell harnesses can branch on the process exit
-status instead of parsing JSON. Codes are never renumbered — only added to.
+`whoami`, `send`, `reply`, `messages`, and `listen` publish a stable, frozen
+exit-code contract (`cli/src/exit.ts`) so shell harnesses can branch on the
+process exit status instead of parsing JSON. Codes are never renumbered —
+only added to.
 
 | Code | Meaning |
 |---|---|

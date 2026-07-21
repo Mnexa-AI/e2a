@@ -32,6 +32,12 @@ spans every inbox, so there is no inbox to infer. Commands needing one resolve
 Set a default with `e2a config set agent_email <email>`; a value set that way is
 preserved across re-login.
 
+`listen` now exits `1` (previously `0`) in two cases that used to look like a
+clean stop: a long-running listen whose stream ends for any reason, such as a
+peer's normal WebSocket close (code 1000); and, under `--once --forward`, a
+forward POST that fails after the message was already consumed off the
+stream and printed to stdout.
+
 ## 1.6.0
 
 Current release. Adds the CLI's scripting/harness surface: `whoami`,
