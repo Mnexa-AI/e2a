@@ -29,8 +29,8 @@ const READ_STATUSES = ["unread", "read", "all"] as const;
 // max so draining a mailbox costs the fewest round trips.
 const MAX_PAGE_SIZE = 100;
 
-// Default output is TSV (id, from, created_at) in ascending order —
-// the shape a shell poll loop wants (`while IFS=$'\t' read -r id from at`).
+// Default output is TSV (id, header_from, created_at) in ascending order —
+// the shape a shell poll loop wants (`while IFS=$'\t' read -r id header_from at`).
 // --json emits one full summary object per line (NDJSON), in the SDK's
 // camelCase model shape like `listen --json`.
 export async function messagesList(opts: MessagesListOptions): Promise<void> {
@@ -70,7 +70,7 @@ export async function messagesList(opts: MessagesListOptions): Promise<void> {
       process.stdout.write(JSON.stringify(withWireFrom(m)) + "\n");
     } else {
       process.stdout.write(
-		`${m.id}\t${sanitizeTsvField(m.headerFrom ?? "")}\t${m.createdAt.toISOString()}\n`,
+        `${m.id}\t${sanitizeTsvField(m.headerFrom ?? "")}\t${m.createdAt.toISOString()}\n`,
       );
     }
     count++;
@@ -93,7 +93,7 @@ export function sanitizeTsvField(s: string): string {
  */
 export function withWireFrom(model: object): Record<string, unknown> {
   const obj: Record<string, unknown> = { ...model };
-	return obj;
+  return obj;
 }
 
 export async function messagesGet(

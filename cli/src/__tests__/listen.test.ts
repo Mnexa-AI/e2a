@@ -714,6 +714,38 @@ describe("listen --once forwarding failures", () => {
     const printed = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
     expect(printed).toContain('"headerFrom":"alice@example.com"');
   });
+
+  it("prints stable sanitized TSV for --once", async () => {
+    vi.resetModules();
+
+    const notification = makeNotification({ header_from: "Alice\tExample\r\n<alice@example.com>" });
+    const fakeStream = {
+      on: vi.fn(),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "email.received",
+          id: "evt_123",
+          schema_version: "1",
+          created_at: notification.received_at,
+          data: notification,
+        };
+      },
+    };
+    vi.doMock("../sdk.js", () => ({
+      createClient: () => ({ listen: () => fakeStream, messages: { get: vi.fn(), reply: vi.fn() } }),
+      requireAgentEmail: (agent?: string) => agent ?? "bot@agents.e2a.dev",
+    }));
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const { listen } = await import("../commands/listen.js");
+    await listen({ agent: "bot@agents.e2a.dev", once: true });
+
+    expect(stdoutSpy).toHaveBeenCalledWith(
+      "msg_123\tAlice Example <alice@example.com>\t2025-01-15T10:30:00Z\n",
+    );
+  });
 });
 
 describe("listen exit code when a long-running (non---once) stream ends", () => {

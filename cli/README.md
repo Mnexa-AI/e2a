@@ -143,12 +143,12 @@ get push delivery without a public webhook URL.
 
 ```bash
 e2a listen --agent bot@acme.com
-# [10:30:15] From: alice@example.com | Subject: Meeting tomorrow
+# [10:30:15] Claimed From: alice@example.com | DMARC: pass (verified domain: example.com) | Subject: Meeting tomorrow
 
 # --forward bridges each message to a local HTTP handler (the
 # `stripe listen --forward-to` pattern) — ideal for developing a webhook
 # handler locally without exposing a public URL. Each message is POSTed as
-# the full v1 MessageView JSON (SDK camelCase: messageId, createdAt, …):
+# the full v1 MessageView JSON (SDK camelCase: headerFrom, authentication, …):
 e2a listen --agent bot@acme.com --forward http://localhost:3000/inbound
 
 # --forward-token adds an `Authorization: Bearer <token>` header to the POST:
