@@ -102,6 +102,45 @@ class StripUnusedGeneratedImportsTest(unittest.TestCase):
                 path.read_text(encoding="utf-8"),
             )
 
+    def test_removes_selected_unused_name_from_grouped_typescript_import(self) -> None:
+        cleaner = load_cleaner()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ObjectSerializer.ts"
+            path.write_text(
+                "import { DKIMResult, DKIMResultStatusEnum } "
+                "from '../models/DKIMResult.js';\n\n"
+                "export const typeMap = { DKIMResult };\n"
+                "export const enumsMap = [\"DKIMResultStatusEnum\"];\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(cleaner.strip_file(path, {"DKIMResultStatusEnum"}))
+            self.assertEqual(
+                "import { DKIMResult } from '../models/DKIMResult.js';\n\n"
+                "export const typeMap = { DKIMResult };\n"
+                "export const enumsMap = [\"DKIMResultStatusEnum\"];\n",
+                path.read_text(encoding="utf-8"),
+            )
+
+    def test_removes_selected_unused_name_from_grouped_python_import(self) -> None:
+        cleaner = load_cleaner()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "message_view.py"
+            path.write_text(
+                "from pydantic import BaseModel, ConfigDict, field_validator\n\n"
+                "class MessageView(BaseModel):\n"
+                "    model_config = ConfigDict()\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(cleaner.strip_file(path, {"field_validator"}))
+            self.assertEqual(
+                "from pydantic import BaseModel, ConfigDict\n\n"
+                "class MessageView(BaseModel):\n"
+                "    model_config = ConfigDict()\n",
+                path.read_text(encoding="utf-8"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

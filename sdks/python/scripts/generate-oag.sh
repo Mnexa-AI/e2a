@@ -47,10 +47,17 @@ rm -rf "$TMP"
 # deployed client). Matches the TypeScript SDK's passthrough behavior.
 python3 "$ROOT/sdks/python/scripts/strip-enum-validators.py" "$DEST"
 
-# OpenAPI Generator imports re into standalone models even when they have no
-# regex-backed validators. Keep the sending-ramp model free of that unused
-# import without making a hand edit that regeneration would undo.
+# Normalize selected generator-known unused imports without making hand edits
+# that regeneration would undo.
 python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
+  re "$DEST/models/message_view.py" \
+  field_validator "$DEST/models/message_view.py" \
+  re "$DEST/models/dkim_result.py" \
+  field_validator "$DEST/models/dkim_result.py" \
+  re "$DEST/models/dmarc_result.py" \
+  field_validator "$DEST/models/dmarc_result.py" \
+  re "$DEST/models/spf_result.py" \
+  field_validator "$DEST/models/spf_result.py" \
   re "$DEST/models/sending_ramp_view.py"
 
 # OpenAPI Generator leaves multiple terminal newlines on standalone component

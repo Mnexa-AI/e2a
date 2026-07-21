@@ -41,11 +41,23 @@ find "$OUT" -name '*.ts' -print0 | xargs -0 perl -i -ne \
 
 # OpenAPI Generator imports every schema into its API wrapper variants and
 # imports HttpFile into standalone models even when those symbols are unused.
-# Normalize the files introduced by the sending-ramp schema so static analysis
-# and the generated-code freshness gate agree on the committed output.
+# Normalize selected generator-known unused imports so static analysis and the
+# generated-code freshness gate agree on the committed output.
 python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
   HttpFile "$OUT/models/SendingRampView.ts" \
+  HttpFile "$OUT/models/DKIMResult.ts" \
+  HttpFile "$OUT/models/DMARCResult.ts" \
+  DKIMResultStatusEnum "$OUT/models/ObjectSerializer.ts" \
+  DMARCResultAlignedByEnum "$OUT/models/ObjectSerializer.ts" \
+  DMARCResultPolicyEnum "$OUT/models/ObjectSerializer.ts" \
+  DMARCResultStatusEnum "$OUT/models/ObjectSerializer.ts" \
+  MessageSummaryViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
+  MessageViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
+  ReviewViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
+  SPFResultStatusEnum "$OUT/models/ObjectSerializer.ts" \
   SendingRampView "$OUT/types/PromiseAPI.ts" \
+  Authentication "$OUT/types/ObjectParamAPI.ts" \
+  DKIMResult "$OUT/types/ObjectParamAPI.ts" \
   SendingRampView "$OUT/types/ObjectParamAPI.ts" \
   SendingRampView "$OUT/types/ObservableAPI.ts"
 
