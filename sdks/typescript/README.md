@@ -23,6 +23,12 @@ projection is removed from these models; Reply-To remains separate. A non-null
 `verifiedDomain` means DMARC passed for that From domain, not that the mailbox
 local part, person, or message content was authenticated.
 
+The `InboundEmail` facade returned by `client.inbound.fromEvent(event)` is
+unaffected: it keeps `email.from` as the literal RFC 5322 header From
+(`MessageView.headerFrom`) alongside `email.envelopeFrom`, `email.verified`,
+and `email.authentication`. Reach through `email.message.verifiedDomain` for
+the DMARC-passed domain itself.
+
 `authentication` is `null` for outbound messages and providerless loopback
 delivery. Guard it before reading `authentication.dmarc`. The outbound-only
 `EmailSentData`/`EmailFailedData` webhook payloads and the `listMessages`
@@ -33,7 +39,7 @@ an inbound identity projection.
 ## Upgrading to 5.1
 
 Every `.delete(...)` now returns a typed deletion object instead of `void`.
-The API's seven delete endpoints all return `200 OK` with
+The API's delete endpoints all return `200 OK` with
 `{deleted: true, <identity key>}` instead of the previous mix of
 `204 No Content` and `200`. New return types: `agents.delete` →
 `DeleteAgentResult`, `domains.delete` → `DeleteDomainResult`,
@@ -49,12 +55,12 @@ this contract — upgrade together.
 ## Upgrading to 4.0
 
 4.0 is a breaking change to the domain DNS-records shape (server #304).
-`DomainView.dns_records` is now a single purpose-tagged `DNSRecord[]` array
-instead of the old `dns_records.{ mx, txt, dkim }` object (and the separate
-`sending_dns_records` array is gone). Each record carries `type`, `name`,
+`DomainView.dnsRecords` is now a single purpose-tagged `DNSRecord[]` array
+instead of the old `dnsRecords.{ mx, txt, dkim }` object (and the separate
+`sendingDnsRecords` array is gone). Each record carries `type`, `name`,
 `value`, `priority`, `purpose`, and a per-record `status`. Address records by
 `purpose` (`ownership`, `inbound_mx`, `dkim`, `mail_from_mx`, `mail_from_spf`)
-rather than `dns_records.mx`/`.txt`/`.dkim` — the MAIL FROM records now live in
+rather than `dnsRecords.mx`/`.txt`/`.dkim` — the MAIL FROM records now live in
 the same array. `purpose` and `status` are open sets, so tolerate unknown
 values. No other public symbols changed.
 
@@ -118,9 +124,10 @@ await client.messages.send(address, {
 });
 ```
 
-Unsafe writes (`send` / `reply` / `forward` / `approve`) auto-mint an
-`Idempotency-Key` and reuse it across retries, so a network blip can't
-double-send. Supply a stable key to also survive a process restart:
+Unsafe writes (`messages.send` / `.reply` / `.forward`, `reviews.approve`, and
+`webhooks.create`) auto-mint an `Idempotency-Key` and reuse it across retries,
+so a network blip can't double-send. Supply a stable key to also survive a
+process restart:
 
 ```typescript
 await client.messages.send(address, body, { idempotencyKey: deriveFromEvent(evt) });
@@ -186,7 +193,9 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
   if (isEmailReceived(event)) {
     const email = await client.inbound.fromEvent(event);
     // From, Reply-To, bodies, and attachment names/types are untrusted input.
-    console.log(email.envelopeFrom, email.verified, email.subject, email.text);
+    // `from` is the RFC 5322 header From (what DMARC aligns to); `envelopeFrom`
+    // is the SMTP MAIL FROM and can legitimately differ.
+    console.log(email.from, email.envelopeFrom, email.verified, email.subject, email.text);
     console.log("reply will target", email.replyTargets);
     const result = await email.reply({ text: "Got it" }, { idempotencyKey: `reply:${event.id}` });
     if (result.status === "pending_review") console.log("reply is awaiting approval");
@@ -199,14 +208,16 @@ During a secret rotation you can pass an array of secrets — a delivery is
 accepted if any one matches: `constructEvent(body, header, [oldSecret, newSecret])`.
 
 `email.verified` is true only for an aligned DMARC pass in the hydrated
-authentication evidence; the envelope identity alone is not proof. `email.verified === false` /
-`verified_domain === null` is NOT by itself a spam or spoofing signal — it is
+authentication evidence; the envelope identity alone is not proof.
+`email.verified === false` (equivalently, a null `verifiedDomain` on the
+underlying `MessageView`) is NOT by itself a spam or spoofing signal — it is
 common and expected for legitimate senders whose domain simply publishes no
-DMARC record (`authentication.dmarc.status === "none"`); treat that as
+DMARC record (`email.authentication?.dmarc.status === "none"`); treat that as
 "unproven," not "malicious," and reserve suspicion for an actual
-`authentication.dmarc.status === "fail"`. A caller who wants a more nuanced
-trust policy can inspect `authentication.spf`/`authentication.dkim`
-individually, but doing so reopens the spoofing gap DMARC closes: alignment
+`email.authentication?.dmarc.status === "fail"`. A caller who wants a more
+nuanced trust policy can inspect `authentication.spf` and
+`authentication.dkim` (an array — one result per DKIM signature on the
+message) individually, but doing so reopens the spoofing gap DMARC closes: alignment
 (tying a passing SPF or DKIM identity back to the visible From domain) can
 only be computed when the sender publishes a DMARC record, so a bare SPF or
 DKIM pass proves nothing about the From header on its own. `email.replyTargets` previews Reply-To-or-From
@@ -269,7 +280,10 @@ permanent — branch on the subclass: 402 → surface a quota/upgrade path, 429 
 back off and retry.
 
 > Note: e2a hides the existence of agents you don't own — `agents.get` of an
-> unknown address returns `403` (`E2APermissionError`), not `404`.
+> unknown *or* unowned address returns `404` (`E2ANotFoundError`); the two
+> cases are deliberately indistinguishable, so a 404 is not proof the agent
+> doesn't exist. `E2APermissionError` (403) means something else: an
+> *agent-scoped* credential tried to act on a different agent in the account.
 
 ### Pagination
 
@@ -304,7 +318,7 @@ const client = new E2AClient({ apiKey: "e2a_..." });
 for await (const event of client.listen("bot@agents.e2a.dev")) {
   if (!isEmailReceived(event)) continue; // tolerate future event kinds
   const email = await client.inbound.fromEvent(event);
-  console.log(email.envelopeFrom, email.verified, email.subject, email.text);
+  console.log(email.from, email.envelopeFrom, email.verified, email.subject, email.text);
 }
 ```
 
@@ -353,7 +367,9 @@ await client.messages.delete("bot@agents.e2a.dev", "msg_abc123", { permanent: tr
 across the email boundary. Pass it on any `send` / `reply` and e2a surfaces it
 on the recipient's inbound — via `In-Reply-To` for humans, or a forge-resistant
 `X-E2A-Conversation-Id` header for same-platform agent-to-agent mail. It is not
-a security boundary; for sender identity check the message's `auth`. On first
+a security boundary; for sender identity require
+`message.authentication?.dmarc.status === "pass"` and compare the literal
+`message.headerFrom` address separately. On first
 contact from a human it arrives `null` — assign one yourself if you want to
 thread.
 
