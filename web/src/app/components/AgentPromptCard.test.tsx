@@ -29,6 +29,32 @@ test("uses concise page-specific MCP prompts", () => {
   );
 });
 
+test("shows the optional outbound-review instruction for inbox setup", () => {
+  render(<AgentPromptCard {...AGENT_PROMPTS.inboxes} />);
+
+  const notice = screen.getByRole("note", {
+    name: "Optional outbound review setup",
+  });
+  expect(notice).toHaveTextContent("Want every outbound email reviewed first?");
+  expect(notice).toHaveTextContent(
+    "Configure this inbox so every outbound email requires human review.",
+  );
+});
+
+test("does not show the inbox-only notice on other setup cards", () => {
+  const { rerender } = render(
+    <AgentPromptCard {...AGENT_PROMPTS.templates} />,
+  );
+  expect(
+    screen.queryByRole("note", { name: "Optional outbound review setup" }),
+  ).not.toBeInTheDocument();
+
+  rerender(<AgentPromptCard {...AGENT_PROMPTS.domains} />);
+  expect(
+    screen.queryByRole("note", { name: "Optional outbound review setup" }),
+  ).not.toBeInTheDocument();
+});
+
 test("copy button writes the card's prompt to the clipboard and flips its label", async () => {
   render(<AgentPromptCard {...AGENT_PROMPTS.domains} />);
   fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }));
