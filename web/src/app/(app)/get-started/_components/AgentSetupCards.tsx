@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 const MCP_URL = "https://api.e2a.dev/mcp";
-const DOC_URL = "https://e2a.dev/e2a.md";
+const DOC_URL = "https://e2a.dev/setup.md";
 const CLAUDE_PLUGIN_COMMANDS = [
   "claude plugin marketplace add tokencanopy/e2a",
   "claude plugin install e2a@e2a",
