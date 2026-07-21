@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 
 import pytest
@@ -6,6 +7,16 @@ from agent_webhooks.delivery_state import EventDeduper
 
 
 class EventDeduperTest(unittest.IsolatedAsyncioTestCase):
+    async def test_concurrent_claims_have_exactly_one_winner(self) -> None:
+        deduper = EventDeduper()
+
+        results = await asyncio.gather(
+            *(deduper.claim("evt_contended") for _ in range(100))
+        )
+
+        self.assertEqual(results.count("new"), 1)
+        self.assertEqual(results.count("processing"), 99)
+
     async def test_claim_release_and_complete_transitions(self) -> None:
         deduper = EventDeduper(max_processed=1)
 
