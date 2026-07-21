@@ -423,6 +423,10 @@ scenarios:
           fields_absent:
             - data.body
             - data.raw_message
+            - data.from
+            - data.authenticated_from
+            - data.auth
+            - data.auth_headers
           field_match:
             type: email.received
             schema_version: "1"
