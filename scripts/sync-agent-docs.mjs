@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const AGENT_DOC_MIRRORS = [
-  ["plugins/e2a/docs/e2a.md", "web/public/e2a.md"],
+  ["plugins/e2a/docs/setup.md", "web/public/setup.md"],
   ["plugins/e2a/docs/auth.md", "web/public/auth.md"],
   ["plugins/e2a/docs/sdk.md", "web/public/sdk.md"],
   ["plugins/e2a/docs/templates.md", "web/public/templates.md"],

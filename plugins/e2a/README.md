@@ -63,7 +63,7 @@ Cursor's curated marketplace, which e2a isn't published to; and there is no
 Clients without native plugin support (Zed, Goose, Windsurf, Claude Desktop, raw
 `mcp.json`) can point straight at the hosted server. Ready-to-paste configs are
 in [`clients/`](./clients); the full per-client guide is at
-<https://e2a.dev/e2a.md>.
+<https://e2a.dev/setup.md>.
 
 ## What's inside
 
@@ -75,7 +75,7 @@ plugins/e2a/
 ├── .mcp.json                    # the hosted MCP server (single source of truth)
 ├── assets/icon.svg
 ├── docs/                        # canonical agent docs mirrored at e2a.dev
-│   ├── e2a.md                   # connect guide + first-inbox workflow
+│   ├── setup.md                 # connect guide + first-inbox workflow
 │   ├── auth.md                  # OAuth, API keys, scopes, agent identity
 │   ├── sdk.md                   # SDK + webhook integration guide
 │   ├── templates.md             # email-template guide
@@ -128,7 +128,7 @@ validator fails on drift.
 
 ## Reference
 
-- Connect / clients / first inbox: <https://e2a.dev/e2a.md>
+- Connect / clients / first inbox: <https://e2a.dev/setup.md>
 - Auth (OAuth 2.1 DCR + PKCE, API keys, scopes): <https://e2a.dev/auth.md>
 - Webhook + SDK code: <https://e2a.dev/sdk.md>
 - Docs index: <https://e2a.dev> (machine-readable: <https://e2a.dev/llms.txt>)

@@ -14,7 +14,7 @@ e2a is an authenticated email gateway for AI agents. It gives an agent a real em
 
 This file is the **operate-well manual** — the mental model and gotchas. It assumes you're already connected over MCP (the tools appear as `mcp__e2a__*`). For the things this file deliberately doesn't duplicate:
 
-- **Connect / pick a client / first inbox** → https://e2a.dev/e2a.md
+- **Connect / pick a client / first inbox** → https://e2a.dev/setup.md
 - **Auth (OAuth 2.1 DCR + PKCE, API keys, scopes)** → https://e2a.dev/auth.md
 - **Webhook + SDK code (TypeScript / Python, signature verification)** → https://e2a.dev/sdk.md
 - **Exact, current tool signatures** → call `tools/list` (authoritative), or the OpenAPI contract at https://e2a.dev/openapi.yaml
@@ -55,7 +55,7 @@ Before the first e2a operation in a task, inspect the current client's available
    - **Claude Code:** run `claude mcp add --transport http --scope user e2a https://api.e2a.dev/mcp`, then have the user run `/mcp` and authorize in the browser.
    - **Codex:** add `[mcp_servers.e2a]` with `url = "https://api.e2a.dev/mcp"` to the Codex config, then have the user run `codex mcp login e2a`.
    - **Cursor / Windsurf:** add `{ "mcpServers": { "e2a": { "url": "https://api.e2a.dev/mcp" } } }` to the client's MCP configuration and complete its OAuth prompt.
-   - **Other remote-MCP clients:** configure the Streamable HTTP endpoint `https://api.e2a.dev/mcp` and complete OAuth 2.1 authorization. See https://e2a.dev/e2a.md for client-specific details.
+   - **Other remote-MCP clients:** configure the Streamable HTTP endpoint `https://api.e2a.dev/mcp` and complete OAuth 2.1 authorization. See https://e2a.dev/setup.md for client-specific details.
 
    These interactive paths use OAuth. Never ask the user to paste an API key.
 3. After the user completes authorization, inspect the tool registry again and call the e2a MCP `whoami` tool.
@@ -171,7 +171,7 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 
 ## Reference
 
-- Connect / clients / first inbox: https://e2a.dev/e2a.md
+- Connect / clients / first inbox: https://e2a.dev/setup.md
 - Auth (OAuth 2.1 DCR + PKCE, API keys, scopes): https://e2a.dev/auth.md
 - Webhook + SDK code: https://e2a.dev/sdk.md
 - Exact tool signatures: call `tools/list` (authoritative).
