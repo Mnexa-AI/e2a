@@ -555,7 +555,7 @@ before they are declared stable.
 Reusable email sources (subject + plain-text body + optional HTML body),
 stored on the account and rendered server-side at send time via
 `{{variable}}` interpolation. Reference one on send with `template_id` or
-`template_alias` (mutually exclusive with literal `subject`/`body`/`html_body`)
+`template_alias` (mutually exclusive with literal `subject`/`text`/`html`)
 plus `template_data`. Full syntax, the raw-slot escaping warning, and the
 starter-template catalog are documented in
 [`docs/templates.md`](templates.md); this resource and its operations are
