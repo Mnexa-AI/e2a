@@ -17,6 +17,7 @@ def test_v1_exports():
         EmailReceivedData,
         InboundAttachment,
         InboundEmail,
+        InboundResource,
         SyncAutoPager,
         SyncStream,
         WebhookEvent,
@@ -36,6 +37,7 @@ def test_v1_exports():
     assert AsyncInboundAttachment is not None
     assert InboundEmail is not None
     assert InboundAttachment is not None
+    assert InboundResource is not None
     assert construct_event is not None
 
 
@@ -52,6 +54,7 @@ def test_toplevel_aliases_point_to_v1():
     assert e2a.WSStream is e2a.v1.WSStream
     assert e2a.InboundEmail is e2a.v1.InboundEmail
     assert e2a.AsyncInboundEmail is e2a.v1.AsyncInboundEmail
+    assert e2a.InboundResource is e2a.v1.InboundResource
 
     for name in ("Authentication", "SPFResult", "DKIMResult", "DMARCResult"):
         assert getattr(e2a, name) is getattr(e2a.v1, name)
@@ -68,6 +71,7 @@ def test_v1_all_is_explicit():
         "AsyncInboundAttachment",
         "InboundEmail",
         "InboundAttachment",
+        "InboundResource",
         "E2AClient",
         "SyncAutoPager",
         "SyncStream",
@@ -100,6 +104,7 @@ def test_toplevel_all_is_explicit():
         "SPFResult",
         "DKIMResult",
         "DMARCResult",
+        "InboundResource",
     }.issubset(set(e2a.__all__))
 
 

@@ -27,6 +27,7 @@ from e2a.v1.inbound import (  # noqa: F401
     AsyncInboundResource,
     InboundAttachment,
     InboundEmail,
+    InboundResource,
 )
 
 # Synchronous facade over the async client.
@@ -97,6 +98,7 @@ __all__ = [
     "AsyncInboundAttachment",
     "InboundEmail",
     "InboundAttachment",
+    "InboundResource",
     "E2AClient",
     "SyncAutoPager",
     "SyncStream",

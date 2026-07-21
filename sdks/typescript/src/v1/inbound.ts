@@ -218,6 +218,12 @@ export class InboundEmail {
   }
 }
 
+Object.defineProperty(InboundEmail.prototype, Symbol.for("nodejs.util.inspect.custom"), {
+  value(this: InboundEmail): InboundProjection {
+    return this.toJSON();
+  },
+});
+
 export class InboundResource {
   constructor(private readonly messages: InboundMessageOperations) {}
 

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { format } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import type { AttachmentView, MessageView, SendResultView } from "../../src/v1/generated/index.js";
 import { ObjectSerializer } from "../../src/v1/generated/models/ObjectSerializer.js";
@@ -128,5 +129,19 @@ describe("InboundEmail conformance", () => {
     const { ops } = operations(messageFromWire(vector.message));
     await expect(new InboundResource(ops).fromEvent({ ...vector.event, data: null }))
       .rejects.toBeInstanceOf(E2AValidationError);
+  });
+
+  it("keeps raw MIME and transport objects out of Node console formatting", async () => {
+    const vector = load<Vector>("full.json");
+    const { ops } = operations(messageFromWire(vector.message));
+    const email = await new InboundResource(ops).fromEvent(vector.event);
+
+    const displayed = format(email);
+
+    expect(displayed).toContain("Order #1234 delayed");
+    expect(displayed).not.toContain("UmF3IE1JTUUNCg==");
+    expect(displayed).not.toContain("rawMessage");
+    expect(displayed).not.toContain("message:");
+    expect(displayed).not.toContain("event:");
   });
 });
