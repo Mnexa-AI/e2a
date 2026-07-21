@@ -22,9 +22,11 @@ export type Framework = (typeof SUPPORTED_FRAMEWORKS)[number];
 type Environment = Record<string, string | undefined>;
 type AgentFactories = Partial<Record<Framework, () => ReplyAgent>>;
 
+class ConfigurationError extends Error {}
+
 function required(name: string, env: Environment): string {
   const value = env[name];
-  if (!value) throw new Error(`${name} is required`);
+  if (!value) throw new ConfigurationError(`${name} is required`);
   return value;
 }
 
@@ -39,7 +41,7 @@ export function validateProviderConfig(framework: Framework, env: Environment): 
   if (framework === "langchain") {
     const model = env.LANGCHAIN_MODEL ?? "openai:gpt-5.4";
     if (!model.startsWith("openai:")) {
-      throw new Error("LANGCHAIN_MODEL must use the installed openai: provider prefix");
+      throw new ConfigurationError("LANGCHAIN_MODEL must use the installed openai: provider prefix");
     }
     return void required("OPENAI_API_KEY", env);
   }
@@ -49,7 +51,7 @@ export function validateProviderConfig(framework: Framework, env: Environment): 
     required("GOOGLE_CLOUD_LOCATION", env);
     return;
   }
-  throw new Error("ADK requires GEMINI_API_KEY or GOOGLE_API_KEY, or complete Vertex config");
+  throw new ConfigurationError("ADK requires GEMINI_API_KEY or GOOGLE_API_KEY, or complete Vertex config");
 }
 
 function defaultFactories(env: Environment): Record<Framework, () => ReplyAgent> {
@@ -67,7 +69,7 @@ export function selectAgent(
   factories: AgentFactories = defaultFactories(process.env),
 ): ReplyAgent {
   if (!isFramework(framework) || !factories[framework]) {
-    throw new Error(`AGENT_FRAMEWORK must be one of: ${SUPPORTED_FRAMEWORKS.join(", ")}; got ${JSON.stringify(framework)}`);
+    throw new ConfigurationError(`AGENT_FRAMEWORK must be one of: ${SUPPORTED_FRAMEWORKS.join(", ")}`);
   }
   return factories[framework]();
 }
@@ -119,7 +121,7 @@ function initialize(options: AppOptions): Runtime {
   const env = options.env ?? process.env;
   const selected = options.framework ?? env.AGENT_FRAMEWORK ?? "fake";
   if (!isFramework(selected)) {
-    throw new Error(`AGENT_FRAMEWORK must be one of: ${SUPPORTED_FRAMEWORKS.join(", ")}; got ${JSON.stringify(selected)}`);
+    throw new ConfigurationError(`AGENT_FRAMEWORK must be one of: ${SUPPORTED_FRAMEWORKS.join(", ")}`);
   }
   const secret = options.webhookSecret ?? required("E2A_WEBHOOK_SECRET", env);
   if (options.inbound && options.agent) {
@@ -137,15 +139,19 @@ function initialize(options: AppOptions): Runtime {
 export function createApp(options: AppOptions = {}): Express {
   const app = express();
   let runtime: Runtime | undefined;
+  let startupDetail: string | undefined;
   try {
     runtime = initialize(options);
     runtimes.set(app, runtime);
-  } catch {
+  } catch (error: unknown) {
     runtime = undefined;
+    startupDetail = error instanceof ConfigurationError
+      ? error.message
+      : "runtime initialization failed";
   }
 
   app.get("/health", (_request, response) => {
-    if (!runtime) return response.status(503).json({ status: "unavailable" });
+    if (!runtime) return response.status(503).json({ status: "unavailable", detail: startupDetail });
     return response.json({ status: "ok" });
   });
 

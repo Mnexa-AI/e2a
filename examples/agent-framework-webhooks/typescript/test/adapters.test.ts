@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { InboundEmail } from "@e2a/sdk/v1";
+import { createEvent, type Event } from "@google/adk";
 
 import {
   ADKReplyAgent,
@@ -27,7 +28,7 @@ function inbound(overrides: Partial<InboundEmail> = {}): InboundEmail {
   } as InboundEmail;
 }
 
-async function* events(...values: unknown[]): AsyncGenerator<unknown> {
+async function* events(...values: Event[]): AsyncGenerator<Event> {
   for (const value of values) {
     yield value;
   }
@@ -125,12 +126,11 @@ describe("ADKReplyAgent", () => {
   it("ignores non-final events and returns the last final response text", async () => {
     const run = vi.fn(() =>
       events(
-        { isFinalResponse: () => false, content: { parts: [{ text: "draft" }] } },
-        { isFinalResponse: () => true, content: { parts: [{ text: "ADK one" }] } },
-        {
-          isFinalResponse: () => true,
-          content: { parts: [{ text: "ADK two" }, { functionCall: {} }, { text: "done" }] },
-        },
+        createEvent({ partial: true, content: { role: "model", parts: [{ text: "draft" }] } }),
+        createEvent({ content: { role: "model", parts: [{ text: "ADK one" }] } }),
+        createEvent({
+          content: { role: "model", parts: [{ text: "ADK two" }, { text: "done" }] },
+        }),
       ),
     );
     const email = inbound();

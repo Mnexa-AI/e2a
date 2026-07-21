@@ -89,8 +89,22 @@ describe("createApp", () => {
 
   it("returns 503 readiness when startup configuration is invalid", async () => {
     const app = createApp({ env: {}, framework: "openai" });
-    await request(app).get("/health").expect(503, { status: "unavailable" });
+    await request(app).get("/health").expect(503, {
+      status: "unavailable",
+      detail: "E2A_WEBHOOK_SECRET is required",
+    });
     await request(app).post("/webhook").set("content-type", "application/json").send("{}").expect(503);
+  });
+
+  it("does not expose unexpected startup error contents", async () => {
+    const app = createApp({
+      env: { E2A_API_KEY: "test", E2A_WEBHOOK_SECRET: SECRET },
+      framework: "fake",
+      agentFactories: { fake: () => { throw new Error("provider leaked sk-secret-value"); } },
+    });
+    const response = await request(app).get("/health").expect(503);
+    expect(response.body).toEqual({ status: "unavailable", detail: "runtime initialization failed" });
+    expect(JSON.stringify(response.body)).not.toContain("sk-secret-value");
   });
 
   it("maps signature failures to 401 before downstream work", async () => {

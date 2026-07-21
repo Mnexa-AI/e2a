@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { InboundEmail } from "@e2a/sdk/v1";
-import { InMemoryRunner, LlmAgent } from "@google/adk";
+import { InMemoryRunner, LlmAgent, isFinalResponse, type Event } from "@google/adk";
 
 import type { ReplyAgent } from "../contracts.js";
 import { REPLY_INSTRUCTIONS, emailPrompt } from "../prompt.js";
@@ -14,7 +14,7 @@ export interface ADKRunInput {
   sessionId: string;
 }
 
-export type ADKRun = (input: ADKRunInput) => AsyncIterable<unknown>;
+export type ADKRun = (input: ADKRunInput) => AsyncIterable<Event>;
 
 function canonicalMailbox(sender: string | null): string {
   const value = (sender ?? "").trim();
@@ -30,23 +30,10 @@ export function senderUserId(email: Pick<InboundEmail, "from" | "inbox">): strin
   return `sender-${digest}`;
 }
 
-function finalResponse(event: unknown): boolean {
-  if (!event || typeof event !== "object") return false;
-  const isFinalResponse = (event as { isFinalResponse?: unknown }).isFinalResponse;
-  return typeof isFinalResponse === "function" && Boolean(isFinalResponse.call(event));
-}
-
-function eventText(event: unknown): string {
-  if (!event || typeof event !== "object") return "";
-  const content = (event as { content?: unknown }).content;
-  if (!content || typeof content !== "object") return "";
-  const parts = (content as { parts?: unknown }).parts;
-  if (!Array.isArray(parts)) return "";
-  return parts.flatMap((part) => {
-    if (!part || typeof part !== "object") return [];
-    const text = (part as { text?: unknown }).text;
-    return typeof text === "string" ? [text] : [];
-  }).join("\n");
+function eventText(event: Event): string {
+  return event.content?.parts?.flatMap((part) =>
+    typeof part.text === "string" ? [part.text] : [],
+  ).join("\n") ?? "";
 }
 
 export class ADKReplyAgent implements ReplyAgent {
@@ -60,7 +47,7 @@ export class ADKReplyAgent implements ReplyAgent {
       sessionId: email.conversationId,
     };
     for await (const event of this.run(input)) {
-      if (finalResponse(event)) reply = eventText(event);
+      if (isFinalResponse(event)) reply = eventText(event);
     }
     return reply;
   }
