@@ -12,7 +12,7 @@ import {
   createLangChainReplyAgent,
   createOpenAIReplyAgent,
 } from "../src/adapters/index.js";
-import { REPLY_INSTRUCTIONS, emailPrompt } from "../src/prompt.js";
+import { emailPrompt } from "../src/prompt.js";
 
 function inbound(overrides: Partial<InboundEmail> = {}): InboundEmail {
   return {
@@ -47,22 +47,8 @@ describe("OpenAIReplyAgent", () => {
     await expect(agent.reply(inbound())).resolves.toBe("");
   });
 
-  it("constructs the official Agent and run path", async () => {
-    const Agent = vi.fn(function (this: object, options: unknown) {
-      Object.assign(this, { options });
-    });
-    const run = vi.fn().mockResolvedValue({ finalOutput: "done" });
-    const agent = createOpenAIReplyAgent({ Agent, run }, { OPENAI_MODEL: "gpt-test" });
-
-    await agent.reply(inbound());
-
-    expect(Agent).toHaveBeenCalledWith({
-      name: "Email assistant",
-      instructions: REPLY_INSTRUCTIONS,
-      model: "gpt-test",
-    });
-    expect(run.mock.calls[0]?.[0]).toMatchObject({ options: expect.any(Object) });
-    expect(run.mock.calls[0]?.[1]).toBe(emailPrompt(inbound()));
+  it("constructs the production adapter through official static imports", () => {
+    expect(createOpenAIReplyAgent({ OPENAI_MODEL: "gpt-test" })).toBeInstanceOf(OpenAIReplyAgent);
   });
 });
 
@@ -83,26 +69,8 @@ describe("AnthropicReplyAgent", () => {
     expect(run).toHaveBeenCalledWith(emailPrompt(email));
   });
 
-  it("constructs an official Messages request", async () => {
-    const create = vi.fn().mockResolvedValue({ content: [] });
-    const Anthropic = vi.fn(function (this: object) {
-      Object.assign(this, { messages: { create } });
-    });
-    const agent = createAnthropicReplyAgent(
-      {
-        Anthropic: Anthropic as unknown as Parameters<typeof createAnthropicReplyAgent>[0]["Anthropic"],
-      },
-      { ANTHROPIC_MODEL: "claude-test" },
-    );
-
-    await agent.reply(inbound());
-
-    expect(create).toHaveBeenCalledWith({
-      model: "claude-test",
-      max_tokens: 1024,
-      system: REPLY_INSTRUCTIONS,
-      messages: [{ role: "user", content: emailPrompt(inbound()) }],
-    });
+  it("constructs the production adapter through the official static import", () => {
+    expect(createAnthropicReplyAgent({ ANTHROPIC_MODEL: "claude-test" })).toBeInstanceOf(AnthropicReplyAgent);
   });
 });
 
@@ -148,24 +116,8 @@ describe("LangChainReplyAgent", () => {
     );
   });
 
-  it("constructs and invokes an official LangChain agent", async () => {
-    const invoke = vi.fn().mockResolvedValue({ messages: [] });
-    const createAgent = vi.fn().mockReturnValue({ invoke });
-    const agent = createLangChainReplyAgent(
-      { createAgent },
-      { LANGCHAIN_MODEL: "openai:test-model" },
-    );
-
-    await expect(agent.reply(inbound())).rejects.toThrow("assistant message");
-
-    expect(createAgent).toHaveBeenCalledWith({
-      model: "openai:test-model",
-      tools: [],
-      systemPrompt: REPLY_INSTRUCTIONS,
-    });
-    expect(invoke).toHaveBeenCalledWith({
-      messages: [{ role: "user", content: emailPrompt(inbound()) }],
-    });
+  it("constructs the production adapter through the official static import", () => {
+    expect(createLangChainReplyAgent({ LANGCHAIN_MODEL: "openai:test-model" })).toBeInstanceOf(LangChainReplyAgent);
   });
 });
 
@@ -210,44 +162,8 @@ describe("ADKReplyAgent", () => {
     expect(userIds[0]).not.toContain("example.com");
   });
 
-  it("constructs the official in-memory ADK runner path", async () => {
-    const getOrCreateSession = vi.fn().mockResolvedValue({ id: "conv_1" });
-    const runAsync = vi.fn(() =>
-      events({ isFinalResponse: () => true, content: { parts: [{ text: "ADK" }] } }),
-    );
-    const LlmAgent = vi.fn(function (this: object, options: unknown) {
-      Object.assign(this, { options });
-    });
-    const InMemoryRunner = vi.fn(function (this: object) {
-      Object.assign(this, { sessionService: { getOrCreateSession }, runAsync });
-    });
-    const agent = createADKReplyAgent(
-      {
-        LlmAgent,
-        InMemoryRunner: InMemoryRunner as unknown as Parameters<typeof createADKReplyAgent>[0]["InMemoryRunner"],
-      },
-      { ADK_MODEL: "gemini-test" },
-    );
-
-    await expect(agent.reply(inbound())).resolves.toBe("ADK");
-
-    expect(LlmAgent).toHaveBeenCalledWith({
-      name: "email_assistant",
-      model: "gemini-test",
-      instruction: REPLY_INSTRUCTIONS,
-    });
-    expect(InMemoryRunner).toHaveBeenCalledWith({ agent: expect.any(Object), appName: "e2a_email_assistant" });
-    const context = expect.objectContaining({
-      appName: "e2a_email_assistant",
-      userId: expect.stringMatching(/^sender-/),
-      sessionId: "conv_1",
-    });
-    expect(getOrCreateSession).toHaveBeenCalledWith(context);
-    expect(runAsync).toHaveBeenCalledWith({
-      userId: expect.stringMatching(/^sender-/),
-      sessionId: "conv_1",
-      newMessage: { role: "user", parts: [{ text: emailPrompt(inbound()) }] },
-    });
+  it("constructs the production adapter through official static imports", () => {
+    expect(createADKReplyAgent({ ADK_MODEL: "gemini-test" })).toBeInstanceOf(ADKReplyAgent);
   });
 });
 

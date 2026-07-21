@@ -58,7 +58,7 @@ type FakeEmail = {
   verified: boolean;
   flagged: boolean;
   text: string;
-  rawMessage?: string;
+  message?: { rawMessage: string };
   reply: ReturnType<typeof vi.fn>;
 };
 
@@ -83,7 +83,7 @@ function collaborators(options: { agentOutput?: string; sendStatus?: string } = 
 describe("emailPrompt", () => {
   it("projects only normalized, sender-controlled fields", () => {
     const { email, inboundEmail } = collaborators();
-    email.rawMessage = "SECRET RAW MIME";
+    email.message = { rawMessage: "SECRET RAW MIME" };
 
     expect(emailPrompt(inboundEmail)).toBe(
       "From: sender@example.net\n" +
@@ -192,8 +192,13 @@ describe("handleDelivery", () => {
     const { email, inbound, agent } = collaborators();
     const deduper = new EventDeduper();
 
+    const encoded = new TextEncoder().encode(body);
+    const padded = new Uint8Array(encoded.byteLength + 5);
+    padded.set(encoded, 2);
+    const rawBody = new Uint8Array(padded.buffer, 2, encoded.byteLength);
+
     const result = await handleDelivery({
-      body: new TextEncoder().encode(body),
+      body: rawBody,
       signature,
       secret: SECRET,
       inbound,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { InboundEmail } from "@e2a/sdk/v1";
+import { InMemoryRunner, LlmAgent } from "@google/adk";
 
 import type { ReplyAgent } from "../contracts.js";
 import { REPLY_INSTRUCTIONS, emailPrompt } from "../prompt.js";
@@ -65,48 +66,25 @@ export class ADKReplyAgent implements ReplyAgent {
   }
 }
 
-interface ADKRunner {
-  sessionService: {
-    getOrCreateSession(input: {
-      appName: string;
-      userId: string;
-      sessionId: string;
-    }): Promise<unknown>;
-  };
-  runAsync(input: {
-    userId: string;
-    sessionId: string;
-    newMessage: { role: "user"; parts: Array<{ text: string }> };
-  }): AsyncIterable<unknown>;
-}
-
-export interface ADKSDK {
-  LlmAgent: new (options: {
-    name: string;
-    model: string;
-    instruction: string;
-  }) => unknown;
-  InMemoryRunner: new (options: { agent: unknown; appName: string }) => ADKRunner;
-}
-
 /** Build the production adapter from the official `@google/adk` exports. */
 export function createADKReplyAgent(
-  sdk: ADKSDK,
   env: Record<string, string | undefined> = process.env,
 ): ADKReplyAgent {
-  const agent = new sdk.LlmAgent({
+  const agent = new LlmAgent({
     name: "email_assistant",
     model: env.ADK_MODEL ?? "gemini-flash-latest",
     instruction: REPLY_INSTRUCTIONS,
   });
-  const runner = new sdk.InMemoryRunner({ agent, appName: ADK_APP_NAME });
+  const runner = new InMemoryRunner({ agent, appName: ADK_APP_NAME });
 
   return new ADKReplyAgent(async function* ({ prompt, userId, sessionId }) {
-    await runner.sessionService.getOrCreateSession({
+    const sessionContext = {
       appName: ADK_APP_NAME,
       userId,
       sessionId,
-    });
+    };
+    const session = await runner.sessionService.getSession(sessionContext);
+    if (session === undefined) await runner.sessionService.createSession(sessionContext);
     yield* runner.runAsync({
       userId,
       sessionId,

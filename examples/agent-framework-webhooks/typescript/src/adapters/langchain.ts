@@ -1,4 +1,5 @@
 import type { InboundEmail } from "@e2a/sdk/v1";
+import { createAgent } from "langchain";
 
 import type { ReplyAgent } from "../contracts.js";
 import { REPLY_INSTRUCTIONS, emailPrompt } from "../prompt.js";
@@ -37,29 +38,17 @@ export class LangChainReplyAgent implements ReplyAgent {
   }
 }
 
-interface LangChainAgent {
-  invoke(input: { messages: Array<{ role: "user"; content: string }> }): Promise<LangChainResult>;
-}
-
-export interface LangChainSDK {
-  createAgent(options: {
-    model: string;
-    tools: never[];
-    systemPrompt: string;
-  }): LangChainAgent;
-}
-
 /** Build the production adapter from LangChain's official `createAgent` export. */
 export function createLangChainReplyAgent(
-  sdk: LangChainSDK,
   env: Record<string, string | undefined> = process.env,
 ): LangChainReplyAgent {
-  const agent = sdk.createAgent({
+  const agent = createAgent({
     model: env.LANGCHAIN_MODEL ?? "openai:gpt-5.4",
     tools: [],
     systemPrompt: REPLY_INSTRUCTIONS,
   });
-  return new LangChainReplyAgent((prompt) => agent.invoke({
-    messages: [{ role: "user", content: prompt }],
-  }));
+  return new LangChainReplyAgent(async (prompt) => {
+    const result = await agent.invoke({ messages: [{ role: "user", content: prompt }] });
+    return { messages: result.messages };
+  });
 }
