@@ -238,7 +238,7 @@ domains/webhooks in the **web dashboard**.
 
 | Command | Description |
 |---------|-------------|
-| `e2a login` | Open a browser login and save your API key + default agent to `~/.e2a/config.json` |
+| `e2a login` | Open a browser login and save an account-scoped API key to `~/.e2a/config.json` (does not set a default agent — use `e2a config set agent_email` or `--agent`) |
 | `e2a whoami` | Show the key identity: user, scope, bound agent, plan |
 | `e2a agents list\|create\|get` | Manage inboxes (requires an account-scoped key) |
 | `e2a keys create\|list\|delete` | Mint, list, and revoke API keys (requires an account-scoped key) |
