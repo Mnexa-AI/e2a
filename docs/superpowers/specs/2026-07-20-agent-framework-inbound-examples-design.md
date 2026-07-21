@@ -73,10 +73,10 @@ examples/agent-framework-webhooks/
 
 Each suite exposes a framework selector for local use, but every adapter remains
 a directly readable file with no dynamic imports hidden from the tutorial.
-The existing `examples/adk-cloud-webhook/` remains an executable compatibility
-launcher for the canonical Python ADK adapter, so its documented setup and
-existing repository links continue to work without duplicating webhook logic.
-Its README explains the new canonical suite.
+The existing `examples/adk-cloud-webhook/` remains an executable expanded ADK
+tutorial and is migrated to the same ergonomic facade contract. Its README
+links to the canonical matrix suite; the matrix README links back when readers
+want the longer session-memory walkthrough.
 
 ## Shared webhook lifecycle
 
