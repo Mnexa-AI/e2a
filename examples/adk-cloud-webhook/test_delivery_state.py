@@ -61,17 +61,22 @@ class WebhookExampleContractTest(unittest.TestCase):
         cls.source = Path(__file__).with_name("webhook.py").read_text()
         cls.tree = ast.parse(cls.source)
 
-    def test_current_event_sender_field_is_used(self) -> None:
-        self.assertIn('data.get("header_from")', self.source)
+    def test_hydrated_sender_field_is_used(self) -> None:
+        self.assertIn("email.from_", self.source)
         self.assertNotIn('data["from"]', self.source)
 
-    def test_fetched_message_uses_header_from_with_event_fallback(self) -> None:
-        self.assertIn("inbound.header_from", self.source)
-        self.assertNotIn("inbound.from_", self.source)
-        self.assertIn(
-            "_format_email_for_agent(inbound, data.get(\"header_from\"))",
-            self.source,
-        )
+    def test_uses_the_ergonomic_inbound_facade(self) -> None:
+        self.assertIn("await client.inbound.from_event(event)", self.source)
+        self.assertIn("await email.reply(", self.source)
+        self.assertNotIn("client.webhooks.fetch_message", self.source)
+        self.assertNotIn("client.messages.reply", self.source)
+
+    def test_prompt_uses_safe_normalized_email_fields(self) -> None:
+        self.assertIn("_format_email_for_agent(email)", self.source)
+        self.assertIn("email.from_", self.source)
+        self.assertIn("email.subject", self.source)
+        self.assertIn("email.text", self.source)
+        self.assertNotIn("raw_message", self.source)
 
     def test_reply_uses_event_id_as_idempotency_key(self) -> None:
         reply_calls = [

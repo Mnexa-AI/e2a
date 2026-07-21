@@ -8,21 +8,21 @@ Pipeline per request:
     construct_event(body, X-E2A-Signature, secret)  <-- parse + verify HMAC;
         |                                                rejects unsigned/replayed
         v
-    event.type == "email.received" -> event.data (message_id, delivered_to, header_from, …)
+    event.type == "email.received"
         |
         v
-    client.messages.get(delivered_to, message_id)  <-- fetch parsed subject/body
+    client.inbound.from_event(event)  <-- fetch safe, normalized InboundEmail fields
         |
         v
-    map (header_from, conversation_id) -> ADK (user_id, session_id)
+    map (from_, conversation_id) -> ADK (user_id, session_id)
         |                            first contact: conv_id is None;
         |                            we mint one and use it as session_id
         v
     Runner.run_async(...)        <-- multi-turn memory via ADK sessions
         |
         v
-    client.messages.reply(delivered_to, message_id, {text, conversation_id})
-                                 <-- echoes our id back so the next inbound matches
+    email.reply({text, conversation_id}, idempotency_key=event.id)
+                       <-- bound reply echoes our id so the next inbound matches
 
 The conversation_id <-> session_id binding is what lets ADK accumulate
 context across email turns even though SMTP itself is stateless.
@@ -41,7 +41,12 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from e2a.v1 import AsyncE2AClient, construct_event, E2AWebhookSignatureError
+from e2a.v1 import (
+    AsyncE2AClient,
+    AsyncInboundEmail,
+    E2AWebhookSignatureError,
+    construct_event,
+)
 
 from agent import APP_NAME, agent
 from delivery_state import EventDeduper, conversation_id_for, sender_user_id
@@ -128,22 +133,18 @@ async def webhook(request: Request) -> dict[str, str]:
 
     try:
         client: AsyncE2AClient = request.app.state.e2a
-        data = event.data  # message_id, delivered_to, header_from, conversation_id, …
-        delivered_to = data["delivered_to"]
-        message_id = data["message_id"]
-
-        # The inbound webhook payload is metadata; fetch the parsed message for
-        # the subject + body to feed the agent.
-        inbound = await client.webhooks.fetch_message(event)
+        # Hydrate the verified event through the facade. It fetches the full
+        # message and exposes normalized fields plus bound reply operations.
+        email = await client.inbound.from_event(event)
 
         # First contact has no conversation_id — mint one so this thread has an
         # ID we can echo back on every reply. The same id becomes the ADK
         # session_id, keying multi-turn memory.
-        conversation_id = conversation_id_for(event.id, data.get("conversation_id"))
+        conversation_id = conversation_id_for(event.id, email.conversation_id)
 
         # user_id scopes a session to a particular human counterpart. Different
         # senders get isolated session histories even on the same agent.
-        user_id = sender_user_id(data.get("header_from"), message_id)
+        user_id = sender_user_id(email.from_, email.id)
 
         sessions = request.app.state.sessions
         session = await sessions.get_session(
@@ -156,7 +157,7 @@ async def webhook(request: Request) -> dict[str, str]:
 
         prompt = types.Content(
             role="user",
-            parts=[types.Part(text=_format_email_for_agent(inbound, data.get("header_from")))],
+            parts=[types.Part(text=_format_email_for_agent(email))],
         )
 
         runner: Runner = request.app.state.runner
@@ -173,18 +174,16 @@ async def webhook(request: Request) -> dict[str, str]:
             # operator can investigate why the run finished without text.
             log.warning(
                 "agent produced no reply text user=%s conv=%s msg=%s",
-                user_id, conversation_id, message_id,
+                user_id, conversation_id, email.id,
             )
             await event_deduper.complete(event.id)
             return {"status": "no_reply", "conversation_id": conversation_id}
 
         log.info(
             "replying user=%s conv=%s msg=%s reply_chars=%d",
-            user_id, conversation_id, message_id, len(reply_text),
+            user_id, conversation_id, email.id, len(reply_text),
         )
-        result = await client.messages.reply(
-            delivered_to,
-            message_id,
+        result = await email.reply(
             {"text": reply_text, "conversation_id": conversation_id},
             idempotency_key=event.id,
         )
@@ -199,17 +198,20 @@ async def webhook(request: Request) -> dict[str, str]:
         raise
 
 
-def _format_email_for_agent(inbound, fallback_header_from: str | None = None) -> str:
-    """Flatten the parsed message into a single text block for the agent.
+def _format_email_for_agent(email: AsyncInboundEmail) -> str:
+    """Project safe, normalized facade fields into the agent prompt.
 
-    A more sophisticated agent could be given the headers as a separate
-    structured tool call. For a tutorial, plain prose is enough.
+    Sender and body values remain untrusted model input. Deliberately do not
+    include the full MessageView or raw MIME stored behind the facade.
     """
-    body = inbound.parsed.text if inbound.parsed else ""
-    header_from = inbound.header_from or fallback_header_from or "(missing)"
+    sender = email.from_ or "(missing)"
+    verified = "yes" if email.verified else "no"
+    flagged = "yes" if email.flagged else "no"
     return (
-        f"From: {header_from}\n"
-        f"Subject: {inbound.subject}\n"
+        f"From: {sender}\n"
+        f"Subject: {email.subject}\n"
+        f"Sender DMARC verified: {verified}\n"
+        f"Policy flagged: {flagged}\n"
         f"\n"
-        f"{body}"
+        f"{email.text}"
     )
