@@ -16,11 +16,12 @@ independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
 Inbound sender and authentication fields now use the final DMARC-aligned
 contract. `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`, and
 `EmailReceivedData` expose the literal RFC 5322 `headerFrom`, SMTP
-`envelopeFrom`, nullable `verifiedDomain`, and structured `authentication`
-evidence. The former inbound `from`/`from_` projection is removed from these
-models; Reply-To remains separate. A non-null `verifiedDomain` means DMARC
-passed for that From domain, not that the mailbox local part, person, or
-message content was authenticated.
+`envelopeFrom`, and nullable `verifiedDomain`. `Message`, `MessageView`, and
+`EmailReceivedData` additionally expose structured `authentication` evidence;
+the summary and review views omit it. The former inbound `from`/`from_`
+projection is removed from these models; Reply-To remains separate. A non-null
+`verifiedDomain` means DMARC passed for that From domain, not that the mailbox
+local part, person, or message content was authenticated.
 
 `authentication` is `null` for outbound messages and providerless loopback
 delivery. Guard it before reading `authentication.dmarc`. The outbound-only
