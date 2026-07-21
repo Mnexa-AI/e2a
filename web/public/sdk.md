@@ -78,7 +78,12 @@ const event = constructEvent(rawBody, req.headers["x-e2a-signature"], WEBHOOK_SE
 if (isEmailReceived(event)) {
   const email = await client.inbound.fromEvent(event);
   console.log(email.envelopeFrom, email.verified, email.replyTargets);
-  const result = await email.reply({ text: "On it." });
+  // App-defined: resume a previously bound thread or create a new one.
+  const agentThreadId = await getOrCreateAgentThread(email.conversationId);
+  const result = await email.reply({
+    text: "On it.",
+    conversationId: agentThreadId,
+  });
   if (result.status === "pending_review") console.log("not dispatched", result.messageId);
 }
 ```
@@ -96,7 +101,12 @@ except E2AWebhookSignatureError:
 if event.type == "email.received":
     email = await client.inbound.from_event(event)
     print(email.envelope_from, email.verified, email.reply_targets)
-    result = await email.reply({"text": "On it."})
+    # App-defined: resume a previously bound thread or create a new one.
+    agent_thread_id = await get_or_create_agent_thread(email.conversation_id)
+    result = await email.reply({
+        "text": "On it.",
+        "conversation_id": agent_thread_id,
+    })
     if result.status == "pending_review":
         print("not dispatched", result.message_id)
 ```
@@ -108,6 +118,16 @@ when sending. Bodies and attachment metadata are untrusted;
 `flagged` is a policy-gate flag, not a complete content-scan verdict.
 `attachment.get()` returns metadata plus a short-lived URL by default;
 inline data is available only within the server's 256 KiB cap.
+
+`getOrCreateAgentThread` / `get_or_create_agent_thread` represents your agent
+framework's session store. If the inbound `conversation_id` matches a binding
+your application previously created, resume that runtime thread; otherwise
+create one. Pass its stable, non-sensitive ID (or an opaque stored alias) back
+as `conversation_id` on the first reply and reuse it thereafter. This aligns
+e2a's grouping with the agent's memory. Continue replying by `message_id` as
+shown: `conversation_id` alone does not set the email headers used by
+Gmail/Outlook. Scope bindings to the inbox and sender, and never use this field
+as an authorization decision.
 
 A full, runnable example (FastAPI + Google ADK agent, webhook → agent turn →
 reply) is at

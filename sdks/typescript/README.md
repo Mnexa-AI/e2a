@@ -188,7 +188,11 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     // From, Reply-To, bodies, and attachment names/types are untrusted input.
     console.log(email.envelopeFrom, email.verified, email.subject, email.text);
     console.log("reply will target", email.replyTargets);
-    const result = await email.reply({ text: "Got it" }, { idempotencyKey: `reply:${event.id}` });
+    const agentThreadId = await getOrCreateAgentThread(email.conversationId);
+    const result = await email.reply(
+      { text: "Got it", conversationId: agentThreadId },
+      { idempotencyKey: `reply:${event.id}` },
+    );
     if (result.status === "pending_review") console.log("reply is awaiting approval");
   }
   res.json({ ok: true });
@@ -354,8 +358,14 @@ across the email boundary. Pass it on any `send` / `reply` and e2a surfaces it
 on the recipient's inbound — via `In-Reply-To` for humans, or a forge-resistant
 `X-E2A-Conversation-Id` header for same-platform agent-to-agent mail. It is not
 a security boundary; for sender identity check the message's `auth`. On first
-contact from a human it arrives `null` — assign one yourself if you want to
-thread.
+contact from a human it arrives `null`. Create the agent runtime's internal
+thread before replying, then pass its stable, non-sensitive thread/session ID
+(or an opaque stored alias) as `conversationId`; reuse it on every later send
+or reply. If a later inbound ID matches a binding you previously stored, resume
+that internal thread. Keep replying by the original message ID as well — the
+conversation ID aligns e2a grouping with agent memory, while the reply endpoint
+sets the email headers Gmail/Outlook use. Scope bindings to the inbox and sender,
+and never use the conversation ID as authorization.
 
 ## License
 

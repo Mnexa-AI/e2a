@@ -182,6 +182,8 @@ Both `send` and `reply` accept an optional opaque `conversation_id` (server-mint
 
 First contact from a human arrives with `conversation_id: null` — the inbound relay assigns no thread id by design. You don't have to mint one yourself: when the agent replies with `conversation_id` omitted, e2a auto-generates a stable `conv_…` anchor that later replies thread onto, and replies within an existing thread inherit the referenced message's id. An explicit `conversation_id` you pass always takes precedence; a `forward` starts a new thread.
 
+Agent frameworks should use that explicit override to bind email to model memory: create or resume the runtime's internal conversation when mail arrives, then pass its stable, non-sensitive thread/session ID (or an opaque stored alias) as `conversation_id` on the first reply and reuse it thereafter. Continue replying by the original message ID—the conversation ID aligns e2a's grouping with the runtime, while `In-Reply-To` / `References` preserve the Gmail/Outlook thread. Scope stored bindings to the inbox and sender, and never treat `conversation_id` as authorization.
+
 ### Content screening
 
 Inbound email is a prime **indirect prompt-injection** vector — a message can smuggle instructions aimed at your agent's LLM (hidden HTML, zero-width / Unicode-tag text, encoded payloads) or phish the human behind it. Opt in per agent and e2a inspects message *content* — subject, plaintext, and both visible **and hidden** HTML — before your agent ever sees it.
