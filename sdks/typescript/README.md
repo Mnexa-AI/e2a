@@ -13,16 +13,21 @@ independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
 
 ## Upgrading to 5.2
 
-The reserved-word wire field `from` is now uniformly exposed as `from_` on
-generated models and the `listMessages` sender filter (was the
-private-looking `_from`, an OpenAPI Generator escape artifact). Affected
-models: `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`,
-`EmailReceivedData`, `EmailSentData`, `EmailFailedData`. The wire JSON is
-unchanged — requests and responses still carry `from`; only the generated
-TS field name changed. The hand-written webhook/WS payload interfaces in
-`webhook-signature.ts` keep the literal `from` property (those are raw-JSON
-shapes, not generated models). Migrate: `message._from` → `message.from_`;
-`list(..., { _from })` → `{ from_ }`.
+Inbound sender and authentication fields now use the final DMARC-aligned
+contract. `Message`, `MessageView`, `MessageSummaryView`, `ReviewView`, and
+`EmailReceivedData` expose the literal RFC 5322 `headerFrom`, SMTP
+`envelopeFrom`, nullable `verifiedDomain`, and structured `authentication`
+evidence. The former inbound `from`/`from_` projection is removed from these
+models; Reply-To remains separate. A non-null `verifiedDomain` means DMARC
+passed for that From domain, not that the mailbox local part, person, or
+message content was authenticated.
+
+`authentication` is `null` for outbound messages and providerless loopback
+delivery. Guard it before reading `authentication.dmarc`. The outbound-only
+`EmailSentData`/`EmailFailedData` webhook payloads and the `listMessages`
+sender filter are unaffected and still use `from_` (an OpenAPI Generator
+escape artifact for the reserved word `from`) — that request parameter is not
+an inbound identity projection.
 
 ## Upgrading to 5.1
 
