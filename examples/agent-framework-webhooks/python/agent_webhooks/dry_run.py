@@ -191,9 +191,15 @@ async def async_main() -> Evidence:
     return evidence
 
 
-def main() -> Evidence:
+def run() -> Evidence:
     return asyncio.run(async_main())
 
 
+def cli_main() -> None:
+    """Console entry point that reports success through a zero exit status."""
+
+    run()
+
+
 if __name__ == "__main__":
-    main()
+    cli_main()

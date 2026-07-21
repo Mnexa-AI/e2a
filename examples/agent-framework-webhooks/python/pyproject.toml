@@ -29,7 +29,7 @@ dev = [
 
 [project.scripts]
 agent-framework-webhooks = "agent_webhooks.app:run"
-agent-framework-webhooks-dry-run = "agent_webhooks.dry_run:main"
+agent-framework-webhooks-dry-run = "agent_webhooks.dry_run:cli_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent_webhooks"]
@@ -51,8 +51,3 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_unreachable = true
 warn_unused_configs = true
-
-[[tool.mypy.overrides]]
-module = ["test_adapters", "test_prompt"]
-# These contract tests deliberately use small structural SimpleNamespace facades.
-disable_error_code = ["arg-type"]

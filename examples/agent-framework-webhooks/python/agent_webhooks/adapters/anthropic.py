@@ -9,11 +9,15 @@ from e2a import AsyncInboundEmail
 from agent_webhooks.prompt import REPLY_INSTRUCTIONS, email_prompt
 
 AnthropicRun = Callable[[str], Awaitable[Any]]
+AnthropicClose = Callable[[], Awaitable[None]]
 
 
 class AnthropicReplyAgent:
-    def __init__(self, run: AnthropicRun) -> None:
+    def __init__(
+        self, run: AnthropicRun, close: AnthropicClose | None = None
+    ) -> None:
         self._run = run
+        self._close = close
 
     @classmethod
     def from_env(cls) -> "AnthropicReplyAgent":
@@ -26,8 +30,13 @@ class AnthropicReplyAgent:
                 max_tokens=1024,
                 system=REPLY_INSTRUCTIONS,
                 messages=[{"role": "user", "content": prompt}],
-            )
+            ),
+            close=client.close,
         )
+
+    async def aclose(self) -> None:
+        if self._close is not None:
+            await self._close()
 
     async def reply(self, email: AsyncInboundEmail) -> str:
         result = await self._run(email_prompt(email))

@@ -1,9 +1,12 @@
+# mypy: disable-error-code="arg-type"
+
 import asyncio
 import hashlib
 import sys
 from collections.abc import AsyncIterator, Coroutine
 from types import ModuleType, SimpleNamespace
 from typing import Any, TypeVar
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -75,6 +78,31 @@ def test_anthropic_joins_only_text_blocks_in_order(
 
     assert wait(AnthropicReplyAgent(run).reply(email)) == "First\nSecond"
     assert prompts == [email_prompt(email)]
+
+
+def test_anthropic_factory_closes_owned_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import anthropic
+
+    class FakeMessages:
+        async def create(self, **_: Any) -> Any:
+            return SimpleNamespace(content=[])
+
+    class FakeClient:
+        instance: "FakeClient"
+
+        def __init__(self) -> None:
+            self.messages = FakeMessages()
+            self.close = AsyncMock()
+            FakeClient.instance = self
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
+    agent = AnthropicReplyAgent.from_env()
+
+    wait(agent.aclose())
+
+    FakeClient.instance.close.assert_awaited_once_with()
 
 
 def test_langchain_returns_last_assistant_message(

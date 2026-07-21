@@ -1,3 +1,5 @@
+# mypy: disable-error-code="arg-type"
+
 from types import SimpleNamespace
 
 from agent_webhooks.prompt import email_prompt
