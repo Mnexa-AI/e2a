@@ -2193,9 +2193,9 @@ func legacySPFStatus(status emailauth.Status) emailauth.Status {
 // was never persisted; callers must tolerate that and fall back to
 // legacy single-id threading.
 //
-// Canonical authentication columns are included so HITL review handlers can
-// surface SPF/DKIM/DMARC provenance on the reply-context pane. Legacy columns
-// remain selected only for fail-closed migration fallback.
+// This reply-threading lookup intentionally selects only the fields needed to
+// rebuild References; authentication evidence is loaded by the message/review
+// detail paths instead.
 func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*Message, error) {
 	if emailMessageID == "" {
 		return nil, fmt.Errorf("empty email_message_id")

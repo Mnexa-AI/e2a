@@ -353,9 +353,10 @@ ends the loop cleanly.
 across the email boundary. Pass it on any `send` / `reply` (as a body field) and
 e2a surfaces it on the recipient's inbound — via `In-Reply-To` for humans, or a
 forge-resistant `X-E2A-Conversation-Id` header for same-platform agent-to-agent
-mail. It is not a security boundary; for sender identity check the message's
-`auth`. On first contact from a human it arrives `None` — assign one yourself if
-you want to thread.
+mail. It is not a security boundary; for sender-domain authentication require
+`message.authentication.dmarc.status == "pass"` and compare the literal
+`message.header_from` address separately. On first contact from a human the
+conversation ID arrives `None` — assign one yourself if you want to thread.
 
 ```python
 await client.messages.send(address, {

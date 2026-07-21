@@ -97,7 +97,7 @@ envelope itself and any schema the stable surface reaches on its own — to
 open objects on **both** sides of the comparison
 (`openapicompat.PruneExportInterior`). Interior evolution is therefore
 invisible to the gate, while the envelope, the operation, and every shared
-schema (e.g. `CheckResult`, `AttachmentMeta`) remain fully gated. Because the
+schema (e.g. `Authentication`, `AttachmentMetaView`) remain fully gated. Because the
 boundary is computed, not read from the markers, hand-marking a stable schema
 beta cannot widen the exemption. `TestExportEnvelopeStableInteriorVersioned`
 (internal/httpapi) pins the marker boundary in the emitted spec, and the

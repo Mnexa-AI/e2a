@@ -13,7 +13,7 @@
 
 export class DKIMResult {
     /**
-    * Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass.
+    * Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.
     */
     'aligned': boolean | null;
     /**

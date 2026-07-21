@@ -25,7 +25,7 @@ class SPFResult(BaseModel):
     """
     SPFResult
     """ # noqa: E501
-    aligned: Optional[StrictBool] = Field(description="Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass.")
+    aligned: Optional[StrictBool] = Field(description="Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.")
     detail: Optional[StrictStr] = Field(default=None, description="Free-text diagnostic for humans and logs. Never parse or branch on this field.")
     domain: Optional[StrictStr] = Field(description="RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available.")
     status: StrictStr = Field(description="SPF evaluation result. Only pass can contribute to DMARC alignment.")

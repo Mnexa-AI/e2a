@@ -14,7 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class SPFResult {
     /**
-    * Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass.
+    * Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.
     */
     'aligned': boolean | null;
     /**

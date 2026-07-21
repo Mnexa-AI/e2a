@@ -25,7 +25,7 @@ class DKIMResult(BaseModel):
     """
     DKIMResult
     """ # noqa: E501
-    aligned: Optional[StrictBool] = Field(description="Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass.")
+    aligned: Optional[StrictBool] = Field(description="Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.")
     detail: Optional[StrictStr] = Field(default=None, description="Free-text diagnostic for humans and logs. Never parse or branch on this field.")
     domain: Optional[StrictStr] = Field(description="DKIM signing domain from the signature d= tag; null when it could not be parsed.")
     selector: Optional[StrictStr] = Field(description="DKIM selector from the signature s= tag; null when it could not be parsed.")

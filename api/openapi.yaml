@@ -716,7 +716,7 @@ components:
       additionalProperties: true
       properties:
         aligned:
-          description: Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass.
+          description: Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.
           type:
             - boolean
             - "null"
@@ -3145,7 +3145,7 @@ components:
       additionalProperties: true
       properties:
         aligned:
-          description: Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass.
+          description: Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.
           type:
             - boolean
             - "null"
@@ -3725,7 +3725,7 @@ components:
             $ref: "#/components/schemas/ProtectionEventExportEntry"
           type: array
         schema_version:
-          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "3"; v3 suppression entries may include agent_email for exact-agent scope.
+          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "4"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields.
           type: string
         suppressions:
           items:

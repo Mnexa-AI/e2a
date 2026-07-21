@@ -144,7 +144,7 @@ real SMTP credentials; captured mail appears at http://localhost:8025.
 ## Backend architecture (`internal/`)
 
 Single Go process (`cmd/e2a/main.go`) running an SMTP relay, the HTTP API,
-and background workers. Inbound flow: SMTP → `emailauth` (SPF/DKIM) → agent
+and background workers. Inbound flow: SMTP → `emailauth` (SPF/DKIM/DMARC) → agent
 lookup → canonical authentication persistence → webhook fan-out or WebSocket
 push. Outbound is **always queue-first**: the accept transaction atomically
 persists the message and enqueues a River job; a worker submits to the relay

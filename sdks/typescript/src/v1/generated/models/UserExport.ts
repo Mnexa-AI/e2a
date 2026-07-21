@@ -30,7 +30,7 @@ export class UserExport {
     'oauthConnections'?: Array<OAuthConnectionEntry>;
     'protectionEvents': Array<ProtectionEventExportEntry>;
     /**
-    * Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"3\"; v3 suppression entries may include agent_email for exact-agent scope.
+    * Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"4\"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields.
     */
     'schemaVersion': string;
     'suppressions': Array<SuppressionExportEntry>;
