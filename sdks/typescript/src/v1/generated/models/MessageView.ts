@@ -29,7 +29,7 @@ export class MessageView {
     'conversationId': string;
     'createdAt': Date;
     /**
-    * When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash.
+    * When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). Live message data is otherwise retained indefinitely.
     */
     'deletedAt'?: Date;
     /**

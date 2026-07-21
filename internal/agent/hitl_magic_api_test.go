@@ -325,8 +325,8 @@ func TestMagicApprovePOSTQueues(t *testing.T) {
 	if got.DeliveryStatus != "accepted" {
 		t.Errorf("delivery_status = %q, want accepted", got.DeliveryStatus)
 	}
-	if got.BodyText != "" {
-		t.Errorf("body_text should be scrubbed, got %q", got.BodyText)
+	if got.BodyText != "plain body" {
+		t.Errorf("body_text should be retained, got %q", got.BodyText)
 	}
 }
 

@@ -46,16 +46,15 @@ type LimitsCapsView struct {
 //
 // StorageBytes is the storage-quota accounting basis: per stored message it
 // sums the RAW MIME byte length (raw_message — the message-level size_bytes)
-// PLUS any retained held-draft body columns (body_text, body_html, and the
-// draft attachments blob, which exist only while a message is pending_review
-// and are scrubbed on terminal transitions). Maintained transactionally by a
-// DB trigger on the messages table (migrations 016/039), so for sent/inbound
-// messages it is exactly the sum of their size_bytes values.
+// PLUS retained outbound draft body columns (body_text, body_html, and the
+// draft attachments blob). These survive terminal transitions and can coexist
+// with canonical sent MIME. A DB trigger on the messages table (migrations
+// 016/039) maintains the total transactionally.
 type LimitsUsageView struct {
 	Agents        int   `json:"agents"`
 	Domains       int   `json:"domains"`
 	MessagesMonth int   `json:"messages_month"`
-	StorageBytes  int64 `json:"storage_bytes" doc:"Bytes of stored message content counted against the storage quota: per message, the RAW MIME length (its size_bytes) plus any retained held-draft body/attachment columns (pending_review only; scrubbed on terminal transitions)."`
+	StorageBytes  int64 `json:"storage_bytes" doc:"Bytes of retained message content counted against the storage quota: per message, RAW MIME plus any retained outbound body and attachment columns, including content retained after terminal transitions."`
 }
 
 type accountOutput struct{ Body AccountView }
@@ -84,7 +83,7 @@ func (s *Server) registerAccount() {
 			"branch on schema_version before interpreting interior records. " +
 			"Interior schemas carry `x-stability-level: beta` in this document to mark that " +
 			"exemption machine-readably; the operation itself is stable GA surface.",
-		Security:    []map[string][]string{{"bearer": {}}},
+		Security: []map[string][]string{{"bearer": {}}},
 	}, s.handleExportUserData)
 
 	huma.Register(s.API, huma.Operation{

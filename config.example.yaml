@@ -184,8 +184,8 @@ rate_limits:
 # How many days a soft-deleted resource (agent inbox or message) stays
 # restorable in the trash before it is purged permanently. The public API
 # documents "30 days by default (deployment-configurable)" — this is the
-# knob. Minimum 1; while a resource sits in the trash its natural expiry
-# clock is paused (restore resumes it where it stopped). Override with
+# knob. Minimum 1; live message data is otherwise retained indefinitely.
+# Override with
 # E2A_TRASH_RETENTION_DAYS.
 trash:
   retention_days: 30

@@ -1,6 +1,7 @@
 package identity_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -217,6 +218,9 @@ func TestExportUserData(t *testing.T) {
 	if inbound == nil {
 		t.Fatal("no inbound message in export")
 	}
+	if inbound.ExpiresAt != nil {
+		t.Errorf("inbound ExpiresAt in export = %v, want nil (retained indefinitely)", inbound.ExpiresAt)
+	}
 	wantReplyTo := []string{"real-alice@example.com"}
 	if !reflect.DeepEqual(inbound.ReplyTo, wantReplyTo) {
 		t.Errorf("inbound ReplyTo in export = %v, want %v", inbound.ReplyTo, wantReplyTo)
@@ -274,6 +278,9 @@ func TestExportUserData(t *testing.T) {
 	}
 	if jsonContains(raw, "key_hash") {
 		t.Error("export leaks key_hash — that's a credential equivalent")
+	}
+	if !bytes.Contains(raw, []byte(`"expires_at":null`)) {
+		t.Errorf("export must encode indefinite message retention as expires_at: null: %s", raw)
 	}
 	// The held draft's internal attachments_json blob carries inline base64
 	// under a `data` key; the export types attachments as AttachmentMetaView and

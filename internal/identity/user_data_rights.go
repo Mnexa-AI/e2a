@@ -500,8 +500,8 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 		// bytes still contain the full attachment content); for held drafts
 		// (pending_review, no raw_message yet) it is mapped from the internal
 		// attachments_json blob ([]outbound.Attachment with base64 data),
-		// whose inline base64 bytes are deliberately NOT exported — the blob
-		// is transient internal storage, scrubbed on any terminal transition.
+		// whose inline base64 bytes are deliberately NOT exported. The blob
+		// remains retained through terminal transitions.
 		m.Attachments = exportAttachmentMeta(m.RawMessage, attachmentsJSON)
 		out = append(out, m)
 	}

@@ -320,7 +320,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Get a single conversation with all member messages",
       annotations: { readOnlyHint: true },
       description:
-        "Returns the full thread — aggregate counts, the participants union (sender + recipient + to + cc + bcc across members), the labels union, and every member message in chronological order (oldest first). Returns a not-found error when no non-expired messages exist for `(agent, conversation_id)`. Use this after `list_conversations` (or whenever you have a `conversation_id` from an inbound/outbound payload) to read the full thread.",
+        "Returns the full thread — aggregate counts, the participants union (sender + recipient + to + cc + bcc across members), the labels union, and every live member message in chronological order (oldest first). Returns a not-found error when no live messages exist for `(agent, conversation_id)`. Use this after `list_conversations` (or whenever you have a `conversation_id` from an inbound/outbound payload) to read the full thread.",
       inputSchema: strictInputSchema({
         conversation_id: z.string(),
         email: z.string().optional(),

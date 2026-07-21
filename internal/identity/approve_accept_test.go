@@ -64,7 +64,7 @@ func TestApproveAndAccept(t *testing.T) {
 		t.Errorf("enqueue called %d times, want 1", enqueued)
 	}
 
-	// DB reflects the transition + stamped send_job_id + accepted delivery + scrubbed body.
+	// DB reflects the transition, stamped job, and retained outbound content.
 	var (
 		status, deliveryStatus string
 		sendJobID              *int64
@@ -81,8 +81,8 @@ func TestApproveAndAccept(t *testing.T) {
 	if sendJobID == nil || *sendJobID != 4242 {
 		t.Errorf("send_job_id = %v, want 4242", sendJobID)
 	}
-	if bodyText != nil {
-		t.Errorf("body_text not scrubbed: %v", *bodyText)
+	if bodyText == nil || *bodyText != "body" {
+		t.Errorf("body_text = %v, want retained body", bodyText)
 	}
 
 	// Idempotent: a second attempt (row no longer pending_review) is a no-op.

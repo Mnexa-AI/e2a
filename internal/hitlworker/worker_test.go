@@ -121,8 +121,8 @@ func TestWorkerAutoRejectsExpiredPending(t *testing.T) {
 	if reason == nil || *reason != "ttl_expired" {
 		t.Errorf("reason = %v, want 'ttl_expired'", reason)
 	}
-	if bodyText != nil || bodyHTML != nil {
-		t.Errorf("body columns not scrubbed: text=%v html=%v", bodyText, bodyHTML)
+	if bodyText == nil || *bodyText != "body" || bodyHTML == nil || *bodyHTML != "<p>html</p>" {
+		t.Errorf("body columns not retained: text=%v html=%v", bodyText, bodyHTML)
 	}
 }
 
@@ -162,8 +162,8 @@ func TestWorkerAutoApprovesExpiredPending(t *testing.T) {
 	if providerID != "" {
 		t.Errorf("provider_message_id = %q, want empty before worker delivery", providerID)
 	}
-	if bodyText != nil {
-		t.Errorf("body_text not scrubbed: %v", bodyText)
+	if bodyText == nil || *bodyText != "plain body" {
+		t.Errorf("body_text not retained: %v", bodyText)
 	}
 }
 
@@ -234,7 +234,7 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 		t.Fatalf("SMTP should not be hit on self-send auto-approve, got %d messages: %+v", len(msgs), msgs)
 	}
 
-	// Outbound row → expired_approved, method=loopback, body scrubbed.
+	// Outbound row → expired_approved, method=loopback, body retained.
 	var status, method, deliveryStatus string
 	var providerID *string
 	var bodyText *string
@@ -262,8 +262,8 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 	if len(raw) == 0 || !strings.Contains(string(raw), "note to self body") {
 		t.Errorf("approved Sent copy must retain readable MIME; raw=%q", raw)
 	}
-	if bodyText != nil {
-		t.Errorf("body_text not scrubbed: %v", bodyText)
+	if bodyText == nil || *bodyText != "note to self body" {
+		t.Errorf("body_text not retained: %v", bodyText)
 	}
 
 	// Inbound row landed in the agent's mailbox.
@@ -350,8 +350,8 @@ func TestWorkerAutoApproveSendFailureFallsBackToRejected(t *testing.T) {
 	if reason == nil || !strings.Contains(*reason, "auto-approve failed: compose") {
 		t.Errorf("reason = %v, want containing 'auto-approve failed: compose'", reason)
 	}
-	if bodyText != nil {
-		t.Errorf("body_text not scrubbed: %v", bodyText)
+	if bodyText == nil || *bodyText != "body" {
+		t.Errorf("body_text not retained: %v", bodyText)
 	}
 }
 

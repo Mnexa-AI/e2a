@@ -69,7 +69,7 @@ type AgentView struct {
 	// was moved there, omitted on live agents. Trashed agents appear only via
 	// GET /v1/agents?deleted=true and restore/permanent-delete operations; they
 	// are purged ~30 days after deletion (docs/design/trash-soft-delete.md).
-	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its messages' expiry clocks are paused; restore resumes them where they stopped."`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the agent was moved to the trash. Omitted for live agents. A trashed agent is restorable until purged — 30 days after deletion by default (deployment-configurable). Live message data is otherwise retained indefinitely."`
 }
 
 // agentViewFromIdentity maps the storage record to the public view.

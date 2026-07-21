@@ -38,7 +38,7 @@ class MessageView(BaseModel):
     cc: List[StrictStr]
     conversation_id: StrictStr
     created_at: datetime
-    deleted_at: Optional[datetime] = Field(default=None, description="When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash.")
+    deleted_at: Optional[datetime] = Field(default=None, description="When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). Live message data is otherwise retained indefinitely.")
     delivered_to: StrictStr = Field(description="The envelope Delivered-To address — this delivery's per-agent target (the mailbox that actually received this row), distinct from the To header (the to array).")
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)")

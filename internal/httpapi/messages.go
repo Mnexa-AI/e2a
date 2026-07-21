@@ -98,7 +98,7 @@ type MessageView struct {
 	// moved there, omitted on live messages. Trashed messages appear only in
 	// the deleted=true list view and this single-message get; they are purged
 	// ~30 days after deletion (docs/design/trash-soft-delete.md).
-	DeletedAt  *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash."`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). Live message data is otherwise retained indefinitely."`
 	RawMessage []byte     `json:"raw_message" nullable:"true" doc:"Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages."`
 	// Parsed is the derived view (decision 9 / Slice 4b-3): the raw message
 	// rendered to text (`text`, quoted chains stripped + length-capped, for the
@@ -198,9 +198,8 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		v.HITLStatus = m.Status
 	}
 	// Parsed view (decision 9): derived from the raw message — any direction
-	// that carries one (inbound + sent outbound, whose draft body columns were
-	// scrubbed in favor of the sent MIME). Held outbound drafts have no
-	// raw_message and surface their body via `body` below instead.
+	// that carries one (inbound + sent outbound). Outbound draft columns remain
+	// retained after terminal transitions; held drafts have no raw_message yet.
 	if len(m.RawMessage) > 0 {
 		pv := mailparse.Parse(m.RawMessage, mailparse.DefaultMaxBytes)
 		v.Parsed = &MessageParsedView{Text: pv.Text, Truncated: pv.Truncated, HTML: pv.HTML}
@@ -286,7 +285,7 @@ type MessageSummaryView struct {
 	CreatedAt time.Time `json:"created_at" format:"date-time"`
 	// DeletedAt marks a message in the trash — set on rows of the deleted=true
 	// list view, omitted on live messages. See MessageView.DeletedAt.
-	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). While it sits in the trash its natural expiry clock (expires_at) is paused; restore shifts expires_at forward by the time spent in the trash."`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" format:"date-time" doc:"When the message was moved to the trash. Omitted for live messages. A trashed message is restorable until purged — 30 days after deletion by default (deployment-configurable). Live message data is otherwise retained indefinitely."`
 }
 
 // inboundReplyToView returns the parsed inbound Reply-To for the wire view. The
@@ -413,7 +412,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodDelete,
 		Path:        "/v1/agents/{email}/messages/{id}",
 		Summary:     "Delete a message (move to trash)",
-		Description: "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). While a message sits in the trash its natural expiry clock (expires_at) is paused; only the trash clock runs. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
+		Description: "Move a message to the trash. Trashed messages disappear from lists, threads, and reply targets, but can be restored via POST …/messages/{id}/restore until they are purged — 30 days after deletion by default (the trash retention window is deployment-configurable). Live message data is otherwise retained indefinitely. No confirmation is required because the default delete is reversible. Pass permanent=true with confirm=DELETE to permanently delete a message that is ALREADY in the trash (\"delete forever\"). A message held for review (review_status=pending_review) cannot be deleted — resolve it in the review queue first (409 message_held).",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleDeleteMessage)
@@ -423,7 +422,7 @@ func (s *Server) registerMessages() {
 		Method:      http.MethodPost,
 		Path:        "/v1/agents/{email}/messages/{id}/restore",
 		Summary:     "Restore a message from the trash",
-		Description: "Bring a trashed (soft-deleted) message back to the inbox. Its remaining retention resumes where it left off — expires_at is shifted forward by the time the message spent in the trash, so time in the trash does not count against the message's normal lifetime. Returns the restored message. 409 not_in_trash when the message is not in the trash.",
+		Description: "Bring a trashed (soft-deleted) message back to the inbox. Restored message data is retained indefinitely unless it is deleted again. Returns the restored message. 409 not_in_trash when the message is not in the trash.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleRestoreMessage)

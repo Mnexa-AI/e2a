@@ -90,7 +90,7 @@ export function invalidatePendingList() {
 
 // After approve / reject of a specific message, every surface showing
 // that message's detail needs to refetch (status changes from
-// pending_review to sent/rejected, body may be scrubbed, and the hold
+// pending_review to sent/rejected and the hold
 // context goes away). One key per message means one entry to drop,
 // whichever surface filled it.
 export function invalidateMessageDetail(id: string) {

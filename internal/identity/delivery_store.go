@@ -23,7 +23,7 @@ const OutboundSendClaimStaleWindow = 10 * time.Minute
 
 // CorrelateBySESMessageID finds the outbound message + owning user by the
 // SES-assigned provider_message_id captured at send time. found=false when the
-// id is unknown (expired message, or an event for a different deployment).
+// id is unknown (deleted message, or an event for a different deployment).
 //
 // The message fields (subject, and the envelope/threading fields the
 // message-level email.failed payload needs on an SES Reject) ride along —

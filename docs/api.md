@@ -480,7 +480,7 @@ different meanings:
   `limits.max_storage_bytes` on `GET /v1/account`): per stored message, the
   raw MIME length (the message-level `size_bytes`) **plus** any retained
   held-draft body/attachment columns (these exist only while a message is
-  `pending_review` and are scrubbed on terminal transitions) — so for
+  outbound messages and remain retained through terminal transitions) — so for
   sent/inbound messages, storage usage is exactly the sum of their
   `size_bytes`.
 

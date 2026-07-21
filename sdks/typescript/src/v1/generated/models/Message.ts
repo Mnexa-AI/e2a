@@ -37,7 +37,10 @@ export class Message {
     * SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery.
     */
     'envelopeFrom': string | null;
-    'expiresAt': Date;
+    /**
+    * Message expiry. Null means the message is retained indefinitely.
+    */
+    'expiresAt': Date | null;
     'flagReason'?: string;
     'flagged'?: boolean;
     /**

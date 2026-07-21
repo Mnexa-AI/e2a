@@ -219,17 +219,16 @@ describe("message-detail projectors (shared-cache invariant)", () => {
     expect(d.protection?.[0].detector).toBe("gemini");
   });
 
-  it("projectPending falls back to parsed.* for a message whose draft body was scrubbed", () => {
-    // Outbound drafts carry `body`; once sent (or for an inbound hold) the
-    // draft columns are scrubbed and the content is only in `parsed`.
+  it("projectPending falls back to parsed.* for a legacy row without body columns", () => {
+    // Legacy outbound rows can have content only in `parsed`.
     // Without the fallback the review row renders "(empty body)".
     const d = projectPending("support@acme.dev", {
       ...REVIEW_WIRE,
       body: undefined,
-      parsed: { text: "scrubbed-path text", html: "<p>scrubbed</p>" },
+      parsed: { text: "legacy-path text", html: "<p>legacy</p>" },
     });
-    expect(d.body_text).toBe("scrubbed-path text");
-    expect(d.body_html).toBe("<p>scrubbed</p>");
+    expect(d.body_text).toBe("legacy-path text");
+    expect(d.body_html).toBe("<p>legacy</p>");
   });
 
   it("projectInbound maps delivered_to → recipient and read_status → status", () => {

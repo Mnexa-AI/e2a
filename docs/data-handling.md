@@ -8,10 +8,10 @@ For vulnerability reporting and the security model, see [SECURITY.md](../SECURIT
 
 | Data | Where | Retention |
 |---|---|---|
-| Inbound + outbound message envelopes (sender, recipient, subject, conversation_id, timestamps) | Postgres `messages` | Default 10 days; `expires_at` per row, hourly cleanup worker. Chosen to exceed the 7-day HITL max TTL with a 3-day audit buffer. |
-| Inbound message bodies (raw RFC822 in `raw_message`) | Postgres `messages` | Same 10-day default |
-| Outbound message bodies (only while in `pending_review`) | Postgres `messages.body_text` / `body_html` / `attachments_json` | **Scrubbed on terminal review transition** (approve/reject/expire) — only metadata persists after that |
-| Attachments | Postgres rows (`attachments_json`, JSONB) | Same lifetime as the parent message — no S3/GCS |
+| Inbound + outbound message envelopes (sender, recipient, subject, conversation_id, timestamps) | Postgres `messages` | Indefinite while live. Soft-deleted rows are purged after 30 days by default. |
+| Inbound message bodies (raw RFC822 in `raw_message`) | Postgres `messages` | Indefinite while live; same trash policy as the parent message |
+| Outbound message bodies | Postgres `messages.raw_message`, `body_text`, `body_html`, `attachments_json` | Indefinite while live, including after approve, reject, expiry, or delivery transitions |
+| Attachments | Postgres rows (`raw_message` / `attachments_json`) | Indefinite while live; same trash policy as the parent message — no S3/GCS |
 | Agent + domain ownership records | Postgres `agent_identities`, `domains` | Until the user deletes the agent/domain or the account |
 | Agent-scoped recipient suppressions | Postgres `agent_suppressions` | Until the account is deleted. They intentionally survive agent trash, permanent deletion, and recreation so recipient consent remains effective for the same sending address. |
 | Managed-unsubscribe capability mappings (agent + recipient addresses and token hash; never the bearer token) | Postgres `agent_unsubscribe_tokens` | Until the account is deleted. Links in previously delivered mail remain valid, including after an agent is deleted. |

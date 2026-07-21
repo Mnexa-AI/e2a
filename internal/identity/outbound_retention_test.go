@@ -60,8 +60,8 @@ func TestOutboundRetention_DirectSend(t *testing.T) {
 	}
 }
 
-// TestOutboundRetention_HITLApprove: a HITL-approved send retains the sent MIME
-// (raw_message) from the send callback, replacing the scrubbed draft columns.
+// TestOutboundRetention_HITLApprove: a HITL-approved send retains both the sent
+// MIME and the accepted draft columns.
 func TestOutboundRetention_HITLApprove(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -95,9 +95,8 @@ func TestOutboundRetention_HITLApprove(t *testing.T) {
 	if string(got.RawMessage) != string(raw) {
 		t.Errorf("HITL-approved sent body not retained: got %d bytes, want %d", len(got.RawMessage), len(raw))
 	}
-	// The draft body columns are scrubbed (raw_message is the canonical copy).
-	if got.BodyText != "" {
-		t.Errorf("draft body_text should be scrubbed after send, got %q", got.BodyText)
+	if got.BodyText != "body text" {
+		t.Errorf("draft body_text should remain retained after send, got %q", got.BodyText)
 	}
 }
 

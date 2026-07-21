@@ -111,15 +111,15 @@ Or toggle it from the dashboard: open the agent and edit its protection settings
 
 ## What happens if you ignore it
 
-A background worker sweeps every minute. It looks for rows whose `approval_expires_at` is in the past and applies the agent's configured expiration action. Rows hit the state you chose (`review_expired_approved` or `review_expired_rejected`) and their body is scrubbed from storage. Multi-instance deploys use `FOR UPDATE SKIP LOCKED` so two workers can't race on the same row.
+A background worker sweeps every minute. It looks for rows whose `approval_expires_at` is in the past and applies the agent's configured expiration action. Rows hit the state you chose (`review_expired_approved` or `review_expired_rejected`) while their body and attachments remain available in message history. Multi-instance deploys use `FOR UPDATE SKIP LOCKED` so two workers can't race on the same row.
 
 If the auto-approve send itself fails (SES down, for example), the row transitions to `review_expired_rejected` with the error recorded as the rejection reason rather than looping forever.
 
 ## Retention, concretely
 
-Enabling HITL stores the full composed message — subject, body, HTML, attachments — in Postgres up to `hitl_ttl_seconds`. On every terminal transition (sent, review_rejected, review_expired_*) the server immediately scrubs those columns to NULL. Headers and metadata stay for the normal 30-day message-TTL window; bodies do not.
+Enabling HITL stores the full composed message — subject, body, HTML, attachments — in Postgres. Terminal transitions (`sent`, `review_rejected`, and `review_expired_*`) retain that content along with headers and metadata. Live inbound and outbound message data is retained indefinitely.
 
-TTL is server-capped at 604800 seconds (7 days) so the maximum exposure is bounded regardless of agent config. And, again: the notification email carries recipients and subject only. Body content stays server-side, behind the token-gated confirmation page.
+The review TTL is server-capped at 604800 seconds (7 days); it controls when a pending decision is finalized, not how long the message is retained. Moving a message to trash starts a 30-day purge window. And, again: the notification email carries recipients and subject only. Body content stays server-side, behind the token-gated confirmation page.
 
 ## What I'd use it for today
 

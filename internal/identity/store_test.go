@@ -11,6 +11,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
+	"github.com/tokencanopy/e2a/migrations"
 )
 
 func TestCreateAgent(t *testing.T) {
@@ -646,7 +647,78 @@ func TestGetInboundMessageNotFound(t *testing.T) {
 	}
 }
 
-func TestGetInboundMessageExpired(t *testing.T) {
+func TestMessageRetentionIsIndefinite(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	var nullable string
+	var columnDefault *string
+	if err := pool.QueryRow(ctx, `
+		SELECT is_nullable, column_default
+		  FROM information_schema.columns
+		 WHERE table_schema = 'public'
+		   AND table_name = 'messages'
+		   AND column_name = 'expires_at'`).Scan(&nullable, &columnDefault); err != nil {
+		t.Fatalf("inspect messages.expires_at: %v", err)
+	}
+	if nullable != "YES" {
+		t.Errorf("messages.expires_at is_nullable = %q, want YES", nullable)
+	}
+	if columnDefault != nil {
+		t.Errorf("messages.expires_at default = %q, want NULL", *columnDefault)
+	}
+
+	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-indefinite-inbound")
+	store.ClaimOrCreateDomain(ctx, "indefinite-inbound.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@indefinite-inbound.example.com", "indefinite-inbound.example.com", "", "", "", user.ID)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", a.ID, "", "", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
+	if err != nil {
+		t.Fatalf("CreateInboundMessage: %v", err)
+	}
+	var expiresAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT expires_at FROM messages WHERE id = $1`, msg.ID).Scan(&expiresAt); err != nil {
+		t.Fatalf("read expires_at: %v", err)
+	}
+	if expiresAt != nil {
+		t.Errorf("expires_at = %v, want NULL", expiresAt)
+	}
+}
+
+func TestIndefiniteRetentionMigrationBackfillsExistingMessages(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	user, _ := store.CreateOrGetUser(ctx, "owner@example.com", "Owner", "google-indefinite-backfill")
+	store.ClaimOrCreateDomain(ctx, "indefinite-backfill.example.com", user.ID)
+	a, _ := store.CreateAgent(ctx, "agent@indefinite-backfill.example.com", "indefinite-backfill.example.com", "", "", "", user.ID)
+	msg, err := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", a.ID, "", "", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
+	if err != nil {
+		t.Fatalf("CreateInboundMessage: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(24*time.Hour), msg.ID); err != nil {
+		t.Fatalf("seed legacy expires_at: %v", err)
+	}
+
+	migration, err := migrations.FS.ReadFile("072_indefinite_message_retention.sql")
+	if err != nil {
+		t.Fatalf("read migration 072: %v", err)
+	}
+	if _, err := pool.Exec(ctx, string(migration)); err != nil {
+		t.Fatalf("apply migration 072: %v", err)
+	}
+
+	var expiresAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT expires_at FROM messages WHERE id = $1`, msg.ID).Scan(&expiresAt); err != nil {
+		t.Fatalf("read backfilled expires_at: %v", err)
+	}
+	if expiresAt != nil {
+		t.Errorf("backfilled expires_at = %v, want NULL", expiresAt)
+	}
+}
+
+func TestGetInboundMessageIgnoresLegacyExpiry(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -659,9 +731,12 @@ func TestGetInboundMessageExpired(t *testing.T) {
 	// Set expiry to the past
 	pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), msg.ID)
 
-	_, err := store.GetInboundMessage(ctx, msg.ID)
-	if err == nil {
-		t.Error("expected error for expired inbound message")
+	got, err := store.GetInboundMessage(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("GetInboundMessage with legacy past expires_at: %v", err)
+	}
+	if got.ID != msg.ID {
+		t.Errorf("GetInboundMessage id = %q, want %q", got.ID, msg.ID)
 	}
 }
 
@@ -739,7 +814,7 @@ func TestGetMessageByEmailMessageID_ResolvesOutboundByProviderID(t *testing.T) {
 	}
 }
 
-func TestGetRepliableMessage_ExcludesHeldAndExpired(t *testing.T) {
+func TestGetRepliableMessage_ExcludesHeldButIgnoresLegacyExpiry(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -756,14 +831,14 @@ func TestGetRepliableMessage_ExcludesHeldAndExpired(t *testing.T) {
 		t.Error("GetRepliableMessage returned a held (pending_review) message")
 	}
 
-	// An expired message is likewise excluded.
+	// A legacy past expires_at no longer makes the message unavailable.
 	pool.Exec(ctx, `UPDATE messages SET status = 'sent', expires_at = $1 WHERE id = $2`, time.Now().Add(-1*time.Hour), out.ID)
-	if _, err := store.GetRepliableMessage(ctx, out.ID); err == nil {
-		t.Error("GetRepliableMessage returned an expired message")
+	if _, err := store.GetRepliableMessage(ctx, out.ID); err != nil {
+		t.Fatalf("GetRepliableMessage with legacy past expires_at: %v", err)
 	}
 }
 
-func TestDeleteExpiredMessages(t *testing.T) {
+func TestDeleteExpiredMessagesKeepsLiveLegacyRows(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -780,16 +855,21 @@ func TestDeleteExpiredMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteExpiredMessages: %v", err)
 	}
-	if deleted != 1 {
-		t.Errorf("deleted = %d, want 1", deleted)
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM messages WHERE id = $1)`, msg.ID).Scan(&exists); err != nil {
+		t.Fatalf("check live message: %v", err)
+	}
+	if !exists {
+		t.Error("live message with legacy past expires_at was deleted")
 	}
 }
 
-// TestDeleteExpiredMessages_MultiBatch drives the ctid-bounded drain loop across
-// more than one batch by shrinking the batch size to 2 and seeding 5 expired rows
-// (batches of 2, 2, 1). Asserts every expired row is deleted across batches and a
-// non-expired row is left untouched — guarding both the loop's termination condition
-// (RowsAffected < batch) and the expiry predicate.
+// TestDeleteExpiredMessages_MultiBatch drives the ctid-bounded trash purge
+// across more than one batch by shrinking the batch size to 2 and seeding five
+// stale trash rows (batches of 2, 2, 1). A live row remains indefinitely.
 func TestDeleteExpiredMessages_MultiBatch(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -802,15 +882,14 @@ func TestDeleteExpiredMessages_MultiBatch(t *testing.T) {
 	store.ClaimOrCreateDomain(ctx, "cleanup-batch.example.com", user.ID)
 	a, _ := store.CreateAgent(ctx, "agent@cleanup-batch.example.com", "cleanup-batch.example.com", "", "https://example.com/webhook", "", user.ID)
 
-	// 5 expired rows — spans 3 batches under batch size 2.
+	// Five stale trash rows span three batches under batch size 2.
 	var expiredIDs []string
 	for i := 0; i < 5; i++ {
 		m, _ := store.CreateInboundMessage(ctx, "", a.ID, "alice@gmail.com", "bot@cleanup-batch.example.com", "", "", "", "", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
 		expiredIDs = append(expiredIDs, m.ID)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE messages SET expires_at = $1 WHERE id = ANY($2)`,
-		time.Now().Add(-1*time.Hour), expiredIDs); err != nil {
-		t.Fatalf("seed expiry: %v", err)
+	if _, err := pool.Exec(ctx, `UPDATE messages SET deleted_at = now() - interval '31 days' WHERE id = ANY($1)`, expiredIDs); err != nil {
+		t.Fatalf("seed stale trash: %v", err)
 	}
 
 	// One fresh row that must survive the sweep.
@@ -821,7 +900,7 @@ func TestDeleteExpiredMessages_MultiBatch(t *testing.T) {
 		t.Fatalf("DeleteExpiredMessages: %v", err)
 	}
 	if deleted != 5 {
-		t.Errorf("deleted = %d, want 5 (all expired across 3 batches)", deleted)
+		t.Errorf("deleted = %d, want 5 (all stale trash rows across 3 batches)", deleted)
 	}
 
 	var remaining int
@@ -829,14 +908,14 @@ func TestDeleteExpiredMessages_MultiBatch(t *testing.T) {
 		t.Fatalf("count remaining: %v", err)
 	}
 	if remaining != 1 {
-		t.Errorf("remaining rows = %d, want 1 (the fresh row)", remaining)
+		t.Errorf("remaining rows = %d, want 1 (the live row)", remaining)
 	}
 	var keepExists bool
 	if err := pool.QueryRow(ctx, `SELECT exists(SELECT 1 FROM messages WHERE id = $1)`, keep.ID).Scan(&keepExists); err != nil {
 		t.Fatalf("check kept row: %v", err)
 	}
 	if !keepExists {
-		t.Errorf("non-expired row %s was deleted", keep.ID)
+		t.Errorf("live row %s was deleted", keep.ID)
 	}
 }
 

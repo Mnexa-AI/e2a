@@ -33,7 +33,7 @@ type Store interface {
 	// CorrelateBySESMessageID finds the outbound message + owning user + agent
 	// (plus the message fields the event payloads need — same single SELECT,
 	// no extra query) by the SES-assigned provider_message_id captured at send
-	// time. found=false when the id is unknown (message expired, or an event
+	// time. found=false when the id is unknown (message deleted, or an event
 	// for another deployment).
 	CorrelateBySESMessageID(ctx context.Context, sesMessageID string) (m *CorrelatedMessage, found bool, err error)
 	// CorrelateByE2AMessageID finds the outbound message by the e2a message id
