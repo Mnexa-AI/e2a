@@ -135,6 +135,10 @@ Before trusting any webhook field, verify the delivery envelope's `X-E2A-Signatu
 
 The one-call shortcut parses **and** verifies a delivery, returning a typed event — use it instead of trusting any field on an unverified payload:
 
+For complete webhook integrations using OpenAI Agents SDK, Anthropic,
+LangChain, or Google ADK in Python and TypeScript, see the
+[agent framework webhook examples](examples/agent-framework-webhooks/README.md).
+
 ```python
 from e2a.v1 import construct_event, E2AWebhookSignatureError
 

@@ -20,7 +20,19 @@ node -e '
 
 node scripts/sync-agent-docs.mjs --check
 node scripts/check-sdk-example-contracts.mjs
-python3 -m unittest discover -s examples/adk-cloud-webhook -p 'test_*.py'
+
+legacy_agent_calls="$(git grep -n -E 'webhooks\.(fetch_message|fetchMessage)|client\.messages\.reply|messages\.reply' -- \
+  examples/agent-framework-webhooks/python/agent_webhooks \
+  examples/agent-framework-webhooks/typescript/src \
+  examples/adk-cloud-webhook/agent.py \
+  examples/adk-cloud-webhook/delivery_state.py \
+  examples/adk-cloud-webhook/webhook.py || true)"
+if [[ -n "$legacy_agent_calls" ]]; then
+  echo "agent webhook examples must use the ergonomic inbound facade:" >&2
+  echo "$legacy_agent_calls" >&2
+  exit 1
+fi
+
 python3 -m unittest discover -s mcp/examples -p 'test_*.py'
 
 echo "repository text integrity checks passed"
