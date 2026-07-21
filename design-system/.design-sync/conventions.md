@@ -25,7 +25,7 @@ reference Loft tokens. The real vocabulary:
 | Surfaces | `--bg` (app), `--bg-panel` (cards), `--bg-elev` (raised), `--bg-sunken` |
 | Text | `--fg`, `--fg-strong`, `--fg-muted`, `--fg-subtle` |
 | Borders | `--border`, `--border-sub`, `--border-strong` |
-| Accent (ember) | `--accent`, `--accent-fill`, `--accent-strong`, `--accent-soft`, `--accent-fg` |
+| Accent (Spark) | `--accent`, `--accent-fill`, `--accent-strong`, `--accent-soft`, `--accent-fg` |
 | Semantic | `--success`, `--warn`, `--danger`, `--info` (+ `-bg`, `-strong` pairs) |
 | Ink (agent console) | `--ink`, `--ink-elev`, `--ink-fg`, `--ink-fg-muted`, `--spectral`, `--machine` |
 | Radii | `--r-sm` `--r-md` `--r-lg` `--r-xl` |
