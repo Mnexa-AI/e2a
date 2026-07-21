@@ -1,12 +1,12 @@
 ---
 name: e2a
 description: "Use when operating e2a (email for AI agents) over its MCP tools — sending or receiving email, replying in-thread, managing agents and custom domains, or working with attachments — OR when integrating e2a into your own software or service with API keys, SDKs, and webhooks. With e2a YOU are the agent and the inbox IS the agent, not a human reading their mail. Covers send_message vs reply_to_message threading, multi-agent disambiguation, the custom-domain DNS flow, programmatic integration, and common gotchas."
-version: 19
+version: 20
 ---
 
 # Using e2a
 
-<!-- version: 19 -->
+<!-- version: 20 -->
 
 e2a is an authenticated email gateway for AI agents. It gives an agent a real email address (`agent@agents.e2a.dev` or `agent@your-domain.com`), verifies sender identity (SPF/DKIM), and threads conversations.
 
@@ -62,6 +62,27 @@ Before the first e2a operation in a task, inspect the current client's available
 4. **Classify failures:** an authentication failure means the user should reauthorize through the current client's MCP flow. A network, timeout, or server failure is operational: report it and preserve known-good configuration and credentials.
 5. **Select the inbox:** for agent scope, use the returned `agent_email`. For account scope, call `list_agents`. Honor an inbox identified by the task; use the sole result when there is one; ask the user to choose when there are several. If there are none, offer to create `name@agents.e2a.dev` after they choose the local part—no custom domain or DNS is required.
 6. Verify readiness with `list_messages`, passing the selected `email` for account scope. This read is harmless and does not mark messages read. Once it succeeds, resume the user's original e2a task.
+
+### Optional: require human review for every outbound email
+
+Only when the user asks for every outbound email to require human review,
+configure this policy. After selecting the inbox, call `update_protection` for
+that inbox with:
+
+```json
+{
+  "outbound_gate_policy": "allowlist",
+  "outbound_gate_allowlist": [],
+  "outbound_gate_action": "review",
+  "holds_on_expiry": "reject"
+}
+```
+
+The empty allowlist makes every recipient a gate non-match, `review` holds each
+non-match for a human, and `reject` prevents an unreviewed message from being
+sent when its hold expires. Do not use `open` with `review` for this outcome:
+`open` matches every recipient, so the recipient gate holds nothing. This is
+opt-in; never enable it merely because an inbox was created.
 
 ### Triage the inbox
 
