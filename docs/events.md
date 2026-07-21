@@ -203,7 +203,13 @@ The TypeScript / Python SDKs wrap the same endpoints (`client.events.*`).
 
 ## Retention and expiry
 
-Events live for **30 days** then drop out of the log. Delivery rows in `webhook_subscriber_deliveries` carry their own **30-day** TTL (matching the legacy `webhook_deliveries` table, not the retry envelope) but become detached from the parent event once it expires — `GET /events/{id}` returns 410 Gone while the delivery history endpoint `GET /webhooks/{id}/deliveries` still shows the row.
+Events live for **30 days** then drop out of the log. Delivery rows in
+`webhook_subscriber_deliveries` carry their own **90-day** TTL, established by
+migration 027 to leave a healthy margin beyond the retry envelope. They
+therefore become detached from the parent event once it expires —
+`GET /events/{id}` returns 410 Gone while the delivery history endpoint
+`GET /webhooks/{id}/deliveries` still shows the row until its own retention
+window ends.
 
 Replay requires the source event to still exist. If you need a longer reconciliation window, plumb your own copy into your DB at event-receipt time.
 
