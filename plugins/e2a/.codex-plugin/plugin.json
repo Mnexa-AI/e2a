@@ -2,7 +2,7 @@
   "name": "e2a",
   "displayName": "e2a",
   "version": "0.5.0",
-  "description": "Authenticated email gateway for AI agents — per-agent inboxes, HITL approval, SPF/DKIM verification, and a queryable, replayable event log. 50 MCP tools over hosted streamable HTTP with OAuth.",
+  "description": "Authenticated email gateway for AI agents — per-agent inboxes, SPF/DKIM verification, and a queryable, replayable event log. 50 MCP tools over hosted streamable HTTP with OAuth.",
   "author": {
     "name": "TokenCanopy"
   },
@@ -13,7 +13,6 @@
     "email",
     "smtp",
     "agents",
-    "hitl",
     "spf",
     "dkim",
     "inbox",
@@ -25,7 +24,7 @@
   "interface": {
     "displayName": "e2a",
     "shortDescription": "Authenticated email for AI agents",
-    "longDescription": "Bundles the hosted e2a MCP server and an operate-well skill so an agent can send and receive real email from per-agent inboxes — with SPF/DKIM verification, human-in-the-loop review holds, custom domains, attachments, and a replayable event log.",
+    "longDescription": "Bundles the hosted e2a MCP server and an operate-well skill so an agent can send and receive real email from per-agent inboxes — with SPF/DKIM verification, custom domains, attachments, and a replayable event log.",
     "developerName": "TokenCanopy",
     "category": "Productivity",
     "websiteURL": "https://e2a.dev",

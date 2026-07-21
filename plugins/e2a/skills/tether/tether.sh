@@ -120,11 +120,10 @@ question or instruction; reply \"stop\" to end early.
       echo "tether: intro NOT sent — auth failed (key invalid/revoked). Check 'e2a whoami' / E2A_API_KEY."
       exit 4
     fi
-    [ -n "$mid" ] || { echo "tether: intro send failed (check creds / base url / agent protection)"; exit 1; }
+    [ -n "$mid" ] || { echo "tether: intro send failed (check credentials and base URL)"; exit 1; }
     if [ "$rc" = "2" ]; then
-      echo "tether: intro was HELD for review (pending_review) — the user won't receive it, so NOT arming."
-      echo "        Fix: e2a protection set ${E2A_AGENT_EMAIL} --outbound-review off"
-      echo "        (needs the account-scoped 'e2a login' credential, or use the dashboard) — then run start again."
+      echo "tether: intro returned pending_review — it was not dispatched, so NOT arming."
+      echo "        Check the inbox configuration, then run start again."
       exit 1
     fi
     t_state_set armed 1 to "$to" conversation_id "$conv" last_message_id "$mid" \
@@ -166,7 +165,7 @@ question or instruction; reply \"stop\" to end early.
     fi
     t_state_set last_message_id "$mid"
     if [ "$rc" = "2" ]; then
-      echo "tether: WARNING update HELD for review (pending_review) — it did NOT reach the user. Disable send-side protection on ${E2A_AGENT_EMAIL}."
+      echo "tether: WARNING update returned pending_review — it did NOT reach the user. Check the inbox configuration."
       exit 2
     fi
     # The thread id in the success line makes cross-session misdirection
@@ -261,7 +260,7 @@ question or instruction; reply \"stop\" to end early.
     [ -n "$mid" ] || { echo "tether: ask send failed"; exit 1; }
     t_state_set last_message_id "$mid"
     if [ "$rc" = "2" ]; then
-      echo "tether: WARNING question HELD for review (pending_review) — it did NOT reach the user, so not waiting. Disable send-side protection on ${E2A_AGENT_EMAIL}."
+      echo "tether: WARNING question returned pending_review — it did NOT reach the user, so not waiting. Check the inbox configuration."
       exit 4
     fi
     echo "tether: question sent (${mid}); waiting for your reply…"
@@ -283,10 +282,9 @@ question or instruction; reply \"stop\" to end early.
   setup)
     # Zero-to-tethered bootstrap on the e2a CLI. Needs an ACCOUNT credential in
     # the CLI's own config (`e2a login`, or `e2a config set api_key` headless).
-    # Golden path: whoami → ensure inbox (verify/create) → outbound review off
-    # → mint a least-privilege agent key → write ~/.e2a-tether.env. Every step
-    # fails HARD: no protection clobber (the CLI never PUTs after a failed
-    # read), no silent account-key fallback, no "ready" with a broken config.
+    # Golden path: whoami → ensure inbox (verify/create) → mint a
+    # least-privilege agent key → write ~/.e2a-tether.env. Every step fails
+    # HARD: no silent account-key fallback and no "ready" with a broken config.
     #   --email <addr>  use/create this inbox (bare names expand on the shared domain)
     #   --new           always create a fresh tether-<rand> inbox
     force_new=0; want=""
@@ -315,9 +313,6 @@ try:print(json.load(sys.stdin).get("agentAddress",""))
 except Exception:print("")')"
       echo "tether setup: the CLI already holds an agent-scoped key (${bound}) — nothing to mint."
       echo "              tether will pick it up from ~/.e2a/config.json; run 'tether.sh status' to confirm."
-      echo "              NOTE this key cannot verify/disable outbound review on ${bound}. If 'start'"
-      echo "              refuses with a HELD intro, run 'e2a protection set ${bound} --outbound-review off'"
-      echo "              with an account-scoped login (or use the dashboard)."
       exit 0
     fi
     [ "$scope" = "account" ] || { echo "tether setup: could not determine key scope (e2a whoami failed?) — check 'e2a whoami'"; exit 1; }
@@ -342,30 +337,11 @@ except Exception:print("")')"
       echo "tether setup: creating ${inbox}…"
       t_cli agents create "$inbox" --name "tether" >/dev/null || { echo "tether setup: agent create failed (slug taken/invalid?)"; exit 1; }
     fi
-    case "$inbox" in
-      tether-*@*) : ;;
-      *) [ -n "$want" ] || { echo "tether setup: refusing to reconfigure non-tether inbox ${inbox} without an explicit --email"; exit 1; }
-         echo "tether setup: NOTE disabling OUTBOUND review on ${inbox} (explicitly requested via --email)";;
-    esac
-    # Mint FIRST, flip protection SECOND: the mint can fail (quota, 5xx), and
-    # the old order left outbound review disabled on the inbox while claiming
-    # "nothing written". This order is fully rollbackable — a protection
-    # failure revokes the just-minted key and aborts with zero server-side
-    # drift. (--json gives us the key id so the rollback can name it.)
     kjson="$(t_cli keys create --agent "$inbox" --name "tether-$(python3 -c 'import secrets;print(secrets.token_hex(2))')" --json 2>/dev/null)"
     agtkey="$(printf '%s' "$kjson" | python3 -c 'import json,sys
 try:print(json.load(sys.stdin).get("key","") or "")
 except Exception:print("")')"
-    keyid="$(printf '%s' "$kjson" | python3 -c 'import json,sys
-try:print(json.load(sys.stdin).get("id","") or "")
-except Exception:print("")')"
     [ -n "$agtkey" ] || { echo "tether setup: could not mint an agent-scoped key — aborting (NOT storing the broad account key)"; exit 1; }
-    if ! t_cli protection set "$inbox" --outbound-review off >/dev/null; then
-      [ -n "$keyid" ] && t_cli keys delete "$keyid" >/dev/null 2>&1
-      echo "tether setup: could not disable outbound review — aborting (minted key revoked, nothing changed)"
-      exit 1
-    fi
-    echo "tether setup: outbound review off on ${inbox}"
     envf="${HOME}/.e2a-tether.env"
     if [ -f "$envf" ]; then
       cp "$envf" "${envf}.bak" && chmod 600 "${envf}.bak" 2>/dev/null

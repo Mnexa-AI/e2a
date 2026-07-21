@@ -3,8 +3,8 @@
 Gives an AI coding agent a real, authenticated email inbox. Installing this
 plugin registers the hosted **e2a MCP server** (`https://api.e2a.dev/mcp`,
 Streamable HTTP + OAuth 2.1) and an **operate-well skill** so the agent can send
-and receive email, reply in-thread, hold outbound mail for human review (HITL),
-manage agents and custom domains, and work with attachments.
+and receive email, reply in-thread, manage agents and custom domains, and work
+with attachments.
 
 After installation, authorize e2a through your client's MCP flow (Claude Code:
 run `/mcp`; Codex CLI: `codex mcp login e2a`) — no API key to paste. For

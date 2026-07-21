@@ -1,0 +1,65 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+
+const coreAgentFiles = [
+  "plugins/e2a/README.md",
+  "plugins/e2a/docs/auth.md",
+  "plugins/e2a/docs/e2a.md",
+  "plugins/e2a/docs/llms.txt",
+  "plugins/e2a/docs/sdk.md",
+  "plugins/e2a/docs/templates.md",
+  "plugins/e2a/skills/e2a/SKILL.md",
+  "plugins/e2a/.claude-plugin/plugin.json",
+  "plugins/e2a/.codex-plugin/plugin.json",
+  "plugins/e2a/.cursor-plugin/plugin.json",
+];
+
+test("core agent guidance does not promote the HITL review surface", async () => {
+  const forbidden = /\bHITL\b|human-in-the-loop|approve_review|reject_review|list_reviews|get_review|turn on a review hold|review held messages/i;
+
+  for (const file of coreAgentFiles) {
+    const source = await readFile(file, "utf8");
+    assert.doesNotMatch(source, forbidden, file);
+  }
+});
+
+test("the e2a skill keeps a defensive pending_review no-retry warning", async () => {
+  const source = await readFile("plugins/e2a/skills/e2a/SKILL.md", "utf8");
+  assert.match(source, /pending_review/);
+  assert.match(source, /do not retry/i);
+});
+
+test("the e2a skill description is quoted YAML", async () => {
+  const source = await readFile("plugins/e2a/skills/e2a/SKILL.md", "utf8");
+  assert.match(source, /^description: "(?:[^"\\]|\\.)*"$/m);
+});
+
+test("the e2a skill bootstraps and verifies an MCP connection", async () => {
+  const source = await readFile("plugins/e2a/skills/e2a/SKILL.md", "utf8");
+  const bootstrap = source.match(
+    /### First run:[\s\S]*?(?=\n### |\n## )/,
+  )?.[0] ?? "";
+
+  assert.match(bootstrap, /available e2a MCP tools/i);
+  assert.match(bootstrap, /e2a MCP [`\"]?whoami/i);
+  assert.match(bootstrap, /(?:never|not).*(?:Unix|shell).*whoami/i);
+  assert.match(
+    bootstrap,
+    /claude mcp add --transport http --scope user e2a https:\/\/api\.e2a\.dev\/mcp/,
+  );
+  assert.match(bootstrap, /codex mcp login e2a/);
+  assert.match(bootstrap, /mcpServers/);
+  assert.match(bootstrap, /Streamable HTTP/i);
+  assert.match(bootstrap, /authentication failure/i);
+  assert.match(bootstrap, /network, timeout, or server/i);
+  assert.match(bootstrap, /list_messages/);
+  assert.match(bootstrap, /resume.*original/i);
+  assert.match(bootstrap, /never ask.*API key/i);
+});
+
+test("tether setup does not mutate review configuration", async () => {
+  const source = await readFile("plugins/e2a/skills/tether/tether.sh", "utf8");
+  assert.doesNotMatch(source, /protection set|outbound-review|outbound review/i);
+  assert.match(source, /pending_review/);
+});

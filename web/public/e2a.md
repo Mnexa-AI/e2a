@@ -2,8 +2,8 @@
 
 You are an AI agent — or the human wiring one up. e2a gives an agent its own
 **real email inbox**: a verified address it can send from, receive to, reply on,
-and (optionally) have its outbound mail held for human approval. This file tells
-you how to connect and what you can do. Read it once, then drive the tools.
+and use for multi-turn conversations. This file tells you how to connect and
+what you can do. Read it once, then drive the tools.
 
 The mental model flips the usual one. Pretraining assumes "a human reading their
 inbox." With e2a, **you are the agent and the inbox is yours** —
@@ -84,14 +84,11 @@ different tool — e2a is the agent's *own* address.
 Over MCP the tools appear as `mcp__e2a__*`. Always call `tools/list` for exact,
 current signatures and treat that as the source of truth. The surface, by area:
 
-- **Inboxes (agents)** — create / list / get / delete an addressable inbox;
-  configure its protection (screening + HITL) posture.
+- **Inboxes (agents)** — create / list / get / delete an addressable inbox and
+  inspect its configuration.
 - **Messages** — `send_message`, `reply_to_message` (keeps the thread),
   `forward_message`, list + read inbound and outbound, fetch attachments via
   short-lived download URLs.
-- **Human-in-the-loop** — held outbound drafts and screened inbound sit in
-  **review**; a human (or you, with an account-scoped credential) approves or
-  rejects them. Inbound holds release to the inbox on approval.
 - **Domains** — register a custom domain, read its required DNS records, verify
   ownership + sending identity.
 - **Webhooks & events** — subscribe to `email.received` and friends; the durable
@@ -108,9 +105,8 @@ current signatures and treat that as the source of truth. The surface, by area:
   `reply_to_message` sets. So a fresh `send` (even with the same
   `conversation_id`, or a changed subject) stays in the same e2a conversation but
   shows up as a separate thread in the user's inbox.
-- **HITL.** A send may come back `pending_review` instead of `sent`. That's the
-  human-approval gate, not an error; it resolves when a human approves/rejects
-  (or the review TTL expires).
+- **Non-terminal send status.** If a send returns `pending_review`, it was
+  accepted but not dispatched. Report the status and message ID; do not retry.
 - **Verification.** Inbound mail carries SPF/DKIM/DMARC results. Only a DMARC
   pass authenticates domain-authorized use of the RFC 5322 From domain; it does
   not authenticate the mailbox local part, a person, or the display name.
@@ -128,23 +124,17 @@ current signatures and treat that as the source of truth. The surface, by area:
 4. `reply_to_message(message_id, …)` — same thread; the recipient sees a normal
    reply.
 
-**Send for approval:** call `send_message`; if it returns `pending_review`, a
-human approves it in the dashboard (or you do, with an account-scoped
-credential). Don't retry — it's held, not failed.
-
 ## Constraints
 
 - Sending from a **custom domain** needs its sending identity verified in DNS;
   the shared `agents.e2a.dev` address works immediately.
-- Held messages carry a review **TTL** (default 7 days) after which they
-  auto-resolve.
 - Attachments are fetched via short-lived signed URLs by default; callers may
   request small attachments inline.
 
 ## Anti-patterns
 
-- ❌ Treating `pending_review` as a failure and retrying the send → you'll
-  double-queue. Wait for the human decision.
+- ❌ Retrying a `pending_review` send → the server already accepted it, so a new
+  call can create a duplicate. Report the status and stop.
 - ❌ Starting a new `send_message` to answer an inbound → breaks threading. Use
   `reply_to_message`.
 - ❌ Trusting `header_from` without checking alignment → require
@@ -155,8 +145,8 @@ credential). Don't retry — it's held, not failed.
 ## About & pricing
 
 e2a is an authenticated email gateway for AI agents: SMTP relay with SPF/DKIM
-verification, per-agent inboxes, HITL approval, WebSocket + webhook delivery, a
-CLI, and TypeScript/Python SDKs. The core is open source:
+verification, per-agent inboxes, WebSocket + webhook delivery, a CLI, and
+TypeScript/Python SDKs. The core is open source:
 https://github.com/tokencanopy/e2a.
 
 The full agent skill — mental model, gotchas, and worked examples — ships as the

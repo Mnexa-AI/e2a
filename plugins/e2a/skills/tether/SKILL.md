@@ -18,8 +18,8 @@ questions or new instructions — are picked up within a few minutes. Reply
 > the `e2a` skill (`${CLAUDE_PLUGIN_ROOT}/skills/e2a/SKILL.md`) — carries the
 > mental model this skill assumes: how threading really works (reply headers +
 > stable subject, **not** `conversation_id`), when a shared `agents.e2a.dev`
-> address is all you need vs. a custom domain, and the `pending_review`/HITL
-> gotcha. Read it if you're new to e2a; tether does not re-explain those.
+> address is all you need vs. a custom domain, and how to handle send statuses.
+> Read it if you're new to e2a; tether does not re-explain those.
 
 ## Architecture (why this shape)
 
@@ -68,12 +68,11 @@ bootstrap:
 
 It verifies the credential (`e2a whoami`), ensures a tether inbox (reusing an
 existing `tether-…` agent or creating one on the shared domain — it will
-**not** silently adopt a non-tether inbox), turns outbound review **off** on
-that inbox, mints a **least-privilege agent-scoped key** (`e2a_agt_…`), and
-writes `~/.e2a-tether.env` (previous file kept as `.bak`). Every step fails
-hard — it never stores the broad account key and never reports "ready" with a
-half-working config. Flags: `--email you@yourdomain` to use/create a specific
-inbox, `--new` to force a fresh one.
+**not** silently adopt a non-tether inbox), mints a **least-privilege
+agent-scoped key** (`e2a_agt_…`), and writes `~/.e2a-tether.env` (previous file
+kept as `.bak`). Every step fails hard — it never stores the broad account key
+and never reports "ready" with a half-working config. Flags: `--email
+you@yourdomain` to use/create a specific inbox, `--new` to force a fresh one.
 
 ### Manual setup (fallback)
 
@@ -104,12 +103,9 @@ e2a config set agent_email <inbox>       # or export E2A_AGENT_EMAIL
 
 or put the agent key + inbox in `~/.e2a-tether.env` and leave the CLI config alone.
 
-> The tether agent must have send-side protection / HITL **off**, or each update
-> is held for review instead of reaching you. `tether.sh` now detects this on
-> every send: a held intro makes `start` **refuse to arm**, and a held
-> `update`/`ask` prints a `HELD for review (pending_review)` warning and exits
-> non-zero — so a held session fails loudly instead of "reporting" into a queue
-> the user never sees.
+> If e2a returns `pending_review`, the message was not dispatched. `tether.sh`
+> detects this on every send: an affected intro makes `start` **refuse to arm**,
+> and an affected `update`/`ask` exits non-zero so the session fails loudly.
 
 ## First run (new user) — set them up, then tether
 
@@ -125,8 +121,8 @@ first-time user — **help them get to a working setup instead of just failing**
    dashboard, persist it with `e2a config set api_key <key>`, then validate it
    with `e2a whoami`.) Interactive sign-in is theirs to complete: hand them the
    command, don't drive it.
-2. **Run the bootstrap:** `"$T" setup` — it creates the inbox, disables
-   outbound review, mints the agent-scoped key, and writes
+2. **Run the bootstrap:** `"$T" setup` — it creates the inbox, mints the
+   agent-scoped key, and writes
    `~/.e2a-tether.env`. See **Setup** above for what it refuses to do.
 3. **Re-check.** `"$T" status` should now print `config: OK (agent …)`. Proceed
    to the runtime flow.
@@ -153,8 +149,8 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    needs it stable), so title the *work*, not the first step. `--for` takes a **single
    unit** (`30m`, `2h`, `8h`, `1d`); a compound
    like `1h30m` is rejected rather than silently treated as no-limit. If the intro
-   comes back **held for review** (`pending_review`), `start` refuses to arm and
-   tells you to turn protection off — a held intro means the user never got it.
+   comes back `pending_review`, `start` refuses to arm because the intro was not
+   dispatched.
 3. **Work**, and **send updates as you see fit** — **prefer HTML**, it renders
    far better in mail clients: write the HTML to a file and run
    `"$T" update --html <file>` — a plain-text fallback is auto-derived (or pass
@@ -165,9 +161,8 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    upload the file somewhere and send a link instead). Good moments: finished a
    slice, made a decision that's worth surfacing, hit a blocker, or before a
    long unattended stretch. Skip trivial
-   turns. If `update` prints a `HELD for review (pending_review)`
-   warning (exit 2), the update did **not** reach the user — stop and fix
-   protection before continuing; don't keep "reporting" into a review queue.
+   turns. If `update` reports `pending_review` (exit 2), the update did **not**
+   reach the user — stop and fix the inbox configuration before continuing.
 4. **Need a decision from the user? Ask by email — never the terminal.** Run
    `"$T" ask "<question>"` (in the background); it emails the question and blocks
    until the user replies, then prints the answer. `--attach <file>` works here
@@ -178,8 +173,8 @@ Let `T="${CLAUDE_PLUGIN_ROOT}/skills/tether/tether.sh"`.
    so a background `listen` pauses and can't swallow your answer). Handle its exit
    codes: **exit 3** = timed out with no reply (default 30m) — re-`ask`, send a
    nudge `update`, or keep working and listening, but never fall back to a
-   terminal prompt; **exit 4** = the question was held for review and never
-   reached the user (fix protection).
+   terminal prompt; **exit 4** = the question was not dispatched (fix the inbox
+   configuration).
 5. **Listen for the whole window**: run `"$T" listen` **in the background**. It
    waits on the CLI's WebSocket (real-time, no tokens while waiting; degrades
    to polling if the WS is unavailable) and exits with either:
