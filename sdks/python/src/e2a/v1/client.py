@@ -772,7 +772,8 @@ class WebhooksResource:
         channel's :class:`~e2a.v1.websocket.WSEvent` (both channels carry the
         same envelope). The event is a metadata-only notification; this
         resolves its ``(delivered_to, message_id)`` fetch keys and returns the
-        full :class:`MessageView` (body, attachments, signed headers). Raises
+        full :class:`MessageView` (body, attachments, and structured SMTP
+        authentication evidence). Raises
         ``ValueError`` if the event is not an ``email.received`` carrying those
         keys.
         """

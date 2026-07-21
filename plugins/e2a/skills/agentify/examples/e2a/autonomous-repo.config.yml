@@ -36,7 +36,7 @@ fix_gate:
   always_hitl:
     - "auth / authz / permissions / sessions"
     - "secrets, credentials, tokens, keys"
-    - "SMTP / SPF / DKIM / emailauth, HMAC header signing (internal/headers)"
+    - "SMTP / SPF / DKIM / DMARC / emailauth"
     - "billing / Stripe / usage metering"
     - "migrations on messages / usage_events; schema / stored-data shape"
     - "/v1 wire contract / OpenAPI spec / SDK codegen / ID format"

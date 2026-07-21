@@ -407,29 +407,24 @@ components:
         - download_url
         - expires_at
       type: object
-    AuthVerdict:
+    Authentication:
       additionalProperties: true
       properties:
         dkim:
-          $ref: "#/components/schemas/CheckResult"
+          description: One result per DKIM signature, in message header order. An unsigned message carries an empty array.
+          items:
+            $ref: "#/components/schemas/DKIMResult"
+          type: array
         dmarc:
-          $ref: "#/components/schemas/CheckResult"
+          $ref: "#/components/schemas/DMARCResult"
+          description: DMARC evaluation of the RFC 5322 Author Domain against aligned SPF and DKIM evidence.
         spf:
-          $ref: "#/components/schemas/CheckResult"
+          $ref: "#/components/schemas/SPFResult"
+          description: SPF evidence for the SMTP peer and RFC 5321 identity.
       required:
         - spf
         - dkim
         - dmarc
-      type: object
-    CheckResult:
-      additionalProperties: true
-      properties:
-        detail:
-          type: string
-        status:
-          type: string
-      required:
-        - status
       type: object
     ConversationDetailView:
       additionalProperties: true
@@ -716,6 +711,87 @@ components:
         - filters
         - enabled
         - created_at
+      type: object
+    DKIMResult:
+      additionalProperties: true
+      properties:
+        aligned:
+          description: Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered.
+          type:
+            - boolean
+            - "null"
+        detail:
+          description: Free-text diagnostic for humans and logs. Never parse or branch on this field.
+          type: string
+        domain:
+          description: DKIM signing domain from the signature d= tag; null when it could not be parsed.
+          type:
+            - string
+            - "null"
+        selector:
+          description: DKIM selector from the signature s= tag; null when it could not be parsed.
+          type:
+            - string
+            - "null"
+        status:
+          description: Result for this DKIM signature. policy means e2a deliberately refused the signature, such as one using the unsafe l= body-length tag.
+          enum:
+            - pass
+            - fail
+            - none
+            - neutral
+            - policy
+            - temperror
+            - permerror
+          type: string
+      required:
+        - status
+        - domain
+        - selector
+        - aligned
+      type: object
+    DMARCResult:
+      additionalProperties: true
+      properties:
+        aligned_by:
+          description: Mechanisms that both passed and aligned. Empty unless status is pass; each mechanism appears at most once.
+          items:
+            enum:
+              - spf
+              - dkim
+            type: string
+          type: array
+        detail:
+          description: Free-text diagnostic for humans and logs. Never parse or branch on this field.
+          type: string
+        domain:
+          description: RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists.
+          type:
+            - string
+            - "null"
+        policy:
+          description: Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength.
+          enum:
+            - none
+            - quarantine
+            - reject
+          type:
+            - string
+            - "null"
+        status:
+          description: DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.
+          enum:
+            - pass
+            - fail
+            - none
+            - temperror
+            - permerror
+          type: string
+      required:
+        - status
+        - domain
+        - policy
+        - aligned_by
       type: object
     DNSRecord:
       additionalProperties: true
@@ -1212,13 +1288,15 @@ components:
           items:
             $ref: "#/components/schemas/AttachmentMetaView"
           type: array
-        auth_headers:
-          additionalProperties:
-            type: string
-          type: object
-        authenticated_from:
-          description: The From-header identity SPF/DKIM/DMARC verified — treat THIS (not from) as the gated identity.
-          type: string
+        authentication:
+          anyOf:
+            - $ref: "#/components/schemas/Authentication"
+            - maxProperties: 0
+              minProperties: 1
+              type:
+                - object
+                - "null"
+          description: Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
         cc:
           items:
             type: string
@@ -1231,9 +1309,16 @@ components:
         direction:
           description: Always "inbound" on this event.
           type: string
-        from:
-          description: Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.
-          type: string
+        envelope_from:
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery.
+          type:
+            - string
+            - "null"
+        header_from:
+          description: Parsed RFC 5322 From address; never replaced by Reply-To.
+          type:
+            - string
+            - "null"
         message_id:
           type: string
         received_at:
@@ -1249,16 +1334,24 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+          type:
+            - string
+            - "null"
       required:
         - message_id
         - agent_email
         - direction
-        - from
-        - authenticated_from
+        - header_from
+        - envelope_from
+        - verified_domain
         - to
+        - cc
+        - reply_to
+        - authentication
         - delivered_to
         - subject
-        - auth_headers
         - received_at
       type: object
     EmailSentData:
@@ -1914,12 +2007,15 @@ components:
           type:
             - array
             - "null"
-        auth:
-          $ref: "#/components/schemas/AuthVerdict"
-        auth_headers:
-          additionalProperties:
-            type: string
-          type: object
+        authentication:
+          anyOf:
+            - $ref: "#/components/schemas/Authentication"
+            - maxProperties: 0
+              minProperties: 1
+              type:
+                - object
+                - "null"
+          description: Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
         bcc:
           items:
             type: string
@@ -1952,6 +2048,11 @@ components:
           type: boolean
         email_message_id:
           type: string
+        envelope_from:
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery.
+          type:
+            - string
+            - "null"
         expires_at:
           format: date-time
           type: string
@@ -1959,8 +2060,11 @@ components:
           type: string
         flagged:
           type: boolean
-        from:
-          type: string
+        header_from:
+          description: Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To.
+          type:
+            - string
+            - "null"
         html:
           type: string
         id:
@@ -2022,6 +2126,11 @@ components:
             - "null"
         type:
           type: string
+        verified_domain:
+          description: DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+          type:
+            - string
+            - "null"
         webhook_attempts:
           format: int64
           type: integer
@@ -2033,7 +2142,10 @@ components:
         - id
         - agent_email
         - direction
-        - from
+        - header_from
+        - envelope_from
+        - verified_domain
+        - authentication
         - delivered_to
         - subject
         - created_at
@@ -2064,8 +2176,6 @@ components:
     MessageSummaryView:
       additionalProperties: true
       properties:
-        auth:
-          $ref: "#/components/schemas/AuthVerdict"
         cc:
           items:
             type: string
@@ -2092,14 +2202,22 @@ components:
             - inbound
             - outbound
           type: string
+        envelope_from:
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
+          type:
+            - string
+            - "null"
         flag_reason:
           type: string
           x-stability-level: beta
         flagged:
           type: boolean
           x-stability-level: beta
-        from:
-          type: string
+        header_from:
+          description: Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
+          type:
+            - string
+            - "null"
         id:
           type: string
         labels:
@@ -2129,6 +2247,11 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+          type:
+            - string
+            - "null"
         webhook_error:
           type: string
         webhook_status:
@@ -2136,7 +2259,9 @@ components:
       required:
         - id
         - direction
-        - from
+        - header_from
+        - envelope_from
+        - verified_domain
         - to
         - delivered_to
         - subject
@@ -2151,12 +2276,15 @@ components:
           items:
             $ref: "#/components/schemas/AttachmentMetaView"
           type: array
-        auth:
-          $ref: "#/components/schemas/AuthVerdict"
-        auth_headers:
-          additionalProperties:
-            type: string
-          type: object
+        authentication:
+          anyOf:
+            - $ref: "#/components/schemas/Authentication"
+            - maxProperties: 0
+              minProperties: 1
+              type:
+                - object
+                - "null"
+          description: Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
         body:
           $ref: "#/components/schemas/MessageBodyView"
         cc:
@@ -2185,14 +2313,22 @@ components:
             - inbound
             - outbound
           type: string
+        envelope_from:
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
+          type:
+            - string
+            - "null"
         flag_reason:
           type: string
           x-stability-level: beta
         flagged:
           type: boolean
           x-stability-level: beta
-        from:
-          type: string
+        header_from:
+          description: Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
+          type:
+            - string
+            - "null"
         hold_reason:
           $ref: "#/components/schemas/HoldReasonView"
           x-stability-level: beta
@@ -2241,13 +2377,21 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content.
+          type:
+            - string
+            - "null"
         webhook_error:
           type: string
         webhook_status:
           type: string
       required:
         - id
-        - from
+        - header_from
+        - envelope_from
+        - verified_domain
+        - authentication
         - to
         - cc
         - reply_to
@@ -2646,7 +2790,7 @@ components:
             - block
           type: string
         allowlist:
-          description: "Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."
+          description: Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound allowlist/domain gates first require DMARC pass, then match the aligned RFC 5322 From address.
           items:
             type: string
           maxItems: 1000
@@ -2669,7 +2813,7 @@ components:
           description: "What a gate non-match does: flag (deliver + annotate), review (hold), block. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: flag, review, block."
           type: string
         allowlist:
-          description: "Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound: matched against the message From AS PRESENTED — a match does not by itself prove the sender is authentic (a forged From that fails SPF/DKIM/DMARC can still match). For spoofing-sensitive trust, also check the message authentication result."
+          description: Addresses (allowlist) or, inbound only, domains (domain) the gate trusts; ignored for open and for the outbound domain policy (which matches the agent's own domain, not this list). Inbound allowlist/domain gates first require DMARC pass, then match the aligned RFC 5322 From address.
           items:
             type: string
           maxItems: 1000
@@ -2939,14 +3083,22 @@ components:
             - inbound
             - outbound
           type: string
+        envelope_from:
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
+          type:
+            - string
+            - "null"
         flag_reason:
           type: string
           x-stability-level: beta
         flagged:
           type: boolean
           x-stability-level: beta
-        from:
-          type: string
+        header_from:
+          description: Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
+          type:
+            - string
+            - "null"
         hold_reason:
           $ref: "#/components/schemas/HoldReasonView"
           description: Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.
@@ -2963,11 +3115,18 @@ components:
           items:
             type: string
           type: array
+        verified_domain:
+          description: RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+          type:
+            - string
+            - "null"
       required:
         - id
         - agent_email
         - direction
-        - from
+        - header_from
+        - envelope_from
+        - verified_domain
         - to
         - subject
         - review_status
@@ -2985,6 +3144,38 @@ components:
       required:
         - signing_secret
         - previous_secret_expires_at
+      type: object
+    SPFResult:
+      additionalProperties: true
+      properties:
+        aligned:
+          description: Whether a passing SPF identity aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered.
+          type:
+            - boolean
+            - "null"
+        detail:
+          description: Free-text diagnostic for humans and logs. Never parse or branch on this field.
+          type: string
+        domain:
+          description: RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available.
+          type:
+            - string
+            - "null"
+        status:
+          description: SPF evaluation result. Only pass can contribute to DMARC alignment.
+          enum:
+            - pass
+            - fail
+            - none
+            - neutral
+            - softfail
+            - temperror
+            - permerror
+          type: string
+      required:
+        - status
+        - domain
+        - aligned
       type: object
     SendEmailRequest:
       additionalProperties: false
@@ -3538,7 +3729,7 @@ components:
             $ref: "#/components/schemas/ProtectionEventExportEntry"
           type: array
         schema_version:
-          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "3"; v3 suppression entries may include agent_email for exact-agent scope.
+          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "4"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields, and retain v3 suppression provenance through optional agent_email.
           type: string
         suppressions:
           items:
@@ -4830,7 +5021,7 @@ paths:
       tags:
         - messages
     get:
-      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
+      description: Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence.
       operationId: getMessage
       parameters:
         - description: The agent's full email address.

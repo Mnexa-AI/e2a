@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tokencanopy/e2a/internal/config"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -44,15 +43,14 @@ func TestInbound_ProcessIntake_RealPath(t *testing.T) {
 	}
 
 	cfg := &config.Config{SMTP: config.SMTPConfig{Domain: domain}, Env: "development"}
-	signer := headers.NewSigner("test-relay-hmac-key-32-bytes-long!")
-	server := relay.NewServer(cfg, store, signer, usage.NewNoopUsageTracker(), ws.NewHub())
+	server := relay.NewServer(cfg, store, usage.NewNoopUsageTracker(), ws.NewHub())
 	server.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
 
 	// Plant an accepted intake row (as acceptInbound would).
 	raw := []byte("From: alice@sender.test\r\nTo: " + agentEmail + "\r\nMessage-ID: <rp1@sender.test>\r\nSubject: real path\r\n\r\nbody")
 	id := identity.NewInboundIntakeID()
 	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := store.InsertInboundIntakeTx(ctx, tx, id, agentEmail, "alice@sender.test", "1.2.3.4", "<rp1@sender.test>", "hash-rp", raw)
+		_, e := store.InsertInboundIntakeTx(ctx, tx, id, agentEmail, "alice@sender.test", "mx.sender.test", "1.2.3.4", "<rp1@sender.test>", "hash-rp", raw)
 		return e
 	}); err != nil {
 		t.Fatalf("plant intake: %v", err)

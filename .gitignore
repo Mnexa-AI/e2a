@@ -25,6 +25,7 @@ cli/dist/
 # TypeScript SDK
 sdks/typescript/node_modules/
 sdks/typescript/dist/
+sdks/typescript/.oag-openapi.yaml
 
 # Python SDK
 sdks/python/.venv/
@@ -33,6 +34,8 @@ sdks/python/__pycache__/
 sdks/python/src/*.egg-info/
 sdks/python/dist/
 sdks/python/.pytest_cache/
+sdks/python/.oag-openapi.yaml
+sdks/python/.oag-tmp/
 *.pyc
 .gstack/
 .claude/

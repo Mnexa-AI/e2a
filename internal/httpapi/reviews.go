@@ -30,10 +30,10 @@ type ReviewView struct {
 	// incoming message awaiting release. Deliberately a CLOSED enum despite
 	// being response-side: direction is a binary invariant of the model, not
 	// an evolving vocabulary.
-	Direction string `json:"direction" enum:"inbound,outbound"`
-	// From/To: for outbound, From is the inbox and To the recipients; for inbound,
-	// From is the external sender and To the inbox.
-	From           string          `json:"from"`
+	Direction      string          `json:"direction" enum:"inbound,outbound"`
+	HeaderFrom     *string         `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To."`
+	EnvelopeFrom   *string         `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery."`
+	VerifiedDomain *string         `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content."`
 	To             []string        `json:"to" nullable:"false"`
 	Subject        string          `json:"subject"`
 	ConversationID string          `json:"conversation_id,omitempty"`
@@ -49,7 +49,9 @@ func reviewView(it identity.ReviewListItem) ReviewView {
 		ID:             it.ID,
 		Agent:          it.AgentID,
 		Direction:      it.Direction,
-		From:           it.Sender,
+		HeaderFrom:     reviewHeaderFrom(it),
+		EnvelopeFrom:   nullableMessageString(it.EnvelopeFrom),
+		VerifiedDomain: it.Authentication.VerifiedDomain(),
 		To:             orEmptyStrings(it.To),
 		Subject:        it.Subject,
 		ConversationID: it.ConversationID,
@@ -59,6 +61,16 @@ func reviewView(it identity.ReviewListItem) ReviewView {
 		HoldReason:     baseHoldReason(it.ReviewReason),
 		CreatedAt:      it.CreatedAt,
 	}
+}
+
+func reviewHeaderFrom(it identity.ReviewListItem) *string {
+	if it.HeaderFrom != "" {
+		return nullableMessageString(it.HeaderFrom)
+	}
+	if it.Direction == "outbound" {
+		return nullableMessageString(it.Sender)
+	}
+	return nil
 }
 
 type listReviewsOutput struct{ Body Page[ReviewView] }

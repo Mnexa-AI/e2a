@@ -6,12 +6,10 @@
 //   GET /v1/agents/{address}/messages/{id} → MessageView
 // There is no bare-id endpoint, so the agent address is threaded in via
 // the ?email= query param (the inbox list page links here with it). We
-// fetch the same MessageView twice-shaped: once projected to the
-// outbound PendingMessageDetail (for the draft/HITL surfaces) and once
+// project the MessageView into either the
+// outbound PendingMessageDetail (for the draft/HITL surfaces) or
 // to the inbound InboundMessageDetail (for the received-mail surfaces),
-// keyed off the row's `direction`-derived state. The outbound fetch is
-// tried first (focus is most often a held draft); inbound is the
-// fallback when the outbound projection isn't a pending draft.
+// keyed off its authoritative `direction` field.
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -117,13 +115,9 @@ function FocusPageRouter() {
   const email = searchParams.get("email") ?? "";
   const id = searchParams.get("id") ?? "";
   const initialHeadersOpen = searchParams.get("headers") === "1";
-  // The `/v1` detail endpoint (MessageView) carries NEITHER `direction`
-  // nor `review_status`, and blanks `from`/`status` on outbound rows — so
-  // direction and pending-state can't be recovered from the fetch. The
-  // list/pending rows (MessageSummaryView) have both, so they thread the
-  // authoritative values in via query params. Missing → inbound /
-  // not-pending: a deep link can't prove a held outbound draft, so we
-  // default to the safe shape that hides approve/reject.
+  // Direction and review state come from MessageView. Preserve URL values as
+  // fallbacks for old cached payloads and links created before those fields
+  // were added to the detail contract.
   const direction: "inbound" | "outbound" =
     searchParams.get("direction") === "outbound" ? "outbound" : "inbound";
   const pending = searchParams.get("pending") === "1";
@@ -188,9 +182,8 @@ function FocusContent({
     },
   );
 
-  // The wire has no `direction` — it can't be recovered from the payload —
-  // so the authoritative value threaded in via `?direction=` selects the
-  // projection. Cheap and pure, so it re-derives on any cache write
+  // The wire direction selects the projection; the query value is only a
+  // compatibility fallback. Cheap and pure, so it re-derives on any cache write
   // (including one made by another surface sharing this key).
   const msg: LoadedMessage | null = useMemo(
     () =>
@@ -223,13 +216,10 @@ function FocusContent({
     setDraftBody(outboundData.body_text ?? "");
   }, [outboundData]);
 
-  // The detail MessageView's `status` is the DELIVERY rollup
-  // (queued/sent/…), never the HITL lifecycle — "pending_review" only
-  // ever lives in `review_status` on the summary view, which the detail
-  // doesn't return. So we gate the approve/reject affordances on the
-  // `pending` flag threaded from the list/pending row (alongside
-  // `direction`). Absent param → not pending → approve/reject hidden.
-  const isPending = msg?.direction === "outbound" && threadedPending;
+  // review_status is authoritative; the query flag remains a compatibility
+  // fallback for an older cached MessageView.
+  const isPending = msg?.direction === "outbound" &&
+    (detailSWR.data?.review_status === "pending_review" || threadedPending);
 
   const inboxLink = `/inboxes/messages?email=${encodeURIComponent(email)}`;
   const convLink = msg?.direction === "outbound"
@@ -349,7 +339,7 @@ function FocusContent({
         : "outbound"
       : "inbound";
   const subject = msg.data.subject;
-  const from = direction === "outbound" ? email : msg.data.from;
+  const from = direction === "outbound" ? email : msg.data.header_from ?? "(unknown sender)";
   const to = direction === "outbound" ? msg.data.to?.[0] ?? "" : email;
   const convId = msg.data.conversation_id;
   const createdAt = msg.data.created_at;
@@ -420,7 +410,7 @@ function FocusContent({
             <Chip tone="success">Sent (auto)</Chip>
           )}
           <span className="flex-1" />
-          {direction === "inbound" && (
+          {direction === "inbound" && msg.data.verified_domain && (
             <Chip tone="success">
               <Dot tone="success" /> Auth verified
             </Chip>
@@ -775,6 +765,28 @@ function scrubHeaderValue(raw: string): string {
   return stripped.length > 200 ? stripped.slice(0, 197) + "…" : stripped;
 }
 
+function dmarcHeaderLine(status: "pass" | "fail" | "none" | "temperror" | "permerror"): InkLine {
+  switch (status) {
+    case "pass":
+      return { c: "accent", text: "DMARC: pass" };
+    case "fail":
+      return { c: "plain", fg: "var(--danger-strong)", text: "DMARC: fail" };
+    case "temperror":
+    case "permerror":
+      return { c: "plain", fg: "var(--warn-strong)", text: `DMARC: ${status}` };
+    case "none":
+      return { c: "comment", text: "DMARC: none" };
+  }
+}
+
+function dmarcNotEvaluatedLine(): InkLine {
+  return {
+    c: "plain",
+    fg: "var(--warn-strong)",
+    text: "DMARC: not evaluated — no authenticating inbound SMTP peer",
+  };
+}
+
 function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
   const lines: InkLine[] = [
     { c: "comment", text: "# captured at receive-time" },
@@ -782,7 +794,7 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
       node: (
         <span>
           <span style={{ color: "var(--ink-fg-muted)" }}>From:</span>{" "}
-          <span style={{ color: "var(--spectral)" }}>{d.from}</span>
+          <span style={{ color: "var(--spectral)" }}>{d.header_from ?? "(unknown)"}</span>
         </span>
       ),
     },
@@ -802,26 +814,21 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
       ),
     },
   ];
-  // Surface every X-E2A-Auth-* + Received-SPF + Authentication-Results
-  // header we got. Values are scrubbed for clipboard safety — upstream
-  // SMTP could embed control chars that would otherwise pollute the
-  // copy buffer when a reviewer pastes from the InkConsole.
-  for (const [k, rawV] of Object.entries(d.auth_headers ?? {})) {
-    const v = scrubHeaderValue(rawV);
-    lines.push({
-      node: (
-        <span>
-          <span style={{ color: "var(--ink-fg-muted)" }}>{k}:</span>{" "}
-          {v === "pass" || v === "verified" || v === "true" ? (
-            <span style={{ color: "var(--machine)" }}>{v}</span>
-          ) : v === "fail" || v === "false" ? (
-            <span style={{ color: "var(--danger)" }}>{v}</span>
-          ) : (
-            <span style={{ color: "var(--spectral)" }}>{v}</span>
-          )}
-        </span>
-      ),
-    });
+  if (d.envelope_from) {
+    lines.push({ c: "plain", text: `Envelope-From: ${scrubHeaderValue(d.envelope_from)}` });
+  }
+  if (d.authentication) {
+    const { spf, dkim, dmarc } = d.authentication;
+    lines.push(dmarcHeaderLine(dmarc.status));
+    lines.push({ c: "plain", text: `SPF: ${spf.status}${spf.domain ? ` · ${scrubHeaderValue(spf.domain)}` : ""}` });
+    for (const signature of dkim) {
+      lines.push({
+        c: "plain",
+        text: `DKIM: ${signature.status}${signature.domain ? ` · ${scrubHeaderValue(signature.domain)}` : ""}${signature.selector ? ` · ${scrubHeaderValue(signature.selector)}` : ""}`,
+      });
+    }
+  } else {
+    lines.push(dmarcNotEvaluatedLine());
   }
   return lines;
 }
@@ -866,20 +873,6 @@ function buildOutboundHeaderLines(d: PendingMessageDetail): InkLine[] {
         </span>
       ),
     });
-  }
-  if (d.inbound?.auth_headers) {
-    lines.push({ c: "comment", text: "# parent inbound auth" });
-    for (const [k, rawV] of Object.entries(d.inbound.auth_headers)) {
-      const v = scrubHeaderValue(rawV);
-      lines.push({
-        node: (
-          <span>
-            <span style={{ color: "var(--ink-fg-muted)" }}>{k}:</span>{" "}
-            <span style={{ color: "var(--spectral)" }}>{v}</span>
-          </span>
-        ),
-      });
-    }
   }
   return lines;
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/tokencanopy/e2a/internal/emailauth"
 )
 
 // ReviewListItem is one row of the human review queue (GET /v1/reviews):
@@ -15,6 +17,9 @@ type ReviewListItem struct {
 	AgentID        string
 	Direction      string // inbound | outbound
 	Sender         string
+	HeaderFrom     string
+	EnvelopeFrom   string
+	Authentication *emailauth.Authentication
 	To             []string
 	Subject        string
 	ConversationID string
@@ -41,8 +46,10 @@ type ReviewListItem struct {
 // excludes). SECURITY: account-scoped reviewer flow only; the user join is the
 // tenant-isolation guard.
 func (s *Store) ListReviews(ctx context.Context, userID string, limit int, afterCreatedAt time.Time, afterID string) ([]ReviewListItem, error) {
-	q := `SELECT m.id, m.agent_id, m.direction, m.sender, m.to_recipients,
-	        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
+	q := `SELECT m.id, m.agent_id, m.direction, COALESCE(m.method, ''), m.sender,
+		        COALESCE(m.header_from, ''), COALESCE(m.envelope_from, ''),
+		        m.authentication, m.auth_verdict, m.to_recipients,
+		        COALESCE(m.subject, ''), COALESCE(m.conversation_id, ''),
 	        COALESCE(m.status, ''), m.created_at,
 	        COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''),
 	        COALESCE(m.review_reason, '')
@@ -69,11 +76,19 @@ func (s *Store) ListReviews(ctx context.Context, userID string, limit int, after
 	var out []ReviewListItem
 	for rows.Next() {
 		var it ReviewListItem
-		if err := rows.Scan(&it.ID, &it.AgentID, &it.Direction, &it.Sender, &it.To,
+		var method string
+		var authentication, legacyVerdict []byte
+		if err := rows.Scan(&it.ID, &it.AgentID, &it.Direction, &method, &it.Sender,
+			&it.HeaderFrom, &it.EnvelopeFrom, &authentication, &legacyVerdict, &it.To,
 			&it.Subject, &it.ConversationID, &it.Status, &it.CreatedAt,
 			&it.Flagged, &it.FlagReason, &it.ReviewReason); err != nil {
 			return nil, err
 		}
+		message := Message{Direction: it.Direction, Method: method}
+		if err := unmarshalAuthentication(authentication, legacyVerdict, &message); err != nil {
+			return nil, err
+		}
+		it.Authentication = message.Authentication
 		out = append(out, it)
 	}
 	return out, rows.Err()
@@ -89,16 +104,16 @@ func (s *Store) ListReviews(ctx context.Context, userID string, limit int, after
 func (s *Store) GetReviewWithContent(ctx context.Context, userID, messageID string) (*Message, error) {
 	m := &Message{}
 	var authHeadersJSON []byte
-	var authVerdict []byte
+	var authentication, authVerdict []byte
 	var outboundDeliveryStatus string
 	err := s.pool.QueryRow(ctx,
-		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), m.raw_message, m.auth_headers, m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''), COALESCE(m.review_reason, ''), m.created_at, m.expires_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), COALESCE(m.body_text, ''), COALESCE(m.body_html, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
+		`SELECT m.id, m.agent_id, m.direction, COALESCE(m.method, ''), m.sender, COALESCE(m.header_from, ''), COALESCE(m.envelope_from, ''), m.authentication, m.recipient, m.to_recipients, m.cc, m.reply_to, m.subject, m.email_message_id, m.conversation_id, COALESCE(m.inbox_status, ''), m.raw_message, m.auth_headers, m.auth_verdict, COALESCE(m.flagged, false), COALESCE(m.flag_reason, ''), COALESCE(m.review_reason, ''), m.created_at, m.expires_at, m.labels, COALESCE(m.delivery_status, ''), COALESCE(m.delivery_detail, ''), COALESCE(m.sent_as, ''), COALESCE(m.body_text, ''), COALESCE(m.body_html, ''), COALESCE(m.status, ''), COALESCE(wd.status, ''), COALESCE(wd.last_error, '')
 		   FROM messages m
 		   JOIN agent_identities a ON a.id = m.agent_id
 		   LEFT JOIN webhook_deliveries wd ON wd.message_id = m.id
 		  WHERE m.id = $1 AND a.user_id = $2 AND a.deleted_at IS NULL AND m.expires_at > now()`,
 		messageID, userID,
-	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.ReviewReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
+	).Scan(&m.ID, &m.AgentID, &m.Direction, &m.Method, &m.Sender, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &m.Recipient, &m.ToRecipients, &m.CC, &m.ReplyTo, &m.Subject, &m.EmailMessageID, &m.ConversationID, &m.InboxStatus, &m.RawMessage, &authHeadersJSON, &authVerdict, &m.Flagged, &m.FlagReason, &m.ReviewReason, &m.CreatedAt, &m.ExpiresAt, &m.Labels, &outboundDeliveryStatus, &m.DeliveryDetail, &m.SentAs, &m.BodyText, &m.BodyHTML, &m.Status, &m.WebhookStatus, &m.WebhookError)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +129,9 @@ func (s *Store) GetReviewWithContent(ctx context.Context, userID, messageID stri
 		}
 	}
 	if err := unmarshalAuthVerdict(authVerdict, m); err != nil {
+		return nil, err
+	}
+	if err := unmarshalAuthentication(authentication, authVerdict, m); err != nil {
 		return nil, err
 	}
 	return m, nil

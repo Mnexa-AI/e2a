@@ -35,7 +35,7 @@ func (s *session) acceptInbound(ctx context.Context, body []byte, info threadInf
 	err := s.relay.store.WithTx(ctx, func(tx pgx.Tx) error {
 		for _, rcpt := range s.recipients {
 			intakeID := identity.NewInboundIntakeID()
-			inserted, e := s.relay.store.InsertInboundIntakeTx(ctx, tx, intakeID, rcpt, envelopeFrom, remoteIP, messageID, contentHash, body)
+			inserted, e := s.relay.store.InsertInboundIntakeTx(ctx, tx, intakeID, rcpt, envelopeFrom, s.heloDomain, remoteIP, messageID, contentHash, body)
 			if e != nil {
 				return e
 			}
@@ -76,12 +76,13 @@ func contentHashHex(body []byte) string {
 // calls the shared processInbound with a hook that flips the intake to 'processed'
 // ATOMICALLY with the messages insert + event publish — the worker's idempotency
 // gate. The stored remote_ip text is parsed back to net.IP for SPF; an unparseable
-// value yields nil, which emailauth.Check treats as an unauthenticated source
+// value yields nil, which the authentication evaluator treats as unavailable
 // (fail-safe, not a crash).
 func (srv *Server) ProcessIntake(ctx context.Context, it *identity.InboundIntake) error {
 	in := inboundInput{
 		Body:         it.Raw,
 		EnvelopeFrom: it.EnvelopeFrom,
+		HELODomain:   it.HELODomain,
 		RemoteIP:     net.ParseIP(it.RemoteIP),
 		Recipient:    it.Recipient,
 		TraceID:      it.ID,

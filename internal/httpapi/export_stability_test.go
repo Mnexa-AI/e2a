@@ -206,12 +206,10 @@ func TestExportEnvelopeStableInteriorVersioned(t *testing.T) {
 			t.Errorf("expected %s among the beta-marked export interior schemas; got %v", name, interiorBeta)
 		}
 	}
-	// CheckResult is reachable via the stable message endpoints (inside
-	// AuthVerdict); AttachmentMetaView via the stable email.received event
-	// payload (EmailReceivedData); AuthVerdict itself is shared by the
-	// stable message endpoints and the export. All stay stable everywhere,
-	// including inside the export.
-	for _, name := range []string{"CheckResult", "AttachmentMetaView", "AuthVerdict"} {
+	// The canonical authentication components are reachable through both the
+	// stable message/event surfaces and the export. They stay stable everywhere,
+	// including inside the versioned export interior.
+	for _, name := range []string{"AttachmentMetaView", "Authentication", "SPFResult", "DKIMResult", "DMARCResult"} {
 		if !exportSet[name] {
 			t.Errorf("expected %s inside the export closure — if the export stopped using it, revisit this test's shared-schema assumptions", name)
 			continue

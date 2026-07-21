@@ -336,7 +336,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "List messages (inbox or sent)",
       annotations: { readOnlyHint: true },
       description:
-        "List the agent's messages, newest first by default. Use `direction` to pick the folder: `inbound` (the Inbox — received mail, the default), `outbound` (the Sent folder — mail this agent sent, including held drafts), or `all` (both). Filter received mail by `read_status` (unread/read/all; default unread — applies to inbound only; sent mail has no read-state). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest first) to drain in arrival order. **Search filters** (`from_`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole folder. Returns summaries only — use `get_message` for the full body.",
+        "List the agent's messages, newest first by default. Use `direction` to pick the folder: `inbound` (the Inbox — received mail, the default), `outbound` (the Sent folder — mail this agent sent, including held drafts), or `all` (both). Filter received mail by `read_status` (unread/read/all; default unread — applies to inbound only; sent mail has no read-state). **Cursor-paginated:** returns one page in `messages` plus a `next_cursor` when more remain — pass it back as `cursor` for the next page (keep the same filters + sort). Pass `sort: \"asc\"` for FIFO order (oldest first) to drain in arrival order. **Search filters** (`from_`, `subject_contains`, `conversation_id`, `since`, `until`) narrow server-side — use them instead of paging the whole folder. In inbound summaries, `header_from` is the claimed RFC 5322 From address; a non-null `verified_domain` means DMARC passed for that From domain. It does not authenticate the mailbox local part, a person, or message content. Returns summaries only — use `get_message` for the full body and SPF/DKIM/DMARC evidence.",
       inputSchema: strictInputSchema({
         direction: z
           .enum(["inbound", "outbound", "all"])
@@ -357,7 +357,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .max(200)
           .optional()
           .describe(
-            "Case-insensitive substring on the sender address. Example: `acme.com` matches every message from any `*@acme.com` sender.",
+            "Case-insensitive substring on the claimed RFC 5322 From address. This is not an authenticated-sender filter; inspect `verified_domain` or full DMARC evidence before trusting the domain. Example: `acme.com` matches claimed addresses at `*@acme.com`.",
           ),
         subject_contains: z
           .string()
@@ -442,7 +442,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Get a message",
       annotations: { readOnlyHint: true },
       description:
-        "Use after `list_messages` to read one inbound message in full — body (text + html), headers, conversation id, and attachment metadata. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
+        "Use after `list_messages` to read one inbound message in full — body (text + html), header_from, envelope_from, verified_domain, SPF/DKIM/DMARC authentication evidence, conversation id, and attachment metadata. A non-null verified_domain means DMARC passed for that RFC 5322 From domain; it does not authenticate the mailbox local part, a person, or message content. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         email: z.string().optional(),
@@ -461,7 +461,10 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         return {
           id: email.id,
           conversation_id: email.conversationId,
-          from_: email.from_,
+          header_from: email.headerFrom,
+          envelope_from: email.envelopeFrom,
+          verified_domain: email.verifiedDomain,
+          authentication: email.authentication,
           delivered_to: email.deliveredTo,
           to: email.to,
           cc: email.cc,

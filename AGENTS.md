@@ -9,8 +9,8 @@ knowledge of the project. For deeper prose, see `README.md` (product),
 
 e2a is an **authenticated email gateway for AI agents**. It gives an agent a
 real email address: inbound mail is received over SMTP, sender-verified
-(SPF/DKIM), and delivered to the agent as structured data with HMAC-signed
-`X-E2A-Auth-*` headers — via webhook, WebSocket, REST polling, or MCP tools.
+(SPF/DKIM/DMARC), and delivered to the agent as structured authentication
+evidence — via webhook, WebSocket, REST polling, or MCP tools.
 Outbound mail goes out through an HTTP API (SMTP relay agent-to-agent,
 upstream SMTP such as SES agent-to-human), with an optional human-in-the-loop
 (HITL) approval gate and opt-in prompt-injection content screening (piguard).
@@ -144,23 +144,22 @@ real SMTP credentials; captured mail appears at http://localhost:8025.
 ## Backend architecture (`internal/`)
 
 Single Go process (`cmd/e2a/main.go`) running an SMTP relay, the HTTP API,
-and background workers. Inbound flow: SMTP → `emailauth` (SPF/DKIM) → agent
-lookup → `headers` (HMAC-sign `X-E2A-Auth-*`) → webhook fan-out or WebSocket
+and background workers. Inbound flow: SMTP → `emailauth` (SPF/DKIM/DMARC) → agent
+lookup → canonical authentication persistence → webhook fan-out or WebSocket
 push. Outbound is **always queue-first**: the accept transaction atomically
 persists the message and enqueues a River job; a worker submits to the relay
 and records the terminal outcome.
 
 Key packages:
 
-- `relay` — SMTP server, inbound mail intake. `emailauth` + `dkim` — SPF/DKIM
-  verification. `mailparse` — raw RFC 5322 → parsed view.
+- `relay` — SMTP server, inbound mail intake. `emailauth` + `dkim` — SPF/DKIM/
+  DMARC evaluation and alignment. `mailparse` — raw RFC 5322 → parsed view.
 - `httpapi` — the typed `/v1` Huma handlers (source of the OpenAPI document);
   `apiserver` — assembles the process HTTP handler.
 - `agent` — agent CRUD, HITL, REST API. `agentauth` — agent-identity token
   layer (JWKS/JWT).
 - `identity` / `senderidentity` — domain ownership verification/storage,
   sender-identity resolution (incl. SES BYODKIM provisioning).
-- `headers` — HMAC-SHA256 signing of `X-E2A-Auth-*` headers.
 - `ws` — WebSocket hub for real-time message push. `loopback` — agent-to-self
   delivery without touching the network.
 - `outbound` / `outboundsend` — compose + send via upstream SMTP; the
@@ -299,8 +298,8 @@ web dashboard. The PR template checklists them.
 
 ## Security considerations
 
-- The security model rests on: HMAC-signed `X-E2A-Auth-*` delivery headers,
-  SPF/DKIM verification, webhook endpoint signing + SSRF guard, HITL approval
+- The security model rests on: SPF/DKIM/DMARC evaluation, webhook endpoint
+  signing + SSRF guard, HITL approval
   tokens, API keys (only hashes are stored), and fail-closed external
   integrations (SNS signature verification, OIDC discovery).
 - Never commit secrets. `.env` is gitignored; use it or env vars for

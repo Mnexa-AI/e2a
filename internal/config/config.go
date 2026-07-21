@@ -460,7 +460,7 @@ func Load(path string) (*Config, error) {
 // Validate enforces invariants that must hold before the server starts.
 // In production mode the placeholder HMAC secret, an empty secret, and
 // secrets shorter than the hash output length are hard rejected —
-// running with any of these lets attackers forge X-E2A-Auth-* headers
+// running with any of these weakens approval tokens and derived encryption keys
 // and approve HITL messages.
 func (c *Config) Validate() error {
 	if c.IsProduction() {

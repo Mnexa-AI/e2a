@@ -22,6 +22,13 @@ def conversation_id_for(event_id: str, existing: str | None) -> str:
     return f"conv_{suffix}"
 
 
+def sender_user_id(header_from: object, message_id: str) -> str:
+    """Return the literal From address or isolate an unparseable sender."""
+    if isinstance(header_from, str) and header_from.strip():
+        return header_from
+    return f"unknown-sender:{message_id}"
+
+
 class EventDeduper:
     """Track event claims so at-least-once webhook delivery is side-effect safe."""
 

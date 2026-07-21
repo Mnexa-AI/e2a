@@ -32,7 +32,7 @@ first and fetch ONLY true new feedback.
   `get_message`** (that would mark it read and the comms lane would never see
   the reply). Comms owns replies.
 - **New feedback** — `find-by-comms` returns nothing. NOW `mcp__e2a__get_message`
-  (gives `authenticated_from`, subject, body) and process it (steps below);
+  (gives `header_from`, `authentication`, subject, body) and process it (steps below);
   mark it read only after its issue + `comms:` footer exist (claim
   discipline, `ticket-card.md`).
 

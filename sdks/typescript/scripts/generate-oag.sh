@@ -7,7 +7,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUT="$ROOT/sdks/typescript/src/v1/generated"
+CODEGEN_SPEC="$ROOT/sdks/typescript/.oag-openapi.yaml"
 IMG="openapitools/openapi-generator-cli:v7.16.0"
+
+trap 'rm -f "$CODEGEN_SPEC"' EXIT
+go run "$ROOT/cmd/e2a-openapi-codegen-normalize" "$ROOT/api/openapi.yaml" "$CODEGEN_SPEC"
 
 # Clean prior output but keep .openapi-generator-ignore (suppresses scaffolding).
 find "$OUT" -name '*.ts' -delete 2>/dev/null || true
@@ -22,8 +26,13 @@ find "$OUT" -name '*.ts' -delete 2>/dev/null || true
 # private-looking `_from`. Map it to `from_` so both SDKs uniformly expose
 # `from_` (matching Python's PEP-8 trailing-underscore convention). Wire JSON
 # stays `from` (baseName / setQueryParam are unchanged).
+# The canonical 3.1 document is validated by Huma's golden test. This command
+# consumes the deliberate 3.0 compatibility rewrite above, whose nullable-ref
+# shape OpenAPI Generator's validator rejects even though its generator needs
+# that exact shape; skip only this redundant generator-side validation.
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
-  -i /work/api/openapi.yaml -g typescript \
+  --skip-validate-spec \
+  -i /work/sdks/typescript/.oag-openapi.yaml -g typescript \
   -o /work/sdks/typescript/src/v1/generated \
   --name-mappings from=from_ --parameter-name-mappings from=from_ \
   --additional-properties=supportsES6=true,importFileExtension=.js >/dev/null
@@ -36,12 +45,28 @@ find "$OUT" -name '*.ts' -print0 | xargs -0 perl -i -ne \
 
 # OpenAPI Generator imports every schema into its API wrapper variants and
 # imports HttpFile into standalone models even when those symbols are unused.
-# Normalize the files introduced by the sending-ramp schema so static analysis
-# and the generated-code freshness gate agree on the committed output.
+# Normalize selected generator-known unused imports so static analysis and the
+# generated-code freshness gate agree on the committed output.
 python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
   HttpFile "$OUT/models/SendingRampView.ts" \
+  HttpFile "$OUT/models/DKIMResult.ts" \
+  HttpFile "$OUT/models/DMARCResult.ts" \
+  DKIMResultStatusEnum "$OUT/models/ObjectSerializer.ts" \
+  DMARCResultAlignedByEnum "$OUT/models/ObjectSerializer.ts" \
+  DMARCResultPolicyEnum "$OUT/models/ObjectSerializer.ts" \
+  DMARCResultStatusEnum "$OUT/models/ObjectSerializer.ts" \
+  MessageSummaryViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
+  MessageViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
+  ReviewViewDirectionEnum "$OUT/models/ObjectSerializer.ts" \
+  SPFResultStatusEnum "$OUT/models/ObjectSerializer.ts" \
+  Authentication "$OUT/types/PromiseAPI.ts" \
+  DKIMResult "$OUT/types/PromiseAPI.ts" \
   SendingRampView "$OUT/types/PromiseAPI.ts" \
+  Authentication "$OUT/types/ObjectParamAPI.ts" \
+  DKIMResult "$OUT/types/ObjectParamAPI.ts" \
   SendingRampView "$OUT/types/ObjectParamAPI.ts" \
+  Authentication "$OUT/types/ObservableAPI.ts" \
+  DKIMResult "$OUT/types/ObservableAPI.ts" \
   SendingRampView "$OUT/types/ObservableAPI.ts"
 
 # The upstream template emits a whitespace-only JSDoc line in standalone
@@ -58,5 +83,8 @@ perl -pi -e 's/[ \t]+$//' \
   "$OUT/types/ObjectParamAPI.ts"
 
 perl -0pi -e 's/\n+\z/\n/' "$OUT/models/UnsubscribeOptions.ts"
+
+rm -f "$CODEGEN_SPEC"
+trap - EXIT
 
 echo "TS /v1 client base regenerated at sdks/typescript/src/v1/generated"

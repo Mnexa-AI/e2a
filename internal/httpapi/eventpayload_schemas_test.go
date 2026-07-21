@@ -56,7 +56,7 @@ func TestEventPayloadSchemasAreOpen(t *testing.T) {
 
 // assertObjectNodesOpen walks a rendered schema node and fails on any object
 // node whose additionalProperties is not `true`. Map-typed nodes (whose
-// additionalProperties is itself a schema, e.g. auth_headers' string map) are
+// additionalProperties is itself a schema, e.g. a typed string map) are
 // accepted and recursed into; $refs stop the walk (the referenced component is
 // asserted on its own via eventPayloadComponentNames).
 func assertObjectNodesOpen(t *testing.T, path string, node map[string]any) {
@@ -71,7 +71,7 @@ func assertObjectNodesOpen(t *testing.T, path string, node map[string]any) {
 				t.Errorf("%s: object node has additionalProperties: false — event payload schemas must be open (additive evolution)", path)
 			}
 		case map[string]any:
-			// Typed map (e.g. auth_headers: map[string]string) — the value
+			// Typed map (e.g. map[string]string) — the value
 			// schema IS the openness; recurse into it.
 			assertObjectNodesOpen(t, path+".additionalProperties", ap)
 		default:

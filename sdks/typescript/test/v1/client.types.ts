@@ -1,6 +1,11 @@
 import type { FieldError } from "../../src/v1/generated/models/FieldError.js";
 import type { ErrorBody } from "../../src/v1/generated/models/ErrorBody.js";
-import type { ListMessagesParams } from "../../src/v1/index.js";
+import type {
+  Authentication,
+  EmailReceivedData,
+  ListMessagesParams,
+  SPFResult,
+} from "../../src/v1/index.js";
 import type { EmailSentData, WebhookEvent } from "../../src/v1/webhook-signature.js";
 import type { WSEvent } from "../../src/v1/ws.js";
 import { E2AClient } from "../../src/v1/client.js";
@@ -41,6 +46,23 @@ const eventEnvelope: WebhookEvent = {
 };
 const wsEnvelope: WSEvent = eventEnvelope;
 void wsEnvelope;
+
+const wireAuthentication: Authentication = {
+  spf: { status: "pass", domain: "example.com", aligned: true },
+  dkim: [],
+  dmarc: {
+    status: "pass",
+    domain: "example.com",
+    policy: "reject",
+    aligned_by: ["spf"],
+  },
+};
+const receivedAuthentication: EmailReceivedData["authentication"] = wireAuthentication;
+void receivedAuthentication;
+
+// @ts-expect-error RFC 7208 has no SPF "policy" result.
+const retiredSPFPolicy: SPFResult["status"] = "policy";
+void retiredSPFPolicy;
 
 const loopbackSentData: EmailSentData = {
   message_id: "msg_local",

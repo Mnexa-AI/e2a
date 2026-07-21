@@ -41,6 +41,9 @@ def test_toplevel_aliases_point_to_v1():
     assert e2a.verify_webhook_signature is e2a.v1.verify_webhook_signature
     assert e2a.WSStream is e2a.v1.WSStream
 
+    for name in ("Authentication", "SPFResult", "DKIMResult", "DMARCResult"):
+        assert getattr(e2a, name) is getattr(e2a.v1, name)
+
 
 def test_v1_all_is_explicit():
     import e2a.v1
@@ -71,7 +74,16 @@ def test_toplevel_all_is_explicit():
     import e2a
 
     assert hasattr(e2a, "__all__")
-    assert {"E2AClient", "AsyncE2AClient", "E2AError", "construct_event"}.issubset(set(e2a.__all__))
+    assert {
+        "E2AClient",
+        "AsyncE2AClient",
+        "E2AError",
+        "construct_event",
+        "Authentication",
+        "SPFResult",
+        "DKIMResult",
+        "DMARCResult",
+    }.issubset(set(e2a.__all__))
 
 
 def test_generated_models_accessible_from_v1():

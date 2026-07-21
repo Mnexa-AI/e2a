@@ -87,6 +87,26 @@ describe("ThreadBubble body precedence", () => {
   });
 });
 
+describe("ThreadBubble inbound authentication summary", () => {
+  it("shows the DMARC-verified domain on an inbound summary", async () => {
+    inbound({ parsed: { text: "body" }, raw_message: "" });
+    const m = { ...msg("msg_dmarc_pass"), verified_domain: "example.com" };
+
+    render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
+
+    expect(screen.getByText("DMARC verified · example.com")).toBeInTheDocument();
+  });
+
+  it("warns when an inbound summary has no verified domain", async () => {
+    inbound({ parsed: { text: "body" }, raw_message: "" });
+    const m = { ...msg("msg_dmarc_not_verified"), verified_domain: null };
+
+    render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
+
+    expect(screen.getByText("DMARC not verified")).toBeInTheDocument();
+  });
+});
+
 describe("ThreadBubble marks-read cache refresh", () => {
   // Opening a message body flips inbox_status unread → read on the backend.
   // The thread list (bold rows) and the Inboxes unread badge both cache the

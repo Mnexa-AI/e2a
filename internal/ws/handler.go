@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/tokencanopy/e2a/internal/eventpayload"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/httpapi"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
@@ -217,15 +216,10 @@ func NotificationForMessage(ctx context.Context, store HandlerStore, msg *identi
 // derivation the outbox uses (sha256(message_id|type)), so a subscriber that
 // receives the message on both channels can dedup on it.
 //
-// This drain-path rebuild populates what the message ROW provides, including
-// the persisted signed auth attestation: auth_headers is stored at intake
-// (messages.auth_headers) and selected by the drain's list query, and
-// authenticated_from is derived from its X-E2A-Auth-Sender value — the same
-// identity the live path carries. A consumer that gates on authenticated_from
-// therefore gets the SAME verdict whether the frame arrives live or on a
-// drain (critical for dedup-by-id consumers: the drain frame shares the
-// deterministic event id with the webhook delivery, so a mistrusted drain
-// frame would permanently mistrust a verified message).
+// This drain-path rebuild populates what the message row provides, including
+// the canonical SMTP authentication evidence persisted at intake. Consumers
+// therefore get the same DMARC verdict whether the frame arrives live or on a
+// reconnect drain.
 //
 // Production reconnect drain uses NotificationForMessage and therefore reuses
 // the exact persisted envelope. This builder remains the compatibility fallback
@@ -236,44 +230,49 @@ func NotificationForMessage(ctx context.Context, store HandlerStore, msg *identi
 // delivery (byte layout may differ across channels; JSON key order/escaping
 // is not contractual).
 func BuildNotification(msg *identity.Message) []byte {
-	authHeaders := msg.AuthHeaders
-	if authHeaders == nil {
-		authHeaders = map[string]string{}
-	}
 	to := msg.ToRecipients
 	if to == nil {
 		to = []string{}
 	}
-	authenticatedFrom := authHeaders[headers.HeaderSender]
-	// Providerless local delivery has no signed transport attestation because it
-	// never crosses SMTP. Its server-owned method marker records that the
-	// authenticated agent sent to its own mailbox.
-	if authenticatedFrom == "" && msg.Sender != "" && msg.Method == "loopback" {
-		authenticatedFrom = msg.AgentID
+	cc := msg.CC
+	if cc == nil {
+		cc = []string{}
+	}
+	replyTo := msg.ReplyTo
+	if replyTo == nil {
+		replyTo = []string{}
 	}
 	ev := webhookpub.Event{
 		ID:        webhookpub.DeterministicEventID(msg.ID, webhookpub.EventEmailReceived),
 		Type:      webhookpub.EventEmailReceived,
 		CreatedAt: msg.CreatedAt.UTC(),
 		Data: eventpayload.EmailReceivedData{
-			MessageID:         msg.ID,
-			AgentEmail:        msg.Recipient,
-			Direction:         "inbound",
-			ConversationID:    msg.ConversationID,
-			From:              msg.Sender,
-			AuthenticatedFrom: authenticatedFrom,
-			To:                to,
-			CC:                msg.CC,
-			ReplyTo:           msg.ReplyTo,
-			DeliveredTo:       msg.Recipient,
-			Subject:           msg.Subject,
-			AuthHeaders:       authHeaders,
-			ReceivedAt:        msg.CreatedAt.UTC(),
-			Attachments:       eventpayload.AttachmentMetadata(msg.RawMessage),
+			MessageID:      msg.ID,
+			AgentEmail:     msg.Recipient,
+			Direction:      "inbound",
+			ConversationID: msg.ConversationID,
+			HeaderFrom:     nullableString(msg.HeaderFrom),
+			EnvelopeFrom:   nullableString(msg.EnvelopeFrom),
+			VerifiedDomain: msg.Authentication.VerifiedDomain(),
+			To:             to,
+			CC:             cc,
+			ReplyTo:        replyTo,
+			Authentication: msg.Authentication,
+			DeliveredTo:    msg.Recipient,
+			Subject:        msg.Subject,
+			ReceivedAt:     msg.CreatedAt.UTC(),
+			Attachments:    eventpayload.AttachmentMetadata(msg.RawMessage),
 		},
 	}
 	data, _ := json.Marshal(ev.AsEnvelope())
 	return data
+}
+
+func nullableString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // readLoop blocks until the client disconnects or sends a close frame.

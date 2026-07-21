@@ -21,6 +21,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
+from e2a.v1.generated.models.authentication import Authentication
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -30,20 +31,21 @@ class EmailReceivedData(BaseModel):
     """ # noqa: E501
     agent_email: StrictStr = Field(description="The receiving agent's email — its id and address (an agent's id IS its email).")
     attachments: Optional[List[AttachmentMetaView]] = None
-    auth_headers: Dict[str, StrictStr]
-    authenticated_from: StrictStr = Field(description="The From-header identity SPF/DKIM/DMARC verified — treat THIS (not from) as the gated identity.")
-    cc: Optional[List[StrictStr]] = None
+    authentication: Optional[Authentication] = Field(description="Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.")
+    cc: List[StrictStr]
     conversation_id: Optional[StrictStr] = None
     delivered_to: StrictStr = Field(description="The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message.")
     direction: StrictStr = Field(description="Always \"inbound\" on this event.")
-    from_: StrictStr = Field(description="Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.", alias="from")
+    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery.")
+    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address; never replaced by Reply-To.")
     message_id: StrictStr
     received_at: datetime
-    reply_to: Optional[List[StrictStr]] = None
+    reply_to: List[StrictStr]
     subject: StrictStr
     to: List[StrictStr]
+    verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "attachments", "auth_headers", "authenticated_from", "cc", "conversation_id", "delivered_to", "direction", "from", "message_id", "received_at", "reply_to", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent_email", "attachments", "authentication", "cc", "conversation_id", "delivered_to", "direction", "envelope_from", "header_from", "message_id", "received_at", "reply_to", "subject", "to", "verified_domain"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -93,10 +95,33 @@ class EmailReceivedData(BaseModel):
                 if _item_attachments:
                     _items.append(_item_attachments.to_dict())
             _dict['attachments'] = _items
+        # override the default output from pydantic by calling `to_dict()` of authentication
+        if self.authentication:
+            _dict['authentication'] = self.authentication.to_dict()
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
+
+        # set to None if authentication (nullable) is None
+        # and model_fields_set contains the field
+        if self.authentication is None and "authentication" in self.model_fields_set:
+            _dict['authentication'] = None
+
+        # set to None if envelope_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.envelope_from is None and "envelope_from" in self.model_fields_set:
+            _dict['envelope_from'] = None
+
+        # set to None if header_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.header_from is None and "header_from" in self.model_fields_set:
+            _dict['header_from'] = None
+
+        # set to None if verified_domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.verified_domain is None and "verified_domain" in self.model_fields_set:
+            _dict['verified_domain'] = None
 
         return _dict
 
@@ -112,18 +137,19 @@ class EmailReceivedData(BaseModel):
         _obj = cls.model_validate({
             "agent_email": obj.get("agent_email"),
             "attachments": [AttachmentMetaView.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
-            "auth_headers": obj.get("auth_headers"),
-            "authenticated_from": obj.get("authenticated_from"),
+            "authentication": Authentication.from_dict(obj["authentication"]) if obj.get("authentication") is not None else None,
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
             "delivered_to": obj.get("delivered_to"),
             "direction": obj.get("direction"),
-            "from": obj.get("from"),
+            "envelope_from": obj.get("envelope_from"),
+            "header_from": obj.get("header_from"),
             "message_id": obj.get("message_id"),
             "received_at": obj.get("received_at"),
             "reply_to": obj.get("reply_to"),
             "subject": obj.get("subject"),
-            "to": obj.get("to")
+            "to": obj.get("to"),
+            "verified_domain": obj.get("verified_domain")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

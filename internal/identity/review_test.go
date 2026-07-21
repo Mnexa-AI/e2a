@@ -387,3 +387,43 @@ func TestListReviews_SurfacesHoldReason(t *testing.T) {
 		t.Errorf("detail review_reason = %q, want %q", detail.ReviewReason, identity.ReviewReasonInboundScan)
 	}
 }
+
+func TestReviewReadsPreserveNullAuthenticationForLoopbackMessages(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	userID, agentID := seedReviewAgent(t, store, ctx, "loopback-review.example.com")
+
+	exp := time.Now().Add(time.Hour)
+	heldID := createInbound(t, store, ctx, agentID, agentID, "loopback-held", identity.InboundScreening{
+		Status: identity.MessageStatusPendingReview, ScanAction: "review",
+		ReviewReason: identity.ReviewReasonInboundScan, ApprovalExpiresAt: &exp,
+	})
+	deliveredID := createInbound(t, store, ctx, agentID, agentID, "loopback-delivered", identity.InboundScreening{})
+	if _, err := pool.Exec(ctx, `UPDATE messages SET method='loopback', authentication=NULL, auth_verdict=NULL WHERE id = ANY($1)`, []string{heldID, deliveredID}); err != nil {
+		t.Fatalf("mark loopback messages: %v", err)
+	}
+
+	items, err := store.ListReviews(ctx, userID, 0, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListReviews: %v", err)
+	}
+	foundHeld := false
+	for _, item := range items {
+		if item.ID == heldID && item.Authentication != nil {
+			t.Fatalf("held loopback authentication = %+v, want nil", item.Authentication)
+		}
+		foundHeld = foundHeld || item.ID == heldID
+	}
+	if !foundHeld {
+		t.Fatalf("held loopback %s missing from review list", heldID)
+	}
+
+	detail, err := store.GetReviewWithContent(ctx, userID, deliveredID)
+	if err != nil {
+		t.Fatalf("GetReviewWithContent: %v", err)
+	}
+	if detail.Authentication != nil {
+		t.Fatalf("delivered loopback authentication = %+v, want nil", detail.Authentication)
+	}
+}

@@ -13,8 +13,8 @@
 //
 // where payload is "<message_id>|<action>|<exp_unix>".
 //
-// The same config.Signing.HMACSecret used to sign X-E2A-Auth-* email
-// headers is reused here, so there's no new key to rotate.
+// The shared config.Signing.HMACSecret is reused here, so there is no new key
+// to rotate.
 package approvaltoken
 
 import (

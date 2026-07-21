@@ -11,15 +11,17 @@
  */
 
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
-import { AuthVerdict } from '../models/AuthVerdict.js';
+import { Authentication } from '../models/Authentication.js';
 import { HttpFile } from '../http/http.js';
 
 export class Message {
     'agentEmail': string;
     'approvalExpiresAt'?: Date;
     'attachments'?: Array<AttachmentMetaView> | null;
-    'auth'?: AuthVerdict;
-    'authHeaders'?: { [key: string]: string; };
+    /**
+    * Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
+    */
+    'authentication': Authentication | null;
     'bcc'?: Array<string> | null;
     'cc'?: Array<string> | null;
     'conversationId'?: string;
@@ -31,10 +33,17 @@ export class Message {
     'direction': string;
     'edited'?: boolean;
     'emailMessageId'?: string;
+    /**
+    * SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery.
+    */
+    'envelopeFrom': string | null;
     'expiresAt': Date;
     'flagReason'?: string;
     'flagged'?: boolean;
-    'from_': string;
+    /**
+    * Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To.
+    */
+    'headerFrom': string | null;
     'html'?: string;
     'id': string;
     'labels'?: Array<string> | null;
@@ -60,6 +69,10 @@ export class Message {
     'text'?: string;
     'to'?: Array<string> | null;
     'type'?: string;
+    /**
+    * DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+    */
+    'verifiedDomain': string | null;
     'webhookAttempts'?: number;
     'webhookError'?: string;
     'webhookStatus'?: string;
@@ -88,15 +101,9 @@ export class Message {
             "format": ""
         },
         {
-            "name": "auth",
-            "baseName": "auth",
-            "type": "AuthVerdict",
-            "format": ""
-        },
-        {
-            "name": "authHeaders",
-            "baseName": "auth_headers",
-            "type": "{ [key: string]: string; }",
+            "name": "authentication",
+            "baseName": "authentication",
+            "type": "Authentication",
             "format": ""
         },
         {
@@ -166,6 +173,12 @@ export class Message {
             "format": ""
         },
         {
+            "name": "envelopeFrom",
+            "baseName": "envelope_from",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "expiresAt",
             "baseName": "expires_at",
             "type": "Date",
@@ -184,8 +197,8 @@ export class Message {
             "format": ""
         },
         {
-            "name": "from_",
-            "baseName": "from",
+            "name": "headerFrom",
+            "baseName": "header_from",
             "type": "string",
             "format": ""
         },
@@ -223,7 +236,7 @@ export class Message {
             "name": "rawMessage",
             "baseName": "raw_message",
             "type": "string",
-            "format": ""
+            "format": "byte"
         },
         {
             "name": "readStatus",
@@ -318,6 +331,12 @@ export class Message {
         {
             "name": "type",
             "baseName": "type",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
             "type": "string",
             "format": ""
         },

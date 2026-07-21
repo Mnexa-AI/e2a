@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tokencanopy/e2a/internal/identity"
-	"github.com/tokencanopy/e2a/internal/oauth"
 	jose "github.com/go-jose/go-jose/v3"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
 	"github.com/ory/fosite"
+	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/oauth"
 )
 
 // handleOAuthToken is the /oauth2/token endpoint. Thin wrapper
@@ -176,6 +176,7 @@ func dcrSourceIP(r *http.Request) string {
 //   - single-label custom schemes (myapp:) — RFC 7595 §3.8 reserves
 //     these for future IANA registration, and they bypass the OS-level
 //     scheme registry collision protections RFC 8252 §7.1 relies on
+//
 // isLoopbackHost reports whether a redirect_uri hostname is a loopback
 // target: the literal "localhost" or any IP that net considers loopback
 // (127.0.0.0/8, ::1). Used both by validateRedirectURI (which loopback http

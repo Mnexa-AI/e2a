@@ -11,6 +11,7 @@
  */
 
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
+import { Authentication } from '../models/Authentication.js';
 import { HttpFile } from '../http/http.js';
 
 export class EmailReceivedData {
@@ -19,12 +20,11 @@ export class EmailReceivedData {
     */
     'agentEmail': string;
     'attachments'?: Array<AttachmentMetaView>;
-    'authHeaders': { [key: string]: string; };
     /**
-    * The From-header identity SPF/DKIM/DMARC verified — treat THIS (not from) as the gated identity.
+    * Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
     */
-    'authenticatedFrom': string;
-    'cc'?: Array<string>;
+    'authentication': Authentication | null;
+    'cc': Array<string>;
     'conversationId'?: string;
     /**
     * The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message.
@@ -35,14 +35,22 @@ export class EmailReceivedData {
     */
     'direction': string;
     /**
-    * Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from.
+    * SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery.
     */
-    'from_': string;
+    'envelopeFrom': string | null;
+    /**
+    * Parsed RFC 5322 From address; never replaced by Reply-To.
+    */
+    'headerFrom': string | null;
     'messageId': string;
     'receivedAt': Date;
-    'replyTo'?: Array<string>;
+    'replyTo': Array<string>;
     'subject': string;
     'to': Array<string>;
+    /**
+    * DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated.
+    */
+    'verifiedDomain': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -62,15 +70,9 @@ export class EmailReceivedData {
             "format": ""
         },
         {
-            "name": "authHeaders",
-            "baseName": "auth_headers",
-            "type": "{ [key: string]: string; }",
-            "format": ""
-        },
-        {
-            "name": "authenticatedFrom",
-            "baseName": "authenticated_from",
-            "type": "string",
+            "name": "authentication",
+            "baseName": "authentication",
+            "type": "Authentication",
             "format": ""
         },
         {
@@ -98,8 +100,14 @@ export class EmailReceivedData {
             "format": ""
         },
         {
-            "name": "from_",
-            "baseName": "from",
+            "name": "envelopeFrom",
+            "baseName": "envelope_from",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "headerFrom",
+            "baseName": "header_from",
             "type": "string",
             "format": ""
         },
@@ -131,6 +139,12 @@ export class EmailReceivedData {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
+            "type": "string",
             "format": ""
         }    ];
 

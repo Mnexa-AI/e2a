@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Breaking (pre-GA)
+- **Inbound sender and authentication fields now use the final DMARC-aligned
+  contract.** Generated message models and raw webhook/WS payloads expose the
+  literal RFC 5322 ``header_from``, SMTP ``envelope_from``, nullable
+  ``verified_domain``, and structured ``authentication`` (``spf``, every
+  ``dkim`` result, and ``dmarc``). The old aggregate and signed nested-header
+  fields are removed. A non-null ``verified_domain`` means DMARC passed for that
+  From domain; it does not authenticate the mailbox local part, a person, or
+  message content.
+
+  | Previous 5.x generated property/model | Replacement |
+  |---|---|
+  | ``from_`` | ``header_from``. Reply routing remains in ``reply_to``. |
+  | ``authenticated_from`` | ``verified_domain``, or inspect ``authentication.dmarc.status == "pass"``. |
+  | ``auth: AuthVerdict`` | ``authentication: Optional[Authentication]``; ``AuthVerdict`` is removed. |
+  | ``CheckResult`` | ``SPFResult``; DKIM and DMARC use the new ``DKIMResult`` and ``DMARCResult`` models. |
+  | ``auth_headers`` / ``X-E2A-Auth-*`` | Removed. For webhooks, verify the envelope ``X-E2A-Signature``; REST and WebSocket already use authenticated transports. |
+
 - **Implementation-leaked schema names renamed; duplicate schemas collapsed.**
   Generated models: ``EventJSON`` → ``EventView`` (module
   ``event_json`` → ``event_view``), ``PageEventJSON`` → ``PageEventView``,

@@ -16,7 +16,7 @@ Copy `config.example.yaml` to `config.yaml` and fill in values, or set the envir
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `E2A_DATABASE_URL` | yes | Postgres connection string |
-| `E2A_HMAC_SECRET` | yes | HMAC signing secret for `X-E2A-Auth-*` headers |
+| `E2A_HMAC_SECRET` | yes | Master HMAC secret for approval/magic-link tokens and internal key derivation |
 | `E2A_PUBLIC_URL` | for HITL emails | Externally visible base URL (e.g. `https://e2a.example.com`); required to render absolute magic-link URLs |
 | `E2A_SHARED_DOMAIN` | optional | Mail domain backing slug-based agent registration (e.g. `agents.example.com`). When set, users can register agents with just a slug; when empty, every agent must use a custom domain that the user verifies. The shared domain itself becomes reserved (cannot be claimed as a custom domain). |
 | `E2A_GOOGLE_CLIENT_ID` | for OAuth login | Google OAuth client ID for dashboard sign-in |

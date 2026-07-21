@@ -6,9 +6,9 @@
 # and /v1/reject (raw HTML, served via the chi root's fallback to the mux).
 #
 # Each scenario is a sequence of steps executed against a live test server.
-# The Go runner (contract_test.go) consumes this file directly. TypeScript
-# and Python SDK runners will consume the same file in later phases, so the
-# format must remain language-agnostic.
+# The Go runner (contract_test.go) and the TypeScript and Python SDK contract
+# runners consume this file directly, so the format must remain
+# language-agnostic.
 #
 # Setup helpers:
 #   register_domain — claim a domain directly in the store
@@ -193,10 +193,18 @@ scenarios:
         path: /v1/agents/{agent_email}/messages/{injected_message_id}
         expect:
           status: 200
-          body_contains:
-            - id
-            - auth_headers
-            - raw_message
+          body_match:
+            header_from: alice@example.com
+            envelope_from: alice@example.com
+            verified_domain: example.com
+            authentication.spf.status: pass
+            authentication.spf.domain: example.com
+            authentication.spf.aligned: true
+            authentication.dkim.length: 0
+            authentication.dmarc.status: pass
+            authentication.dmarc.domain: example.com
+            authentication.dmarc.policy: reject
+            "authentication.dmarc.aligned_by[0]": spf
 
       - id: list_unread_after
         action: request
@@ -404,7 +412,9 @@ scenarios:
             - schema_version
             - created_at
             - data.message_id
-            - data.from
+            - data.header_from
+            - data.envelope_from
+            - data.authentication
             - data.delivered_to
             - data.agent_email
             - data.direction
@@ -413,10 +423,15 @@ scenarios:
           fields_absent:
             - data.body
             - data.raw_message
+            - data.from
+            - data.authenticated_from
+            - data.auth
+            - data.auth_headers
           field_match:
             type: email.received
             schema_version: "1"
-            data.from: alice@example.com
+            data.header_from: alice@example.com
+            data.envelope_from: alice@example.com
             data.delivered_to: "{agent_email}"
             data.agent_email: "{agent_email}"
             data.direction: inbound

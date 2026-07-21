@@ -170,7 +170,9 @@ export async function sendAgentTestEmail(
 type MessageSummaryWire = {
   id: string;
   direction: "inbound" | "outbound";
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  verified_domain: string | null;
   to?: string[] | null;
   cc?: string[] | null;
   reply_to?: string[] | null;
@@ -198,7 +200,8 @@ function projectSummary(w: MessageSummaryWire): import("../types").MessageSummar
   return {
     id: w.id,
     direction: w.direction,
-    from: w.from,
+    from: w.header_from ?? "",
+    verified_domain: w.verified_domain,
     to: w.to ?? [],
     cc: w.cc ?? undefined,
     reply_to: w.reply_to ?? undefined,
@@ -329,14 +332,17 @@ export async function getInboxUnread(
 // construction. See lib/swrKeys.ts.
 export type MessageViewWire = {
   id: string;
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  verified_domain: string | null;
+  authentication: import("../types").EmailAuthentication | null;
   to?: string[] | null;
   cc?: string[] | null;
   reply_to?: string[] | null;
   delivered_to: string;
   subject: string;
   conversation_id?: string;
-  direction?: "inbound" | "outbound";
+  direction: "inbound" | "outbound";
   delivery_status?: string;
   review_status?: string;
   read_status?: string;
@@ -353,7 +359,6 @@ export type MessageViewWire = {
     summary?: string;
   }[];
   created_at: string;
-  auth_headers?: Record<string, string>;
   body?: { text?: string; html?: string };
   // Backend-derived body: `text` (injection-reduced) for any message with raw
   // MIME, plus `html` (decoded text/html part) for rich display when present.
@@ -401,16 +406,20 @@ export function projectInbound(
 ): InboundMessageDetail {
   return {
     id: w.id,
-    from: w.from,
+    direction: "inbound",
+    header_from: w.header_from,
+    envelope_from: w.envelope_from,
+    verified_domain: w.verified_domain,
+    authentication: w.authentication,
     to: w.to ?? [],
     cc: w.cc ?? [],
     reply_to: w.reply_to ?? [],
     recipient: w.delivered_to,
     subject: w.subject,
     conversation_id: w.conversation_id ?? "",
-    status: w.delivery_status ?? "",
+    review_status: w.review_status,
+    status: w.read_status ?? "",
     created_at: w.created_at,
-    auth_headers: w.auth_headers ?? {},
     parsed: w.parsed,
     body: w.body,
     attachments: w.attachments ?? [],
@@ -418,15 +427,8 @@ export function projectInbound(
   };
 }
 
-// A MessageView projected for whichever direction the caller knows it to
-// be. `/v1` returns one MessageView for both directions, and that detail
-// shape has NO `direction` field — it also drops `from`/`status` to empty
-// strings on outbound rows, so the direction CANNOT be recovered from the
-// payload. The authoritative direction lives on the MessageSummaryView
-// list row, so callers thread it in (the focus page via its `?direction=`
-// query param). When the caller can't supply one (a deep link with no
-// param), we fall back to inbound — the safe default that never offers
-// approve/reject on a message we can't prove is a held outbound draft.
+// A MessageView projected by its authoritative wire direction. The optional
+// fallback keeps older cached payloads and pre-contract deep links readable.
 export type LoadedMessageDetail =
   | { direction: "outbound"; data: PendingMessageDetail }
   | { direction: "inbound"; data: InboundMessageDetail };
@@ -434,8 +436,9 @@ export type LoadedMessageDetail =
 export function projectMessageDetail(
   email: string,
   w: MessageViewWire,
-  direction: "inbound" | "outbound" = "inbound",
+  fallbackDirection: "inbound" | "outbound" = "inbound",
 ): LoadedMessageDetail {
+  const direction = w.direction ?? fallbackDirection;
   return direction === "outbound"
     ? { direction: "outbound", data: projectPending(email, w) }
     : { direction: "inbound", data: projectInbound(w) };
@@ -631,7 +634,9 @@ type ReviewWire = {
   id: string;
   agent_email: string;
   direction: "inbound" | "outbound";
-  from: string;
+  header_from: string | null;
+  envelope_from: string | null;
+  verified_domain: string | null;
   to?: string[] | null;
   subject: string;
   conversation_id?: string;
@@ -651,7 +656,8 @@ export async function listPendingMessages(): Promise<PendingMessageSummary[]> {
     id: r.id,
     agent_email: r.agent_email,
     direction: r.direction,
-    from: r.from,
+    from: r.header_from ?? "",
+    verified_domain: r.verified_domain,
     subject: r.subject,
     conversation_id: r.conversation_id,
     to: r.to ?? [],

@@ -139,7 +139,14 @@ function makeStubClient(
     getMessage: vi.fn(async (id: string, _addr?: string) => ({
       id,
       conversationId: "conv_x",
-      from_: "alice@example.com",
+      headerFrom: "alice@example.com",
+      envelopeFrom: "bounce@example.com",
+      verifiedDomain: "example.com",
+      authentication: {
+        spf: { status: "pass", domain: "example.com", aligned: true },
+        dkim: [],
+        dmarc: { status: "pass", domain: "example.com", policy: "reject", alignedBy: ["spf"] },
+      },
       deliveredTo: "bot@example.com",
       to: ["bot@example.com"],
       cc: [],
@@ -394,6 +401,21 @@ describe("e2a MCP server", () => {
       expect(description, `${name} description`).toMatch(/do NOT re-send/i);
       expect(description, `${name} description`).toMatch(/pending_review/);
     }
+  });
+
+  it("documents claimed sender and DMARC trust semantics on list_messages", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((candidate) => candidate.name === "list_messages");
+    const description = tool?.description ?? "";
+    const properties = (tool?.inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    })?.properties ?? {};
+
+    expect(description).toContain("verified_domain");
+    expect(description).toMatch(/DMARC passed/i);
+    expect(description).toMatch(/does not authenticate.*person.*message content/i);
+    expect(properties.from_?.description).toMatch(/claimed RFC 5322 From/i);
+    expect(properties.from_?.description).toMatch(/not an authenticated-sender filter/i);
   });
 
   // ── §6a scope/tier gating ──────────────────────────────────────────
@@ -671,6 +693,29 @@ describe("e2a MCP server", () => {
     expect(payload.next_cursor).toBe("c_next");
   });
 
+  it("list_messages returns trust fields with REST-style snake_case names", async () => {
+    (stub.listMessages as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      items: [{
+        id: "m1",
+        headerFrom: "alice@example.com",
+        envelopeFrom: "bounce@example.net",
+        verifiedDomain: "example.com",
+      }],
+      next_cursor: undefined,
+    });
+
+    const res = await client.callTool({ name: "list_messages", arguments: {} });
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(payload.messages).toEqual([{
+      id: "m1",
+      header_from: "alice@example.com",
+      envelope_from: "bounce@example.net",
+      verified_domain: "example.com",
+    }]);
+    expect(payload.messages[0]).not.toHaveProperty("headerFrom");
+    expect(payload.messages[0]).not.toHaveProperty("verifiedDomain");
+  });
+
   it("list_messages omits next_cursor on the last page", async () => {
     (stub.listMessages as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       items: [{ messageId: "m1" }],
@@ -694,7 +739,11 @@ describe("e2a MCP server", () => {
     const content = res.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text) as Record<string, unknown>;
     expect(parsed.id).toBe("msg_abc");
-    expect(parsed.from_).toBe("alice@example.com");
+    expect(parsed.header_from).toBe("alice@example.com");
+    expect(parsed.verified_domain).toBe("example.com");
+    expect(parsed.envelope_from).toBe("bounce@example.com");
+    expect(parsed.authentication).toMatchObject({ dmarc: { status: "pass" } });
+    expect(parsed).not.toHaveProperty("from_");
     expect(parsed).not.toHaveProperty("from");
     expect(parsed.text).toBe("hello world");
     // Critical: attachments surfaced as metadata-only (no `data`)

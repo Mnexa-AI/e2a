@@ -34,7 +34,11 @@ func main() {
 		"ApproveRequest", "HoldReasonView", "PageReviewView", "ProtectionFindingView",
 		"RejectRequest", "RejectResultView", "ReviewView", "ThreatCategoryView",
 	}
-	if err := openapicompat.CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision, allowedSchemaDemotions); err != nil {
+	// The pre-GA inbound authentication correction retired the legacy aggregate
+	// models together with their exact wire projections in the oasdiff ignore
+	// files. Keep this list exact so unrelated stable model removals still fail.
+	allowedSchemaRemovals := []string{"AuthVerdict", "CheckResult"}
+	if err := openapicompat.CheckStableSDKSurfaceWithAllowedSchemaCorrections(base, revision, allowedSchemaDemotions, allowedSchemaRemovals); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -193,7 +193,7 @@ func finalizeLocalDeliveryTx(
 		ctx, tx, "", m.AgentID, result.Sender, m.AgentID,
 		result.ProviderMessageID, m.Subject, m.ConversationID, "unread",
 		result.Raw, nil, nil, false, "", result.To, result.CC, m.ReplyTo,
-		InboundScreening{},
+		InboundScreening{}, &InboundAuth{HeaderFrom: m.AgentID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("local delivery inbound row: %w", err)

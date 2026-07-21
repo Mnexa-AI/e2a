@@ -10,11 +10,9 @@
  * Do not edit the class manually.
  */
 
-import { AuthVerdict } from '../models/AuthVerdict.js';
 import { HttpFile } from '../http/http.js';
 
 export class MessageSummaryView {
-    'auth'?: AuthVerdict;
     'cc'?: Array<string>;
     'conversationId'?: string;
     'createdAt': Date;
@@ -32,9 +30,16 @@ export class MessageSummaryView {
     */
     'deliveryStatus'?: string;
     'direction': MessageSummaryViewDirectionEnum;
+    /**
+    * SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
+    */
+    'envelopeFrom': string | null;
     'flagReason'?: string;
     'flagged'?: boolean;
-    'from_': string;
+    /**
+    * Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
+    */
+    'headerFrom': string | null;
     'id': string;
     'labels': Array<string>;
     'readStatus': string;
@@ -56,6 +61,10 @@ export class MessageSummaryView {
     'sizeBytes'?: number;
     'subject': string;
     'to': Array<string>;
+    /**
+    * RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content.
+    */
+    'verifiedDomain': string | null;
     'webhookError'?: string;
     'webhookStatus'?: string;
 
@@ -64,12 +73,6 @@ export class MessageSummaryView {
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
-        {
-            "name": "auth",
-            "baseName": "auth",
-            "type": "AuthVerdict",
-            "format": ""
-        },
         {
             "name": "cc",
             "baseName": "cc",
@@ -119,6 +122,12 @@ export class MessageSummaryView {
             "format": ""
         },
         {
+            "name": "envelopeFrom",
+            "baseName": "envelope_from",
+            "type": "string",
+            "format": ""
+        },
+        {
             "name": "flagReason",
             "baseName": "flag_reason",
             "type": "string",
@@ -131,8 +140,8 @@ export class MessageSummaryView {
             "format": ""
         },
         {
-            "name": "from_",
-            "baseName": "from",
+            "name": "headerFrom",
+            "baseName": "header_from",
             "type": "string",
             "format": ""
         },
@@ -188,6 +197,12 @@ export class MessageSummaryView {
             "name": "to",
             "baseName": "to",
             "type": "Array<string>",
+            "format": ""
+        },
+        {
+            "name": "verifiedDomain",
+            "baseName": "verified_domain",
+            "type": "string",
             "format": ""
         },
         {

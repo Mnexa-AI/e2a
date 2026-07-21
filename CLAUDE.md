@@ -80,10 +80,9 @@ After changing a `/v1` handler, run `make generate` and commit the regenerated `
 The main server (`cmd/e2a/main.go`) runs an SMTP relay and HTTP API. Key internal packages:
 
 - **relay** — SMTP server, receives inbound email
-- **emailauth** — SPF/DKIM verification on inbound messages
+- **emailauth** — SPF/DKIM/DMARC evaluation and alignment on inbound messages
 - **agent** — Agent CRUD, API endpoints, routes
 - **identity** / **senderidentity** — domain ownership verification/storage and sender-identity resolution
-- **headers** — HMAC-SHA256 signing of `X-E2A-Auth-*` headers
 - **ws** — WebSocket hub for real-time message push
 - **outbound** / **outboundsend** — compose and send emails via upstream SMTP (SES); queue-first send worker
 - **inboundprocess** / **inboundpolicy** — async inbound processing worker and screening/policy decisions

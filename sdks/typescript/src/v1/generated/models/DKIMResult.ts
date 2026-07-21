@@ -10,13 +10,28 @@
  * Do not edit the class manually.
  */
 
-import { CheckResult } from '../models/CheckResult.js';
-import { HttpFile } from '../http/http.js';
 
-export class AuthVerdict {
-    'dkim': CheckResult;
-    'dmarc': CheckResult;
-    'spf': CheckResult;
+export class DKIMResult {
+    /**
+    * Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered.
+    */
+    'aligned': boolean | null;
+    /**
+    * Free-text diagnostic for humans and logs. Never parse or branch on this field.
+    */
+    'detail'?: string;
+    /**
+    * DKIM signing domain from the signature d= tag; null when it could not be parsed.
+    */
+    'domain': string | null;
+    /**
+    * DKIM selector from the signature s= tag; null when it could not be parsed.
+    */
+    'selector': string | null;
+    /**
+    * Result for this DKIM signature. policy means e2a deliberately refused the signature, such as one using the unsafe l= body-length tag.
+    */
+    'status': DKIMResultStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -24,28 +39,51 @@ export class AuthVerdict {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "dkim",
-            "baseName": "dkim",
-            "type": "CheckResult",
+            "name": "aligned",
+            "baseName": "aligned",
+            "type": "boolean",
             "format": ""
         },
         {
-            "name": "dmarc",
-            "baseName": "dmarc",
-            "type": "CheckResult",
+            "name": "detail",
+            "baseName": "detail",
+            "type": "string",
             "format": ""
         },
         {
-            "name": "spf",
-            "baseName": "spf",
-            "type": "CheckResult",
+            "name": "domain",
+            "baseName": "domain",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "selector",
+            "baseName": "selector",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "status",
+            "baseName": "status",
+            "type": "DKIMResultStatusEnum",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return AuthVerdict.attributeTypeMap;
+        return DKIMResult.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
+
+export enum DKIMResultStatusEnum {
+    Pass = 'pass',
+    Fail = 'fail',
+    None = 'none',
+    Neutral = 'neutral',
+    Policy = 'policy',
+    Temperror = 'temperror',
+    Permerror = 'permerror'
+}
+

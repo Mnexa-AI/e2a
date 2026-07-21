@@ -87,6 +87,17 @@ func TestExtractThreadInfoReplyTo(t *testing.T) {
 	}
 }
 
+func TestExtractThreadInfoRejectsAmbiguousFrom(t *testing.T) {
+	for _, raw := range []string{
+		"From: ceo@trusted.example\r\nFrom: signed@trusted.example\r\n\r\nbody",
+		"From: ceo@trusted.example, signed@trusted.example\r\n\r\nbody",
+	} {
+		if got := extractThreadInfo([]byte(raw)).From; got != "" {
+			t.Fatalf("From for ambiguous header = %q, want empty", got)
+		}
+	}
+}
+
 func TestExtractThreadInfoNoReplyTo(t *testing.T) {
 	raw := []byte("Message-Id: <x@gmail.com>\r\nSubject: Hi\r\nFrom: alice@example.com\r\nTo: bot@agent.example.com\r\n\r\nBody\r\n")
 
@@ -156,13 +167,13 @@ func TestEnvelopeFromTrusted(t *testing.T) {
 		want     bool
 	}{
 		{"agent@send.e2a.dev", true},
-		{"Agent@Send.E2A.Dev", true},                   // case-insensitive domain match
-		{"bounce-id@mail.send.e2a.dev", true},          // SES MAIL FROM Domain subdomain
-		{"random@deep.sub.send.e2a.dev", true},         // deeper subdomain, still ours
-		{"evil@attacker.com", false},                   // external sender
-		{"", false},                                     // blank envelope
-		{"agent@other-send.e2a.dev", false},            // near-miss — not a subdomain
-		{"agent@evilsend.e2a.dev", false},              // suffix-match attack (no dot before)
+		{"Agent@Send.E2A.Dev", true},           // case-insensitive domain match
+		{"bounce-id@mail.send.e2a.dev", true},  // SES MAIL FROM Domain subdomain
+		{"random@deep.sub.send.e2a.dev", true}, // deeper subdomain, still ours
+		{"evil@attacker.com", false},           // external sender
+		{"", false},                            // blank envelope
+		{"agent@other-send.e2a.dev", false},    // near-miss — not a subdomain
+		{"agent@evilsend.e2a.dev", false},      // suffix-match attack (no dot before)
 	}
 	for _, c := range cases {
 		if got := srv.envelopeFromTrusted(c.envelope); got != c.want {
@@ -187,13 +198,13 @@ func TestSenderResolvable(t *testing.T) {
 		sender string
 		want   bool
 	}{
-		{"alice@acme.com", true},               // external sender — resolvable
-		{"bob@customer-domain.com", true},      // sending-verified agent's own domain
-		{"agent@send.e2a.dev", false},          // shared relay collapse — unresolvable
-		{"agent@Send.E2A.Dev", false},          // case-insensitive
-		{"x@mail.send.e2a.dev", false},         // subdomain of the relay domain
-		{"agent@othersend.e2a.dev", true},      // suffix-match attack — not actually a subdomain
-		{"nodomain", true},                     // garbage; let normal matching/flagging handle it
+		{"alice@acme.com", true},          // external sender — resolvable
+		{"bob@customer-domain.com", true}, // sending-verified agent's own domain
+		{"agent@send.e2a.dev", false},     // shared relay collapse — unresolvable
+		{"agent@Send.E2A.Dev", false},     // case-insensitive
+		{"x@mail.send.e2a.dev", false},    // subdomain of the relay domain
+		{"agent@othersend.e2a.dev", true}, // suffix-match attack — not actually a subdomain
+		{"nodomain", true},                // garbage; let normal matching/flagging handle it
 	}
 	for _, c := range cases {
 		if got := srv.senderResolvable(c.sender); got != c.want {

@@ -22,7 +22,6 @@ import (
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
-	"github.com/tokencanopy/e2a/internal/headers"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/inboundpolicy"
 	"github.com/tokencanopy/e2a/internal/limits"
@@ -35,7 +34,6 @@ import (
 type Server struct {
 	smtpServer *smtp.Server
 	store      *identity.Store
-	signer     *headers.Signer
 	// outbox is the transactional event log. The inbound trigger writes the
 	// messages row and the webhook_events row in a single transaction (per
 	// design §4.2); the drain fans out to subscribers and enqueues River jobs.
@@ -60,7 +58,13 @@ type Server struct {
 	// inboundEnq forces the synchronous path regardless (fail-safe).
 	inboundAsync bool
 	inboundEnq   InboundEnqueuer
+	authenticate AuthenticationChecker
 }
+
+// AuthenticationChecker evaluates the connection and message identities used
+// by the inbound trust gate. It is injectable so end-to-end tests can exercise
+// deterministic DMARC-pass paths without depending on public DNS.
+type AuthenticationChecker func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication
 
 // InboundEnqueuer inserts the inbound_process job in the SMTP accept-tx (the same
 // transaction as the inbound_intake insert). *inboundprocess.Jobs satisfies it.
@@ -78,6 +82,14 @@ func (s *Server) SetInboundEnqueuer(e InboundEnqueuer) { s.inboundEnq = e }
 // design §4.2); the drain fans out and enqueues River delivery jobs.
 func (s *Server) SetOutbox(o webhookpub.Outbox) { s.outbox = o }
 
+// SetAuthenticationChecker replaces the default DNS-backed evaluator. This is
+// intended for deterministic tests; production leaves the default in place.
+func (s *Server) SetAuthenticationChecker(check AuthenticationChecker) {
+	if check != nil {
+		s.authenticate = check
+	}
+}
+
 // SetEnforcer wires in the resource-limits enforcer used to reject
 // inbound recipients whose owner has hit the message-flow or storage
 // cap. When nil (the default) every RCPT TO is accepted as far as the
@@ -86,16 +98,16 @@ func (s *Server) SetOutbox(o webhookpub.Outbox) { s.outbox = o }
 // sets it.
 func (s *Server) SetEnforcer(e limits.Enforcer) { s.enforcer = e }
 
-func NewServer(cfg *config.Config, store *identity.Store, signer *headers.Signer, usage usage.UsageTracker, hub *ws.Hub) *Server {
+func NewServer(cfg *config.Config, store *identity.Store, usage usage.UsageTracker, hub *ws.Hub) *Server {
 	s := &Server{
 		store:              store,
-		signer:             signer,
 		hub:                hub,
 		usage:              usage,
 		screen:             buildScreenEngine(),
 		smtpDomain:         cfg.SMTP.Domain,
 		outboundFromDomain: cfg.OutboundSMTP.FromDomain,
 		inboundAsync:       cfg.Inbound.Mode == "async",
+		authenticate:       emailauth.CheckAuthenticationForAuthorWithHELO,
 	}
 
 	be := &backend{relay: s}
@@ -180,7 +192,7 @@ func (b *backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
 	}
 	sid := newSessionID()
 	log.Printf("[%s] new session from %s", sid, remoteIP)
-	return &session{relay: b.relay, id: sid, remoteIP: remoteIP}, nil
+	return &session{relay: b.relay, id: sid, remoteIP: remoteIP, heloDomain: c.Hostname()}, nil
 }
 
 func newSessionID() string {
@@ -195,6 +207,7 @@ type session struct {
 	from       string
 	recipients []string
 	remoteIP   net.IP
+	heloDomain string
 }
 
 func (s *session) AuthPlain(username, password string) error {
@@ -278,6 +291,7 @@ func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 		in := inboundInput{
 			Body:         body,
 			EnvelopeFrom: extractEmail(s.from),
+			HELODomain:   s.heloDomain,
 			RemoteIP:     s.remoteIP,
 			Recipient:    rcpt,
 			TraceID:      s.id,
@@ -304,6 +318,7 @@ func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 type inboundInput struct {
 	Body         []byte
 	EnvelopeFrom string // SMTP MAIL FROM
+	HELODomain   string // SMTP HELO/EHLO identity (null-reverse-path SPF)
 	RemoteIP     net.IP // connecting IP (SPF); the worker parses the stored text form
 	Recipient    string // RCPT TO
 	TraceID      string // log correlation (session id / intake id)
@@ -315,7 +330,7 @@ type inboundInput struct {
 // message (its idempotency gate); the sync path passes nil.
 type postPersistHook func(ctx context.Context, tx pgx.Tx, messageID string) error
 
-// processInbound runs the full inbound chain — parse, SPF/DKIM, HMAC sign, ingestion
+// processInbound runs the full inbound chain — parse, SPF/DKIM/DMARC, ingestion
 // gate, content screening, persist, and event publish — for one recipient. It is the
 // SINGLE implementation shared by the synchronous SMTP session and the async River
 // worker (internal/inboundprocess); the post-persist hook is the only difference.
@@ -326,15 +341,14 @@ type postPersistHook func(ctx context.Context, tx pgx.Tx, messageID string) erro
 func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook postPersistHook) error {
 	// Recompute the connection-derived context from the raw bytes — identical whether
 	// we are in the live session or replaying a persisted intake row.
-	threadInfo := extractThreadInfo(in.Body)
-	senderEmail := extractEmail(in.EnvelopeFrom)
-	if threadInfo.From != "" {
-		senderEmail = threadInfo.From
-	}
+	author := emailauth.ParseAuthorIdentity(in.Body)
+	threadInfo := extractThreadInfoWithAuthor(in.Body, author)
+	envelopeFrom := extractEmail(in.EnvelopeFrom)
+	headerFrom := threadInfo.From
 	// SPF/DKIM/DMARC against the TRUE envelope MAIL FROM (RFC 7208), not the From
 	// header — else SPF-alignment is a tautology (adversarial review F5).
-	domainAuth := emailauth.Check(in.RemoteIP, extractEmail(in.EnvelopeFrom), in.Body)
-	log.Printf("[%s] [%s] domain auth from %s (envelope %s): %s", in.TraceID, senderEmail, in.RemoteIP, in.EnvelopeFrom, domainAuth.Summary())
+	authentication := srv.authenticate(ctx, in.RemoteIP, envelopeFrom, in.HELODomain, in.Body, author)
+	log.Printf("[%s] [%s] email auth from %s (envelope %s): SPF=%s DKIM=%d DMARC=%s", in.TraceID, headerFrom, in.RemoteIP, envelopeFrom, authentication.SPF.Status, len(authentication.DKIM), authentication.DMARC.Status)
 
 	agent, err := srv.resolveAgent(ctx, in.Recipient)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -354,53 +368,22 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	rcpt := in.Recipient
 	body := in.Body
 
-	// Generate the message ID up-front so it can be bound into the HMAC
-	// canonical. Recipients verify by reconstructing the canonical with
-	// the message_id from the payload — substituting the ID without
-	// recomputing the MAC fails verification.
 	messageID := identity.NewMessageID()
 
-	// Build auth headers — signed Sender is the From: address (what SPF/DKIM authenticated).
-	// The body hash is bound into the canonical so a captured (headers, MAC) pair
-	// cannot be replayed under a modified body within the replay window.
-	//
-	// Signed with the deployment HMAC secret (cfg.Signing.HMACSecret) — the
-	// sole signer for X-E2A-Auth-* headers.
-	authPayload := headers.AuthPayload{
-		Verified:    domainAuth.DomainAuthenticated(),
-		Sender:      senderEmail,
-		EntityType:  "human",
-		DomainCheck: domainAuth.Summary(),
-		MessageID:   messageID,
-		BodyHash:    headers.HashBody(body),
-	}
-	authHeaders := srv.signer.Sign(authPayload)
-
-	// Display sender for webhook / stored message prefers the first Reply-To
-	// when set, so recipients reply to the intended mailbox (matches how
-	// mail clients treat Reply-To). Auth headers above retain the From:
-	// address. The full Reply-To list is shipped separately on the
-	// webhook payload so downstream consumers can see all addresses.
-	displaySender := senderEmail
-	if len(threadInfo.ReplyTo) > 0 {
-		displaySender = threadInfo.ReplyTo[0]
-	}
-
 	// Inbound trust policy ingestion gate (decision 10 / Slice 7a). Evaluate the
-	// agent's policy against the AUTHENTICATED From identity (senderEmail — what
-	// SPF/DKIM/DMARC pertain to), NOT displaySender (Reply-To is attacker-
-	// controllable). A non-match is FLAGGED — still delivered (never dropped),
+	// agent's policy against the claimed From identity plus the DMARC verdict,
+	// NOT Reply-To (attacker-controllable). A non-match is FLAGGED — still delivered,
 	// marked on the row, and emits email.flagged so operators get a signal.
 	//
 	// senderResolvable fails the gate closed for shared-relay "via e2a" mail,
 	// which authenticates but carries no per-agent identity (#299).
-	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, senderEmail, srv.senderResolvable(senderEmail))
+	policyDecision := inboundpolicy.EvaluateIngestion(agent.InboundPolicy, agent.InboundAllowlist, headerFrom, srv.senderResolvable(headerFrom), string(authentication.DMARC.Status))
 
 	// Content screening (Slice 4): run the per-agent inbound scan and record the
 	// audit trail (protection_events) + the denormalized verdict. Detection +
 	// annotation only here — review/block holds are a later slice, so the message
 	// still delivers.
-	screenRes := srv.screenInbound(ctx, agent, messageID, senderEmail, body, domainAuth, policyDecision)
+	screenRes := srv.screenInbound(ctx, agent, messageID, headerFrom, body, authentication, policyDecision)
 
 	lookup := func(ctx context.Context, ids []string) (string, error) {
 		return srv.store.LookupConversationID(ctx, agent.ID, ids)
@@ -419,7 +402,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// ON CONFLICT (id) DO NOTHING. Idempotency by construction; see
 	// design §5.1.
 	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
-		messageID, conversationID, displaySender, senderEmail, rcpt, threadInfo.Subject, threadInfo, authHeaders, agent,
+		messageID, conversationID, headerFrom, envelopeFrom, rcpt, threadInfo.Subject, threadInfo, authentication, agent,
 		time.Now().UTC(), eventpayload.AttachmentMetadata(body),
 	))
 	event.AgentID = agent.ID
@@ -443,18 +426,16 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 			"conversation_id": conversationID,
 			"direction":       "inbound",
 			"agent_email":     agent.EmailAddress(),
-			// Mirror email.received's from/authenticated_from semantics: from is the
-			// display/reply-preferred sender, authenticated_from is the gated From
-			// identity that SPF/DKIM/DMARC and the inbound policy evaluated (and
-			// flagged). A consumer of an allowlist/domain-gated agent MUST treat
-			// authenticated_from — not from — as the verified identity.
-			"from":               displaySender,
-			"authenticated_from": senderEmail,
-			"reply_to":           threadInfo.ReplyTo,
-			"delivered_to":       rcpt,
-			"subject":            threadInfo.Subject,
-			"policy":             agent.InboundPolicy,
-			"reason":             policyDecision.Reason,
+			// Carry the RFC 5322 and SMTP identities separately, plus the complete
+			// authentication evidence used by the inbound policy.
+			"header_from":    optionalString(headerFrom),
+			"envelope_from":  optionalString(envelopeFrom),
+			"authentication": authentication,
+			"reply_to":       threadInfo.ReplyTo,
+			"delivered_to":   rcpt,
+			"subject":        threadInfo.Subject,
+			"policy":         agent.InboundPolicy,
+			"reason":         policyDecision.Reason,
 		})
 		fe.AgentID = agent.ID
 		fe.ConversationID = conversationID
@@ -475,7 +456,9 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 			"conversation_id": conversationID,
 			"agent_email":     agent.EmailAddress(),
 			"direction":       "inbound",
-			"from":            senderEmail,
+			"header_from":     optionalString(headerFrom),
+			"envelope_from":   optionalString(envelopeFrom),
+			"authentication":  authentication,
 			"delivered_to":    rcpt,
 			"subject":         threadInfo.Subject,
 			"reason":          screenRes.Reason,
@@ -500,7 +483,9 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 			"conversation_id":     conversationID,
 			"agent_email":         agent.EmailAddress(),
 			"direction":           "inbound",
-			"from":                senderEmail,
+			"header_from":         optionalString(headerFrom),
+			"envelope_from":       optionalString(envelopeFrom),
+			"authentication":      authentication,
 			"delivered_to":        rcpt,
 			"subject":             threadInfo.Subject,
 			"reason":              screenRes.Reason,
@@ -514,8 +499,8 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		pendingReviewEvent = &pe
 	}
 
-	// Record inbound message with full content. Pass messageID so the
-	// stored row uses the same ID we just bound into the auth headers.
+	// Record the inbound message with full content and its canonical
+	// authentication evidence.
 	// toRecipients/cc come from the parsed To:/Cc: headers and are the
 	// same across every fan-out delivery for this inbound message.
 	//
@@ -531,21 +516,14 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	//       in-process publisher.Publish goroutine fires post-commit.
 	//       Preserves pre-design behavior so deployments that haven't
 	//       wired the outbox don't regress.
-	// Structured inbound auth verdict {spf,dkim,dmarc} persisted alongside the
-	// signed X-E2A-Auth-* blob (decision 9 / Slice 4b-2) — the trust primitive
-	// surfaced on the message and enforced on by the Slice 7 inbound policy.
-	// SPF can't be recomputed at read (the connecting IP isn't stored), so store
-	// it now. Best-effort marshal: a failure just omits the verdict.
-	authVerdictJSON, _ := json.Marshal(domainAuth)
-
 	var inboundMsg *identity.Message
 	if srv.outbox != nil {
 		err = srv.store.WithTx(ctx, func(tx pgx.Tx) error {
 			var txErr error
-			inboundMsg, txErr = srv.store.CreateInboundMessageInTx(
-				ctx, tx, messageID, agent.ID, displaySender, rcpt,
+			inboundMsg, txErr = srv.store.CreateInboundMessageAuthenticatedInTx(
+				ctx, tx, messageID, agent.ID, identity.InboundAuth{HeaderFrom: headerFrom, EnvelopeFrom: envelopeFrom, Authentication: authentication}, rcpt,
 				threadInfo.MessageID, threadInfo.Subject, conversationID,
-				deliveryStatus, body, authHeaders, authVerdictJSON,
+				deliveryStatus, body,
 				policyDecision.Flagged, policyDecision.Reason,
 				threadInfo.To, threadInfo.CC, threadInfo.ReplyTo,
 				screenRes.Denorm,
@@ -588,10 +566,10 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	} else {
 		// No-outbox legacy path (sync only — the async worker always runs with the
 		// outbox wired). hook is not supported here; async requires srv.outbox.
-		inboundMsg, err = srv.store.CreateInboundMessage(
-			ctx, messageID, agent.ID, displaySender, rcpt,
+		inboundMsg, err = srv.store.CreateInboundMessageAuthenticated(
+			ctx, messageID, agent.ID, identity.InboundAuth{HeaderFrom: headerFrom, EnvelopeFrom: envelopeFrom, Authentication: authentication}, rcpt,
 			threadInfo.MessageID, threadInfo.Subject, conversationID,
-			deliveryStatus, body, authHeaders, authVerdictJSON,
+			deliveryStatus, body,
 			policyDecision.Flagged, policyDecision.Reason,
 			threadInfo.To, threadInfo.CC, threadInfo.ReplyTo,
 			screenRes.Denorm,
@@ -606,7 +584,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		}
 		// Do NOT swallow — surface to deliverMessages so the SMTP session returns a
 		// 451 and the sender retries, instead of a 250 that silently drops the mail.
-		log.Printf("[%s] [%s] failed to record inbound message: %v", in.TraceID, senderEmail, err)
+		log.Printf("[%s] [%s] failed to record inbound message: %v", in.TraceID, headerFrom, err)
 		return err
 	}
 	_ = inboundMsg
@@ -628,7 +606,7 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	slug, _, _ := strings.Cut(rcpt, "@")
 
 	log.Printf("[mail:%s] dir=inbound from=%s to=%s slug=%s conv_id=%s subject=%q verified=%t",
-		messageID, displaySender, rcpt, slug, conversationID, threadInfo.Subject, domainAuth.DomainAuthenticated())
+		messageID, headerFrom, rcpt, slug, conversationID, threadInfo.Subject, authentication.Passed())
 
 	// Inbound events (email.received + flagged/blocked/review_requested variants)
 	// are written to the outbox (webhook_events) above, in the message tx; the
@@ -679,51 +657,58 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 // (never bytes) does ride on the event — the same extraction the message views
 // use, so the indexes agree with the attachment-fetch endpoint.
 //
-// auth_headers stays on the event: it is small SIGNED metadata — the X-E2A-Auth-*
-// attestation (HMAC-keyed by the owner's signing secret, with a replay timestamp)
-// that lets a subscriber INDEPENDENTLY verify the inbound SPF/DKIM/DMARC verdict.
-// It is metadata, not content, so it is not subject to the body-fetch rule.
+// Authentication evidence stays on the event as metadata. The webhook envelope
+// signature authenticates the complete payload in transit.
 //
 // receivedAt is injected (not time.Now() here) so the golden-fixture test can
 // assert the marshaled payload byte-for-byte.
 func buildEmailReceivedPayload(
-	messageID, conversationID, displaySender, authenticatedFrom, recipient, subject string,
+	messageID, conversationID, headerFrom, envelopeFrom, recipient, subject string,
 	threadInfo threadInfo,
-	authHeaders map[string]string,
+	authentication *emailauth.Authentication,
 	agent *identity.AgentIdentity,
 	receivedAt time.Time,
 	attachments []eventpayload.AttachmentMetaView,
 ) eventpayload.EmailReceivedData {
-	if authHeaders == nil {
-		authHeaders = map[string]string{} // required field: present-but-empty, never null
-	}
 	to := threadInfo.To
 	if to == nil {
 		to = []string{} // required field: present-but-empty, never null
+	}
+	cc := threadInfo.CC
+	if cc == nil {
+		cc = []string{}
+	}
+	replyTo := threadInfo.ReplyTo
+	if replyTo == nil {
+		replyTo = []string{}
 	}
 	return eventpayload.EmailReceivedData{
 		MessageID:      messageID,
 		AgentEmail:     agent.EmailAddress(),
 		Direction:      "inbound",
 		ConversationID: conversationID,
-		From:           displaySender,
-		// authenticated_from is the From-header identity that SPF/DKIM/DMARC
-		// and the inbound trust policy (decision 10) actually pertain to.
-		// It can differ from "from" (which prefers Reply-To for reply
-		// routing): a consumer of an allowlist/domain-gated agent MUST treat
-		// authenticated_from — not from — as the gated/verified identity.
-		AuthenticatedFrom: authenticatedFrom,
-		To:                to,
-		CC:                threadInfo.CC,
-		ReplyTo:           threadInfo.ReplyTo,
-		DeliveredTo:       recipient,
-		Subject:           subject,
-		AuthHeaders:       authHeaders,
+		HeaderFrom:     optionalString(headerFrom),
+		EnvelopeFrom:   optionalString(envelopeFrom),
+		VerifiedDomain: authentication.VerifiedDomain(),
+		To:             to,
+		CC:             cc,
+		ReplyTo:        replyTo,
+		Authentication: authentication,
+		DeliveredTo:    recipient,
+		Subject:        subject,
 		// The raw time.Time marshals to RFC3339Nano, matching the precision of
 		// the envelope created_at.
 		ReceivedAt:  receivedAt,
 		Attachments: attachments,
 	}
+}
+
+func optionalString(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func splitEmail(addr string) (local, domain string) {
@@ -835,6 +820,10 @@ type threadInfo struct {
 
 // extractThreadInfo parses threading headers from a raw RFC 2822 message.
 func extractThreadInfo(body []byte) threadInfo {
+	return extractThreadInfoWithAuthor(body, emailauth.ParseAuthorIdentity(body))
+}
+
+func extractThreadInfoWithAuthor(body []byte, author emailauth.AuthorIdentity) threadInfo {
 	msg, err := mail.ReadMessage(bytes.NewReader(body))
 	if err != nil {
 		return threadInfo{}
@@ -845,11 +834,9 @@ func extractThreadInfo(body []byte) threadInfo {
 			refs = append(refs, ref)
 		}
 	}
-	// Extract From header email address
-	fromHeader := ""
-	if addr, err := mail.ParseAddress(msg.Header.Get("From")); err == nil {
-		fromHeader = addr.Address
-	}
+	// Use the same single-author parser as DMARC. Ambiguous From fields are not
+	// projected as a sender identity.
+	fromHeader := author.Address
 	return threadInfo{
 		MessageID:  msg.Header.Get("Message-Id"),
 		Subject:    decodeMIMEHeader(msg.Header.Get("Subject")),

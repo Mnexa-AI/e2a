@@ -164,10 +164,9 @@ For API-only contributions you can skip the dashboard.
 |---|---|
 | `cmd/e2a/` | Backend binary entry point |
 | `internal/relay/` | SMTP server, inbound mail |
-| `internal/emailauth/` | SPF / DKIM verification |
+| `internal/emailauth/` | SPF / DKIM / DMARC evaluation and alignment |
 | `internal/agent/` | Agent CRUD, HITL, REST API |
 | `internal/identity/` | Domain ownership, message store |
-| `internal/headers/` | HMAC-signed `X-E2A-Auth-*` headers |
 | `internal/webhook/`, `internal/webhookdelivery/`, `internal/webhookpub/` | Webhook subscriptions, durable fan-out + delivery outbox |
 | `internal/ws/` | WebSocket hub for real-time push |
 | `internal/outbound/`, `internal/outboundsend/` | Compose + send via upstream SMTP; queue-first send worker |

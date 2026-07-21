@@ -248,12 +248,12 @@ func TestSelfSend_HappyPath(t *testing.T) {
 	if !reflect.DeepEqual(reconnect, durable) {
 		t.Errorf("reconnect envelope drifted from durable event\nreconnect=%v\ndurable=%v", reconnect, durable)
 	}
-	if reconnect["id"] != live["id"] || reconnectData["from"] != "support@example.com" || reconnectData["authenticated_from"] != ag.EmailAddress() {
+	if reconnect["id"] != live["id"] || reconnectData["header_from"] != ag.EmailAddress() || reconnectData["authentication"] != nil {
 		t.Errorf("reconnect identity drift: %v", reconnect)
 	}
 	data := live["data"].(map[string]any)
-	if data["from"] != "support@example.com" || data["authenticated_from"] != ag.EmailAddress() {
-		t.Errorf("received identities = from:%v authenticated_from:%v", data["from"], data["authenticated_from"])
+	if data["header_from"] != ag.EmailAddress() || data["envelope_from"] != nil || data["authentication"] != nil {
+		t.Errorf("received identities = header_from:%v envelope_from:%v authentication:%v", data["header_from"], data["envelope_from"], data["authentication"])
 	}
 	if attachments, ok := data["attachments"].([]any); !ok || len(attachments) != 1 {
 		t.Errorf("live/durable/reconnect envelope lost attachment metadata: %v", data["attachments"])

@@ -29,6 +29,7 @@ package eventpayload
 import (
 	"time"
 
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/mailparse"
 )
 
@@ -67,33 +68,21 @@ type EmailReceivedData struct {
 	AgentEmail string `json:"agent_email" doc:"The receiving agent's email — its id and address (an agent's id IS its email)."`
 	Direction  string `json:"direction" doc:"Always \"inbound\" on this event."`
 	// ConversationID is empty for a thread-starting message.
-	ConversationID string `json:"conversation_id,omitempty"`
-	// From is the display/reply sender (prefers Reply-To). For the
-	// authenticated, gated identity use AuthenticatedFrom.
-	From string `json:"from" doc:"Display/reply sender (prefers Reply-To). For the verified identity use authenticated_from."`
-	// AuthenticatedFrom is the From-header identity that SPF/DKIM/DMARC and
-	// the inbound trust policy actually pertain to. It can differ from From
-	// (which prefers Reply-To for reply routing): a consumer of an
-	// allowlist/domain-gated agent MUST treat authenticated_from — not from —
-	// as the gated/verified identity.
-	AuthenticatedFrom string   `json:"authenticated_from" doc:"The From-header identity SPF/DKIM/DMARC verified — treat THIS (not from) as the gated identity."`
-	To                []string `json:"to" nullable:"false"`
-	CC                []string `json:"cc,omitempty" nullable:"false"`
-	ReplyTo           []string `json:"reply_to,omitempty" nullable:"false"`
+	ConversationID string                    `json:"conversation_id,omitempty"`
+	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
+	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery."`
+	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated."`
+	To             []string                  `json:"to" nullable:"false"`
+	CC             []string                  `json:"cc" nullable:"false"`
+	ReplyTo        []string                  `json:"reply_to" nullable:"false"`
+	Authentication *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	// DeliveredTo is the agent address this copy was delivered to — a SCALAR
 	// by construction: the relay emits one event per per-agent delivery, so
 	// unlike the peer To/CC lists (the message's parsed headers) this is
 	// always exactly one address. It is the fetch key for the message.
-	DeliveredTo string `json:"delivered_to" doc:"The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message."`
-	Subject     string `json:"subject"`
-	// AuthHeaders is the signed X-E2A-Auth-* attestation (HMAC-keyed by the
-	// deployment secret, replay-stamped) that lets a subscriber INDEPENDENTLY
-	// verify the inbound SPF/DKIM/DMARC verdict. Small signed metadata, so it
-	// rides on the notification — persisted with the message, so the WS
-	// drain-on-reconnect path re-emits the same attestation the live delivery
-	// carried. Present-but-empty when the intake recorded none — never absent.
-	AuthHeaders map[string]string `json:"auth_headers" nullable:"false"`
-	ReceivedAt  time.Time         `json:"received_at" format:"date-time"`
+	DeliveredTo string    `json:"delivered_to" doc:"The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message."`
+	Subject     string    `json:"subject"`
+	ReceivedAt  time.Time `json:"received_at" format:"date-time"`
 	// Attachments is per-attachment METADATA (never bytes) parsed from the
 	// raw message. Omitted when the message has none.
 	Attachments []AttachmentMetaView `json:"attachments,omitempty" nullable:"false"`

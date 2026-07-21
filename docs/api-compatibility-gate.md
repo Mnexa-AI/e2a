@@ -97,7 +97,7 @@ envelope itself and any schema the stable surface reaches on its own — to
 open objects on **both** sides of the comparison
 (`openapicompat.PruneExportInterior`). Interior evolution is therefore
 invisible to the gate, while the envelope, the operation, and every shared
-schema (e.g. `CheckResult`, `AttachmentMeta`) remain fully gated. Because the
+schema (e.g. `Authentication`, `AttachmentMetaView`) remain fully gated. Because the
 boundary is computed, not read from the markers, hand-marking a stable schema
 beta cannot widen the exemption. `TestExportEnvelopeStableInteriorVersioned`
 (internal/httpapi) pins the marker boundary in the emitted spec, and the
@@ -143,5 +143,12 @@ method, path, and property; the SDK check independently permits only the exact
 review-only component schemas. This is not a general exception mechanism—
 fixture tests continue to reject all other stable-to-beta changes.
 
-`api/oasdiff-ignore-warnings.txt` is intentionally empty apart from comments;
-there are no reviewed stable response-property removal exceptions.
+The ignore files also contain one fully qualified pre-GA authentication
+contract correction: the four exact response projections that removed the
+misleading required `from` field, and the six exact projections that removed
+the legacy `auth` / `auth_headers` fields. Those removals replace ambiguous
+identity and authentication semantics with `header_from`, `verified_domain`,
+and `authentication` before the announced GA tag. They are not wildcard
+exceptions; the SDK-name checker likewise permits only the corresponding
+retired `AuthVerdict` and `CheckResult` models. Every other stable response
+property or generated model removal remains blocked.

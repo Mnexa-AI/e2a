@@ -407,10 +407,10 @@ single message.
   not that the recipient's server did. Delivery/bounce/complaint are per-recipient
   async outcomes reported later via SNS and the corresponding webhook events.
 - `GET …/messages/{id}` — fetch one message (inbound or outbound), including the
-  raw message and inbound auth headers. Reading an unread inbound message flips it
-  to `read`. A soft-deleted message remains readable by this direct GET and carries
-  `deleted_at` until it is permanently purged (30 days after deletion by default;
-  the trash retention window is deployment-configurable).
+  raw message and structured inbound authentication evidence. Reading an unread
+  inbound message flips it to `read`. A soft-deleted message remains readable by
+  this direct GET and carries `deleted_at` until it is permanently purged (30 days
+  after deletion by default; the trash retention window is deployment-configurable).
   Ordinary message lists, conversations, reply targets, and forward targets hide
   trashed messages; use `GET …/messages?deleted=true` to enumerate the trash.
 - `PATCH …/messages/{id}` — apply a labels delta (`add_labels` / `remove_labels`).
@@ -419,6 +419,15 @@ single message.
 - `GET …/messages/{id}/attachments/{index}` — attachment metadata + a short-lived
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
+
+For sender-trust decisions, a non-null `verified_domain` means DMARC passed for
+that RFC 5322 From domain. On detail responses the equivalent check is
+`authentication?.dmarc.status === "pass"`. Only after that check should an
+application compare `header_from` with an address allowlist. Neither result
+authenticates the mailbox local part, a person, or message content. Before
+trusting any field from a webhook, first verify the delivery envelope's
+`X-E2A-Signature`; authenticated REST and WebSocket transports need no separate
+payload-signature step.
 
 **Managed unsubscribe (beta).** Send, reply, and forward accept the optional strict
 object `"unsubscribe":{"mode":"managed"}`. Omission means only that e2a does
@@ -596,9 +605,9 @@ for 24 hours; accept a request when either secret verifies during that window.
 
 <a id="webhook-signing-secrets"></a>
 > **Signing.** Webhook deliveries are signed per-webhook with the `whsec_`
-> secret (rotatable via the `rotate-secret` route above). The relay's
-> `X-E2A-Auth-*` headers and the HITL approval / magic-link tokens are signed by
-> the deployment-wide HMAC secret (`E2A_HMAC_SECRET`), its sole signer.
+> secret (rotatable via the `rotate-secret` route above). The envelope signature
+> authenticates the structured inbound authentication evidence. HITL approval /
+> magic-link tokens use the deployment-wide HMAC secret (`E2A_HMAC_SECRET`).
 
 ### Events (`/v1/events`)
 
@@ -643,12 +652,19 @@ content via `GET /v1/agents/{email}/messages/{id}`:
     "agent_email": "bot@your-domain.com",
     "direction": "inbound",
     "conversation_id": "conv_xyz",
-    "from": "alice@example.com",
-    "authenticated_from": "alice@example.com",
+    "header_from": "alice@example.com",
+    "envelope_from": "bounce@example.com",
+    "verified_domain": "example.com",
+    "authentication": {
+      "spf": {"status": "pass", "domain": "example.com", "aligned": true},
+      "dkim": [],
+      "dmarc": {"status": "pass", "domain": "example.com", "policy": "reject", "aligned_by": ["spf"]}
+    },
     "to": ["bot@your-domain.com"],
+    "cc": [],
+    "reply_to": [],
     "delivered_to": "bot@your-domain.com",
     "subject": "Meeting tomorrow",
-    "auth_headers": {},
     "received_at": "2026-04-24T10:00:00.123456789Z"
   }
 }
@@ -657,13 +673,9 @@ content via `GET /v1/agents/{email}/messages/{id}`:
 On connect, all unread messages are drained as `email.received` events
 automatically. Live events carry the same marshaled event envelope as the
 webhook delivery — identical fields and event id; byte layout may differ
-(JSON key order/escaping is not contractual). The drain-on-reconnect rebuild
-carries the full auth contract (`authenticated_from` + the signed
-`auth_headers`, persisted with the message) and diverges from the original
-event in exactly two ways: `attachments` is omitted (the raw message is not
-loaded by the drain query), and `created_at`/`received_at` are the message
-row's time rather than the original event's publish time — the full message
-(fetched separately) always has everything.
+(JSON key order/escaping is not contractual). Reconnect drain reuses the
+durable event envelope, including `header_from`, `envelope_from`, the derived
+`verified_domain`, and structured `authentication` evidence.
 
 ### Connection lifecycle & close codes
 

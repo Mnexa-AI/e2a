@@ -564,7 +564,11 @@ func (s *Server) replyRecipients(msg *identity.Message, replyAll bool, extraCC [
 		return nil, NewError(http.StatusBadRequest, "invalid_recipient", err.Error())
 	}
 	if len(rr.To) == 0 {
-		rr.To = []string{msg.Sender}
+		if len(msg.ReplyTo) > 0 && strings.TrimSpace(msg.ReplyTo[0]) != "" {
+			rr.To = []string{msg.ReplyTo[0]}
+		} else if strings.TrimSpace(msg.HeaderFrom) != "" {
+			rr.To = []string{msg.HeaderFrom}
+		}
 	}
 	return rr, nil
 }

@@ -43,7 +43,7 @@ class UserExport(BaseModel):
     messages: List[Message]
     oauth_connections: Optional[List[OAuthConnectionEntry]] = None
     protection_events: List[ProtectionEventExportEntry]
-    schema_version: StrictStr = Field(description="Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"3\"; v3 suppression entries may include agent_email for exact-agent scope.")
+    schema_version: StrictStr = Field(description="Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"4\"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields, and retain v3 suppression provenance through optional agent_email.")
     suppressions: List[SuppressionExportEntry]
     usage_events: Optional[List[UsageEventEntry]] = None
     user: UserExportUser

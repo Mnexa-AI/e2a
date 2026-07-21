@@ -14,9 +14,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 TMP="$ROOT/sdks/python/.oag-tmp"
 DEST="$ROOT/sdks/python/src/e2a/v1/generated"
+CODEGEN_SPEC="$ROOT/sdks/python/.oag-openapi.yaml"
 IMG="openapitools/openapi-generator-cli:v7.16.0"
 
+trap 'rm -rf "$TMP"; rm -f "$CODEGEN_SPEC"' EXIT
 rm -rf "$TMP"
+go run "$ROOT/cmd/e2a-openapi-codegen-normalize" "$ROOT/api/openapi.yaml" "$CODEGEN_SPEC"
 # Run as the invoking host user (not the container's default root) so the
 # generated files + the .oag-tmp scratch dir are host-user-owned and removable
 # on CI's non-root runner. HOME is a writable path for tools that expect it.
@@ -28,8 +31,13 @@ rm -rf "$TMP"
 # same spelling the hand-written layer already uses for request-side params,
 # so the SDK teaches exactly one spelling. Wire JSON stays `from` (the pydantic
 # alias / query-param name are unchanged).
+# The canonical 3.1 document is validated by Huma's golden test. This command
+# consumes the deliberate 3.0 compatibility rewrite above, whose nullable-ref
+# shape OpenAPI Generator's validator rejects even though its generator needs
+# that exact shape; skip only this redundant generator-side validation.
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/work" "$IMG" generate \
-  -i /work/api/openapi.yaml -g python \
+  --skip-validate-spec \
+  -i /work/sdks/python/.oag-openapi.yaml -g python \
   -o /work/sdks/python/.oag-tmp \
   --name-mappings from=from_ --parameter-name-mappings from=from_ \
   --additional-properties=packageName=e2a.v1.generated,library=httpx >/dev/null
@@ -43,10 +51,17 @@ rm -rf "$TMP"
 # deployed client). Matches the TypeScript SDK's passthrough behavior.
 python3 "$ROOT/sdks/python/scripts/strip-enum-validators.py" "$DEST"
 
-# OpenAPI Generator imports re into standalone models even when they have no
-# regex-backed validators. Keep the sending-ramp model free of that unused
-# import without making a hand edit that regeneration would undo.
+# Normalize selected generator-known unused imports without making hand edits
+# that regeneration would undo.
 python3 "$ROOT/scripts/strip-unused-generated-imports.py" \
+  re "$DEST/models/message_view.py" \
+  field_validator "$DEST/models/message_view.py" \
+  re "$DEST/models/dkim_result.py" \
+  field_validator "$DEST/models/dkim_result.py" \
+  re "$DEST/models/dmarc_result.py" \
+  field_validator "$DEST/models/dmarc_result.py" \
+  re "$DEST/models/spf_result.py" \
+  field_validator "$DEST/models/spf_result.py" \
   re "$DEST/models/sending_ramp_view.py"
 
 # OpenAPI Generator leaves multiple terminal newlines on standalone component
@@ -62,5 +77,8 @@ perl -0pi -e 's/\n+\z/\n/' \
   "$DEST/models/create_agent_suppression_request.py" \
   "$DEST/models/page_agent_suppression_view.py" \
   "$DEST/models/unsubscribe_options.py"
+
+rm -f "$CODEGEN_SPEC"
+trap - EXIT
 
 echo "Python /v1 client base regenerated at sdks/python/src/e2a/v1/generated"

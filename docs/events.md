@@ -110,7 +110,7 @@ beta event types must still parse. The stable mapping is:
 
 | Event type | `data` schema | Required fields | Optional fields |
 |---|---|---|---|
-| `email.received` | `EmailReceivedData` | `message_id`, `agent_email`, `direction` (`inbound`), `from` (display/Reply-To sender), `authenticated_from` (the SPF/DKIM/DMARC-verified identity — gate on THIS), `to[]`, `delivered_to` (scalar — the one per-agent copy; the fetch key), `subject`, `auth_headers{}`, `received_at` | `conversation_id`, `cc[]`, `reply_to[]`, `attachments[]` (metadata only: `filename`, `content_type`, `size_bytes` — the DECODED payload size, `index`) |
+| `email.received` | `EmailReceivedData` | `message_id`, `agent_email`, `direction` (`inbound`), `header_from` (nullable RFC 5322 From), `envelope_from` (nullable SMTP MAIL FROM), `verified_domain` (nullable; non-null only for DMARC pass), `authentication` (nullable for providerless delivery), `to[]`, `cc[]`, `reply_to[]`, `delivered_to` (scalar — the one per-agent copy; the fetch key), `subject`, `received_at` | `conversation_id`, `attachments[]` (metadata only: `filename`, `content_type`, `size_bytes` — the DECODED payload size, `index`) |
 | `email.sent` | `EmailSentData` | `message_id`, `agent_email`, `direction` (`outbound`), `provider_message_id`, `method`, `from`, `to[]`, `subject`, `message_type` | `conversation_id`, `cc[]`, `bcc[]` |
 | `email.failed` | `EmailFailedData` | `message_id`, `agent_email`, `direction`, `method`, `from`, `to[]`, `subject`, `message_type`, `reason` | `conversation_id`, `cc[]`, `bcc[]`, `reason_code`, `retryable` (present only when genuinely known) |
 | `email.delivered` | `EmailDeliveredData` | `message_id`, `agent_email`, `direction`, `delivered_to` (the one recipient this outcome is about) | `subject`, `smtp_detail` |
@@ -123,6 +123,13 @@ beta event types must still parse. The stable mapping is:
 
 Notes:
 
+- For `email.received`, trust the RFC 5322 From domain only when
+  `verified_domain` is non-null, equivalently when
+  `authentication?.dmarc.status === "pass"`. Only then compare `header_from`
+  with an address allowlist. This authenticates domain-authorized use of the
+  From domain, not the mailbox local part, a person, or message content. Verify
+  a webhook delivery's `X-E2A-Signature` before trusting any payload field;
+  WebSocket events arrive over an authenticated transport.
 - The delivery-outcome events (`email.delivered`/`bounced`/`complained`) carry **no `status` field** — the event type IS the outcome.
 - `email.failed` is **message-level** (its `to`/`cc`/`bcc` lists carry the recipients — never one event per recipient) and fires **at most once per message** across both emission paths: the send worker and the SES `Reject` delivery-feedback path derive the same deterministic event id, so duplicate SNS deliveries and cross-path double emission collapse in the outbox.
 - `delivered_to` is always a **scalar**: on `email.received` it's the one per-agent copy (the relay emits one event per delivery); on the delivery-outcome events it's the one recipient the outcome is about. The peer `to`/`cc` lists are the message's parsed headers.

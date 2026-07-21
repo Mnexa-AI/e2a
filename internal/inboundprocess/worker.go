@@ -1,7 +1,7 @@
 // Package inboundprocess is Layer 3 of the queue-first inbound pipeline
 // (docs/design/inbound-message-pipeline-river.md): the River execution stage that
 // takes an accepted inbound_intake row and runs the full processing chain — parse,
-// SPF/DKIM, HMAC sign, ingestion gate, content screening, persist, and event publish
+// SPF/DKIM/DMARC, ingestion gate, content screening, persist, and event publish
 // — off the SMTP critical path. It mirrors internal/outboundsend: a River Worker on
 // the shared `inbound` queue, with River owning claim / retry / rescue.
 //

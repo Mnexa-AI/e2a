@@ -66,6 +66,22 @@ func TestCheckStableSDKSurfaceAllowsOnlyNamedSchemaCorrection(t *testing.T) {
 	}
 }
 
+func TestCheckStableSDKSurfaceAllowsOnlyNamedPreGASchemaRemoval(t *testing.T) {
+	revision := strings.Replace(sdkSurfaceBase, "    StableView:\n      type: object\n", "", 1)
+	if err := CheckStableSDKSurfaceWithAllowedSchemaCorrections(
+		strings.NewReader(sdkSurfaceBase), strings.NewReader(revision), nil, []string{"StableView"},
+	); err != nil {
+		t.Fatalf("allowed removal: %v", err)
+	}
+
+	err := CheckStableSDKSurfaceWithAllowedSchemaCorrections(
+		strings.NewReader(sdkSurfaceBase), strings.NewReader(revision), nil, []string{"SomeOtherView"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "stable-sdk-schema-removed") {
+		t.Fatalf("error = %v, want non-allowlisted removal rejection", err)
+	}
+}
+
 func TestCheckStableSDKSurfaceAllowsBetaSchemaRename(t *testing.T) {
 	revision := strings.Replace(sdkSurfaceBase, "BetaView:", "RenamedBetaView:", 1)
 	if err := CheckStableSDKSurface(strings.NewReader(sdkSurfaceBase), strings.NewReader(revision)); err != nil {

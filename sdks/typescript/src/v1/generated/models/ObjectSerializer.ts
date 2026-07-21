@@ -10,8 +10,7 @@ export * from '../models/ApproveRequest.js';
 export * from '../models/Attachment.js';
 export * from '../models/AttachmentMetaView.js';
 export * from '../models/AttachmentView.js';
-export * from '../models/AuthVerdict.js';
-export * from '../models/CheckResult.js';
+export * from '../models/Authentication.js';
 export * from '../models/ConversationDetailView.js';
 export * from '../models/ConversationSummaryView.js';
 export * from '../models/CreateAPIKeyRequest.js';
@@ -21,6 +20,8 @@ export * from '../models/CreateAgentSuppressionRequest.js';
 export * from '../models/CreateTemplateRequest.js';
 export * from '../models/CreateWebhookRequest.js';
 export * from '../models/CreateWebhookResponse.js';
+export * from '../models/DKIMResult.js';
+export * from '../models/DMARCResult.js';
 export * from '../models/DNSRecord.js';
 export * from '../models/DeleteAgentResult.js';
 export * from '../models/DeleteApiKeyResult.js';
@@ -101,6 +102,7 @@ export * from '../models/ReplyRequest.js';
 export * from '../models/RetryAfterDetails.js';
 export * from '../models/ReviewView.js';
 export * from '../models/RotateSecretResponse.js';
+export * from '../models/SPFResult.js';
 export * from '../models/SendEmailRequest.js';
 export * from '../models/SendResultView.js';
 export * from '../models/SendingRampView.js';
@@ -146,8 +148,7 @@ import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
-import { AuthVerdict } from '../models/AuthVerdict.js';
-import { CheckResult } from '../models/CheckResult.js';
+import { Authentication } from '../models/Authentication.js';
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest   , CreateAPIKeyRequestScopeEnum   } from '../models/CreateAPIKeyRequest.js';
@@ -157,6 +158,8 @@ import { CreateAgentSuppressionRequest } from '../models/CreateAgentSuppressionR
 import { CreateTemplateRequest } from '../models/CreateTemplateRequest.js';
 import { CreateWebhookRequest , CreateWebhookRequestEventsEnum     } from '../models/CreateWebhookRequest.js';
 import { CreateWebhookResponse } from '../models/CreateWebhookResponse.js';
+import { DKIMResult } from '../models/DKIMResult.js';
+import { DMARCResult } from '../models/DMARCResult.js';
 import { DNSRecord } from '../models/DNSRecord.js';
 import { DeleteAgentResult } from '../models/DeleteAgentResult.js';
 import { DeleteApiKeyResult } from '../models/DeleteApiKeyResult.js';
@@ -194,8 +197,8 @@ import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
-import { MessageSummaryView        , MessageSummaryViewDirectionEnum                 } from '../models/MessageSummaryView.js';
-import { MessageView           , MessageViewDirectionEnum                     } from '../models/MessageView.js';
+import { MessageSummaryView } from '../models/MessageSummaryView.js';
+import { MessageView } from '../models/MessageView.js';
 import { OAuthConnectionEntry } from '../models/OAuthConnectionEntry.js';
 import { PageAPIKeyView } from '../models/PageAPIKeyView.js';
 import { PageAgentSuppressionView } from '../models/PageAgentSuppressionView.js';
@@ -235,8 +238,9 @@ import { RejectResultView } from '../models/RejectResultView.js';
 import { RenderedTemplateView } from '../models/RenderedTemplateView.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
 import { RetryAfterDetails } from '../models/RetryAfterDetails.js';
-import { ReviewView   , ReviewViewDirectionEnum           } from '../models/ReviewView.js';
+import { ReviewView } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
+import { SPFResult } from '../models/SPFResult.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { SendingRampView } from '../models/SendingRampView.js';
@@ -285,6 +289,10 @@ let primitives = [
 let enumsMap: Set<string> = new Set<string>([
     "CreateAPIKeyRequestScopeEnum",
     "CreateWebhookRequestEventsEnum",
+    "DKIMResultStatusEnum",
+    "DMARCResultAlignedByEnum",
+    "DMARCResultPolicyEnum",
+    "DMARCResultStatusEnum",
     "EmailBouncedDataBounceTypeEnum",
     "LimitExceededErrorBodyCodeEnum",
     "MessageSummaryViewDirectionEnum",
@@ -295,6 +303,7 @@ let enumsMap: Set<string> = new Set<string>([
     "ProtectionScanRequestSensitivityEnum",
     "RateLimitedErrorBodyCodeEnum",
     "ReviewViewDirectionEnum",
+    "SPFResultStatusEnum",
     "TestWebhookRequestTypeEnum",
     "UnsubscribeOptionsModeEnum",
     "UpdateWebhookRequestEventsEnum",
@@ -313,8 +322,7 @@ let typeMap: {[index: string]: any} = {
     "Attachment": Attachment,
     "AttachmentMetaView": AttachmentMetaView,
     "AttachmentView": AttachmentView,
-    "AuthVerdict": AuthVerdict,
-    "CheckResult": CheckResult,
+    "Authentication": Authentication,
     "ConversationDetailView": ConversationDetailView,
     "ConversationSummaryView": ConversationSummaryView,
     "CreateAPIKeyRequest": CreateAPIKeyRequest,
@@ -324,6 +332,8 @@ let typeMap: {[index: string]: any} = {
     "CreateTemplateRequest": CreateTemplateRequest,
     "CreateWebhookRequest": CreateWebhookRequest,
     "CreateWebhookResponse": CreateWebhookResponse,
+    "DKIMResult": DKIMResult,
+    "DMARCResult": DMARCResult,
     "DNSRecord": DNSRecord,
     "DeleteAgentResult": DeleteAgentResult,
     "DeleteApiKeyResult": DeleteApiKeyResult,
@@ -404,6 +414,7 @@ let typeMap: {[index: string]: any} = {
     "RetryAfterDetails": RetryAfterDetails,
     "ReviewView": ReviewView,
     "RotateSecretResponse": RotateSecretResponse,
+    "SPFResult": SPFResult,
     "SendEmailRequest": SendEmailRequest,
     "SendResultView": SendResultView,
     "SendingRampView": SendingRampView,

@@ -61,8 +61,25 @@ func TestReviews_ListReturnsBothDirections(t *testing.T) {
 	for _, it := range items {
 		m, _ := it.(map[string]any)
 		dirs[m["direction"].(string)] = true
+		for _, field := range []string{"header_from", "envelope_from", "verified_domain"} {
+			if _, ok := m[field]; !ok {
+				t.Errorf("review summary missing %s: %v", field, m)
+			}
+		}
+		if _, exists := m["from"]; exists {
+			t.Errorf("review summary contains retired from: %v", m)
+		}
+		if _, exists := m["authentication"]; exists {
+			t.Errorf("review summary must omit full authentication evidence: %v", m)
+		}
 		if m["review_status"] != "pending_review" {
 			t.Errorf("item missing review_status: %v", m)
+		}
+		if m["direction"] == "inbound" && m["header_from"] != nil {
+			t.Errorf("legacy inbound sender must not be relabeled as header_from: %v", m)
+		}
+		if m["direction"] == "outbound" && m["header_from"] != "support@acme.dev" {
+			t.Errorf("outbound header_from = %v, want composed sender", m["header_from"])
 		}
 	}
 	if !dirs["inbound"] || !dirs["outbound"] {

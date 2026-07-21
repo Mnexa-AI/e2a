@@ -25,8 +25,7 @@ from e2a.v1.generated.models.approve_request import ApproveRequest
 from e2a.v1.generated.models.attachment import Attachment
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
 from e2a.v1.generated.models.attachment_view import AttachmentView
-from e2a.v1.generated.models.auth_verdict import AuthVerdict
-from e2a.v1.generated.models.check_result import CheckResult
+from e2a.v1.generated.models.authentication import Authentication
 from e2a.v1.generated.models.conversation_detail_view import ConversationDetailView
 from e2a.v1.generated.models.conversation_summary_view import ConversationSummaryView
 from e2a.v1.generated.models.create_api_key_request import CreateAPIKeyRequest
@@ -36,6 +35,8 @@ from e2a.v1.generated.models.create_agent_suppression_request import CreateAgent
 from e2a.v1.generated.models.create_template_request import CreateTemplateRequest
 from e2a.v1.generated.models.create_webhook_request import CreateWebhookRequest
 from e2a.v1.generated.models.create_webhook_response import CreateWebhookResponse
+from e2a.v1.generated.models.dkim_result import DKIMResult
+from e2a.v1.generated.models.dmarc_result import DMARCResult
 from e2a.v1.generated.models.dns_record import DNSRecord
 from e2a.v1.generated.models.delete_agent_result import DeleteAgentResult
 from e2a.v1.generated.models.delete_api_key_result import DeleteApiKeyResult
@@ -116,6 +117,7 @@ from e2a.v1.generated.models.reply_request import ReplyRequest
 from e2a.v1.generated.models.retry_after_details import RetryAfterDetails
 from e2a.v1.generated.models.review_view import ReviewView
 from e2a.v1.generated.models.rotate_secret_response import RotateSecretResponse
+from e2a.v1.generated.models.spf_result import SPFResult
 from e2a.v1.generated.models.send_email_request import SendEmailRequest
 from e2a.v1.generated.models.send_result_view import SendResultView
 from e2a.v1.generated.models.sending_ramp_view import SendingRampView

@@ -44,7 +44,9 @@ describe("message projection (v1 contract)", () => {
               {
                 message_id: "m1",
                 direction: "outbound",
-                from: "a@x.com",
+                header_from: "a@x.com",
+                envelope_from: null,
+                verified_domain: null,
                 to: ["b@y.com"],
                 recipient: "b@y.com",
                 subject: "s",
@@ -72,7 +74,9 @@ describe("message projection (v1 contract)", () => {
               {
                 message_id: "m1",
                 direction: "inbound",
-                from: "b@y.com",
+                header_from: "b@y.com",
+                envelope_from: "b@y.com",
+                verified_domain: "y.com",
                 to: ["a@x.com"],
                 recipient: "a@x.com",
                 subject: "hi",
@@ -97,7 +101,9 @@ describe("message projection (v1 contract)", () => {
                 id: "m1",
                 agent_email: "a@x.com",
                 direction: "outbound",
-                from: "a@x.com",
+                header_from: "a@x.com",
+                envelope_from: null,
+                verified_domain: null,
                 to: ["b@y.com"],
                 subject: "held draft",
                 review_status: "pending_review",
@@ -107,7 +113,9 @@ describe("message projection (v1 contract)", () => {
                 id: "m2",
                 agent_email: "a@x.com",
                 direction: "inbound",
-                from: "spammer@evil.com",
+                header_from: "spammer@evil.com",
+                envelope_from: "bounce@evil.com",
+                verified_domain: null,
                 to: ["a@x.com"],
                 subject: "screened inbound",
                 review_status: "pending_review",
@@ -148,7 +156,11 @@ describe("message projection (v1 contract)", () => {
 // the superset: it alone carries hold_reason + protection.
 const REVIEW_WIRE: MessageViewWire = {
   id: "msg_1",
-  from: "",
+  direction: "outbound",
+  header_from: null,
+  envelope_from: null,
+  verified_domain: null,
+  authentication: null,
   to: ["customer@bigco.com"],
   cc: ["cc@bigco.com"],
   reply_to: [],
@@ -171,7 +183,11 @@ const REVIEW_WIRE: MessageViewWire = {
 // (GET /v1/agents/{address}/messages/{id}) for an inbound row.
 const INBOUND_WIRE: MessageViewWire = {
   id: "msg_in",
-  from: "james@x.com",
+  direction: "inbound",
+  header_from: "james@x.com",
+  envelope_from: "bounce@x.com",
+  verified_domain: null,
+  authentication: null,
   to: ["support@acme.dev"],
   delivered_to: "support@acme.dev",
   subject: "Hi",
@@ -179,7 +195,6 @@ const INBOUND_WIRE: MessageViewWire = {
   delivery_status: "received",
   read_status: "unread",
   created_at: "2026-01-01T00:00:00Z",
-  auth_headers: { "Received-SPF": "pass" },
   parsed: { text: "plain body" },
   attachments: [],
   raw_message: "cmF3",
@@ -217,24 +232,29 @@ describe("message-detail projectors (shared-cache invariant)", () => {
     expect(d.body_html).toBe("<p>scrubbed</p>");
   });
 
-  it("projectInbound maps delivered_to → recipient and delivery_status → status", () => {
+  it("projectInbound maps delivered_to → recipient and read_status → status", () => {
     const d = projectInbound(INBOUND_WIRE);
     // The wire field is `delivered_to`; the app type calls it `recipient`.
     // They are NOT the same name, so a passthrough would leave the
     // attachment endpoint without an agent address to key by.
     expect(d.recipient).toBe("support@acme.dev");
-    expect(d.status).toBe("received");
-    expect(d.auth_headers).toEqual({ "Received-SPF": "pass" });
+    expect(d.status).toBe("unread");
+    expect(d.header_from).toBe("james@x.com");
+    expect(d.envelope_from).toBe("bounce@x.com");
     expect(d.parsed?.text).toBe("plain body");
   });
 
   it("projectInbound defaults absent list/scalar fields instead of leaking undefined", () => {
     // The focus page and ThreadBubble index into these without guards
-    // (cc.join, attachments.map, auth_headers entries) — undefined here is
+    // (cc.join, attachments.map) — undefined here is
     // a crash there.
     const d = projectInbound({
       id: "msg_bare",
-      from: "a@x.com",
+      direction: "inbound",
+      header_from: "a@x.com",
+      envelope_from: null,
+      verified_domain: null,
+      authentication: null,
       delivered_to: "support@acme.dev",
       subject: "",
       created_at: "2026-01-01T00:00:00Z",
@@ -243,13 +263,13 @@ describe("message-detail projectors (shared-cache invariant)", () => {
     expect(d.cc).toEqual([]);
     expect(d.reply_to).toEqual([]);
     expect(d.attachments).toEqual([]);
-    expect(d.auth_headers).toEqual({});
+    expect(d.authentication).toBeNull();
     expect(d.conversation_id).toBe("");
     expect(d.raw_message).toBe("");
   });
 
-  it("projectMessageDetail wraps by the caller-supplied direction", () => {
-    const out = projectMessageDetail("support@acme.dev", REVIEW_WIRE, "outbound");
+  it("projectMessageDetail wraps by the authoritative wire direction", () => {
+    const out = projectMessageDetail("support@acme.dev", REVIEW_WIRE, "inbound");
     expect(out.direction).toBe("outbound");
     // Outbound rows read the draft body; the discriminated union is what
     // lets the focus page narrow safely.
@@ -257,22 +277,16 @@ describe("message-detail projectors (shared-cache invariant)", () => {
       "Hello, your refund is on the way.",
     );
 
-    const inb = projectMessageDetail("support@acme.dev", INBOUND_WIRE, "inbound");
+    const inb = projectMessageDetail("support@acme.dev", INBOUND_WIRE, "outbound");
     expect(inb.direction).toBe("inbound");
     expect(inb.direction === "inbound" && inb.data.recipient).toBe(
       "support@acme.dev",
     );
   });
 
-  it("projectMessageDetail falls back to inbound when no direction is supplied", () => {
-    // MessageView has NO direction field and blanks from/status on outbound
-    // rows, so direction can't be recovered from the payload — callers
-    // thread it in. A deep link that can't supply one must land on the
-    // inbound projection: the safe shape that never offers approve/reject
-    // on a message we can't prove is a held outbound draft. Defaulting to
-    // outbound instead would surface Approve & send on arbitrary mail.
+  it("projectMessageDetail reads direction without a query fallback", () => {
     const d = projectMessageDetail("support@acme.dev", REVIEW_WIRE);
-    expect(d.direction).toBe("inbound");
+    expect(d.direction).toBe("outbound");
   });
 });
 

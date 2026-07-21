@@ -194,3 +194,29 @@ func TestReplyToInbound_Unchanged(t *testing.T) {
 		t.Errorf("To = %v, want inbound sender [alice@x.com]", captured.To)
 	}
 }
+
+func TestReplyRecipientsStoredFallbackUsesReplyToThenHeaderFrom(t *testing.T) {
+	srv := &Server{}
+	message := &identity.Message{
+		Direction:  "inbound",
+		RawMessage: []byte("Subject: no sender\r\n\r\nbody"),
+		ReplyTo:    []string{"reply@example.com"},
+		HeaderFrom: "header@example.com",
+	}
+	recipients, envelope := srv.replyRecipients(message, false, nil)
+	if envelope != nil {
+		t.Fatalf("replyRecipients error: %+v", envelope)
+	}
+	if !reflect.DeepEqual(recipients.To, []string{"reply@example.com"}) {
+		t.Fatalf("To = %v, want stored Reply-To", recipients.To)
+	}
+
+	message.ReplyTo = nil
+	recipients, envelope = srv.replyRecipients(message, false, nil)
+	if envelope != nil {
+		t.Fatalf("replyRecipients header fallback error: %+v", envelope)
+	}
+	if !reflect.DeepEqual(recipients.To, []string{"header@example.com"}) {
+		t.Fatalf("To = %v, want stored Header-From", recipients.To)
+	}
+}

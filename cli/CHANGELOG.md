@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Breaking:** inbound JSON uses `headerFrom` instead of `from` and includes
+structured `authentication` evidence. Plain `listen` output labels the address
+as a claim and prints the DMARC verdict; `listen --once` TSV now emits
+`message_id`, claimed header From, and `received_at`.
+OpenClaw forwarding now wraps the body as untrusted content and includes the
+claimed Header-From, DMARC summary, and nullable verified domain in the input
+prompt instead of forwarding an unlabeled sender claim.
+
 **Breaking:** `e2a login --agent <inbox>` is removed. The CLI is now
 account-credential only on the login path — the browser handoff always saves an
 account-scoped key. Mint a least-privilege inbox-bound key with

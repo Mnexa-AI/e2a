@@ -25,6 +25,14 @@ func CheckStableSDKSurface(base, revision io.Reader) error {
 // corrections. Callers should use this only when a schema landed after the
 // latest release with a missing beta marker; the default check remains strict.
 func CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision io.Reader, allowedDemotions []string) error {
+	return CheckStableSDKSurfaceWithAllowedSchemaCorrections(base, revision, allowedDemotions, nil)
+}
+
+// CheckStableSDKSurfaceWithAllowedSchemaCorrections permits exact, reviewed
+// pre-GA lifecycle corrections while leaving the default stable SDK freeze
+// strict. Removal exceptions are narrower than demotions and must only name
+// generated models intentionally retired before the announced GA tag.
+func CheckStableSDKSurfaceWithAllowedSchemaCorrections(base, revision io.Reader, allowedDemotions, allowedRemovals []string) error {
 	baseSurface, err := readSDKSurface(base)
 	if err != nil {
 		return fmt.Errorf("decode base SDK surface: %w", err)
@@ -38,6 +46,10 @@ func CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision io.Reader, a
 	for _, name := range allowedDemotions {
 		allowed[name] = true
 	}
+	removable := make(map[string]bool, len(allowedRemovals))
+	for _, name := range allowedRemovals {
+		removable[name] = true
+	}
 
 	var findings []string
 	schemaNames := make([]string, 0, len(baseSurface.schemas))
@@ -50,7 +62,7 @@ func CheckStableSDKSurfaceWithAllowedSchemaDemotions(base, revision io.Reader, a
 	for _, name := range schemaNames {
 		revisionBeta, ok := revisionSurface.schemas[name]
 		switch {
-		case !ok:
+		case !ok && !removable[name]:
 			findings = append(findings, fmt.Sprintf(
 				"[stable-sdk-schema-removed] stable component schema %q was removed or renamed; generated SDK model names are frozen",
 				name,

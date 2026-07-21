@@ -19,7 +19,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/apiserver"
 	"github.com/tokencanopy/e2a/internal/config"
-	"github.com/tokencanopy/e2a/internal/headers"
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/jobs"
@@ -45,6 +45,7 @@ type testServerOpts struct {
 	outboundSMTPFromDomain      string
 	outboundSMTPMessageIDDomain string
 	manualJobs                  bool
+	inboundAuthentication       *emailauth.Authentication
 }
 
 type TestServerOption func(*testServerOpts)
@@ -84,11 +85,17 @@ func WithManualJobs() TestServerOption {
 	return func(o *testServerOpts) { o.manualJobs = true }
 }
 
+// WithInboundAuthentication injects deterministic SMTP authentication
+// evidence. It lets integration tests cover DMARC-pass policy paths without
+// relying on mutable public DNS.
+func WithInboundAuthentication(authentication *emailauth.Authentication) TestServerOption {
+	return func(o *testServerOpts) { o.inboundAuthentication = authentication }
+}
+
 type E2ATestServer struct {
 	HTTPServer *httptest.Server
 	SMTPAddr   string
 	Store      *identity.Store
-	Signer     *headers.Signer
 	WSHub      *ws.Hub
 	smtpServer *relay.Server
 
@@ -173,7 +180,6 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 	}
 
 	store := identity.NewStore(pool)
-	signer := headers.NewSigner(TestHMACSecret)
 	outboundCfg := &config.OutboundSMTPConfig{
 		Host:            o.outboundSMTPHost,
 		Port:            o.outboundSMTPPort,
@@ -275,7 +281,12 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		},
 		Env: "development",
 	}
-	smtpServer := relay.NewServer(cfg, store, signer, noopUsage, wsHub)
+	smtpServer := relay.NewServer(cfg, store, noopUsage, wsHub)
+	if o.inboundAuthentication != nil {
+		smtpServer.SetAuthenticationChecker(func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication {
+			return o.inboundAuthentication
+		})
+	}
 	smtpServer.SetOutbox(outbox)
 
 	go func() {
@@ -298,7 +309,6 @@ func TestServer(t *testing.T, pool *pgxpool.Pool, opts ...TestServerOption) *E2A
 		HTTPServer:      httpServer,
 		SMTPAddr:        smtpAddr,
 		Store:           store,
-		Signer:          signer,
 		WSHub:           wsHub,
 		smtpServer:      smtpServer,
 		SubscriberStore: subscriberStore,

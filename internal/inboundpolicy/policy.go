@@ -52,6 +52,7 @@ type Decision struct {
 // specific authenticated identity (shared-relay "via e2a" mail) under a gating
 // policy — see senderResolvable in the relay and issue #299.
 const unresolvableSenderReason = "sender has no resolvable per-agent identity (shared relay), so it cannot match a per-agent inbound gate"
+const unauthenticatedSenderReason = "sender did not pass aligned DMARC authentication, so it cannot satisfy a gated inbound policy"
 
 // EvaluateIngestion applies the agent's ingestion policy to an inbound message.
 //   - policy: the agent's inbound_policy (unknown/empty → treated as Open).
@@ -68,9 +69,12 @@ const unresolvableSenderReason = "sender has no resolvable per-agent identity (s
 // Flagged is fail-closed for the gating postures: an empty/garbage sender, an
 // empty allowlist, or an unresolvable sender flags everything (you opted into a
 // gate but the sender cannot be matched).
-func EvaluateIngestion(policy string, allowlist []string, senderEmail string, senderResolvable bool) Decision {
+func EvaluateIngestion(policy string, allowlist []string, senderEmail string, senderResolvable bool, dmarcStatus string) Decision {
 	switch policy {
 	case Allowlist:
+		if dmarcStatus != "pass" {
+			return Decision{Flagged: true, Reason: unauthenticatedSenderReason}
+		}
 		if !senderResolvable {
 			return Decision{Flagged: true, Reason: unresolvableSenderReason}
 		}
@@ -79,6 +83,9 @@ func EvaluateIngestion(policy string, allowlist []string, senderEmail string, se
 		}
 		return Decision{Flagged: true, Reason: "sender not on the agent's inbound allowlist"}
 	case Domain:
+		if dmarcStatus != "pass" {
+			return Decision{Flagged: true, Reason: unauthenticatedSenderReason}
+		}
 		if !senderResolvable {
 			return Decision{Flagged: true, Reason: unresolvableSenderReason}
 		}

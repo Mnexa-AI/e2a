@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 )
@@ -24,11 +25,11 @@ import (
 // flaggedFixture wires a verified agent with the given ingestion policy and a
 // subscriber listening for both email.received and email.flagged. Returns the
 // pool (to read the persisted row), the agent, and the capturing receiver.
-func setupFlaggedAgent(t *testing.T, policy string, allowlist []string, email, domain string) (*testutil.E2ATestServer, *pgxpool.Pool, *identity.AgentIdentity, *testutil.SubscriberReceiverResult) {
+func setupFlaggedAgent(t *testing.T, policy string, allowlist []string, email, domain string, opts ...testutil.TestServerOption) (*testutil.E2ATestServer, *pgxpool.Pool, *identity.AgentIdentity, *testutil.SubscriberReceiverResult) {
 	t.Helper()
 	pool := testutil.TestDB(t)
 	receiver := testutil.SubscriberReceiver(t)
-	ts := testutil.TestServer(t, pool)
+	ts := testutil.TestServer(t, pool, opts...)
 
 	user, _, agent := setupDomainAndAgent(t, ts, email, domain, "", "")
 	if err := ts.Store.UpdateAgentInboundPolicy(context.Background(), agent.ID, user.ID, policy, allowlist); err != nil {
@@ -37,6 +38,60 @@ func setupFlaggedAgent(t *testing.T, policy string, allowlist []string, email, d
 	registerWebhook(t, ts, user.ID, receiver.Server.URL+"/received",
 		[]string{"email.received", "email.flagged"}, identity.WebhookFilters{})
 	return ts, pool, agent, receiver
+}
+
+func passingAuthentication(domain string) *emailauth.Authentication {
+	aligned := true
+	policy := emailauth.DMARCPolicyReject
+	return &emailauth.Authentication{
+		SPF: emailauth.SPFResult{
+			Status: emailauth.StatusPass, Domain: &domain, Aligned: &aligned,
+		},
+		DKIM: []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{
+			Status: emailauth.StatusPass, Domain: &domain, Policy: &policy,
+			AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF},
+		},
+	}
+}
+
+func TestInboundPolicy_GatedPolicyAcceptsAuthenticatedMember(t *testing.T) {
+	tests := []struct {
+		name      string
+		policy    string
+		allowlist []string
+	}{
+		{name: "allowlist", policy: "allowlist", allowlist: []string{"friend@trusted.com"}},
+		{name: "domain", policy: "domain", allowlist: []string{"trusted.com"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, pool, agent, receiver := setupFlaggedAgent(
+				t, tt.policy, tt.allowlist, "agent@pass-"+tt.name+".example.com", "pass-"+tt.name+".example.com",
+				testutil.WithInboundAuthentication(passingAuthentication("trusted.com")),
+			)
+
+			msg := "From: friend@trusted.com\r\nTo: " + agent.EmailAddress() + "\r\nSubject: Hi\r\n\r\nHello"
+			if err := smtp.SendMail(ts.SMTPAddr, nil, "friend@trusted.com", []string{agent.EmailAddress()}, []byte(msg)); err != nil {
+				t.Fatalf("SendMail: %v", err)
+			}
+
+			tick(t, ts)
+			got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool {
+				return eventTypes(c)["email.received"] >= 1
+			})
+			if n := eventTypes(got)["email.flagged"]; n != 0 {
+				t.Errorf("authenticated member emitted %d email.flagged events", n)
+			}
+			if flagged, reason := readFlagged(t, pool, agent.ID); flagged {
+				t.Errorf("authenticated member persisted as flagged: %s", reason)
+			}
+			received := eventData(got, "email.received")
+			if received["verified_domain"] != "trusted.com" {
+				t.Errorf("verified_domain = %v", received["verified_domain"])
+			}
+		})
+	}
 }
 
 func eventTypes(caps []testutil.SubscriberCaptured) map[string]int {
@@ -108,11 +163,15 @@ func TestInboundPolicy_AllowlistFlagsNonMember(t *testing.T) {
 	if reason == "" {
 		t.Error("flagged row has empty flag_reason")
 	}
+	if reason != "sender did not pass aligned DMARC authentication, so it cannot satisfy a gated inbound policy" {
+		t.Errorf("flag_reason = %q", reason)
+	}
 }
 
-// TestInboundPolicy_AllowlistAcceptsMember: a sender ON the allowlist is NOT
-// flagged and no email.flagged is emitted.
-func TestInboundPolicy_AllowlistAcceptsMember(t *testing.T) {
+// TestInboundPolicy_AllowlistFlagsUnauthenticatedMember: matching an address is
+// insufficient for a gated policy. The sender must also have a DMARC pass.
+// Local SMTP test mail has no aligned authentication, so it remains flagged.
+func TestInboundPolicy_AllowlistFlagsUnauthenticatedMember(t *testing.T) {
 	ts, pool, agent, receiver := setupFlaggedAgent(t, "allowlist",
 		[]string{"friend@trusted.com"}, "agent@allow2.example.com", "allow2.example.com")
 
@@ -123,13 +182,13 @@ func TestInboundPolicy_AllowlistAcceptsMember(t *testing.T) {
 
 	tick(t, ts)
 	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool {
-		return eventTypes(c)["email.received"] >= 1
+		return eventTypes(c)["email.received"] >= 1 && eventTypes(c)["email.flagged"] >= 1
 	})
-	if n := eventTypes(got)["email.flagged"]; n != 0 {
-		t.Errorf("allowlisted sender should not be flagged, got %d email.flagged", n)
+	if n := eventTypes(got)["email.flagged"]; n < 1 {
+		t.Errorf("unauthenticated allowlist member should be flagged, got %d email.flagged", n)
 	}
-	if flagged, _ := readFlagged(t, pool, agent.ID); flagged {
-		t.Error("allowlisted sender persisted as flagged")
+	if flagged, _ := readFlagged(t, pool, agent.ID); !flagged {
+		t.Error("unauthenticated allowlist member persisted as unflagged")
 	}
 }
 
@@ -160,40 +219,29 @@ func TestInboundPolicy_EvaluatesFromNotReplyTo(t *testing.T) {
 		t.Error("Reply-To spoof persisted as un-flagged (gate read Reply-To, not From)")
 	}
 
-	// The flagged event mirrors email.received's from/authenticated_from split:
-	// from is the display/reply-preferred sender, authenticated_from is the gated
-	// From identity that failed the gate. A consumer of a gated agent MUST read
-	// authenticated_from — surfacing only the trusted-looking Reply-To would let an
-	// attacker make a rejected message look like it came from the address they
-	// impersonated (review finding #1).
+	// The flagged event keeps the RFC 5322 From and Reply-To identities separate.
 	if fe := eventData(got, "email.flagged"); fe != nil {
-		if fe["authenticated_from"] != "stranger@evil.com" {
-			t.Errorf("email.flagged authenticated_from = %v, want the authenticated From stranger@evil.com", fe["authenticated_from"])
+		if fe["header_from"] != "stranger@evil.com" {
+			t.Errorf("email.flagged header_from = %v", fe["header_from"])
 		}
-		if fe["from"] != "friend@trusted.com" {
-			t.Errorf("email.flagged from = %v, want the Reply-To friend@trusted.com", fe["from"])
+		if replyTo, ok := fe["reply_to"].([]any); !ok || len(replyTo) != 1 || replyTo[0] != "friend@trusted.com" {
+			t.Errorf("email.flagged reply_to = %v", fe["reply_to"])
 		}
-		if _, ok := fe["display_sender"]; ok {
-			t.Errorf("email.flagged must not carry display_sender (folded into from), got %v", fe["display_sender"])
+		if _, ok := fe["authentication"].(map[string]any); !ok {
+			t.Errorf("email.flagged authentication = %v", fe["authentication"])
 		}
 	} else {
 		t.Error("no email.flagged data captured")
 	}
 }
 
-// TestInboundPolicy_ReceivedSurfacesAuthenticatedFrom pins the surfacing
-// contract that makes the verdict honest: when the display sender (Reply-To)
-// differs from the authenticated From, email.received carries BOTH —
-// `authenticated_from` is the gated/verified identity, `from` is the reply
-// target. A consumer of an allowlist/domain-gated agent must trust
-// `authenticated_from`, not `from`. Without this, an allowlisted From + attacker
-// Reply-To yields an unflagged message whose displayed sender is attacker-chosen
-// (review finding #1, the unflagged inverse).
-func TestInboundPolicy_ReceivedSurfacesAuthenticatedFrom(t *testing.T) {
-	ts, pool, agent, receiver := setupFlaggedAgent(t, "allowlist",
-		[]string{"friend@trusted.com"}, "agent@authfrom.example.com", "authfrom.example.com")
+// TestInboundPolicy_ReceivedSeparatesFromAndReplyTo pins the canonical identity
+// fields. Open policy is used because local test mail has no aligned DMARC pass.
+func TestInboundPolicy_ReceivedSeparatesFromAndReplyTo(t *testing.T) {
+	ts, pool, agent, receiver := setupFlaggedAgent(t, "open",
+		nil, "agent@authfrom.example.com", "authfrom.example.com")
 
-	// From is on the allowlist (so NOT flagged); Reply-To points elsewhere.
+	// Reply-To points elsewhere but must never replace header_from.
 	msg := "From: friend@trusted.com\r\n" +
 		"Reply-To: attacker@evil.com\r\n" +
 		"To: agent@authfrom.example.com\r\nSubject: Hi\r\n\r\nHello"
@@ -205,23 +253,23 @@ func TestInboundPolicy_ReceivedSurfacesAuthenticatedFrom(t *testing.T) {
 	got := receiver.WaitFor(t, 5*time.Second, func(c []testutil.SubscriberCaptured) bool {
 		return eventTypes(c)["email.received"] >= 1
 	})
-	// Allowlisted From → not flagged.
+	// Open policy → not flagged.
 	if n := eventTypes(got)["email.flagged"]; n != 0 {
-		t.Errorf("allowlisted From should not be flagged, got %d email.flagged", n)
+		t.Errorf("open policy should not flag, got %d email.flagged", n)
 	}
 	if flagged, _ := readFlagged(t, pool, agent.ID); flagged {
-		t.Error("allowlisted From persisted as flagged")
+		t.Error("open-policy message persisted as flagged")
 	}
-	// email.received must distinguish the gated identity from the reply target.
+	// email.received must distinguish From from the reply target.
 	re := eventData(got, "email.received")
 	if re == nil {
 		t.Fatal("no email.received data captured")
 	}
-	if re["authenticated_from"] != "friend@trusted.com" {
-		t.Errorf("authenticated_from = %v, want the gated From friend@trusted.com", re["authenticated_from"])
+	if re["header_from"] != "friend@trusted.com" {
+		t.Errorf("header_from = %v", re["header_from"])
 	}
-	if re["from"] != "attacker@evil.com" {
-		t.Errorf("from = %v, want the reply target attacker@evil.com (display sender)", re["from"])
+	if replyTo, ok := re["reply_to"].([]any); !ok || len(replyTo) != 1 || replyTo[0] != "attacker@evil.com" {
+		t.Errorf("reply_to = %v", re["reply_to"])
 	}
 }
 

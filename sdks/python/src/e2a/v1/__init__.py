@@ -50,7 +50,10 @@ from e2a.v1.pagination import AutoPager, Page  # noqa: F401
 # import above, so they deliberately shadow the same-named codegen pydantic
 # models in this namespace (those remain reachable as ``models.*Data``).
 from e2a.v1.webhook_signature import (  # noqa: F401
+    Authentication,
     AttachmentMetaView,
+    DKIMResult,
+    DMARCResult,
     DomainSendingFailedData,
     DomainSendingVerifiedData,
     DomainSuppressionAddedData,
@@ -60,6 +63,7 @@ from e2a.v1.webhook_signature import (  # noqa: F401
     EmailFailedData,
     EmailReceivedData,
     EmailSentData,
+    SPFResult,
     WebhookEvent,
     construct_event,
     is_domain_sending_failed,
@@ -105,6 +109,10 @@ __all__ = [
     "WebhookEvent",
     # Typed per-event payloads (stable events).
     "AttachmentMetaView",
+    "SPFResult",
+    "DKIMResult",
+    "DMARCResult",
+    "Authentication",
     "EmailReceivedData",
     "EmailSentData",
     "EmailFailedData",

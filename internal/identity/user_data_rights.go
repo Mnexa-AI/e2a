@@ -24,7 +24,7 @@ import (
 //   - User session tokens are transient and excluded.
 type UserExport struct {
 	GeneratedAt      time.Time                    `json:"generated_at"`
-	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"3\"; v3 suppression entries may include agent_email for exact-agent scope."`
+	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"4\"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields, and retain v3 suppression provenance through optional agent_email."`
 	User             UserExportUser               `json:"user"`
 	Domains          []Domain                     `json:"domains" nullable:"false"`
 	Agents           []AgentIdentity              `json:"agents" nullable:"false"`
@@ -180,7 +180,7 @@ func (s *Store) ExportUserData(ctx context.Context, userID string) (*UserExport,
 
 	return &UserExport{
 		GeneratedAt:      time.Now().UTC(),
-		SchemaVersion:    "3",
+		SchemaVersion:    "4",
 		User:             u,
 		Domains:          domains,
 		Agents:           agents,
@@ -443,7 +443,7 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 		`SELECT m.id, m.agent_id, m.direction, m.sender, m.recipient,
 		        m.subject, m.email_message_id, m.provider_message_id,
 		        COALESCE(m.method, ''), COALESCE(m.message_type, ''),
-		        m.raw_message, m.auth_headers, m.conversation_id,
+		        m.raw_message, m.auth_headers, COALESCE(m.header_from, ''), COALESCE(m.envelope_from, ''), m.authentication, m.auth_verdict, m.conversation_id,
 		        COALESCE(m.inbox_status, ''),
 		        m.created_at, m.expires_at,
 		        m.to_recipients, m.cc, m.bcc, m.reply_to,
@@ -463,11 +463,12 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 	for rows.Next() {
 		var m Message
 		var authHeadersJSON []byte
+		var authentication, authVerdict []byte
 		var attachmentsJSON []byte
 		if err := rows.Scan(
 			&m.ID, &m.AgentID, &m.Direction, &m.Sender, &m.Recipient,
 			&m.Subject, &m.EmailMessageID, &m.ProviderMessageID, &m.Method, &m.Type,
-			&m.RawMessage, &authHeadersJSON, &m.ConversationID, &m.DeliveryStatus,
+			&m.RawMessage, &authHeadersJSON, &m.HeaderFrom, &m.EnvelopeFrom, &authentication, &authVerdict, &m.ConversationID, &m.DeliveryStatus,
 			&m.CreatedAt, &m.ExpiresAt,
 			&m.ToRecipients, &m.CC, &m.BCC, &m.ReplyTo,
 			&m.Status, &m.ApprovalExpiresAt, &m.ReviewedAt, &m.RejectionReason,
@@ -477,6 +478,15 @@ func scanMessagesForUser(ctx context.Context, tx pgx.Tx, userID string) ([]Messa
 		}
 		if len(authHeadersJSON) > 0 {
 			_ = json.Unmarshal(authHeadersJSON, &m.AuthHeaders)
+		}
+		if err := unmarshalAuthVerdict(authVerdict, &m); err != nil {
+			return nil, err
+		}
+		if err := unmarshalAuthentication(authentication, authVerdict, &m); err != nil {
+			return nil, err
+		}
+		if m.Direction == "outbound" && m.HeaderFrom == "" {
+			m.HeaderFrom = m.Sender
 		}
 		// size_bytes: the RAW MIME length of the stored message (same value
 		// the message list/detail views carry, and the dominant term of

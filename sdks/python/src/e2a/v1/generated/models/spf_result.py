@@ -14,22 +14,23 @@
 
 from __future__ import annotations
 import pprint
-import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
 
-class CheckResult(BaseModel):
+class SPFResult(BaseModel):
     """
-    CheckResult
+    SPFResult
     """ # noqa: E501
-    detail: Optional[StrictStr] = None
-    status: StrictStr
+    aligned: Optional[StrictBool] = Field(description="Whether a passing SPF identity aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered.")
+    detail: Optional[StrictStr] = Field(default=None, description="Free-text diagnostic for humans and logs. Never parse or branch on this field.")
+    domain: Optional[StrictStr] = Field(description="RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available.")
+    status: StrictStr = Field(description="SPF evaluation result. Only pass can contribute to DMARC alignment.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["detail", "status"]
+    __properties: ClassVar[List[str]] = ["aligned", "detail", "domain", "status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -49,7 +50,7 @@ class CheckResult(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of CheckResult from a JSON string"""
+        """Create an instance of SPFResult from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -77,11 +78,21 @@ class CheckResult(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if aligned (nullable) is None
+        # and model_fields_set contains the field
+        if self.aligned is None and "aligned" in self.model_fields_set:
+            _dict['aligned'] = None
+
+        # set to None if domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.domain is None and "domain" in self.model_fields_set:
+            _dict['domain'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of CheckResult from a dict"""
+        """Create an instance of SPFResult from a dict"""
         if obj is None:
             return None
 
@@ -89,7 +100,9 @@ class CheckResult(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
+            "aligned": obj.get("aligned"),
             "detail": obj.get("detail"),
+            "domain": obj.get("domain"),
             "status": obj.get("status")
         })
         # store additional fields in additional_properties

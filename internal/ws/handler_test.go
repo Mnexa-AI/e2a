@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 	"nhooyr.io/websocket"
@@ -513,19 +514,19 @@ func TestHandler_DrainUnreadOnConnect(t *testing.T) {
 			{
 				ID:             "msg_1",
 				AgentID:        "agent_test",
-				Sender:         "alice@example.com",
+				HeaderFrom:     "alice@example.com",
 				Recipient:      "bot@agents.e2a.dev",
 				Subject:        "Hello",
 				ConversationID: "conv_1",
 				CreatedAt:      now,
 			},
 			{
-				ID:        "msg_2",
-				AgentID:   "agent_test",
-				Sender:    "bob@example.com",
-				Recipient: "bot@agents.e2a.dev",
-				Subject:   "Hi there",
-				CreatedAt: now,
+				ID:         "msg_2",
+				AgentID:    "agent_test",
+				HeaderFrom: "bob@example.com",
+				Recipient:  "bot@agents.e2a.dev",
+				Subject:    "Hi there",
+				CreatedAt:  now,
 			},
 		},
 	}
@@ -556,7 +557,7 @@ func TestHandler_DrainUnreadOnConnect(t *testing.T) {
 			Data          struct {
 				MessageID      string `json:"message_id"`
 				ConversationID string `json:"conversation_id,omitempty"`
-				From           string `json:"from"`
+				HeaderFrom     string `json:"header_from"`
 				Recipient      string `json:"delivered_to"`
 				Subject        string `json:"subject"`
 			} `json:"data"`
@@ -579,8 +580,8 @@ func TestHandler_DrainUnreadOnConnect(t *testing.T) {
 			if notif.ConversationID != "conv_1" {
 				t.Fatalf("expected conv_1, got %s", notif.ConversationID)
 			}
-			if notif.From != "alice@example.com" {
-				t.Fatalf("expected alice@example.com, got %s", notif.From)
+			if notif.HeaderFrom != "alice@example.com" {
+				t.Fatalf("expected alice@example.com, got %s", notif.HeaderFrom)
 			}
 			if notif.Subject != "Hello" {
 				t.Fatalf("expected Hello, got %s", notif.Subject)
@@ -682,7 +683,8 @@ func TestBuildNotification(t *testing.T) {
 	now := time.Date(2026, 3, 27, 10, 0, 0, 0, time.UTC)
 	msg := &identity.Message{
 		ID:             "msg_bn",
-		Sender:         "alice@example.com",
+		HeaderFrom:     "alice@example.com",
+		EnvelopeFrom:   "bounce@example.com",
 		Recipient:      "bot@agents.e2a.dev",
 		Subject:        "Test Subject",
 		ConversationID: "conv_abc",
@@ -722,8 +724,11 @@ func TestBuildNotification(t *testing.T) {
 	if notif["conversation_id"] != "conv_abc" {
 		t.Fatalf("expected conv_abc, got %v", notif["conversation_id"])
 	}
-	if notif["from"] != "alice@example.com" {
-		t.Fatalf("expected alice@example.com, got %v", notif["from"])
+	if notif["header_from"] != "alice@example.com" {
+		t.Fatalf("expected alice@example.com, got %v", notif["header_from"])
+	}
+	if notif["envelope_from"] != "bounce@example.com" {
+		t.Fatalf("expected bounce@example.com, got %v", notif["envelope_from"])
 	}
 	if notif["delivered_to"] != "bot@agents.e2a.dev" {
 		t.Fatalf("expected bot@agents.e2a.dev, got %v", notif["delivered_to"])
@@ -741,52 +746,45 @@ func TestBuildNotification(t *testing.T) {
 	if _, hasRaw := notif["raw_message"]; hasRaw {
 		t.Fatal("notification must not include raw_message; clients fetch via REST")
 	}
-	// Required fields stay present-but-empty (never absent) when the row
-	// genuinely recorded no auth attestation.
-	if v, ok := notif["authenticated_from"]; !ok || v != "" {
-		t.Fatalf("authenticated_from should be present-but-empty when the row has no auth headers, got %v (present=%v)", v, ok)
-	}
-	if _, ok := notif["auth_headers"]; !ok {
-		t.Fatal("auth_headers should be present (empty object) when the row has none")
+	if v, ok := notif["authentication"]; !ok || v != nil {
+		t.Fatalf("authentication should be present and null when no SMTP authentication exists, got %v (present=%v)", v, ok)
 	}
 }
 
-// TestBuildNotification_AuthFieldsFromRow pins the drain-path auth contract:
-// messages.auth_headers IS persisted at intake and selected by the drain's
-// list query, so the drain frame must carry the row's auth_headers and derive
-// authenticated_from from its X-E2A-Auth-Sender value — the same gated
-// identity a live delivery carries. Consumers are documented to GATE on
-// authenticated_from, and the drain frame shares its deterministic event id
-// with the webhook delivery, so a dedup-by-id consumer that saw an empty
-// authenticated_from here first would permanently mistrust a verified message.
+// TestBuildNotification_AuthenticationFromRow pins the reconnect-path contract:
+// the canonical SMTP authentication evidence persisted at intake is returned
+// unchanged, so live webhook and reconstructed WebSocket frames agree.
 func TestBuildNotification_AuthFieldsFromRow(t *testing.T) {
 	msg := &identity.Message{
 		ID:           "msg_auth",
-		Sender:       "reply@customer.example.com",
+		HeaderFrom:   "alice@customer.example.com",
+		EnvelopeFrom: "bounce@customer.example.com",
 		Recipient:    "bot@agents.e2a.dev",
 		Subject:      "Auth",
 		ToRecipients: []string{"bot@agents.e2a.dev"},
-		AuthHeaders: map[string]string{
-			"X-E2A-Auth-Sender":   "alice@customer.example.com",
-			"X-E2A-Auth-Verified": "true",
+		Authentication: &emailauth.Authentication{
+			SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: testPointer("customer.example.com"), Aligned: testPointer(true)},
+			DKIM:  []emailauth.DKIMResult{},
+			DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: testPointer("customer.example.com"), Policy: testPointer(emailauth.DMARCPolicyReject), AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
 		},
 		CreatedAt: time.Now(),
 	}
 
 	var env struct {
 		Data struct {
-			AuthenticatedFrom string            `json:"authenticated_from"`
-			AuthHeaders       map[string]string `json:"auth_headers"`
+			HeaderFrom     *string                   `json:"header_from"`
+			EnvelopeFrom   *string                   `json:"envelope_from"`
+			Authentication *emailauth.Authentication `json:"authentication"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(BuildNotification(msg), &env); err != nil {
 		t.Fatal(err)
 	}
-	if env.Data.AuthenticatedFrom != "alice@customer.example.com" {
-		t.Fatalf("authenticated_from = %q, want the row's X-E2A-Auth-Sender value", env.Data.AuthenticatedFrom)
+	if env.Data.HeaderFrom == nil || *env.Data.HeaderFrom != "alice@customer.example.com" {
+		t.Fatalf("header_from = %v", env.Data.HeaderFrom)
 	}
-	if env.Data.AuthHeaders["X-E2A-Auth-Verified"] != "true" {
-		t.Fatalf("auth_headers = %v, want the row's persisted attestation", env.Data.AuthHeaders)
+	if env.Data.Authentication == nil || env.Data.Authentication.DMARC.Status != emailauth.StatusPass {
+		t.Fatalf("authentication = %#v, want persisted DMARC pass evidence", env.Data.Authentication)
 	}
 }
 
@@ -813,8 +811,8 @@ func TestBuildNotification_OmitsEmptyConversationID(t *testing.T) {
 // TestBuildNotification_GoldenParity locks the WS drain frame to the same
 // golden fixture the webhook channel asserts against: given a message row
 // carrying everything the fixture's payload needs, the frame's data must be
-// byte-identical to the fixture's data — including authenticated_from, which
-// is derived from the row's persisted auth_headers (X-E2A-Auth-Sender). The
+// byte-identical to the fixture's data — including canonical authentication
+// evidence persisted on the message row. The
 // only genuine drain divergences (attachments omitted without raw_message,
 // row-time timestamps) don't apply here because the test row carries the
 // fixture's raw message and created_at.
@@ -840,16 +838,18 @@ func TestBuildNotification_GoldenParity(t *testing.T) {
 
 	msg := &identity.Message{
 		ID:             "msg_01h2xcejqtf2nbrexx3vqjhp41",
-		Sender:         "reply@customer.example.com",
+		HeaderFrom:     "alice@customer.example.com",
+		EnvelopeFrom:   "bounce@customer.example.com",
 		Recipient:      "support@agents.example.com",
 		Subject:        "Order #1234 delayed",
 		ConversationID: "conv_9f8e7d6c",
 		ToRecipients:   []string{"support@agents.example.com"},
 		CC:             []string{"ops@customer.example.com"},
 		ReplyTo:        []string{"reply@customer.example.com"},
-		AuthHeaders: map[string]string{
-			"X-E2A-Auth-Sender":   "alice@customer.example.com",
-			"X-E2A-Auth-Verified": "true",
+		Authentication: &emailauth.Authentication{
+			SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: testPointer("customer.example.com"), Aligned: testPointer(true)},
+			DKIM:  []emailauth.DKIMResult{},
+			DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: testPointer("customer.example.com"), Policy: testPointer(emailauth.DMARCPolicyReject), AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
 		},
 		RawMessage: rawMsg,
 		CreatedAt:  time.Date(2026, 7, 1, 10, 30, 0, 123456789, time.UTC),
@@ -879,16 +879,17 @@ func TestBuildNotification_GoldenParity(t *testing.T) {
 	}
 }
 
+func testPointer[T any](value T) *T { return &value }
+
 // TestBuildNotification_GoldenParityMinimal locks the drain frame for a
 // DRAIN-REALISTIC minimal row — no conversation, no cc/reply_to, no persisted
 // auth attestation, and (as on the real drain query) no raw_message — to the
 // committed required-fields-only fixture. This pins the omitempty presence
 // semantics on the drain path: optional fields ABSENT, required fields
-// present-but-empty (authenticated_from: "", auth_headers: {}).
+// present and null (header_from, envelope_from, authentication).
 func TestBuildNotification_GoldenParityMinimal(t *testing.T) {
 	msg := &identity.Message{
 		ID:           "msg_01h2xcejqtf2nbrexx3vqjhp41",
-		Sender:       "reply@customer.example.com",
 		Recipient:    "support@agents.example.com",
 		Subject:      "Order #1234 delayed",
 		ToRecipients: []string{"support@agents.example.com"},

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -13,7 +14,7 @@ import (
 
 // TestBuildEmailReceivedPayload_Shape verifies the email.received event is a
 // metadata-only notification: it carries the routing/identity fields, the signed
-// auth_headers attestation, attachment METADATA, and the message_id + recipient
+// authentication evidence, attachment METADATA, and the message_id + recipient
 // fetch keys — but NOT the message body (raw_message), which a subscriber
 // fetches from GET /v1/agents/{recipient}/messages/{message_id}.
 func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
@@ -26,17 +27,21 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 		ID:     "bot@example.com",
 		Domain: "example.com",
 	}
-	authHeaders := map[string]string{"X-E2A-Auth-Verified": "true"}
+	authentication := &emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusPass},
+		DKIM:  []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
+	}
 
 	payload := buildEmailReceivedPayload(
 		"msg_123",
 		"conv_abc",
-		"reply@example.com", // displaySender (Reply-To preferred)
-		"alice@example.com", // authenticatedFrom (From-header identity)
+		"alice@example.com",
+		"bounce@example.com",
 		"bot@example.com",
 		"Hello",
 		threadInfo,
-		authHeaders,
+		authentication,
 		agent,
 		time.Now().UTC(),
 		nil,
@@ -49,13 +54,14 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 	if payload.MessageID != "msg_123" {
 		t.Errorf("message_id = %v", payload.MessageID)
 	}
-	// from is the display sender (Reply-To); authenticated_from is the From
-	// identity the policy + auth verdict pertain to — they can differ.
-	if payload.From != "reply@example.com" {
-		t.Errorf("from = %v, want reply@example.com (display sender)", payload.From)
+	if payload.HeaderFrom == nil || *payload.HeaderFrom != "alice@example.com" {
+		t.Errorf("header_from = %v, want alice@example.com", payload.HeaderFrom)
 	}
-	if payload.AuthenticatedFrom != "alice@example.com" {
-		t.Errorf("authenticated_from = %v, want alice@example.com (From identity)", payload.AuthenticatedFrom)
+	if payload.EnvelopeFrom == nil || *payload.EnvelopeFrom != "bounce@example.com" {
+		t.Errorf("envelope_from = %v, want bounce@example.com", payload.EnvelopeFrom)
+	}
+	if payload.Authentication == nil || payload.Authentication.DMARC.Status != emailauth.StatusPass {
+		t.Errorf("authentication = %+v", payload.Authentication)
 	}
 	// agent_email is the single flat agent reference (an agent's id IS its email).
 	if payload.AgentEmail != "bot@example.com" {
@@ -78,9 +84,13 @@ func TestBuildEmailReceivedPayload_Golden(t *testing.T) {
 		ReplyTo: []string{"reply@customer.example.com"},
 	}
 	agent := &identity.AgentIdentity{ID: "support@agents.example.com", Domain: "agents.example.com"}
-	authHeaders := map[string]string{
-		"X-E2A-Auth-Sender":   "alice@customer.example.com",
-		"X-E2A-Auth-Verified": "true",
+	spfDomain := "customer.example.com"
+	aligned := true
+	policy := emailauth.DMARCPolicyReject
+	authentication := &emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &spfDomain, Aligned: &aligned},
+		DKIM:  []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &spfDomain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
 	}
 
 	// A raw MIME message with one 12345-byte application/pdf attachment —
@@ -108,12 +118,12 @@ func TestBuildEmailReceivedPayload_Golden(t *testing.T) {
 	payload := buildEmailReceivedPayload(
 		"msg_01h2xcejqtf2nbrexx3vqjhp41",
 		"conv_9f8e7d6c",
-		"reply@customer.example.com",
 		"alice@customer.example.com",
+		"bounce@customer.example.com",
 		"support@agents.example.com",
 		"Order #1234 delayed",
 		ti,
-		authHeaders,
+		authentication,
 		agent,
 		receivedAt,
 		eventpayload.AttachmentMetadata(raw),
@@ -132,12 +142,12 @@ func TestBuildEmailReceivedPayload_GoldenMinimal(t *testing.T) {
 	payload := buildEmailReceivedPayload(
 		"msg_01h2xcejqtf2nbrexx3vqjhp41",
 		"", // thread-starting message: no conversation_id
-		"reply@customer.example.com",
-		"", // unauthenticated: present-but-empty, never absent
+		"", // missing From is explicit null
+		"", // null reverse path is explicit null
 		"support@agents.example.com",
 		"Order #1234 delayed",
 		threadInfo{To: []string{"support@agents.example.com"}},
-		nil, // no auth attestation → auth_headers must serialize as {}
+		nil, // providerless/unevaluated authentication is explicit null
 		&identity.AgentIdentity{ID: "support@agents.example.com", Domain: "agents.example.com"},
 		receivedAt,
 		nil, // no attachments → field must be ABSENT

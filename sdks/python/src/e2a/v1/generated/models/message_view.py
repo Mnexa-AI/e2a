@@ -14,14 +14,13 @@
 
 from __future__ import annotations
 import pprint
-import re  # noqa: F401
 import json
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
-from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictBytes, StrictInt, StrictStr
+from typing import Any, ClassVar, Dict, List, Optional, Union
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
-from e2a.v1.generated.models.auth_verdict import AuthVerdict
+from e2a.v1.generated.models.authentication import Authentication
 from e2a.v1.generated.models.hold_reason_view import HoldReasonView
 from e2a.v1.generated.models.message_body_view import MessageBodyView
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
@@ -34,8 +33,7 @@ class MessageView(BaseModel):
     MessageView
     """ # noqa: E501
     attachments: List[AttachmentMetaView]
-    auth: Optional[AuthVerdict] = None
-    auth_headers: Optional[Dict[str, StrictStr]] = None
+    authentication: Optional[Authentication] = Field(description="Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.")
     body: Optional[MessageBodyView] = None
     cc: List[StrictStr]
     conversation_id: StrictStr
@@ -45,15 +43,16 @@ class MessageView(BaseModel):
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)")
     direction: StrictStr
+    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.")
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    from_: StrictStr = Field(alias="from")
+    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.")
     hold_reason: Optional[HoldReasonView] = None
     id: StrictStr
     labels: List[StrictStr]
     parsed: Optional[MessageParsedView] = None
     protection: Optional[List[ProtectionFindingView]] = Field(default=None, description="Screening breakdown behind the hold — detector categories + rationale (review surface only, beta).")
-    raw_message: Optional[StrictStr] = Field(description="Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.")
+    raw_message: Optional[Union[StrictBytes, StrictStr]] = Field(description="Base64-encoded canonical RAW MIME. Required but null while an outbound message is pending review because reviewer-editable content lives in body until approval composes the final MIME; non-null for inbound and composed outbound messages.")
     read_status: StrictStr
     reply_to: List[StrictStr] = Field(description="The parsed Reply-To header of an inbound message. Populated for inbound only; always empty for outbound (a Reply-To you SET on a send is a request-side field on the send/reply/forward body and is not echoed back here).")
     review_status: Optional[StrictStr] = Field(default=None, description="Review-hold lifecycle (outbound only). Open set; tolerate unknown values. Known values: pending_review, sent, review_rejected, review_expired_approved, review_expired_rejected. Note: an APPROVED outbound hold reads as sent here — the message view intentionally collapses the approved outcome into the delivery lifecycle. The distinct review_approved spelling appears only in the approve result (SendResultView.status, for inbound release) and the email.review_approved webhook event, not in this field.")
@@ -61,10 +60,11 @@ class MessageView(BaseModel):
     size_bytes: Optional[StrictInt] = Field(default=None, description="RAW MIME byte length of the whole stored message (headers + bodies + encoded attachments as transported). Distinct from attachments[].size_bytes, which is one attachment's DECODED payload size. This value is the dominant term of the account's storage-quota accounting (usage.storage_bytes).")
     subject: StrictStr
     to: List[StrictStr]
+    verified_domain: Optional[StrictStr] = Field(description="RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content.")
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["attachments", "auth", "auth_headers", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "flag_reason", "flagged", "from", "hold_reason", "id", "labels", "parsed", "protection", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "webhook_error", "webhook_status"]
+    __properties: ClassVar[List[str]] = ["attachments", "authentication", "body", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "envelope_from", "flag_reason", "flagged", "header_from", "hold_reason", "id", "labels", "parsed", "protection", "raw_message", "read_status", "reply_to", "review_status", "sent_as", "size_bytes", "subject", "to", "verified_domain", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -114,9 +114,9 @@ class MessageView(BaseModel):
                 if _item_attachments:
                     _items.append(_item_attachments.to_dict())
             _dict['attachments'] = _items
-        # override the default output from pydantic by calling `to_dict()` of auth
-        if self.auth:
-            _dict['auth'] = self.auth.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of authentication
+        if self.authentication:
+            _dict['authentication'] = self.authentication.to_dict()
         # override the default output from pydantic by calling `to_dict()` of body
         if self.body:
             _dict['body'] = self.body.to_dict()
@@ -138,6 +138,21 @@ class MessageView(BaseModel):
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if authentication (nullable) is None
+        # and model_fields_set contains the field
+        if self.authentication is None and "authentication" in self.model_fields_set:
+            _dict['authentication'] = None
+
+        # set to None if envelope_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.envelope_from is None and "envelope_from" in self.model_fields_set:
+            _dict['envelope_from'] = None
+
+        # set to None if header_from (nullable) is None
+        # and model_fields_set contains the field
+        if self.header_from is None and "header_from" in self.model_fields_set:
+            _dict['header_from'] = None
+
         # set to None if protection (nullable) is None
         # and model_fields_set contains the field
         if self.protection is None and "protection" in self.model_fields_set:
@@ -147,6 +162,11 @@ class MessageView(BaseModel):
         # and model_fields_set contains the field
         if self.raw_message is None and "raw_message" in self.model_fields_set:
             _dict['raw_message'] = None
+
+        # set to None if verified_domain (nullable) is None
+        # and model_fields_set contains the field
+        if self.verified_domain is None and "verified_domain" in self.model_fields_set:
+            _dict['verified_domain'] = None
 
         return _dict
 
@@ -161,8 +181,7 @@ class MessageView(BaseModel):
 
         _obj = cls.model_validate({
             "attachments": [AttachmentMetaView.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
-            "auth": AuthVerdict.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
-            "auth_headers": obj.get("auth_headers"),
+            "authentication": Authentication.from_dict(obj["authentication"]) if obj.get("authentication") is not None else None,
             "body": MessageBodyView.from_dict(obj["body"]) if obj.get("body") is not None else None,
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),
@@ -172,9 +191,10 @@ class MessageView(BaseModel):
             "delivery_detail": obj.get("delivery_detail"),
             "delivery_status": obj.get("delivery_status"),
             "direction": obj.get("direction"),
+            "envelope_from": obj.get("envelope_from"),
             "flag_reason": obj.get("flag_reason"),
             "flagged": obj.get("flagged"),
-            "from": obj.get("from"),
+            "header_from": obj.get("header_from"),
             "hold_reason": HoldReasonView.from_dict(obj["hold_reason"]) if obj.get("hold_reason") is not None else None,
             "id": obj.get("id"),
             "labels": obj.get("labels"),
@@ -188,6 +208,7 @@ class MessageView(BaseModel):
             "size_bytes": obj.get("size_bytes"),
             "subject": obj.get("subject"),
             "to": obj.get("to"),
+            "verified_domain": obj.get("verified_domain"),
             "webhook_error": obj.get("webhook_error"),
             "webhook_status": obj.get("webhook_status")
         })

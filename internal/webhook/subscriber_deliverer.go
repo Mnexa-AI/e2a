@@ -16,9 +16,7 @@ import (
 // SubscriberDeliverer performs the HTTP POST for a
 // webhook_subscriber_deliveries row, signs the request with the
 // per-webhook HMAC secret, and reports success / failure to the
-// caller. Distinct from the legacy Deliverer (which signs nothing
-// at the request level — it forwards X-E2A-Auth-* headers from the
-// payload instead).
+// caller. Distinct from the retired legacy per-agent delivery path.
 //
 // Slice 1 carries only the current secret. Slice 4 will extend this
 // to dual-sign during the 24h rotation grace window.

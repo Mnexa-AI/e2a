@@ -10,11 +10,28 @@
  * Do not edit the class manually.
  */
 
-import { HttpFile } from '../http/http.js';
 
-export class CheckResult {
+export class DMARCResult {
+    /**
+    * Mechanisms that both passed and aligned. Empty unless status is pass; each mechanism appears at most once.
+    */
+    'alignedBy': Array<DMARCResultAlignedByEnum>;
+    /**
+    * Free-text diagnostic for humans and logs. Never parse or branch on this field.
+    */
     'detail'?: string;
-    'status': string;
+    /**
+    * RFC 5322 Author Domain evaluated by DMARC; null when no single valid Author Domain exists.
+    */
+    'domain': string | null;
+    /**
+    * Effective policy requested by the applicable DMARC record. This is sender-published metadata, not an action e2a took and not authentication strength.
+    */
+    'policy': DMARCResultPolicyEnum | null;
+    /**
+    * DMARC verdict. Only pass authenticates domain-authorized use of the RFC 5322 Author Domain.
+    */
+    'status': DMARCResultStatusEnum;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -22,22 +39,58 @@ export class CheckResult {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
+            "name": "alignedBy",
+            "baseName": "aligned_by",
+            "type": "Array<DMARCResultAlignedByEnum>",
+            "format": ""
+        },
+        {
             "name": "detail",
             "baseName": "detail",
             "type": "string",
             "format": ""
         },
         {
+            "name": "domain",
+            "baseName": "domain",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "policy",
+            "baseName": "policy",
+            "type": "DMARCResultPolicyEnum",
+            "format": ""
+        },
+        {
             "name": "status",
             "baseName": "status",
-            "type": "string",
+            "type": "DMARCResultStatusEnum",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return CheckResult.attributeTypeMap;
+        return DMARCResult.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
+
+export enum DMARCResultAlignedByEnum {
+    Spf = 'spf',
+    Dkim = 'dkim'
+}
+export enum DMARCResultPolicyEnum {
+    None = 'none',
+    Quarantine = 'quarantine',
+    Reject = 'reject'
+}
+export enum DMARCResultStatusEnum {
+    Pass = 'pass',
+    Fail = 'fail',
+    None = 'none',
+    Temperror = 'temperror',
+    Permerror = 'permerror'
+}
+
