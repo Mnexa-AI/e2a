@@ -23,8 +23,8 @@ import (
 // read_status / hitl_status / delivery_status / webhook_status.
 type MessageView struct {
 	ID             string                    `json:"id"`
-	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
-	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address when known."`
+	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To."`
+	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery."`
 	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null for non-pass verdicts and deliveries without inbound SMTP evaluation. This authenticates the domain, not the address local part, individual sender, or message content."`
 	Authentication *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	To             []string                  `json:"to" nullable:"false"`
@@ -252,8 +252,8 @@ type MessageSummaryView struct {
 	// Deliberately a CLOSED enum despite being response-side: direction is a
 	// binary invariant of the model, not an evolving vocabulary.
 	Direction      string   `json:"direction" enum:"inbound,outbound"`
-	HeaderFrom     *string  `json:"header_from" nullable:"true"`
-	EnvelopeFrom   *string  `json:"envelope_from" nullable:"true"`
+	HeaderFrom     *string  `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To."`
+	EnvelopeFrom   *string  `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery."`
 	VerifiedDomain *string  `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content."`
 	To             []string `json:"to" nullable:"false"`
 	CC             []string `json:"cc,omitempty" nullable:"false"`

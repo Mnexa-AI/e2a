@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeDocumentRewritesAuthenticationReferences(t *testing.T) {
 	schemas := map[string]any{}
@@ -32,6 +35,47 @@ func TestNormalizeDocumentRewritesAuthenticationReferences(t *testing.T) {
 		if got := allOf[0].(map[string]any)["$ref"]; got != "#/components/schemas/Authentication" {
 			t.Errorf("%s.authentication ref = %v", name, got)
 		}
+	}
+}
+
+func TestNormalizeDocumentRejectsUnexpectedAuthenticationShape(t *testing.T) {
+	tests := []struct {
+		name           string
+		alternatives   []any
+		wantErrorMatch string
+	}{
+		{
+			name: "wrong branch count",
+			alternatives: []any{
+				map[string]any{"$ref": "#/components/schemas/Authentication"},
+			},
+			wantErrorMatch: "expected two-branch anyOf",
+		},
+		{
+			name: "wrong reference",
+			alternatives: []any{
+				map[string]any{"$ref": "#/components/schemas/Other"},
+				map[string]any{"type": "null"},
+			},
+			wantErrorMatch: "unexpected reference",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			schemas := map[string]any{}
+			for _, name := range []string{"MessageView", "Message", "EmailReceivedData"} {
+				schemas[name] = map[string]any{"properties": map[string]any{
+					"authentication": map[string]any{"anyOf": tc.alternatives},
+				}}
+			}
+			document := map[string]any{"components": map[string]any{"schemas": schemas}}
+
+			err := normalizeDocument(document)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrorMatch) {
+				t.Fatalf("normalizeDocument() error = %v, want containing %q", err, tc.wantErrorMatch)
+			}
+		})
 	}
 }
 

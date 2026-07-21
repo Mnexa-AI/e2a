@@ -716,7 +716,7 @@ components:
       additionalProperties: true
       properties:
         aligned:
-          description: Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.
+          description: Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered.
           type:
             - boolean
             - "null"
@@ -1310,7 +1310,7 @@ components:
           description: Always "inbound" on this event.
           type: string
         envelope_from:
-          description: SMTP MAIL FROM address; null for a null reverse path or providerless delivery.
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery.
           type:
             - string
             - "null"
@@ -2049,6 +2049,7 @@ components:
         email_message_id:
           type: string
         envelope_from:
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery.
           type:
             - string
             - "null"
@@ -2060,6 +2061,7 @@ components:
         flagged:
           type: boolean
         header_from:
+          description: Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To.
           type:
             - string
             - "null"
@@ -2201,6 +2203,7 @@ components:
             - outbound
           type: string
         envelope_from:
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
           type:
             - string
             - "null"
@@ -2211,6 +2214,7 @@ components:
           type: boolean
           x-stability-level: beta
         header_from:
+          description: Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
           type:
             - string
             - "null"
@@ -2310,7 +2314,7 @@ components:
             - outbound
           type: string
         envelope_from:
-          description: SMTP MAIL FROM address when known.
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
           type:
             - string
             - "null"
@@ -2321,7 +2325,7 @@ components:
           type: boolean
           x-stability-level: beta
         header_from:
-          description: Parsed RFC 5322 From address; never replaced by Reply-To.
+          description: Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
           type:
             - string
             - "null"
@@ -3080,7 +3084,7 @@ components:
             - outbound
           type: string
         envelope_from:
-          description: SMTP MAIL FROM address when known; null for outbound, null reverse path, and providerless loopback delivery.
+          description: SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
           type:
             - string
             - "null"
@@ -3091,7 +3095,7 @@ components:
           type: boolean
           x-stability-level: beta
         header_from:
-          description: Parsed RFC 5322 From address; never replaced by Reply-To.
+          description: Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
           type:
             - string
             - "null"
@@ -3145,7 +3149,7 @@ components:
       additionalProperties: true
       properties:
         aligned:
-          description: Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available.
+          description: Whether a passing SPF identity aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered.
           type:
             - boolean
             - "null"
@@ -3725,7 +3729,7 @@ components:
             $ref: "#/components/schemas/ProtectionEventExportEntry"
           type: array
         schema_version:
-          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "4"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields.
+          description: Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits "4"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields, and retain v3 suppression provenance through optional agent_email.
           type: string
         suppressions:
           items:

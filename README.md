@@ -356,7 +356,7 @@ e2a doesn't replace webhooks or MCP — your agent *receives* email through them
 
 The relay discards any sender-supplied authentication claims and evaluates SPF, DKIM, and DMARC itself. For webhooks, verify `X-E2A-Signature` with the subscription's `whsec_` secret before trusting the structured result; a forged POST then fails verification regardless of its claimed DMARC status.
 
-Receivers verify with the SDK — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + HMAC verify in one call (or `verify_webhook_signature(...)` / `verifyWebhookSignature(...)` if you only need the boolean check). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard; the previous secret keeps verifying through a 24h grace window, then stops. If it's *stolen from the relay*, the attacker has bigger access than headers anyway.
+Receivers verify with the SDK — `construct_event(body, header, secret)` / `constructEvent(body, header, secret)` does parse + HMAC verify in one call (or `verify_webhook_signature(...)` / `verifyWebhookSignature(...)` if you only need the boolean check). No API call back to e2a needed. If a signing secret leaks, rotate it via the dashboard; the previous secret keeps verifying through a 24h grace window, then stops. If it is stolen from the relay itself, treat the relay as compromised rather than trusting any webhook headers it emits.
 
 ### Isn't this just SMTP with extra steps?
 

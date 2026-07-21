@@ -70,7 +70,7 @@ type EmailReceivedData struct {
 	// ConversationID is empty for a thread-starting message.
 	ConversationID string                    `json:"conversation_id,omitempty"`
 	HeaderFrom     *string                   `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
-	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address; null for a null reverse path or providerless delivery."`
+	EnvelopeFrom   *string                   `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery."`
 	VerifiedDomain *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated."`
 	To             []string                  `json:"to" nullable:"false"`
 	CC             []string                  `json:"cc" nullable:"false"`

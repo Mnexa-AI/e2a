@@ -17,9 +17,9 @@ DEST="$ROOT/sdks/python/src/e2a/v1/generated"
 CODEGEN_SPEC="$ROOT/sdks/python/.oag-openapi.yaml"
 IMG="openapitools/openapi-generator-cli:v7.16.0"
 
+trap 'rm -rf "$TMP"; rm -f "$CODEGEN_SPEC"' EXIT
 rm -rf "$TMP"
 go run "$ROOT/cmd/e2a-openapi-codegen-normalize" "$ROOT/api/openapi.yaml" "$CODEGEN_SPEC"
-trap 'rm -rf "$TMP"; rm -f "$CODEGEN_SPEC"' EXIT
 # Run as the invoking host user (not the container's default root) so the
 # generated files + the .oag-tmp scratch dir are host-user-owned and removable
 # on CI's non-root runner. HOME is a writable path for tools that expect it.

@@ -10,8 +10,8 @@ OUT="$ROOT/sdks/typescript/src/v1/generated"
 CODEGEN_SPEC="$ROOT/sdks/typescript/.oag-openapi.yaml"
 IMG="openapitools/openapi-generator-cli:v7.16.0"
 
-go run "$ROOT/cmd/e2a-openapi-codegen-normalize" "$ROOT/api/openapi.yaml" "$CODEGEN_SPEC"
 trap 'rm -f "$CODEGEN_SPEC"' EXIT
+go run "$ROOT/cmd/e2a-openapi-codegen-normalize" "$ROOT/api/openapi.yaml" "$CODEGEN_SPEC"
 
 # Clean prior output but keep .openapi-generator-ignore (suppresses scaffolding).
 find "$OUT" -name '*.ts' -delete 2>/dev/null || true

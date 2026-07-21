@@ -43,10 +43,10 @@ class MessageView(BaseModel):
     delivery_detail: Optional[StrictStr] = None
     delivery_status: Optional[StrictStr] = Field(default=None, description="Outbound delivery rollup (worst recipient status by precedence; outbound only). Open set; tolerate unknown values. Known values: accepted, sending, sent, delivered, deferred, bounced, complained, failed. Lifecycle: accepted → sending → sent → delivered | deferred | bounced | complained | failed. (Legacy 'queued' is superseded by 'accepted'.)")
     direction: StrictStr
-    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address when known.")
+    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.")
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address; never replaced by Reply-To.")
+    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.")
     hold_reason: Optional[HoldReasonView] = None
     id: StrictStr
     labels: List[StrictStr]

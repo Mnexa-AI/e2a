@@ -321,8 +321,8 @@ type Message struct {
 	Sender    string `json:"-"`
 	// HeaderFrom and EnvelopeFrom are the canonical inbound identities. They
 	// remain separate from ReplyTo and from the legacy Sender projection.
-	HeaderFrom        string                    `json:"header_from"`
-	EnvelopeFrom      string                    `json:"envelope_from"`
+	HeaderFrom        string                    `json:"header_from" doc:"Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To."`
+	EnvelopeFrom      string                    `json:"envelope_from" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery."`
 	VerifiedDomain    *string                   `json:"verified_domain" nullable:"true" doc:"DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated."`
 	Authentication    *emailauth.Authentication `json:"authentication" doc:"Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery."`
 	Recipient         string                    `json:"delivered_to"`
@@ -2193,9 +2193,10 @@ func legacySPFStatus(status emailauth.Status) emailauth.Status {
 // was never persisted; callers must tolerate that and fall back to
 // legacy single-id threading.
 //
-// This reply-threading lookup intentionally selects only the fields needed to
-// rebuild References; authentication evidence is loaded by the message/review
-// detail paths instead.
+// This reply-threading lookup selects the stored header context needed to
+// rebuild References, including the raw message and legacy auth-header map. It
+// omits structured authentication evidence, which message/review detail paths
+// load separately.
 func (s *Store) GetInboundByEmailMessageID(ctx context.Context, agentID, emailMessageID string) (*Message, error) {
 	if emailMessageID == "" {
 		return nil, fmt.Errorf("empty email_message_id")

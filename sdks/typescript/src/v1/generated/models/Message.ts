@@ -33,10 +33,16 @@ export class Message {
     'direction': string;
     'edited'?: boolean;
     'emailMessageId'?: string;
+    /**
+    * SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery.
+    */
     'envelopeFrom': string | null;
     'expiresAt': Date;
     'flagReason'?: string;
     'flagged'?: boolean;
+    /**
+    * Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To.
+    */
     'headerFrom': string | null;
     'html'?: string;
     'id': string;

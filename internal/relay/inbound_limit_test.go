@@ -66,8 +66,7 @@ func TestRelay_RcptTo_Rejects552WhenOverCap(t *testing.T) {
 		t.Fatalf("Upsert limits: %v", err)
 	}
 
-	// Stand up a real relay.Server on an ephemeral port. Need an HMAC
-	// signing secret long enough for non-production wiring (32+ bytes).
+	// Stand up a real relay.Server on an ephemeral port.
 	cfg := &config.Config{
 		SMTP: config.SMTPConfig{
 			ListenAddr: "127.0.0.1:0", // ephemeral

@@ -33,7 +33,7 @@ const (
 type SPFResult struct {
 	Status  Status  `json:"status" enum:"pass,fail,none,neutral,softfail,temperror,permerror" doc:"SPF evaluation result. Only pass can contribute to DMARC alignment."`
 	Domain  *string `json:"domain" nullable:"true" doc:"RFC 5321 identity domain evaluated by SPF; null when no SPF identity was available."`
-	Aligned *bool   `json:"aligned" nullable:"true" doc:"Whether a passing SPF identity aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available."`
+	Aligned *bool   `json:"aligned" nullable:"true" doc:"Whether a passing SPF identity aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered."`
 	Detail  string  `json:"detail,omitempty" doc:"Free-text diagnostic for humans and logs. Never parse or branch on this field."`
 }
 
@@ -41,7 +41,7 @@ type DKIMResult struct {
 	Status   Status  `json:"status" enum:"pass,fail,none,neutral,policy,temperror,permerror" doc:"Result for this DKIM signature. policy means e2a deliberately refused the signature, such as one using the unsafe l= body-length tag."`
 	Domain   *string `json:"domain" nullable:"true" doc:"DKIM signing domain from the signature d= tag; null when it could not be parsed."`
 	Selector *string `json:"selector" nullable:"true" doc:"DKIM selector from the signature s= tag; null when it could not be parsed."`
-	Aligned  *bool   `json:"aligned" nullable:"true" doc:"Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain; null unless status is pass and an Author Domain was available."`
+	Aligned  *bool   `json:"aligned" nullable:"true" doc:"Whether a passing DKIM signing domain aligns with the RFC 5322 Author Domain under the discovered DMARC policy; null unless status is pass and an applicable DMARC record was discovered."`
 	Detail   string  `json:"detail,omitempty" doc:"Free-text diagnostic for humans and logs. Never parse or branch on this field."`
 }
 

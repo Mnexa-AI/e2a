@@ -30,9 +30,15 @@ export class MessageSummaryView {
     */
     'deliveryStatus'?: string;
     'direction': MessageSummaryViewDirectionEnum;
+    /**
+    * SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.
+    */
     'envelopeFrom': string | null;
     'flagReason'?: string;
     'flagged'?: boolean;
+    /**
+    * Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.
+    */
     'headerFrom': string | null;
     'id': string;
     'labels': Array<string>;

@@ -15,16 +15,18 @@ independent of the API version path (`/v1`): SDK 5.x targets the e2a v1 API.
 
 ## Upgrading to 5.2
 
-The reserved-word wire field `from` is now uniformly exposed as `from_`
-(PEP 8 trailing underscore) on generated models (was the generator-mangled
-`var_from`). Affected models: `Message`, `MessageView`, `MessageSummaryView`,
-`ReviewView`, `EmailReceivedData`, `EmailSentData`, `EmailFailedData`, plus
-the `list_messages` sender filter parameter. The hand-written layer's
-`messages.list(from_=...)` already used `from_`, so the SDK now teaches
-exactly one spelling. The wire JSON is unchanged — requests and responses
-still carry `from` (pydantic alias). The webhook/WS `data` payload
-TypedDicts are wire-true dicts and keep the literal `"from"` key (access as
-`data["from"]`). Migrate: `message.var_from` → `message.from_`.
+Inbound sender and authentication fields now use the final DMARC-aligned
+contract. Message, summary, review, webhook, and WebSocket payloads expose the
+literal RFC 5322 `header_from`, SMTP `envelope_from`, nullable
+`verified_domain`, and structured `authentication` evidence. The former
+inbound `from`/`from_` projection is removed; Reply-To remains separate. A
+non-null `verified_domain` means DMARC passed for that From domain, not that the
+mailbox local part, person, or message content was authenticated.
+
+`authentication` is `None` for outbound messages and providerless loopback
+delivery. Guard it before reading `authentication.dmarc`. The sender filter is
+still passed as `messages.list(from_=...)`; that request parameter is not an
+inbound identity projection.
 
 ## Upgrading to 5.1
 
@@ -354,8 +356,8 @@ across the email boundary. Pass it on any `send` / `reply` (as a body field) and
 e2a surfaces it on the recipient's inbound — via `In-Reply-To` for humans, or a
 forge-resistant `X-E2A-Conversation-Id` header for same-platform agent-to-agent
 mail. It is not a security boundary; for sender-domain authentication require
-`message.authentication.dmarc.status == "pass"` and compare the literal
-`message.header_from` address separately. On first contact from a human the
+`message.authentication is not None and message.authentication.dmarc.status == "pass"`
+and compare the literal `message.header_from` address separately. On first contact from a human the
 conversation ID arrives `None` — assign one yourself if you want to thread.
 
 ```python

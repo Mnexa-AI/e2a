@@ -31,8 +31,8 @@ type ReviewView struct {
 	// being response-side: direction is a binary invariant of the model, not
 	// an evolving vocabulary.
 	Direction      string          `json:"direction" enum:"inbound,outbound"`
-	HeaderFrom     *string         `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address; never replaced by Reply-To."`
-	EnvelopeFrom   *string         `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address when known; null for outbound, null reverse path, and providerless loopback delivery."`
+	HeaderFrom     *string         `json:"header_from" nullable:"true" doc:"Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To."`
+	EnvelopeFrom   *string         `json:"envelope_from" nullable:"true" doc:"SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery."`
 	VerifiedDomain *string         `json:"verified_domain" nullable:"true" doc:"RFC 5322 Author Domain validated by an aligned DMARC pass. Null otherwise. This authenticates the domain, not the address local part, individual sender, or message content."`
 	To             []string        `json:"to" nullable:"false"`
 	Subject        string          `json:"subject"`

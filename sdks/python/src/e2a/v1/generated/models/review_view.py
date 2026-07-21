@@ -32,10 +32,10 @@ class ReviewView(BaseModel):
     conversation_id: Optional[StrictStr] = None
     created_at: datetime
     direction: StrictStr
-    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address when known; null for outbound, null reverse path, and providerless loopback delivery.")
+    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null for outbound messages, a null reverse path, or providerless delivery.")
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address; never replaced by Reply-To.")
+    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address for inbound mail or the sender identity for outbound mail; null when unavailable and never replaced by Reply-To.")
     hold_reason: Optional[HoldReasonView] = Field(default=None, description="Plain-language reason this message was held. Clients should render summary directly and treat code as an open machine-readable value.")
     id: StrictStr = Field(description="The review's id. This is the SAME value as the held message's id (msg_…) — a review IS the held message pending approval, so GET /v1/reviews/{id} and the message id are interchangeable. Intentional and stable.")
     review_status: StrictStr = Field(description="Hold state of this queue item. Open set; tolerate unknown values. Currently always pending_review (the queue lists held items).")

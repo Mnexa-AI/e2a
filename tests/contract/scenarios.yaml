@@ -6,9 +6,9 @@
 # and /v1/reject (raw HTML, served via the chi root's fallback to the mux).
 #
 # Each scenario is a sequence of steps executed against a live test server.
-# The Go runner (contract_test.go) consumes this file directly. TypeScript
-# and Python SDK runners will consume the same file in later phases, so the
-# format must remain language-agnostic.
+# The Go runner (contract_test.go) and the TypeScript and Python SDK contract
+# runners consume this file directly, so the format must remain
+# language-agnostic.
 #
 # Setup helpers:
 #   register_domain — claim a domain directly in the store

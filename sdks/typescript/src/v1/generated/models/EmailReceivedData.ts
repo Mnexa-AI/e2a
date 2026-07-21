@@ -35,7 +35,7 @@ export class EmailReceivedData {
     */
     'direction': string;
     /**
-    * SMTP MAIL FROM address; null for a null reverse path or providerless delivery.
+    * SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery.
     */
     'envelopeFrom': string | null;
     /**

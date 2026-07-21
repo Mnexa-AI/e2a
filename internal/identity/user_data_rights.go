@@ -24,7 +24,7 @@ import (
 //   - User session tokens are transient and excluded.
 type UserExport struct {
 	GeneratedAt      time.Time                    `json:"generated_at"`
-	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"4\"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields."`
+	SchemaVersion    string                       `json:"schema_version" doc:"Version of the interior record shapes in this export. The export envelope (the top-level keys and schema_version) is stable; interior record shapes are versioned by schema_version and may evolve — branch on schema_version before interpreting interior records. The current server emits \"4\"; v4 messages expose canonical header_from, envelope_from, verified_domain, and authentication fields, and retain v3 suppression provenance through optional agent_email."`
 	User             UserExportUser               `json:"user"`
 	Domains          []Domain                     `json:"domains" nullable:"false"`
 	Agents           []AgentIdentity              `json:"agents" nullable:"false"`

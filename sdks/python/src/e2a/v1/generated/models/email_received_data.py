@@ -36,7 +36,7 @@ class EmailReceivedData(BaseModel):
     conversation_id: Optional[StrictStr] = None
     delivered_to: StrictStr = Field(description="The one agent address this per-agent copy was delivered to (scalar by construction — one event per delivery). Fetch key for the message.")
     direction: StrictStr = Field(description="Always \"inbound\" on this event.")
-    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address; null for a null reverse path or providerless delivery.")
+    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery.")
     header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address; never replaced by Reply-To.")
     message_id: StrictStr
     received_at: datetime

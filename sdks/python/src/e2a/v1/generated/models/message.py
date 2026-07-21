@@ -44,11 +44,11 @@ class Message(BaseModel):
     direction: StrictStr
     edited: Optional[StrictBool] = None
     email_message_id: Optional[StrictStr] = None
-    envelope_from: Optional[StrictStr]
+    envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null in the export for outbound messages, a null reverse path, or providerless delivery.")
     expires_at: datetime
     flag_reason: Optional[StrictStr] = None
     flagged: Optional[StrictBool] = None
-    header_from: Optional[StrictStr]
+    header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address for inbound mail; null in the export when unavailable and never replaced by Reply-To.")
     html: Optional[StrictStr] = None
     id: StrictStr
     labels: Optional[List[StrictStr]] = None

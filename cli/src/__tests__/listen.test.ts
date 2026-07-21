@@ -223,6 +223,41 @@ describe("listen notification handling", () => {
     );
   });
 
+  it.each(["fail", "none", "temperror", "permerror"] as const)(
+    "prints the %s DMARC result without promoting a verified domain",
+    async (status) => {
+      const client = {
+        messages: { get: vi.fn(), reply: vi.fn() },
+      } as any;
+
+      await handleNotification(
+        client,
+        "bot@agents.e2a.dev",
+        makeNotification({
+          verified_domain: null,
+          authentication: {
+            spf: { status: "none", domain: null, aligned: null },
+            dkim: [],
+            dmarc: {
+              status,
+              domain: "example.com",
+              policy: null,
+              aligned_by: [],
+            },
+          },
+        }),
+        {},
+      );
+
+      expect(mockStdout).toHaveBeenCalledWith(
+        expect.stringContaining(`DMARC: ${status}`),
+      );
+      expect(mockStdout).not.toHaveBeenCalledWith(
+        expect.stringContaining("verified domain:"),
+      );
+    },
+  );
+
   it("fetches and prints raw JSON for --json mode", async () => {
     const full = {
       id: "msg_123",

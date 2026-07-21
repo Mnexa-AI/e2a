@@ -324,6 +324,13 @@ func testServer(t *testing.T, opts ...func(*Deps)) *httptest.Server {
 			return nil, errors.New("not found")
 		},
 		GetMessage: func(ctx context.Context, messageID, agentID string) (*identity.Message, error) {
+			if agentID == "support@acme.com" && messageID == "msg_out" {
+				return &identity.Message{
+					ID: "msg_out", Direction: "outbound", Sender: "support@acme.com",
+					Recipient: "alice@example.com", ToRecipients: []string{"alice@example.com"},
+					Subject: "Sent", CreatedAt: time.Unix(1700000300, 0).UTC(),
+				}, nil
+			}
 			if agentID == "support@acme.com" && messageID == "msg_1" {
 				return &identity.Message{
 					ID:             "msg_1",
@@ -791,6 +798,17 @@ func TestGetMessageOwned(t *testing.T) {
 	// raw_message is []byte -> base64 string ("raw" -> "cmF3").
 	if m["raw_message"] != "cmF3" {
 		t.Fatalf("raw_message not base64-encoded: %v", m["raw_message"])
+	}
+}
+
+func TestGetOutboundMessageIncludesNullAuthentication(t *testing.T) {
+	srv := testServer(t)
+	code, body := getJSON(t, srv.URL+"/v1/agents/support%40acme.com/messages/msg_out", "good")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, body = %v", code, body)
+	}
+	if authentication, present := body["authentication"]; !present || authentication != nil {
+		t.Fatalf("authentication = %#v, present=%v; want explicit null", authentication, present)
 	}
 }
 
