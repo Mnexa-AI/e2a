@@ -8,7 +8,7 @@ import {
   type WebhookEvent,
 } from "@e2a/sdk/v1";
 
-import { EventDeduper } from "../src/delivery-state.js";
+import { EventDeduper, conversationIdFor } from "../src/delivery-state.js";
 import { DeliveryInProgress, handleDelivery } from "../src/handler.js";
 import { emailPrompt } from "../src/prompt.js";
 
@@ -108,6 +108,22 @@ describe("emailPrompt", () => {
 });
 
 describe("EventDeduper", () => {
+  it("uses the full event suffix and treats whitespace-only IDs as missing", () => {
+    expect(conversationIdFor("evt_0123456789ab_one", undefined)).toBe("conv_0123456789ab_one");
+    expect(conversationIdFor("evt_0123456789ab_two", null)).toBe("conv_0123456789ab_two");
+    expect(conversationIdFor("evt_full_suffix", "  \t")).toBe("conv_full_suffix");
+  });
+
+  it("hashes unsafe or oversized event IDs within the API cap", () => {
+    const unsafe = conversationIdFor("evt_bad\r\nsuffix", undefined);
+    const oversized = conversationIdFor(`evt_${"a".repeat(300)}`, undefined);
+
+    expect(unsafe).toMatch(/^conv_[0-9a-f]{64}$/u);
+    expect(oversized).toMatch(/^conv_[0-9a-f]{64}$/u);
+    expect(oversized.length).toBeLessThanOrEqual(200);
+    expect(unsafe).not.toBe(oversized);
+  });
+
   it("allows exactly one new claim under 100-way contention", async () => {
     const deduper = new EventDeduper();
 
@@ -194,19 +210,19 @@ describe("handleDelivery", () => {
     expect(result).toMatchObject({
       kind: "replied",
       status: "replied",
-      conversationId: "conv_first_contac",
+      conversationId: "conv_first_contact_123",
     });
     expect(email.conversationId).toBe("");
-    expect(agent.reply).toHaveBeenNthCalledWith(1, inboundEmail, "conv_first_contac");
-    expect(agent.reply).toHaveBeenNthCalledWith(2, inboundEmail, "conv_first_contac");
+    expect(agent.reply).toHaveBeenNthCalledWith(1, inboundEmail, "conv_first_contact_123");
+    expect(agent.reply).toHaveBeenNthCalledWith(2, inboundEmail, "conv_first_contact_123");
     expect(email.reply).toHaveBeenNthCalledWith(
       1,
-      { text: "Thanks", conversationId: "conv_first_contac" },
+      { text: "Thanks", conversationId: "conv_first_contact_123" },
       { idempotencyKey: "evt_first_contact_123" },
     );
     expect(email.reply).toHaveBeenNthCalledWith(
       2,
-      { text: "Thanks", conversationId: "conv_first_contac" },
+      { text: "Thanks", conversationId: "conv_first_contact_123" },
       { idempotencyKey: "evt_first_contact_123" },
     );
   });

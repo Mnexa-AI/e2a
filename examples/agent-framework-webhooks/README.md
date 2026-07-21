@@ -23,7 +23,8 @@ Both hosts perform the same steps:
 4. Hydrate the ergonomic email object with
    `client.inbound.from_event(event)` or `client.inbound.fromEvent(event)`.
 5. Reuse the hydrated conversation ID, or derive a deterministic
-   `conv_<event-id-suffix>` anchor when first contact has no conversation yet.
+   `conv_<full-event-id-suffix>` anchor when first contact has no conversation
+   yet (unsafe or oversized IDs fall back to a full SHA-256 digest).
    The same effective ID is passed to the adapter and the bound reply, so ADK
    session memory and e2a threading cannot diverge on retries.
 6. Run the selected adapter on a small projection of normalized fields.

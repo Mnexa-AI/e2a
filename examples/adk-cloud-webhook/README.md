@@ -106,12 +106,12 @@ Email is stateless at the SMTP layer. e2a re-creates threading by
 propagating an opaque `conversation_id` through each round-trip:
 
 1. **First inbound** has `conversation_id = None` (the human just
-   started a thread). The webhook derives a stable `conv_<event-id-prefix>`
+   started a thread). The webhook derives a stable `conv_<full-event-id-suffix>`
    anchor and uses it as the ADK `session_id`. A retry derives the same value,
    so it also reuses an identical reply request body and idempotency key.
 2. The webhook hydrates an `AsyncInboundEmail` with
    `client.inbound.from_event(event)`, then calls
-   `email.reply({"text": text, "conversation_id": "conv_<event-id-prefix>"},
+   `email.reply({"text": text, "conversation_id": "conv_<full-event-id-suffix>"},
    idempotency_key=event.id)`. e2a stamps
    that value into `X-E2A-Conversation-Id` on the outbound message and
    remembers the binding to the message ID.

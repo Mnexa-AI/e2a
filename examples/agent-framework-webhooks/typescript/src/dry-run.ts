@@ -89,7 +89,8 @@ export async function runDryRun({ print = true }: { print?: boolean } = {}): Pro
   if (operations.replies.length !== 1) throw new Error("dry run expected exactly one reply");
   const captured = operations.replies[0];
   if (!captured || captured.email !== "agent@example.com" || captured.id !== "msg_dry_run" ||
-      captured.idempotencyKey !== "evt_dry_run" || captured.body.text !== "Deterministic fake reply") {
+      captured.idempotencyKey !== "evt_dry_run" || captured.body.text !== "Deterministic fake reply" ||
+      captured.body.conversationId !== "conv_dry_run") {
     throw new Error("dry run captured an unexpected bound reply");
   }
   const evidence = {

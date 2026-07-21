@@ -89,7 +89,8 @@ The shared host owns only transport and delivery concerns:
 4. Claim the stable event ID in the bounded, in-memory tutorial deduper.
 5. Call `client.inbound.from_event(event)` / `client.inbound.fromEvent(event)`.
 6. Resolve one effective conversation ID: keep the hydrated value when present,
-   or derive a retry-stable `conv_<event-id-suffix>` anchor for first contact.
+   or derive a retry-stable `conv_<full-event-id-suffix>` anchor for first
+   contact, with a digest fallback for unsafe or oversized IDs.
    Pass the safe, normalized `InboundEmail` fields and that effective ID to the
    selected adapter. Raw MIME and the full transport model are not included in
    prompts.

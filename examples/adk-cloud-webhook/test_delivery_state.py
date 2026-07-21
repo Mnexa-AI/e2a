@@ -14,7 +14,24 @@ class ConversationIDTest(unittest.TestCase):
         second = conversation_id_for("evt_0123456789abcdef", None)
 
         self.assertEqual(first, second)
-        self.assertEqual(first, "conv_0123456789ab")
+        self.assertEqual(first, "conv_0123456789abcdef")
+
+    def test_full_suffix_avoids_shared_prefix_collisions(self) -> None:
+        first = conversation_id_for("evt_0123456789ab_one", None)
+        second = conversation_id_for("evt_0123456789ab_two", None)
+
+        self.assertNotEqual(first, second)
+
+    def test_whitespace_only_existing_id_is_missing(self) -> None:
+        self.assertEqual(conversation_id_for("evt_full_suffix", " \t"), "conv_full_suffix")
+
+    def test_unsafe_or_oversized_event_id_uses_safe_digest(self) -> None:
+        unsafe = conversation_id_for("evt_bad\r\nsuffix", None)
+        oversized = conversation_id_for(f"evt_{'a' * 300}", None)
+
+        self.assertRegex(unsafe, r"^conv_[0-9a-f]{64}$")
+        self.assertRegex(oversized, r"^conv_[0-9a-f]{64}$")
+        self.assertLessEqual(len(oversized), 200)
 
 
 class SenderUserIDTest(unittest.TestCase):

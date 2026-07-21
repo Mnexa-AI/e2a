@@ -3,7 +3,29 @@ import unittest
 
 import pytest
 
-from agent_webhooks.delivery_state import EventDeduper
+from agent_webhooks.delivery_state import EventDeduper, conversation_id_for
+
+
+class ConversationIDTest(unittest.TestCase):
+    def test_uses_the_full_event_suffix_without_collisions(self) -> None:
+        first = conversation_id_for("evt_0123456789ab_one", None)
+        second = conversation_id_for("evt_0123456789ab_two", None)
+
+        self.assertEqual(first, "conv_0123456789ab_one")
+        self.assertEqual(second, "conv_0123456789ab_two")
+        self.assertNotEqual(first, second)
+
+    def test_treats_whitespace_only_existing_id_as_missing(self) -> None:
+        self.assertEqual(conversation_id_for("evt_full_suffix", "  \t"), "conv_full_suffix")
+
+    def test_hashes_unsafe_or_oversized_event_ids_within_api_cap(self) -> None:
+        unsafe = conversation_id_for("evt_bad\r\nsuffix", None)
+        oversized = conversation_id_for(f"evt_{'a' * 300}", None)
+
+        self.assertRegex(unsafe, r"^conv_[0-9a-f]{64}$")
+        self.assertRegex(oversized, r"^conv_[0-9a-f]{64}$")
+        self.assertLessEqual(len(oversized), 200)
+        self.assertNotEqual(unsafe, oversized)
 
 
 class EventDeduperTest(unittest.IsolatedAsyncioTestCase):

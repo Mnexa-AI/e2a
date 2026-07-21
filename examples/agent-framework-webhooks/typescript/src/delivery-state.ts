@@ -1,11 +1,21 @@
+import { createHash } from "node:crypto";
+
 /** Result of trying to claim one at-least-once webhook delivery. */
 export type ClaimResult = "new" | "processing" | "processed";
 
+const MAX_CONVERSATION_ID_LENGTH = 200;
+const SAFE_CONVERSATION_SUFFIX = /^[A-Za-z0-9_-]+$/u;
+
 /** Return the upstream thread id or a retry-stable first-contact anchor. */
 export function conversationIdFor(eventId: string, existing: string | null | undefined): string {
-  if (existing) return existing;
-  const suffix = eventId.startsWith("evt_") ? eventId.slice(4, 16) : eventId.slice(0, 12);
-  return `conv_${suffix}`;
+  if (existing !== null && existing !== undefined && existing.trim().length > 0) return existing;
+  const suffix = eventId.startsWith("evt_") ? eventId.slice(4) : eventId;
+  const candidate = `conv_${suffix}`;
+  if (suffix.length > 0 && candidate.length <= MAX_CONVERSATION_ID_LENGTH && SAFE_CONVERSATION_SUFFIX.test(suffix)) {
+    return candidate;
+  }
+  const digest = createHash("sha256").update(eventId, "utf8").digest("hex");
+  return `conv_${digest}`;
 }
 
 /** Bounded in-process state for side-effect-safe duplicate deliveries. */

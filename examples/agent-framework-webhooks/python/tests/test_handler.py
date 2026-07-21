@@ -129,25 +129,25 @@ class HandleDeliveryTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             result,
-            {"status": "replied", "conversation_id": "conv_first_contac"},
+            {"status": "replied", "conversation_id": "conv_first_contact_123"},
         )
         self.assertEqual(email.conversation_id, "")
         self.assertEqual(
             agent.reply.await_args_list,
             [
-                call(email, "conv_first_contac"),
-                call(email, "conv_first_contac"),
+                call(email, "conv_first_contact_123"),
+                call(email, "conv_first_contact_123"),
             ],
         )
         self.assertEqual(
             email.reply.await_args_list,
             [
                 call(
-                    {"text": "Thanks", "conversation_id": "conv_first_contac"},
+                    {"text": "Thanks", "conversation_id": "conv_first_contact_123"},
                     idempotency_key="evt_first_contact_123",
                 ),
                 call(
-                    {"text": "Thanks", "conversation_id": "conv_first_contac"},
+                    {"text": "Thanks", "conversation_id": "conv_first_contact_123"},
                     idempotency_key="evt_first_contact_123",
                 ),
             ],

@@ -190,13 +190,13 @@ describe("ADKReplyAgent", () => {
     await expect(
       createADKReplyAgent({ ADK_MODEL: "gemini-test" }).reply(
         email,
-        "conv_first_contac",
+        "conv_first_contact_123",
       ),
     ).resolves.toBe("ADK");
 
-    expect(getSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "conv_first_contac" }));
-    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "conv_first_contac" }));
-    expect(runAsync).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "conv_first_contac" }));
+    expect(getSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "conv_first_contact_123" }));
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "conv_first_contact_123" }));
+    expect(runAsync).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "conv_first_contact_123" }));
     expect(email.conversationId).toBe("");
   });
 });

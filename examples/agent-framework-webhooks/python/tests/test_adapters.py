@@ -272,7 +272,7 @@ def test_adk_factory_uses_isolated_identity_and_first_contact_session(
     email.conversation_id = ""
 
     assert wait(
-        ADKReplyAgent.from_env().reply(email, "conv_first_contac")
+        ADKReplyAgent.from_env().reply(email, "conv_first_contact_123")
     ) == "ADK factory"
 
     digest = hashlib.sha256(
@@ -281,7 +281,7 @@ def test_adk_factory_uses_isolated_identity_and_first_contact_session(
     context = {
         "app_name": "e2a_email_assistant",
         "user_id": f"sender-{digest}",
-        "session_id": "conv_first_contac",
+        "session_id": "conv_first_contact_123",
     }
     assert FakeSessions.instance.get_calls == [context]
     assert FakeSessions.instance.create_calls == [context]
