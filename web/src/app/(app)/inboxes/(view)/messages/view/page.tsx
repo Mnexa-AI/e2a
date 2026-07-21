@@ -420,7 +420,7 @@ function FocusContent({
             <Chip tone="success">Sent (auto)</Chip>
           )}
           <span className="flex-1" />
-          {direction === "inbound" && (
+          {direction === "inbound" && msg.data.verified_domain && (
             <Chip tone="success">
               <Dot tone="success" /> Auth verified
             </Chip>
@@ -830,11 +830,11 @@ function buildInboundHeaderLines(d: InboundMessageDetail): InkLine[] {
   if (d.authentication) {
     const { spf, dkim, dmarc } = d.authentication;
     lines.push(dmarcHeaderLine(dmarc.status));
-    lines.push({ c: "plain", text: `SPF: ${spf.status}${spf.domain ? ` · ${spf.domain}` : ""}` });
+    lines.push({ c: "plain", text: `SPF: ${spf.status}${spf.domain ? ` · ${scrubHeaderValue(spf.domain)}` : ""}` });
     for (const signature of dkim) {
       lines.push({
         c: "plain",
-        text: `DKIM: ${signature.status}${signature.domain ? ` · ${signature.domain}` : ""}${signature.selector ? ` · ${signature.selector}` : ""}`,
+        text: `DKIM: ${signature.status}${signature.domain ? ` · ${scrubHeaderValue(signature.domain)}` : ""}${signature.selector ? ` · ${scrubHeaderValue(signature.selector)}` : ""}`,
       });
     }
   } else {

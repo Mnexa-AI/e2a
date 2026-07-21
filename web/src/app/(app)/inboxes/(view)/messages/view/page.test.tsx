@@ -243,6 +243,34 @@ describe("AgentMessageFocusPage", () => {
 
     const verdict = await screen.findByText("DMARC: fail");
     expect(verdict).toHaveStyle({ color: "var(--danger-strong)" });
+    expect(screen.queryByText("Auth verified")).not.toBeInTheDocument();
+  });
+
+  it("shows the authentication badge only for a verified domain", async () => {
+    setSearchParams({ email: AGENT_EMAIL, id: "msg_verified", direction: "inbound" });
+    mockDetail({ ...INBOUND_DETAIL, id: "msg_verified", verified_domain: "stripe.com" });
+
+    render(<AgentMessageFocusPage />);
+
+    expect(await screen.findByText("Auth verified")).toBeInTheDocument();
+  });
+
+  it("scrubs authentication identity fields in the copyable header view", async () => {
+    setSearchParams({ email: AGENT_EMAIL, id: "msg_dirty_auth", direction: "inbound", headers: "1" });
+    mockDetail({
+      ...INBOUND_DETAIL,
+      id: "msg_dirty_auth",
+      authentication: {
+        ...INBOUND_DETAIL.authentication,
+        spf: { status: "pass", domain: "stripe.com\r\nInjected", aligned: true },
+        dkim: [{ status: "pass", domain: "stripe.com\u0000Injected", selector: "s1\nInjected", aligned: true }],
+      },
+    });
+
+    render(<AgentMessageFocusPage />);
+
+    expect(await screen.findByText("SPF: pass · stripe.com Injected")).toBeInTheDocument();
+    expect(screen.getByText("DKIM: pass · stripe.com Injected · s1 Injected")).toBeInTheDocument();
   });
 
   it("renders missing SMTP authentication as an explicit warning", async () => {
