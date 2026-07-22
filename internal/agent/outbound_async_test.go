@@ -603,7 +603,7 @@ func TestSendWorker_TemporaryAndProviderRejectedLifecycle(t *testing.T) {
 	if terminal == nil {
 		t.Fatalf("missing provider rejection lifecycle: %+v", rows)
 	}
-	if terminal.OccurredAt.Before(timedReject.returnedAt) {
+	if terminal.OccurredAt.Before(timedReject.returnedAt.Truncate(time.Microsecond)) {
 		t.Fatalf("provider rejection occurred_at=%s before outcome returned=%s", terminal.OccurredAt, timedReject.returnedAt)
 	}
 	event := eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailFailed)

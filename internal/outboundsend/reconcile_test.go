@@ -855,7 +855,7 @@ func testProviderRejectionAtomicFailure(t *testing.T, label, install, uninstall 
 	if storedOccurredAt == nil || storedAttempt == nil || *storedAttempt != 2 {
 		t.Fatalf("fallback occurred_at=%v attempt=%v, want exact provider observation and attempt 2", storedOccurredAt, storedAttempt)
 	}
-	if storedOccurredAt.Before(deliverer.returnedAt) {
+	if storedOccurredAt.Before(deliverer.returnedAt.Truncate(time.Microsecond)) {
 		t.Fatalf("fallback occurred_at=%s predates provider result=%s", *storedOccurredAt, deliverer.returnedAt)
 	}
 	if f.failedEventCount(t, messageID) != 0 || f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionProviderRejected) != nil {
