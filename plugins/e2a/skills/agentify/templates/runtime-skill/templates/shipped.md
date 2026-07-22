@@ -1,4 +1,4 @@
-# shipped template (slice 3 — dormant until the fix + release lanes land)
+# shipped template (slice 3 — fix + release lanes)
 
 Sent into the filer thread when a ticket reaches `shipped` (the fix PR
 merged/released). The "here's how it works" prose is NOT free-form: it is the

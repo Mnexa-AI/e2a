@@ -1,8 +1,8 @@
 # triage-ack template
 
 The first email to a filer — it acks AND informs in one message (no separate
-"received" email). Sent by `reply_to_message` into the filer's thread, so it
-also becomes the reply channel. Slot-fill the bracketed parts; keep the
+"received" email). Sent by `comms_send.sh reply` into the filer's thread, so
+it also becomes the reply channel. Slot-fill the bracketed parts; keep the
 framing fixed. Promise discipline: commit only to a status-change
 notification, never to shipping.
 
