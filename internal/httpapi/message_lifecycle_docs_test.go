@@ -135,6 +135,8 @@ func TestMessageLifecycleDocsPublishClosedDiagnosticContract(t *testing.T) {
 	api := lifecycleDocSection(t, "api.md", "### Message lifecycle diagnostic contract")
 	requireLifecycleDocText(t, api,
 		"GET /v1/agents/{email}/messages/{id}/lifecycle",
+		"**Beta:**",
+		"`x-stability-level: beta`",
 		"ascending `(occurred_at, id)`",
 		"bound to both the owning agent and message ID",
 		"`recipient` is nullable",
@@ -172,6 +174,8 @@ func TestMessageLifecycleDocsMapEventsWithoutAbsorbingScreening(t *testing.T) {
 	events := lifecycleDocSection(t, "events.md", "## Lifecycle transitions on events")
 	requireLifecycleDocText(t, events,
 		"`data.lifecycle_transitions`",
+		"**Beta:**",
+		"existing event envelopes remain stable",
 		"`email.received`", "`acceptance.inbound_smtp`", "`authentication.dmarc_pass`", "`queue.inbound_processing`",
 		"`email.sent`", "`submission.upstream_accepted`", "`submission.local_loopback_accepted`",
 		"`email.failed`", "`submission.provider_rejected`", "`submission.local_retries_exhausted`", "`submission.cancelled`",

@@ -1,7 +1,7 @@
 # Canonical Message Trust Ledger Design
 
 Date: 2026-07-21
-Status: Approved design; beta rollout amendment pending review
+Status: Approved and implemented as beta
 
 ## Context
 

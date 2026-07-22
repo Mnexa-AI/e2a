@@ -1323,9 +1323,9 @@ class MessagesApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> PageMessageLifecycleTransition:
-        """Get a message's lifecycle
+        """Get a message's lifecycle (beta)
 
-        Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+        Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -1402,9 +1402,9 @@ class MessagesApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> ApiResponse[PageMessageLifecycleTransition]:
-        """Get a message's lifecycle
+        """Get a message's lifecycle (beta)
 
-        Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+        Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable.
 
         :param email: (required)
         :type email: str
@@ -1481,9 +1481,9 @@ class MessagesApi:
         _headers: Optional[Dict[StrictStr, Any]] = None,
         _host_index: Annotated[StrictInt, Field(ge=0, le=0)] = 0,
     ) -> RESTResponseType:
-        """Get a message's lifecycle
+        """Get a message's lifecycle (beta)
 
-        Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+        Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable.
 
         :param email: (required)
         :type email: str

@@ -1477,8 +1477,8 @@ export class ObservableMessagesApi {
     }
 
     /**
-     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
-     * Get a message\'s lifecycle
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable.
+     * Get a message\'s lifecycle (beta)
      * @param email
      * @param id
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor.
@@ -1505,8 +1505,8 @@ export class ObservableMessagesApi {
     }
 
     /**
-     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
-     * Get a message\'s lifecycle
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable.
+     * Get a message\'s lifecycle (beta)
      * @param email
      * @param id
      * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor.

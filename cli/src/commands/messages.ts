@@ -29,7 +29,7 @@ const LIST_USAGE =
   "usage: e2a messages list [--direction inbound|outbound|all] [--since <ISO>] [--conversation <id>] [--read-status unread|read|all] [--limit <n>] [--agent <inbox>] [--json]";
 const GET_USAGE = "usage: e2a messages get <message-id> [--text] [--agent <inbox>] [--json]";
 const LIFECYCLE_USAGE =
-  "usage: e2a messages lifecycle <message-id> [--agent <inbox>] [--limit <1-100>] [--cursor <cursor>] [--json]";
+  "usage: e2a messages lifecycle <message-id> (beta) [--agent <inbox>] [--limit <1-100>] [--cursor <cursor>] [--json]";
 
 const DIRECTIONS = ["inbound", "outbound", "all"] as const;
 const READ_STATUSES = ["unread", "read", "all"] as const;

@@ -487,6 +487,10 @@ class MessagesResource:
         cursor: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> PageMessageLifecycleTransition:
+        """Beta: return the ordered observations e2a recorded for one message.
+
+        The lifecycle contract may change before it is declared stable.
+        """
         return await self._c._read(
             lambda h: self._api.get_message_lifecycle(
                 email,

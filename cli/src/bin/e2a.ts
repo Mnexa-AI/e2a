@@ -73,7 +73,7 @@ Usage:
   e2a messages get <id> [--text]    Fetch one message; marks it read
         --text                     Print body text only (parsed reply-text preferred)
         --agent <email>            Inbox to read (or config agent_email)
-  e2a messages lifecycle <id>       Show observed lifecycle transitions
+  e2a messages lifecycle <id>       Show observed lifecycle transitions (beta)
         --cursor <cursor>          Continue from a prior page
         --limit <n>                Page size, 1–100
         --agent <email>            Owning inbox (or config agent_email)

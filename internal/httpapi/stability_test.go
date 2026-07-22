@@ -489,7 +489,7 @@ func TestDocumentedBetaOperationsMatchOpenAPI(t *testing.T) {
 	if end := strings.Index(section, "\n### "); end >= 0 {
 		section = section[:end]
 	}
-	re := regexp.MustCompile("`([A-Za-z][A-Za-z0-9]*)`")
+	re := regexp.MustCompile("`([A-Za-z][A-Za-z0-9-]*)`")
 	var documented []string
 	for _, line := range strings.Split(section, "\n") {
 		if !strings.HasPrefix(line, "|") {

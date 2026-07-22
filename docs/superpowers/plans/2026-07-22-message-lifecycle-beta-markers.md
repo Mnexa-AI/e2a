@@ -18,7 +18,7 @@
 - Modify: `internal/httpapi/stability.go`
 - Test: `internal/httpapi/stability_test.go`
 
-- [ ] **Step 1: Write the failing contract test**
+- [x] **Step 1: Write the failing contract test**
 
 Add `"get-message-lifecycle"` to `betaOperationIDs`. In `TestSpecBetaMarkers`, assert that the operation summary contains `(beta)`, its description contains `Beta: message lifecycle`, `MessageLifecycleTransition` and `PageMessageLifecycleTransition` carry only `x-stability-level: beta`, every mapped stable event payload's `lifecycle_transitions` property carries only that beta marker, and parent schemas such as `EmailReceivedData` remain unmarked.
 
@@ -34,13 +34,13 @@ for _, name := range []string{"EmailReceivedData", "EmailSentData", "EmailFailed
 }
 ```
 
-- [ ] **Step 2: Run the test and verify the expected failure**
+- [x] **Step 2: Run the test and verify the expected failure**
 
 Run: `go test ./internal/httpapi -run 'TestSpecBetaMarkers' -count=1`
 
 Expected: FAIL because `get-message-lifecycle`, its response schemas, and the event properties do not yet carry the beta marker.
 
-- [ ] **Step 3: Implement the smallest source-of-truth change**
+- [x] **Step 3: Implement the smallest source-of-truth change**
 
 Define one shared lifecycle beta sentence in `message_lifecycle.go`, update the operation summary/description, and add `Extensions: beta()`:
 
@@ -62,13 +62,13 @@ for _, schema := range []string{"EmailReceivedData", "EmailSentData", "EmailFail
 
 Rely on beta-operation reachability to mark `PageMessageLifecycleTransition` and `MessageLifecycleTransition`; do not manually stamp generated YAML or generated SDK files.
 
-- [ ] **Step 4: Run focused Go verification**
+- [x] **Step 4: Run focused Go verification**
 
 Run: `go test ./internal/httpapi -run 'TestSpecBetaMarkers|TestMessageLifecycleOpenAPIOperationAndEnums|TestStableEmailPayloadsUseCanonicalLifecycleComponent' -count=1`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the authoritative contract slice**
+- [x] **Step 5: Commit the authoritative contract slice**
 
 ```bash
 git add internal/httpapi/stability_test.go internal/httpapi/message_lifecycle.go internal/httpapi/stability.go
@@ -93,7 +93,7 @@ git commit -m "feat(api): mark message lifecycle beta"
 - Regenerate: `sdks/python/src/e2a/v1/generated/`
 - Test: `internal/httpapi/message_lifecycle_docs_test.go`
 
-- [ ] **Step 1: Write the failing documentation contract test**
+- [x] **Step 1: Write the failing documentation contract test**
 
 Extend `TestMessageLifecycleDocsPublishClosedDiagnosticContract` to require `**Beta:**`, `x-stability-level: beta`, and an explicit statement that stable event envelopes remain stable while only `lifecycle_transitions` is beta.
 
@@ -104,23 +104,23 @@ requireLifecycleDocText(t, api,
 )
 ```
 
-- [ ] **Step 2: Run the documentation test and verify the expected failure**
+- [x] **Step 2: Run the documentation test and verify the expected failure**
 
 Run: `go test ./internal/httpapi -run 'TestMessageLifecycleDocsPublishClosedDiagnosticContract' -count=1`
 
 Expected: FAIL because the lifecycle documentation currently describes the feature as additive but not beta.
 
-- [ ] **Step 3: Add visible beta labels to handwritten surfaces**
+- [x] **Step 3: Add visible beta labels to handwritten surfaces**
 
 Add `get-message-lifecycle` to the complete beta operation table in `docs/api.md`; label the lifecycle section and event-field section beta; state that existing event envelopes and event types remain stable. Add concise `Beta:` JSDoc/docstrings/comments to the TS SDK method, Python method, CLI help/usage, MCP client/tool, and web helper. Do not change wire shapes or runtime behavior.
 
-- [ ] **Step 4: Regenerate contract artifacts**
+- [x] **Step 4: Regenerate contract artifacts**
 
 Run: `make generate`
 
 Expected: `api/openapi.yaml` and generated TypeScript/Python SDK bases update from handler metadata; no generated file is hand-edited.
 
-- [ ] **Step 5: Run focused client and documentation tests**
+- [x] **Step 5: Run focused client and documentation tests**
 
 Run:
 

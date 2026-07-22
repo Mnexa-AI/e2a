@@ -705,7 +705,10 @@ describe("e2a MCP server", () => {
 
   it("get_message_lifecycle has an exact schema and returns the canonical page", async () => {
     const { tools } = await client.listTools();
-    const schema = tools.find((t) => t.name === "get_message_lifecycle")!.inputSchema as {
+    const lifecycleTool = tools.find((t) => t.name === "get_message_lifecycle")!;
+    expect(lifecycleTool.title).toContain("(beta)");
+    expect(lifecycleTool.description).toContain("Beta:");
+    const schema = lifecycleTool.inputSchema as {
       properties: Record<string, unknown>;
     };
     expect(Object.keys(schema.properties).sort()).toEqual(["cursor", "email", "limit", "message_id"]);

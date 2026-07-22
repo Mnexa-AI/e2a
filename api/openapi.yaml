@@ -1097,6 +1097,7 @@ components:
           items:
             $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
+          x-stability-level: beta
         message_id:
           type: string
         reason:
@@ -1176,6 +1177,7 @@ components:
           items:
             $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
+          x-stability-level: beta
         message_id:
           type: string
         smtp_detail:
@@ -1204,6 +1206,7 @@ components:
           items:
             $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
+          x-stability-level: beta
         message_id:
           type: string
         smtp_detail:
@@ -1231,6 +1234,7 @@ components:
           items:
             $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
+          x-stability-level: beta
         message_id:
           type: string
         smtp_detail:
@@ -1267,6 +1271,7 @@ components:
           items:
             $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
+          x-stability-level: beta
         message_id:
           type: string
         message_type:
@@ -1343,6 +1348,7 @@ components:
           items:
             $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
+          x-stability-level: beta
         message_id:
           type: string
         received_at:
@@ -1402,6 +1408,7 @@ components:
           items:
             $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
+          x-stability-level: beta
         message_id:
           type: string
         message_type:
@@ -2295,6 +2302,7 @@ components:
         - occurred_at
         - reconstructed
       type: object
+      x-stability-level: beta
     MessageParsedView:
       additionalProperties: true
       properties:
@@ -2674,6 +2682,7 @@ components:
         - items
         - next_cursor
       type: object
+      x-stability-level: beta
     PageMessageSummaryView:
       additionalProperties: true
       properties:
@@ -5455,7 +5464,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/lifecycle:
     get:
-      description: Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+      description: "Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable."
       operationId: get-message-lifecycle
       parameters:
         - in: path
@@ -5507,9 +5516,10 @@ paths:
               $ref: "#/components/headers/XRequestID"
       security:
         - bearer: []
-      summary: Get a message's lifecycle
+      summary: Get a message's lifecycle (beta)
       tags:
         - messages
+      x-stability-level: beta
   /v1/agents/{email}/messages/{id}/reply:
     post:
       description: "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Replying to a message this agent sent that has not been submitted to the provider yet returns 409 message_not_yet_delivered — it has no Message-ID to thread onto; retry once it is sent, or use wait=sent on the original send. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large."

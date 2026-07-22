@@ -109,6 +109,10 @@ export function parseMessageLifecyclePage(value: unknown): MessageLifecyclePageW
   };
 }
 
+/**
+ * Beta: fetch the ordered observations e2a recorded for one message. The
+ * lifecycle contract may change before it is declared stable.
+ */
 export async function getMessageLifecycle(
   email: string,
   messageId: string,

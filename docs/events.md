@@ -75,7 +75,11 @@ The review-hold + screening events (`email.flagged`, `email.blocked`, `email.rev
 
 One `email.blocked` asymmetry to know: an **outbound** gate-block refuses the send outright, so no message row exists — its `data.message_id` is a stable rowless soft-ref (`msgblk_…`), the event's top-level `message_id` is absent, and `GET /v1/events?message_id=…` cannot match it (filter by `type` + `agent_email`, or by `conversation_id`, instead). **Inbound** blocks are accept-then-quarantine, reference a real message, and filter normally.
 
-## Lifecycle transitions on events
+## Lifecycle transitions on events (beta)
+
+**Beta:** message lifecycle and the optional `data.lifecycle_transitions` field
+may change before they are declared stable, while existing event envelopes remain stable,
+as do existing event names and their non-lifecycle payload fields.
 
 Mapped message events may include `data.lifecycle_transitions`. Every item is
 the exact canonical transition row committed for that observation, with the

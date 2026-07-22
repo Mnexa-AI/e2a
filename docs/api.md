@@ -199,6 +199,7 @@ every `/v1` operation not listed here is covered by the GA freeze.
 | `createTemplate` | `POST /v1/templates` | Templates |
 | `deleteAgentSuppression` | `DELETE /v1/agents/{email}/suppressions/{address}` | Agent suppressions |
 | `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
+| `get-message-lifecycle` | `GET /v1/agents/{email}/messages/{id}/lifecycle` | Message lifecycle |
 | `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
 | `getReview` | `GET /v1/reviews/{id}` | Reviews |
 | `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
@@ -435,7 +436,12 @@ single message.
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
 
-### Message lifecycle diagnostic contract
+### Message lifecycle diagnostic contract (beta)
+
+**Beta:** the complete message-lifecycle feature may change before it is
+declared stable. The operation and lifecycle schemas carry
+`x-stability-level: beta`; the optional lifecycle fields embedded in stable
+event payloads carry the same property-level marker.
 
 `GET /v1/agents/{email}/messages/{id}/lifecycle` returns the ordered facts e2a
 observed for one persisted inbound or outbound message. It is a diagnostic
@@ -525,9 +531,11 @@ source evidence. Reconstruction does not fabricate an event or transition when
 the durable records do not prove it, is read-only, and never overwrites a
 persisted observation. Historical event envelopes remain unchanged.
 
-This is an additive `/v1` contract: the endpoint and optional
+This is an additive beta `/v1` contract: the endpoint and optional
 `lifecycle_transitions` event field may be consumed by new clients without
-changing historical responses or stored webhook redeliveries. The closed stage, outcome, and reason-code vocabularies
+changing historical responses or stored webhook redeliveries. Existing event
+envelopes, event types, and payload schemas remain stable; only the optional
+lifecycle property is beta. The closed stage, outcome, and reason-code vocabularies
 change only through deliberate versioned contract handling. Any addition requires coordinated OpenAPI and generated-SDK regeneration plus handwritten client updates.
 It is never an unannounced additive response value. delivered means the recipient mail server accepted the message; e2a does not observe or claim inbox placement.
 Screening and prompt-injection detections remain outside the lifecycle ledger.

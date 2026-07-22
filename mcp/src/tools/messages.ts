@@ -525,10 +525,10 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
   server.registerTool(
     "get_message_lifecycle",
     {
-      title: "Get message lifecycle",
+      title: "Get message lifecycle (beta)",
       annotations: { readOnlyHint: true, idempotentHint: true },
       description:
-        "Returns the ordered transitions e2a observed for one persisted inbound or outbound message. SMTP acceptance, upstream submission, provider delivery feedback, and complaint feedback remain distinct; this does not claim inbox placement. Cursor-paginated with the canonical REST page envelope.",
+        "Beta: returns the ordered transitions e2a observed for one persisted inbound or outbound message; the lifecycle contract may change before it is declared stable. SMTP acceptance, upstream submission, provider delivery feedback, and complaint feedback remain distinct; this does not claim inbox placement. Cursor-paginated with the canonical REST page envelope.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         email: z.string().optional(),

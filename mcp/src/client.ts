@@ -259,6 +259,7 @@ export class McpClient {
     return this.sdk.messages.get(this.resolveAddress(explicitAddress), messageId);
   }
 
+  /** Beta: fetch the canonical observations for one message. */
   getMessageLifecycle(
     messageId: string,
     params: { cursor?: string; limit?: number } = {},

@@ -348,6 +348,10 @@ class MessagesResource {
   get(email: string, id: string): Promise<MessageView> {
     return call(() => this.api.getMessage(email, id));
   }
+  /**
+   * Beta: return the ordered observations e2a recorded for one message. The
+   * lifecycle contract may change before it is declared stable.
+   */
   getLifecycle(
     email: string,
     messageId: string,
