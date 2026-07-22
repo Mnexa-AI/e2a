@@ -39,6 +39,8 @@ lose — everything needed to build the alert lives in one log line.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -60,15 +62,17 @@ from e2a.v1 import (
 )
 
 # Subject carries the correlation state: a marker, WHICH INTERFACE performed
-# the send, the send time in epoch ms (so latency needs no storage), and
+# the send, the send time in epoch ms (so latency needs no storage),
 # randomness so concurrent probes and redelivered events can never be
-# confused for one another. The iface segment is captured generically
-# (`[a-z0-9_]+`) rather than hardcoded to the five known keys, so an
-# unrecognized value is a *parsed-but-unknown* iface (handled explicitly,
-# see handle_webhook) instead of silently falling through "not a probe".
-# Older nonces (pre-multi-interface, no iface segment) simply won't match —
-# no deployed consumer depends on parsing those today.
-NONCE_RE = re.compile(r"e2asdkmon\.([a-z0-9_]+)\.(\d+)\.[0-9a-f]{16}")
+# confused for one another, and a keyed MAC tag binding all three together
+# (see NONCE_KEY / _nonce_tag below) so the nonce can only be minted by this
+# service — not just anyone who can email agent A. The iface segment is
+# captured generically (`[a-z0-9_]+`) rather than hardcoded to the five known
+# keys, so an unrecognized value is a *parsed-but-unknown* iface (handled
+# explicitly, see handle_webhook) instead of silently falling through "not a
+# probe". Older nonces (pre-multi-interface or pre-MAC, no iface/tag segment)
+# simply won't match — no deployed consumer depends on parsing those today.
+NONCE_RE = re.compile(r"e2asdkmon\.([a-z0-9_]+)\.(\d+)\.([0-9a-f]{16})\.([0-9a-f]{16})")
 SUBJECT_PREFIX = "probe"
 
 API_KEY = os.environ.get("E2A_API_KEY", "")
@@ -76,6 +80,14 @@ BASE_URL = os.environ.get("E2A_BASE_URL", "https://api.e2a.dev")
 AGENT_A = os.environ.get("E2A_MONITOR_AGENT_A", "")
 AGENT_B = os.environ.get("E2A_MONITOR_AGENT_B", "")
 WEBHOOK_SECRET = os.environ.get("E2A_MONITOR_WEBHOOK_SECRET", "")
+# Nonce-signing key. Optional and dedicated (E2A_MONITOR_NONCE_SECRET) so it
+# CAN be rotated independently of the webhook HMAC secret, but falls back to
+# the already-required WEBHOOK_SECRET so protection never silently depends on
+# an unset var — no new required config. Domain separation from the webhook
+# signature's own use of this same value comes from the fixed message prefix
+# in _nonce_tag, not from a distinct key.
+NONCE_SECRET = os.environ.get("E2A_MONITOR_NONCE_SECRET", "")
+NONCE_KEY = NONCE_SECRET or WEBHOOK_SECRET
 # Full streamable-HTTP MCP endpoint (e.g. https://api.e2a.dev/mcp), matching
 # the prober's E2A_PROBE_MCP_URL convention. Optional: when unset, the mcp
 # interface is skipped (monitor_skip) rather than failing the whole service —
@@ -110,8 +122,44 @@ def client() -> E2AClient:
     return _client
 
 
+NONCE_TAG_PREFIX = "e2asdkmon-nonce:"
+
+
+def _nonce_tag(iface: str, epoch_ms: int, rand_hex: str, key: str = NONCE_KEY) -> str:
+    """First 16 hex chars of HMAC-SHA256(key, "e2asdkmon-nonce:<iface>.<epoch_ms>.<rand_hex>").
+    The fixed prefix domain-separates this MAC from any other use of `key`
+    (e.g. the webhook signature, which also derives from WEBHOOK_SECRET when
+    no dedicated E2A_MONITOR_NONCE_SECRET is set). Never log `key` or the
+    resulting `tag` alongside enough context to look like the secret itself —
+    the tag is a public value that rides in the nonce, but callers should
+    still avoid gratuitously echoing it."""
+    msg = f"{NONCE_TAG_PREFIX}{iface}.{epoch_ms}.{rand_hex}".encode()
+    return hmac.new(key.encode(), msg, hashlib.sha256).hexdigest()[:16]
+
+
 def new_nonce(iface: str) -> str:
-    return f"e2asdkmon.{iface}.{int(time.time() * 1000)}.{secrets.token_hex(8)}"
+    epoch_ms = int(time.time() * 1000)
+    rand_hex = secrets.token_hex(8)
+    tag = _nonce_tag(iface, epoch_ms, rand_hex)
+    return f"e2asdkmon.{iface}.{epoch_ms}.{rand_hex}.{tag}"
+
+
+# Send-response outcome handling, uniform across every interface (api,
+# python_sdk, mcp, ts_sdk via js/monitor-helper.mjs, cli via its own subprocess
+# exit code). SendResultView.status (api/openapi.yaml) is an open string set;
+# only `sent` and `accepted` are genuinely successful outcomes (`accepted` =
+# durably queued for async submission, the normal non-held outcome).
+# `pending_review` (held for human review) and `failed` (terminal failure) —
+# and any status this build doesn't recognize — must NOT be logged
+# success-shaped; they must fail immediately at send/reply time rather than
+# only surfacing later as a monitor_stale timeout. Mirrors the CLI's
+# emitSendResult (cli/src/commands/send.ts), which already got this right.
+SEND_OK_STATUSES = frozenset({"sent", "accepted"})
+
+
+def _check_send_status(iface: str, status: object) -> None:
+    if status not in SEND_OK_STATUSES:
+        raise RuntimeError(f"{iface} send/reply returned non-success status: {status!r}")
 
 
 # --------------------------------------------------------------------------
@@ -153,7 +201,7 @@ class ApiStrategy:
     def available(self) -> bool:
         return True  # core interface; required config already gates startup
 
-    def _request(self, path: str, body: dict, idempotency_key: Optional[str] = None) -> None:
+    def _request(self, path: str, body: dict, idempotency_key: Optional[str] = None) -> dict:
         url = f"{self._base_url}{path}"
         req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST")
         req.add_header("Authorization", f"Bearer {self._api_key}")
@@ -162,21 +210,29 @@ class ApiStrategy:
             req.add_header("Idempotency-Key", idempotency_key)
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
-                resp.read()
+                raw = resp.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:300]
             raise RuntimeError(f"api HTTP {exc.code}: {detail}") from exc
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            return {}
 
     def send(self, *, agent_a: str, agent_b: str, subject: str, body: str) -> None:
         path = f"/v1/agents/{urllib.parse.quote(agent_a, safe='')}/messages"
-        self._request(path, {"to": [agent_b], "subject": subject, "text": body})
+        result = self._request(path, {"to": [agent_b], "subject": subject, "text": body})
+        _check_send_status("api", result.get("status"))
 
     def reply(self, *, inbox: str, message_id: str, text: str, idempotency_key: str) -> None:
         path = (
             f"/v1/agents/{urllib.parse.quote(inbox, safe='')}"
             f"/messages/{urllib.parse.quote(message_id, safe='')}/reply"
         )
-        self._request(path, {"text": text}, idempotency_key=idempotency_key)
+        result = self._request(path, {"text": text}, idempotency_key=idempotency_key)
+        _check_send_status("api", result.get("status"))
 
 
 class PythonSdkStrategy:
@@ -186,21 +242,46 @@ class PythonSdkStrategy:
         return True  # core interface; required config already gates startup
 
     def send(self, *, agent_a: str, agent_b: str, subject: str, body: str) -> None:
-        client().messages.send(agent_a, {"to": [agent_b], "subject": subject, "text": body})
+        result = client().messages.send(agent_a, {"to": [agent_b], "subject": subject, "text": body})
+        _check_send_status("python_sdk", getattr(result, "status", None))
 
     def reply(self, *, inbox: str, message_id: str, text: str, idempotency_key: str) -> None:
-        client().messages.reply(
+        result = client().messages.reply(
             inbox, message_id, {"text": text}, idempotency_key=idempotency_key
         )
+        _check_send_status("python_sdk", getattr(result, "status", None))
 
 
-def _parse_jsonrpc_envelope(raw: bytes, content_type: str) -> dict:
+# Fixed id shared by every send/reply JSON-RPC request this service makes.
+# Fixing it lets the parser positively identify OUR response frame instead of
+# just grabbing the first jsonrpc-shaped thing in the stream: if the MCP
+# server ever emits a leading notification (no id) before the real
+# tools/call response, or a stream somehow interleaves an unrelated
+# response, a bare "first dict with jsonrpc in it" match would false-fail (or
+# worse, false-succeed on) a healthy round trip.
+MCP_REQUEST_ID = 1
+
+
+def _is_matching_jsonrpc_response(env: object, request_id: int) -> bool:
+    """True only for the frame that is actually THIS request's response:
+    right id, and carrying a `result` or `error` (a notification has neither
+    and must be skipped, not mistaken for the answer)."""
+    return (
+        isinstance(env, dict)
+        and env.get("id") == request_id
+        and ("result" in env or "error" in env)
+    )
+
+
+def _parse_jsonrpc_envelope(raw: bytes, content_type: str, request_id: int = MCP_REQUEST_ID) -> dict:
     """Decode a JSON-RPC message from an MCP streamable-HTTP response,
     accepting either a bare JSON body or an SSE stream (the deployed MCP
     server runs stateless with `enableJsonResponse` unset, so it answers with
     SSE — see mcp/src/http-server.ts). Mirrors
     internal/selftest/scenarios.go's parseJSONRPCEnvelope so both validators
-    agree on the wire shape."""
+    agree on the wire shape. Skips any frame that isn't THIS request's
+    response (wrong id, or a notification with neither result nor error) —
+    see _is_matching_jsonrpc_response."""
     if "text/event-stream" in content_type:
         body = raw.decode("utf-8", "replace").replace("\r\n", "\n")
         for event in body.split("\n\n"):
@@ -215,10 +296,13 @@ def _parse_jsonrpc_envelope(raw: bytes, content_type: str) -> dict:
                 env = json.loads("\n".join(data_lines))
             except ValueError:
                 continue
-            if isinstance(env, dict) and "jsonrpc" in env:
+            if _is_matching_jsonrpc_response(env, request_id):
                 return env
-        raise RuntimeError("no JSON-RPC message in SSE stream")
-    return json.loads(raw.decode("utf-8", "replace"))
+        raise RuntimeError("no matching JSON-RPC response in SSE stream")
+    env = json.loads(raw.decode("utf-8", "replace"))
+    if not _is_matching_jsonrpc_response(env, request_id):
+        raise RuntimeError(f"JSON-RPC response id mismatch or missing result/error: {env}")
+    return env
 
 
 class McpStrategy:
@@ -236,11 +320,16 @@ class McpStrategy:
     def available(self) -> bool:
         return bool(self._url)
 
-    def _call(self, name: str, arguments: dict) -> None:
+    def _call(self, name: str, arguments: dict) -> dict:
         if not self._url:
             raise RuntimeError("E2A_MONITOR_MCP_URL not configured")
         payload = json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+            {
+                "jsonrpc": "2.0",
+                "id": MCP_REQUEST_ID,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            }
         ).encode()
         req = urllib.request.Request(self._url, data=payload, method="POST")
         req.add_header("Authorization", f"Bearer {self._api_key}")
@@ -254,13 +343,12 @@ class McpStrategy:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:300]
             raise RuntimeError(f"mcp HTTP {exc.code}: {detail}") from exc
+        # _parse_jsonrpc_envelope already guarantees the returned frame
+        # matches our request id and carries a result or error — a malformed/
+        # incomplete/mismatched-id response raises there, before we get here.
         env = _parse_jsonrpc_envelope(raw, content_type)
         if env.get("error"):
             raise RuntimeError(f"mcp JSON-RPC error: {env['error']}")
-        if "result" not in env:
-            # Neither a JSON-RPC error nor a result — a malformed/incomplete
-            # response must not be silently treated as success.
-            raise RuntimeError(f"mcp response missing both result and error: {env}")
         result = env.get("result") or {}
         if result.get("isError"):
             text = ""
@@ -269,15 +357,33 @@ class McpStrategy:
                     text = block.get("text", "")
                     break
             raise RuntimeError(f"mcp tool error: {text}")
+        return result
+
+    @staticmethod
+    def _result_status(result: dict) -> Optional[str]:
+        """The tool's success text block is a JSON-stringified SendResultView
+        (mcp/src/tools/util.ts's runTool + toMcpOutput) — pull `status` out of
+        it so a held/failed send can be treated as a failure here too, not
+        just on the api/python_sdk/ts_sdk interfaces."""
+        for block in result.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                try:
+                    payload = json.loads(block.get("text", ""))
+                except ValueError:
+                    return None
+                if isinstance(payload, dict):
+                    return payload.get("status")
+        return None
 
     def send(self, *, agent_a: str, agent_b: str, subject: str, body: str) -> None:
-        self._call(
+        result = self._call(
             "send_message",
             {"to": [agent_b], "subject": subject, "text": body, "email": agent_a},
         )
+        _check_send_status("mcp", self._result_status(result))
 
     def reply(self, *, inbox: str, message_id: str, text: str, idempotency_key: str) -> None:
-        self._call(
+        result = self._call(
             "reply_to_message",
             {
                 "message_id": message_id,
@@ -286,10 +392,27 @@ class McpStrategy:
                 "idempotency_key": idempotency_key,
             },
         )
+        _check_send_status("mcp", self._result_status(result))
+
+
+# The full parent environment is never handed to a child: it would carry
+# E2A_MONITOR_WEBHOOK_SECRET (and anything else configured on this Cloud Run
+# service), which neither the ts_sdk helper nor the CLI needs — a dump-env-
+# to-stderr bug in either child could then leak it straight into a logged
+# monitor_error. Only PATH + HOME are passed through (verified sufficient to
+# run node: `env -i PATH="$PATH" HOME="$HOME" node -e '...'` works), merged
+# with the caller's explicit overrides (E2A_API_KEY + the base-url var).
+_MINIMAL_ENV_PASSTHROUGH = ("PATH", "HOME")
+
+
+def _minimal_env(env_overrides: dict) -> dict:
+    env = {name: os.environ[name] for name in _MINIMAL_ENV_PASSTHROUGH if name in os.environ}
+    env.update(env_overrides)
+    return env
 
 
 def _run_subprocess(argv: list[str], env_overrides: dict) -> str:
-    env = {**os.environ, **env_overrides}
+    env = _minimal_env(env_overrides)
     try:
         proc = subprocess.run(
             argv,
@@ -312,7 +435,12 @@ class TsSdkStrategy:
     embedding a JS runtime. Never workspace source: the helper imports
     `@e2a/sdk/v1` resolved from node_modules, populated at image build time by
     `npm install @e2a/sdk@5.2.0` (see Dockerfile), same discipline as
-    requirements.txt for the Python SDK."""
+    requirements.txt for the Python SDK.
+
+    Send-status handling lives in the helper itself, not here: it now checks
+    the same SEND_OK_STATUSES set (mirroring the CLI's emitSendResult) and
+    exits non-zero on a held/failed/unrecognized status, so `_run_subprocess`
+    raises uniformly with every other interface."""
 
     def __init__(self, base_url: str, api_key: str) -> None:
         # E2A_API_URL is the canonical name the TS SDK reads (client.ts);
@@ -410,7 +538,27 @@ def handle_tick() -> tuple[int, dict]:
             continue
         log("monitor_tick", iface=iface, nonce=nonce)
         results[iface] = {"ok": True, "nonce": nonce}
-    return 200, {"ok": all(r.get("ok") for r in results.values()), "results": results}
+
+    # Aggregate over CONSIDERED interfaces only — one that was skipped this
+    # tick (currently only `mcp` absent E2A_MONITOR_MCP_URL, a supported
+    # normal deployment) must not permanently pin `ok` to False even though
+    # every configured interface succeeded.
+    considered = [r for r in results.values() if not r.get("skipped")]
+    ok = bool(considered) and all(r.get("ok") for r in considered)
+    if not considered:
+        # Nothing configured to attempt this tick — vacuously nothing failed.
+        status_code = 200
+    elif ok:
+        status_code = 200
+    elif any(r.get("ok") for r in considered):
+        # Partial failure: some interfaces are broken, but not all — distinct
+        # from a total outage so an alert/dashboard can tell them apart.
+        status_code = 207
+    else:
+        # Total outage across every considered interface: Cloud Scheduler
+        # needs a non-2xx so a send-side blackout doesn't read as healthy.
+        status_code = 500
+    return status_code, {"ok": ok, "results": results}
 
 
 def handle_webhook(raw_body: bytes, signature: str) -> tuple[int, dict]:
@@ -447,7 +595,25 @@ def handle_webhook(raw_body: bytes, signature: str) -> tuple[int, dict]:
     match = NONCE_RE.search(email.subject or "")
     if not match:
         return 200, {"ok": True, "ignored": "not a probe"}
-    nonce, iface, sent_ms = match.group(0), match.group(1), int(match.group(2))
+    nonce, iface, sent_ms, rand_hex, received_tag = (
+        match.group(0),
+        match.group(1),
+        int(match.group(2)),
+        match.group(3),
+        match.group(4),
+    )
+
+    # Authenticate the nonce BEFORE acting on either leg: anyone who can email
+    # agent A can pick an iface/timestamp/16-hex suffix, but only this service
+    # (holder of NONCE_KEY) can produce the matching tag. This also
+    # authenticates sent_ms itself, so a forger can't mint a fresh-looking
+    # nonce to defeat the staleness guard below. Never log the key or the
+    # tag alongside anything that could reconstruct it.
+    expected_tag = _nonce_tag(iface, sent_ms, rand_hex)
+    if not hmac.compare_digest(expected_tag, received_tag):
+        log("monitor_error", stage="nonce_auth", iface=iface)
+        return 200, {"ok": True, "ignored": "bad nonce mac"}
+
     age_ms = int(time.time() * 1000) - sent_ms
 
     strategy = STRATEGIES.get(iface)

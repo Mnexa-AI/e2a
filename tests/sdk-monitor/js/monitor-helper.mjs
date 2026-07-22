@@ -23,6 +23,26 @@ function fail(message) {
   process.exit(1);
 }
 
+// Mirrors cli/src/commands/send.ts's emitSendResult: SendResultView.status is
+// an open set (api/openapi.yaml), and only "sent"/"accepted" are genuinely
+// successful outcomes. "pending_review" (held for review) and "failed" (or
+// any status this build doesn't recognize) must not be reported as success —
+// without this check the parent monitor.py (_run_subprocess) would see exit
+// 0 and log a held/failed send as monitor_tick success, only surfacing the
+// problem later as a monitor_stale timeout instead of an immediate
+// monitor_error(stage="send"/"reply").
+const SEND_OK_STATUSES = new Set(["sent", "accepted"]);
+
+function checkSendStatus(result) {
+  if (!SEND_OK_STATUSES.has(result?.status)) {
+    // process.exitCode (not process.exit()) so the stdout write below still
+    // flushes before the process exits — same reasoning as the CLI's
+    // emitSendResult.
+    process.stderr.write(`non-success send status: ${JSON.stringify(result?.status)}\n`);
+    process.exitCode = 1;
+  }
+}
+
 const apiKey = process.env.E2A_API_KEY;
 if (!apiKey) fail("missing E2A_API_KEY");
 
@@ -38,6 +58,7 @@ async function main() {
     }
     const result = await client.messages.send(from, { to: [to], subject, text: body });
     process.stdout.write(JSON.stringify(result) + "\n");
+    checkSendStatus(result);
     return;
   }
   if (cmd === "reply") {
@@ -48,6 +69,7 @@ async function main() {
     const opts = idempotencyKey ? { idempotencyKey } : {};
     const result = await client.messages.reply(inbox, messageId, { text }, opts);
     process.stdout.write(JSON.stringify(result) + "\n");
+    checkSendStatus(result);
     return;
   }
   fail(`unknown command: ${cmd ?? "(none)"}`);

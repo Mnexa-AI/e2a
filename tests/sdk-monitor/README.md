@@ -43,7 +43,15 @@ success log line, without silencing the other four.
   interface: mints a nonce that encodes the interface, sends
   `probe <nonce>` from agent A to agent B via that interface, and returns a
   per-interface summary. A single interface's send failure is logged
-  (`monitor_error`, `stage=send`) and does **not** abort the other four.
+  (`monitor_error`, `stage=send`) and does **not** abort the other four. The
+  response's `ok` boolean and HTTP status are computed over **considered**
+  interfaces only — one skipped this tick (currently only `mcp` absent
+  `E2A_MONITOR_MCP_URL`) doesn't count against the aggregate either way:
+  `200` when every considered interface succeeded, `207` when some but not
+  all did (partial failure), `500` when every considered interface failed
+  (total outage — a non-2xx so Cloud Scheduler doesn't read a full send-side
+  blackout as healthy). The per-interface `results` body always carries the
+  detail regardless of the aggregate.
 - **`POST /webhook`** (e2a delivers here — a real public HTTPS URL). This
   handler is the correlation hub and is itself the service's own
   infrastructure — verification and hydration always go through the
@@ -72,26 +80,57 @@ subprocesses rather than embedding a JS runtime elsewhere in the request path.
 
 ### Correlation, interface encoding, and stale replies
 
-The nonce is `e2asdkmon.<iface>.<epoch_ms>.<16 hex>`, where `<iface>` is one
-of `api`, `python_sdk`, `mcp`, `ts_sdk`, `cli`. The iface segment lets the
-webhook hub dispatch the reply leg to the exact interface that sent the
-probe — a `ts_sdk` outbound leg gets a `ts_sdk` reply, never a different
-interface silently substituting for it. `NONCE_RE` captures the iface
-generically (not hardcoded to the five known keys); a nonce naming an
+The nonce is `e2asdkmon.<iface>.<epoch_ms>.<16 hex>.<16 hex tag>`, where
+`<iface>` is one of `api`, `python_sdk`, `mcp`, `ts_sdk`, `cli`. The iface
+segment lets the webhook hub dispatch the reply leg to the exact interface
+that sent the probe — a `ts_sdk` outbound leg gets a `ts_sdk` reply, never a
+different interface silently substituting for it. `NONCE_RE` captures the
+iface generically (not hardcoded to the five known keys); a nonce naming an
 interface this build doesn't recognize is handled safely — logged
 (`monitor_error`, `stage=unknown_iface`) and ignored, never crashed on and
-never credited with a success. Older, pre-multi-interface nonces (no iface
-segment) simply don't match; there is no deployed consumer of that shape to
-stay compatible with.
+never credited with a success. Older, pre-multi-interface or pre-MAC nonces
+(no iface/tag segment) simply don't match; there is no deployed consumer of
+that shape to stay compatible with.
 
 The random suffix keeps concurrent probes distinct; the timestamp gives
-latency without storage. The leg is decided by `email.inbox` (the
-delivered-to agent), not by a `Re:` prefix, since subjects get rewritten in
-transit. None of the five interfaces sets a subject override on reply — every
-wire shape (the REST `ReplyRequest`, both SDKs' `reply()`, the CLI's `reply`
-subcommand, the MCP `reply_to_message` tool) derives it server-side as
-`Re: <original subject>`, which still satisfies `NONCE_RE.search()` since the
-nonce is a substring.
+latency without storage. The trailing `tag` is the first 16 hex chars of
+`HMAC-SHA256(NONCE_KEY, "e2asdkmon-nonce:<iface>.<epoch_ms>.<16 hex>")` —
+see "Nonce authentication" below; every leg of the round trip re-derives and
+constant-time-compares it before acting. The leg is decided by `email.inbox`
+(the delivered-to agent), not by a `Re:` prefix, since subjects get rewritten
+in transit. None of the five interfaces sets a subject override on reply —
+every wire shape (the REST `ReplyRequest`, both SDKs' `reply()`, the CLI's
+`reply` subcommand, the MCP `reply_to_message` tool) derives it server-side
+as `Re: <original subject>`, which still satisfies `NONCE_RE.search()` since
+the nonce is a substring.
+
+### Nonce authentication
+
+Without a MAC, the nonce is entirely attacker-choosable: anyone able to
+email agent A could pick any `iface`/timestamp/random suffix and forge a
+`monitor_ok{iface=X}` for a chosen interface, with no binding to a real
+`/tick`. `handle_webhook` closes this by re-deriving the expected tag from
+the parsed `iface`/`epoch_ms`/16-hex segments and comparing it to the
+received tag with `hmac.compare_digest` **before acting on either leg** — a
+mismatch is logged (`monitor_error`, `stage=nonce_auth`, never the key or the
+tag) and the request is treated as not-our-probe (`200`,
+`{"ignored": "bad nonce mac"}`): no reply is sent, no `monitor_ok` is
+emitted. This also authenticates `sent_ms` itself, so a forged nonce can't
+look artificially fresh to defeat the `MAX_AGE_MS` staleness guard.
+
+The signing key (`NONCE_KEY`) is `E2A_MONITOR_NONCE_SECRET` if set, else the
+already-required `E2A_MONITOR_WEBHOOK_SECRET` — no new required config.
+Reusing the webhook secret is safe: the fixed `e2asdkmon-nonce:` prefix in
+the signed message domain-separates this MAC from the webhook's own HMAC
+over the same value, so a forger who somehow obtained one signature could
+still not derive the other.
+
+**This is defense-in-depth, not the primary control.** The primary
+mitigation is infrastructure, not code — see "One-time setup" below: create
+agents A and B with an inbound allowlist naming only each other, so e2a
+rejects a third party's mail to them at the source, before it ever reaches
+this service. The signed nonce protects against the case where that
+allowlist is misconfigured or absent.
 
 A reply whose nonce timestamp is older than `E2A_MONITOR_MAX_AGE_MS` (default
 15 min) logs `monitor_stale` and **not** `monitor_ok`, so a redelivered or
@@ -116,10 +155,24 @@ labeled by `iface`:
 | `monitor_replied` | Inbound leg received and replied to, via `iface`. |
 | `monitor_stale` | A probe arrived past `MAX_AGE_MS` on `leg` (`outbound` or `reply`) for `iface`; not a success. |
 | `monitor_skip` | `iface` was skipped this tick because its config is absent (currently only `mcp` without `E2A_MONITOR_MCP_URL`). |
-| `monitor_error` | Failure, with `stage` = `config` \| `send` \| `signature` \| `hydrate` \| `reply` \| `unknown_iface`, and (where applicable) `iface`. |
+| `monitor_error` | Failure, with `stage` = `config` \| `send` \| `signature` \| `hydrate` \| `reply` \| `unknown_iface` \| `nonce_auth`, and (where applicable) `iface`. A `send`/`reply` failure includes a held (`pending_review`), terminal-`failed`, or unrecognized send-response `status` — see "Uniform send-status handling" below. |
 | `monitor_start` | Process start; lists the configured `ifaces` and whether `mcp` is configured. |
 
-Secret values are never logged — only env var *names* on a config failure.
+Secret values are never logged — only env var *names* on a config failure. A
+`nonce_auth` failure logs `iface` only, never the nonce-signing key or the
+received/expected tag.
+
+### Uniform send-status handling
+
+`SendResultView.status` (`api/openapi.yaml`) is an open string set; only
+`sent` and `accepted` are genuinely successful outcomes. Every interface —
+`api`, `python_sdk`, `mcp`, `ts_sdk` (checked in `js/monitor-helper.mjs`, the
+node helper it shells out to), and `cli` (via its own `emitSendResult`,
+`cli/src/commands/send.ts`) — treats `pending_review` (held for review),
+`failed` (terminal failure), and any status this build doesn't recognize as
+an immediate failure: `monitor_error(stage=send` or `reply)` at send/reply
+time, not a success logged now that only surfaces later as a
+`monitor_stale` timeout once the reply never arrives.
 
 ### Ops contract
 
@@ -139,7 +192,8 @@ All via environment.
 | `E2A_API_KEY` | yes | — | Account-scoped key owning both agents; shared by every interface. |
 | `E2A_MONITOR_AGENT_A` | yes | — | Sender; also receives the reply. |
 | `E2A_MONITOR_AGENT_B` | yes | — | Receiver; sends the reply. |
-| `E2A_MONITOR_WEBHOOK_SECRET` | yes | — | The `whsec_…` from the subscription. |
+| `E2A_MONITOR_WEBHOOK_SECRET` | yes | — | The `whsec_…` from the subscription. Also the nonce-signing key's fallback — see `E2A_MONITOR_NONCE_SECRET`. |
+| `E2A_MONITOR_NONCE_SECRET` | no | falls back to `E2A_MONITOR_WEBHOOK_SECRET` | Dedicated key for the nonce HMAC tag (see "Nonce authentication" above). Optional so protection never depends on an unset var — set it only if you want to rotate the nonce key independently of the webhook secret. |
 | `E2A_BASE_URL` | no | `https://api.e2a.dev` | API host, shared by `api`, `python_sdk`, `ts_sdk` (as `E2A_API_URL`), and `cli` (as `E2A_URL`). |
 | `E2A_MONITOR_MCP_URL` | no | — | Full streamable-HTTP MCP endpoint (e.g. `https://api.e2a.dev/mcp`), matching the prober's `E2A_PROBE_MCP_URL` convention. **Optional**: when unset, the `mcp` interface is skipped every tick (`monitor_skip`) instead of failing the whole service — see "Design decisions to review" below. |
 | `E2A_MONITOR_MAX_AGE_MS` | no | `900000` | Stale-reply cutoff. |
@@ -162,7 +216,15 @@ delivery.
 The service does **not** create its own webhook subscription — subscriptions
 are infrastructure, created once out of band:
 
-1. Create the two agents (A and B) on the monitoring account.
+1. Create the two agents (A and B) on the monitoring account, then set each
+   one's inbound protection to an allowlist naming only the other
+   (`inbound_gate_policy=allowlist`, `inbound_gate_allowlist=[the other
+   agent's address]`, `inbound_gate_action=block` or `review`). This is the
+   **primary** mitigation against a forged probe — e2a rejects (or holds)
+   any third-party inbound mail to A or B at the source, before it ever
+   reaches this service. The signed nonce (see "Nonce authentication" above)
+   is defense-in-depth for the case where this allowlist is misconfigured,
+   absent, or loosened later.
 2. Create an account-scoped webhook subscription pointing at the deployed
    service's `https://…/webhook`, via the e2a MCP `create_webhook` tool or the
    dashboard. The `whsec_…` secret is **shown only at creation** — capture it
@@ -211,15 +273,29 @@ E2A_MONITOR_WEBHOOK_SECRET=whsec_testsecret ./venv/bin/python test_monitor.py
 
 `test_monitor.py` is offline and dependency-free (no pytest): it covers
 signature accept/reject, replay rejection, fail-closed on an unset secret,
-non-inbound event types, the nonce↔iface encoding round trip for all five
-interfaces, the stale-reply guard on both legs, interface-strategy dispatch
-(a reply goes to the exact interface the nonce names, and no other), the
-unknown-iface safety net, and the `/tick` fan-out (one interface's failure
-doesn't abort the others; an unavailable interface is skipped, not attempted).
-Every interface's actual send/reply I/O is stubbed with fakes injected into
-`monitor.STRATEGIES` — no real network call, no real subprocess to node/npm.
-The live round trips are only exercisable against a real deployment with a
-reachable webhook URL.
+non-inbound event types, the nonce↔iface encoding round trip (including the
+HMAC tag) for all five interfaces, nonce-MAC authentication (a tampered
+iface/timestamp/tag is rejected — no reply, no `monitor_ok`; a pre-MAC
+3-part nonce doesn't even match), the stale-reply guard on both legs,
+interface-strategy dispatch (a reply goes to the exact interface the nonce
+names, and no other), the unknown-iface safety net, the `/tick` aggregate +
+status-code semantics (all-ok → 200, one optional interface skipped but the
+rest ok → 200, partial failure → 207, total outage across every considered
+interface → 500), uniform non-`sent`/`accepted` send-status handling across
+every offline-exercisable interface (a stubbed `pending_review`/`failed`
+response raises immediately rather than logging success-shaped), the wire
+shape of the `api`/`ts_sdk`/`cli` strategies (argv/URL/headers, and that
+secrets never land in argv), the minimal subprocess environment (the full
+parent env, including the webhook secret, is never handed to a node/CLI
+child), and `McpStrategy`'s JSON-RPC response parsing (SSE framing, a
+JSON-RPC error, a tool-level `isError`, a leading notification or
+mismatched-id frame that must be skipped rather than mistaken for the real
+response, and the malformed-response guard). Every interface's actual
+send/reply I/O is stubbed with fakes injected into `monitor.STRATEGIES`, or
+with `urllib.request.urlopen` / `subprocess.run` monkeypatched to
+capture/replay a call — no real network call, no real subprocess to
+node/npm. The live round trips are only exercisable against a real
+deployment with a reachable webhook URL.
 
 ## Design decisions to review
 
