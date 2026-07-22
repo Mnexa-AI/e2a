@@ -72,6 +72,12 @@ type MessageView struct {
 	// SentAs is the From identity actually used at relay accept time.
 	// Outbound-only; omitted on inbound messages.
 	SentAs string `json:"sent_as,omitempty" doc:"From identity used at relay accept time (outbound only). Open set; tolerate unknown values. Known values: own_address, relay."`
+	// ScheduledAt is the future instant a scheduled outbound send was queued to be
+	// submitted (migration 079). Set on outbound rows created with a future
+	// send_at and retained afterwards (it records the scheduled instant and is not
+	// cleared once the send fires); omitted for immediate sends and all inbound
+	// rows. delivery_status stays 'accepted' while scheduled.
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty" format:"date-time" doc:"Future instant a scheduled outbound send was queued to be submitted (outbound only; treat as \"not before\"). Set when the message was created with a future send_at and retained afterwards; omitted for immediate sends. Cancel a scheduled send by moving the message to trash."`
 	// Flagged + FlagReason carry the beta inbound ingestion verdict: true when
 	// the agent's inbound-policy gate flagged this message on arrival while still
 	// delivering it. Polling agents need this signal because no review item is
@@ -193,6 +199,7 @@ func messageViewFromIdentity(m *identity.Message) MessageView {
 		v.DeliveryStatus = m.DeliveryStatus
 		v.DeliveryDetail = m.DeliveryDetail
 		v.SentAs = m.SentAs
+		v.ScheduledAt = utcPtr(m.ScheduledAt)
 		// HITL lifecycle (status column) — outbound only, mirroring the summary
 		// view; on inbound rows `status` is not the HITL value (review F1).
 		v.HITLStatus = m.Status
