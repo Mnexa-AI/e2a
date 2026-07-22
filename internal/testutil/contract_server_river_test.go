@@ -3,13 +3,17 @@ package testutil
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestContractServerRepeatedStartClearsRiverStateAndPreservesMigrations(t *testing.T) {
+	dbURL := requireReachableContractTestDB(t)
 	ctx := context.Background()
-	first, err := StartContractServer(ctx, TestDBURL())
+	first, err := StartContractServer(ctx, dbURL)
 	if err != nil {
-		t.Skipf("contract server not available: %v", err)
+		t.Fatalf("start first contract server after successful DB preflight: %v", err)
 	}
 	t.Cleanup(func() { _ = first.Close(context.Background()) })
 
@@ -25,7 +29,7 @@ func TestContractServerRepeatedStartClearsRiverStateAndPreservesMigrations(t *te
 	}
 	_ = first.Close(ctx)
 
-	second, err := StartContractServer(ctx, TestDBURL())
+	second, err := StartContractServer(ctx, dbURL)
 	if err != nil {
 		t.Fatalf("restart contract server: %v", err)
 	}
@@ -44,4 +48,28 @@ func TestContractServerRepeatedStartClearsRiverStateAndPreservesMigrations(t *te
 	if migrationCountAfter != migrationCount {
 		t.Fatalf("River migration ledger count after restart = %d, want %d", migrationCountAfter, migrationCount)
 	}
+}
+
+// requireReachableContractTestDB is the test's only skip gate. Once this ping
+// succeeds, migration, River reset, and server startup errors are regressions
+// and the caller must fail rather than classifying them as DB unavailability.
+func requireReachableContractTestDB(t *testing.T) string {
+	t.Helper()
+	dbURL := TestDBURL()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	config, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		t.Fatalf("parse E2A_TEST_DATABASE_URL: %v", err)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("open E2A_TEST_DATABASE_URL pool: %v", err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("private test database unavailable: %v", err)
+	}
+	return dbURL
 }
