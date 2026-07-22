@@ -293,6 +293,154 @@ func TestMessageLifecycleDirectSQLDirectionInvariant(t *testing.T) {
 	assertConstraintError(t, err, "message_direction_matches_lifecycle")
 }
 
+func TestMessageLifecycleDirectionConcurrencyChildFirst(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pool := testutil.TestDB(t)
+	const messageID = "msg_direction_child_first"
+	insertLifecycleMessage(t, pool, messageID, "outbound")
+
+	childTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = childTx.Rollback(context.Background()) }()
+	if _, err := childTx.Exec(ctx, `
+		INSERT INTO message_lifecycle_transitions
+			(id, message_id, dedupe_key, direction, stage, outcome, reason_code, retryable, occurred_at)
+		VALUES ('mlt_direction_child_first', $1, 'acceptance', 'outbound',
+		        'accepted', 'accepted', 'acceptance.outbound_api', false, now())
+	`, messageID); err != nil {
+		t.Fatalf("insert child before race: %v", err)
+	}
+
+	parentDone := make(chan error, 1)
+	parentStarted := make(chan struct{})
+	go func() {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			parentDone <- err
+			return
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		close(parentStarted)
+		if _, err = tx.Exec(ctx, `UPDATE messages SET direction='inbound' WHERE id=$1`, messageID); err != nil {
+			parentDone <- err
+			return
+		}
+		parentDone <- tx.Commit(ctx)
+	}()
+	select {
+	case <-parentStarted:
+	case err := <-parentDone:
+		_ = childTx.Rollback(ctx)
+		t.Fatalf("start parent update: %v", err)
+	case <-ctx.Done():
+		t.Fatal("parent update did not start")
+	}
+
+	select {
+	case err := <-parentDone:
+		_ = childTx.Rollback(ctx)
+		t.Fatalf("parent update completed before child transaction released its lock: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := childTx.Commit(ctx); err != nil {
+		t.Fatalf("commit child transaction: %v", err)
+	}
+	select {
+	case err := <-parentDone:
+		assertConstraintError(t, err, "message_direction_matches_lifecycle")
+	case <-ctx.Done():
+		t.Fatal("parent update deadlocked after child commit")
+	}
+	assertNoLifecycleDirectionMismatch(t, pool, messageID)
+}
+
+func TestMessageLifecycleDirectionConcurrencyParentFirst(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pool := testutil.TestDB(t)
+	const messageID = "msg_direction_parent_first"
+	insertLifecycleMessage(t, pool, messageID, "outbound")
+
+	parentTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = parentTx.Rollback(context.Background()) }()
+	if _, err := parentTx.Exec(ctx, `UPDATE messages SET direction='inbound' WHERE id=$1`, messageID); err != nil {
+		t.Fatalf("update parent before race: %v", err)
+	}
+
+	childDone := make(chan error, 1)
+	childStarted := make(chan struct{})
+	go func() {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			childDone <- err
+			return
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		close(childStarted)
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO message_lifecycle_transitions
+				(id, message_id, dedupe_key, direction, stage, outcome, reason_code, retryable, occurred_at)
+			VALUES ('mlt_direction_parent_first', $1, 'acceptance', 'outbound',
+			        'accepted', 'accepted', 'acceptance.outbound_api', false, now())
+		`, messageID); err != nil {
+			childDone <- err
+			return
+		}
+		childDone <- tx.Commit(ctx)
+	}()
+	select {
+	case <-childStarted:
+	case err := <-childDone:
+		_ = parentTx.Rollback(ctx)
+		t.Fatalf("start child insert: %v", err)
+	case <-ctx.Done():
+		t.Fatal("child insert did not start")
+	}
+
+	select {
+	case err := <-childDone:
+		_ = parentTx.Rollback(ctx)
+		t.Fatalf("child insert completed before parent transaction released its lock: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := parentTx.Commit(ctx); err != nil {
+		t.Fatalf("commit parent transaction: %v", err)
+	}
+	select {
+	case err := <-childDone:
+		assertDirectionConstraintError(t, err)
+	case <-ctx.Done():
+		t.Fatal("child insert deadlocked after parent commit")
+	}
+	assertNoLifecycleDirectionMismatch(t, pool, messageID)
+}
+
+func assertNoLifecycleDirectionMismatch(t *testing.T, pool *pgxpool.Pool, messageID string) {
+	t.Helper()
+	var mismatches int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT count(*)
+		FROM message_lifecycle_transitions l
+		JOIN messages m ON m.id = l.message_id
+		WHERE m.id = $1 AND l.direction IS DISTINCT FROM m.direction
+	`, messageID).Scan(&mismatches); err != nil {
+		t.Fatal(err)
+	}
+	if mismatches != 0 {
+		t.Fatalf("message %s has %d contradictory lifecycle rows", messageID, mismatches)
+	}
+}
+
 func assertDirectionConstraintError(t *testing.T, err error) {
 	t.Helper()
 	assertConstraintError(t, err, "message_lifecycle_direction_matches_message")

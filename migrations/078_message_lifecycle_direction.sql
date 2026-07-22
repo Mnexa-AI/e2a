@@ -14,7 +14,8 @@ BEGIN
     SELECT direction
       INTO owning_direction
       FROM messages
-     WHERE id = NEW.message_id;
+     WHERE id = NEW.message_id
+       FOR NO KEY UPDATE;
 
     IF FOUND AND NEW.direction IS DISTINCT FROM owning_direction THEN
         RAISE EXCEPTION USING
@@ -34,6 +35,15 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Parent updates and child writes serialize on this exact message row.
+    -- Row locks are transaction-scoped and collision-free, unlike a hashed
+    -- advisory-lock key. UPDATE already owns this lock; the explicit acquire
+    -- documents and preserves the shared protocol if trigger timing changes.
+    PERFORM 1
+      FROM messages
+     WHERE id = OLD.id
+       FOR NO KEY UPDATE;
+
     IF NEW.direction IS DISTINCT FROM OLD.direction
        AND EXISTS (
            SELECT 1
