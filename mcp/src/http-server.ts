@@ -131,7 +131,8 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
   //      or any deployment behind a fronting proxy that knows its own
   //      external URL better than we do).
   //   2. unset + Host header present + Host in allowlist: synthesize the URL
-  //      from the trusted request protocol and Host.
+  //      from Host, forcing https for non-loopback hosts while preserving the
+  //      trusted request protocol for loopback development.
   //   3. unset + Host missing/disallowed: caller wrapped function
   //      rejects with 421 before reaching here.
   const resolveResourceUrl = (req: Request): string | null => {

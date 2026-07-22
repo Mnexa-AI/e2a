@@ -36,6 +36,41 @@ function getJsonWithHost(
   });
 }
 
+function postJsonWithHost(
+  port: number,
+  path: string,
+  host: string,
+  body: unknown,
+): Promise<{ statusCode?: number; wwwAuthenticate?: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path,
+        method: "POST",
+        headers: {
+          Host: host,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () => {
+          const challenge = res.headers["www-authenticate"];
+          resolve({
+            statusCode: res.statusCode,
+            wwwAuthenticate: Array.isArray(challenge) ? challenge.join(", ") : challenge,
+          });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(JSON.stringify(body));
+  });
+}
+
 // Stub the McpClient wrapper — only the methods the tools and the
 // session prefetch (listAgents / agentEmail) actually touch. List
 // methods return flat arrays (the wrapper collapses the SDK pager).
@@ -326,6 +361,21 @@ describe("HTTP MCP server", () => {
       "api.e2a.dev",
     );
     expect(body.resource).toBe("https://api.e2a.dev");
+
+    const challenge = await postJsonWithHost(port, "/mcp", "api.e2a.dev", {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "x", version: "0" },
+      },
+    });
+    expect(challenge.statusCode).toBe(401);
+    expect(challenge.wwwAuthenticate).toContain(
+      'resource_metadata="https://api.e2a.dev/.well-known/oauth-protected-resource"',
+    );
   });
 
   it("lists every registered tool after initialize", async () => {
