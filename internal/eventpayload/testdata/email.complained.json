@@ -9,6 +9,26 @@
     "direction": "outbound",
     "delivered_to": "carol@customer.example.com",
     "subject": "Re: Order #1234 delayed",
-    "smtp_detail": "abuse"
+    "smtp_detail": "abuse",
+    "lifecycle_transitions": [
+      {
+        "id": "mlt_complained",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp44",
+        "direction": "outbound",
+        "recipient": "carol@customer.example.com",
+        "stage": "complaint",
+        "outcome": "reported",
+        "reason_code": "complaint.recipient_reported",
+        "retryable": false,
+        "evidence": {
+          "smtp_detail": "abuse"
+        },
+        "correlation_ids": {
+          "event_id": "evt_fixture_source"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      }
+    ]
   }
 }

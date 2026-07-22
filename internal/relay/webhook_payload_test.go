@@ -128,6 +128,11 @@ func TestBuildEmailReceivedPayload_Golden(t *testing.T) {
 		receivedAt,
 		eventpayload.AttachmentMetadata(raw),
 	)
+	var canonical eventpayload.EmailReceivedData
+	goldenassert.DecodeData(t, "../eventpayload/testdata/email.received.json", &canonical)
+	// The transaction appends these rows before publishing and attaches the
+	// exact returned values; this pure payload helper must not reconstruct them.
+	payload.LifecycleTransitions = canonical.LifecycleTransitions
 	goldenassert.Data(t, "../eventpayload/testdata/email.received.json", payload)
 }
 

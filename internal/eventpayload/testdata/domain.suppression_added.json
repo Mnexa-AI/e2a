@@ -7,6 +7,27 @@
     "address": "bob@customer.example.com",
     "source": "bounce",
     "reason": "550 5.1.1 no such user",
-    "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp44"
+    "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp44",
+    "lifecycle_transitions": [
+      {
+        "id": "mlt_suppressed",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp44",
+        "direction": "outbound",
+        "recipient": "bob@customer.example.com",
+        "stage": "suppression",
+        "outcome": "applied",
+        "reason_code": "suppression.hard_bounce_applied",
+        "retryable": false,
+        "evidence": {
+          "suppression_scope": "account",
+          "suppression_source": "bounce"
+        },
+        "correlation_ids": {
+          "event_id": "evt_fixture_source"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      }
+    ]
   }
 }

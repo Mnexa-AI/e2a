@@ -1,11 +1,17 @@
 package webhookpub_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/tokencanopy/e2a/internal/agent"
+	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -250,4 +256,76 @@ func TestOutbox_Integration_RelayTxShape(t *testing.T) {
 			t.Errorf("messages count = %d, want 0 (atomicity broken — outbox failure should roll back messages)", msgCount)
 		}
 	})
+}
+
+func TestOutboxCrossChannelLifecycleEnvelopeIsImmutable(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, err := store.CreateOrGetUser(ctx, "cross-channel@example.com", "Cross Channel", "g-cross-channel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	webhook, err := store.CreateWebhook(ctx, user.ID, "https://example.com/cross-channel", "", []string{webhookpub.EventEmailDelivered}, identity.WebhookFilters{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition := messagelifecycle.MessageLifecycleTransition{
+		ID: "mlt_cross_channel", MessageID: "msg_cross_channel", Direction: "outbound",
+		Recipient: "recipient@example.com", Stage: messagelifecycle.StageDelivery,
+		Outcome: messagelifecycle.OutcomeDelivered, ReasonCode: messagelifecycle.ReasonDeliveryRecipientServerAccepted,
+		Evidence: map[string]any{"smtp_detail": "250 accepted"}, CorrelationIDs: map[string]string{"provider_event_id": "sns_cross_channel"},
+		OccurredAt: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC),
+	}
+	event := webhookpub.NewEvent(webhookpub.EventEmailDelivered, user.ID, eventpayload.EmailDeliveredData{
+		MessageID: "msg_cross_channel", AgentEmail: "agent@example.com", Direction: "outbound",
+		DeliveredTo: "recipient@example.com", LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{transition},
+	})
+	event.ID = webhookpub.DeterministicEventID("msg_cross_channel", webhookpub.EventEmailDelivered)
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error { return outbox.PublishTx(ctx, tx, event) }); err != nil {
+		t.Fatal(err)
+	}
+
+	var storedEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE id=$1`, event.ID).Scan(&storedEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	rest, err := agent.GetEventForUser(ctx, pool, user.ID, event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(storedEnvelope, &stored); err != nil {
+		t.Fatal(err)
+	}
+	restData, _ := json.Marshal(rest.Data)
+	storedData, _ := json.Marshal(stored.Data)
+	if !bytes.Equal(restData, storedData) {
+		t.Fatalf("REST event data differs from stored webhook data\nREST: %s\nstored: %s", restData, storedData)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE webhook_events SET matched_webhook_ids=ARRAY[$2] WHERE id=$1`, event.ID, webhook.ID); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := agent.LoadReplayEvent(ctx, pool, user.ID, event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(replay.Envelope, storedEnvelope) {
+		t.Fatal("redelivery loader rebuilt the stored envelope")
+	}
+	deliveryID, err := agent.InsertReplayDelivery(ctx, pool, event.ID, webhook.ID, replay.EventType, replay.MessageID, replay.Envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replayedEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT event_payload FROM webhook_subscriber_deliveries WHERE id=$1`, deliveryID).Scan(&replayedEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(replayedEnvelope, storedEnvelope) {
+		t.Fatalf("redelivery payload changed original stored bytes\nstored: %s\nreplay: %s", storedEnvelope, replayedEnvelope)
+	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
 
@@ -22,6 +23,23 @@ var update = flag.Bool("update", false, "regenerate the golden payload fixtures 
 // fixture. Nanosecond precision on purpose — it locks the RFC3339Nano wire
 // format of created_at/received_at.
 var fixtureCreatedAt = time.Date(2026, 7, 1, 10, 30, 0, 123456789, time.UTC)
+
+func fixtureTransition(id, messageID, direction, recipient string, reason messagelifecycle.ReasonCode, evidence map[string]any) messagelifecycle.MessageLifecycleTransition {
+	definition, ok := messagelifecycle.Lookup(reason)
+	if !ok {
+		panic("unknown fixture reason " + reason)
+	}
+	if evidence == nil {
+		evidence = map[string]any{}
+	}
+	return messagelifecycle.MessageLifecycleTransition{
+		ID: id, MessageID: messageID, Direction: direction, Recipient: recipient,
+		Stage: definition.Stage, Outcome: definition.Outcome, ReasonCode: reason,
+		Retryable: definition.Retryable, Evidence: evidence,
+		CorrelationIDs: map[string]string{"event_id": "evt_fixture_source"},
+		OccurredAt:     fixtureCreatedAt, Reconstructed: false,
+	}
+}
 
 // canonicalEvents returns one fully-populated canonical event per STABLE
 // event type — the single source of truth the fixtures are generated from.
@@ -38,6 +56,17 @@ func canonicalEvents() []struct {
 	spfDomain := "customer.example.com"
 	spfAligned := true
 	policy := emailauth.DMARCPolicyReject
+	retryableFalse := false
+	receivedTransitions := []messagelifecycle.MessageLifecycleTransition{
+		fixtureTransition("mlt_received_accept", "msg_01h2xcejqtf2nbrexx3vqjhp41", "inbound", "", messagelifecycle.ReasonAcceptanceInboundSMTP, map[string]any{"source": "smtp"}),
+		fixtureTransition("mlt_received_auth", "msg_01h2xcejqtf2nbrexx3vqjhp41", "inbound", "", messagelifecycle.ReasonAuthenticationDMARCPass, nil),
+	}
+	sentTransition := fixtureTransition("mlt_sent", "msg_01h2xcejqtf2nbrexx3vqjhp42", "outbound", "", messagelifecycle.ReasonSubmissionUpstreamAccepted, nil)
+	failedTransition := fixtureTransition("mlt_failed", "msg_01h2xcejqtf2nbrexx3vqjhp43", "outbound", "", messagelifecycle.ReasonSubmissionProviderRejected, map[string]any{"failure_code": "submission.provider_rejected", "failure_reason": "550 5.1.1 user unknown"})
+	deliveredTransition := fixtureTransition("mlt_delivered", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "alice@customer.example.com", messagelifecycle.ReasonDeliveryRecipientServerAccepted, nil)
+	bouncedTransition := fixtureTransition("mlt_bounced", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "bob@customer.example.com", messagelifecycle.ReasonDeliveryPermanentBounce, map[string]any{"bounce_type": "permanent", "bounce_sub_type": "General", "smtp_detail": "550 5.1.1 no such user"})
+	complainedTransition := fixtureTransition("mlt_complained", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "carol@customer.example.com", messagelifecycle.ReasonComplaintRecipientReported, map[string]any{"smtp_detail": "abuse"})
+	suppressionTransition := fixtureTransition("mlt_suppressed", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "bob@customer.example.com", messagelifecycle.ReasonSuppressionHardBounceApplied, map[string]any{"suppression_scope": "account", "suppression_source": "bounce"})
 	return []struct {
 		fixture string
 		event   webhookpub.Event
@@ -70,6 +99,7 @@ func canonicalEvents() []struct {
 					Attachments: []eventpayload.AttachmentMetaView{
 						{Filename: "invoice.pdf", ContentType: "application/pdf", SizeBytes: 12345, Index: 0},
 					},
+					LifecycleTransitions: receivedTransitions,
 				},
 			},
 		},
@@ -80,18 +110,19 @@ func canonicalEvents() []struct {
 				Type:      webhookpub.EventEmailSent,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.EmailSentData{
-					MessageID:         "msg_01h2xcejqtf2nbrexx3vqjhp42",
-					AgentEmail:        "support@agents.example.com",
-					Direction:         "outbound",
-					ConversationID:    "conv_9f8e7d6c",
-					ProviderMessageID: "0100019283abcdef-1a2b3c4d-0000",
-					Method:            "smtp",
-					From:              "support@agents.example.com",
-					To:                []string{"alice@customer.example.com"},
-					CC:                []string{"ops@customer.example.com"},
-					BCC:               []string{"audit@agents.example.com"},
-					Subject:           "Re: Order #1234 delayed",
-					MessageType:       "reply",
+					MessageID:            "msg_01h2xcejqtf2nbrexx3vqjhp42",
+					AgentEmail:           "support@agents.example.com",
+					Direction:            "outbound",
+					ConversationID:       "conv_9f8e7d6c",
+					ProviderMessageID:    "0100019283abcdef-1a2b3c4d-0000",
+					Method:               "smtp",
+					From:                 "support@agents.example.com",
+					To:                   []string{"alice@customer.example.com"},
+					CC:                   []string{"ops@customer.example.com"},
+					BCC:                  []string{"audit@agents.example.com"},
+					Subject:              "Re: Order #1234 delayed",
+					MessageType:          "reply",
+					LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{sentTransition},
 				},
 			},
 		},
@@ -102,21 +133,21 @@ func canonicalEvents() []struct {
 				Type:      webhookpub.EventEmailFailed,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.EmailFailedData{
-					MessageID:      "msg_01h2xcejqtf2nbrexx3vqjhp43",
-					AgentEmail:     "support@agents.example.com",
-					Direction:      "outbound",
-					ConversationID: "conv_9f8e7d6c",
-					Method:         "smtp",
-					From:           "support@agents.example.com",
-					To:             []string{"alice@customer.example.com"},
-					CC:             []string{"ops@customer.example.com"},
-					BCC:            []string{"audit@agents.example.com"},
-					Subject:        "Re: Order #1234 delayed",
-					MessageType:    "send",
-					Reason:         "550 5.1.1 user unknown",
-					// reason_code / retryable are omitted: the async send worker
-					// (today's only email.failed emitter) has no classification
-					// beyond the diagnostic string. The schema keeps both fields.
+					MessageID:            "msg_01h2xcejqtf2nbrexx3vqjhp43",
+					AgentEmail:           "support@agents.example.com",
+					Direction:            "outbound",
+					ConversationID:       "conv_9f8e7d6c",
+					Method:               "smtp",
+					From:                 "support@agents.example.com",
+					To:                   []string{"alice@customer.example.com"},
+					CC:                   []string{"ops@customer.example.com"},
+					BCC:                  []string{"audit@agents.example.com"},
+					Subject:              "Re: Order #1234 delayed",
+					MessageType:          "send",
+					Reason:               "550 5.1.1 user unknown",
+					ReasonCode:           string(messagelifecycle.ReasonSubmissionProviderRejected),
+					Retryable:            &retryableFalse,
+					LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{failedTransition},
 				},
 			},
 		},
@@ -127,11 +158,12 @@ func canonicalEvents() []struct {
 				Type:      webhookpub.EventEmailDelivered,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.EmailDeliveredData{
-					MessageID:   "msg_01h2xcejqtf2nbrexx3vqjhp44",
-					AgentEmail:  "support@agents.example.com",
-					Direction:   "outbound",
-					DeliveredTo: "alice@customer.example.com",
-					Subject:     "Re: Order #1234 delayed",
+					MessageID:            "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					AgentEmail:           "support@agents.example.com",
+					Direction:            "outbound",
+					DeliveredTo:          "alice@customer.example.com",
+					Subject:              "Re: Order #1234 delayed",
+					LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{deliveredTransition},
 					// smtp_detail omitted: SES Delivery notifications carry no
 					// per-recipient diagnostic.
 				},
@@ -144,14 +176,15 @@ func canonicalEvents() []struct {
 				Type:      webhookpub.EventEmailBounced,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.EmailBouncedData{
-					MessageID:     "msg_01h2xcejqtf2nbrexx3vqjhp44",
-					AgentEmail:    "support@agents.example.com",
-					Direction:     "outbound",
-					DeliveredTo:   "bob@customer.example.com",
-					Subject:       "Re: Order #1234 delayed",
-					SMTPDetail:    "550 5.1.1 no such user",
-					BounceType:    "permanent",
-					BounceSubType: "General",
+					MessageID:            "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					AgentEmail:           "support@agents.example.com",
+					Direction:            "outbound",
+					DeliveredTo:          "bob@customer.example.com",
+					Subject:              "Re: Order #1234 delayed",
+					SMTPDetail:           "550 5.1.1 no such user",
+					BounceType:           "permanent",
+					BounceSubType:        "General",
+					LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{bouncedTransition},
 				},
 			},
 		},
@@ -162,12 +195,13 @@ func canonicalEvents() []struct {
 				Type:      webhookpub.EventEmailComplained,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.EmailComplainedData{
-					MessageID:   "msg_01h2xcejqtf2nbrexx3vqjhp44",
-					AgentEmail:  "support@agents.example.com",
-					Direction:   "outbound",
-					DeliveredTo: "carol@customer.example.com",
-					Subject:     "Re: Order #1234 delayed",
-					SMTPDetail:  "abuse",
+					MessageID:            "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					AgentEmail:           "support@agents.example.com",
+					Direction:            "outbound",
+					DeliveredTo:          "carol@customer.example.com",
+					Subject:              "Re: Order #1234 delayed",
+					SMTPDetail:           "abuse",
+					LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{complainedTransition},
 				},
 			},
 		},
@@ -205,10 +239,11 @@ func canonicalEvents() []struct {
 				Type:      webhookpub.EventDomainSuppressionAdded,
 				CreatedAt: fixtureCreatedAt,
 				Data: eventpayload.DomainSuppressionAddedData{
-					Address:   "bob@customer.example.com",
-					Source:    "bounce",
-					Reason:    "550 5.1.1 no such user",
-					MessageID: "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					Address:              "bob@customer.example.com",
+					Source:               "bounce",
+					Reason:               "550 5.1.1 no such user",
+					MessageID:            "msg_01h2xcejqtf2nbrexx3vqjhp44",
+					LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{suppressionTransition},
 				},
 			},
 		},

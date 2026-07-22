@@ -29,13 +29,14 @@ type fakeConsumerStore struct {
 	suppressErr error
 	addSuppErr  error
 	alreadySupp map[string]bool // (user|address) already suppressed → added=false
+	lifecycle   map[messagelifecycle.ReasonCode]messagelifecycle.MessageLifecycleTransition
 	pending     bool
 	applicable  bool
 	preflights  int
 }
 
 func newFakeConsumerStore() *fakeConsumerStore {
-	return &fakeConsumerStore{corr: map[string]*CorrelatedMessage{}, corrByE2A: map[string]*CorrelatedMessage{}, suppressed: map[string]bool{}, alreadySupp: map[string]bool{}, applicable: true}
+	return &fakeConsumerStore{corr: map[string]*CorrelatedMessage{}, corrByE2A: map[string]*CorrelatedMessage{}, suppressed: map[string]bool{}, alreadySupp: map[string]bool{}, lifecycle: map[messagelifecycle.ReasonCode]messagelifecycle.MessageLifecycleTransition{}, applicable: true}
 }
 
 func (f *fakeConsumerStore) CorrelateBySESMessageID(ctx context.Context, id string) (*CorrelatedMessage, bool, error) {
@@ -78,6 +79,9 @@ func (f *fakeConsumerStore) AddSuppressionTx(ctx context.Context, _ pgx.Tx, user
 	return "supp_fake", added, err
 }
 func (f *fakeConsumerStore) AppendLifecycleTx(_ context.Context, _ pgx.Tx, input messagelifecycle.AppendInput) (messagelifecycle.MessageLifecycleTransition, error) {
+	if transition, ok := f.lifecycle[input.ReasonCode]; ok {
+		return transition, nil
+	}
 	transition, err := messagelifecycle.NewTransition(input)
 	transition.ID = "mlt_fake"
 	return transition, err
@@ -541,10 +545,23 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 		subject = "Re: Order #1234 delayed"
 		fixture = "../eventpayload/testdata/"
 	)
+	var deliveredGolden eventpayload.EmailDeliveredData
+	var bouncedGolden eventpayload.EmailBouncedData
+	var complainedGolden eventpayload.EmailComplainedData
+	var suppressionGolden eventpayload.DomainSuppressionAddedData
+	var failedGolden eventpayload.EmailFailedData
+	goldenassert.DecodeData(t, fixture+"email.delivered.json", &deliveredGolden)
+	goldenassert.DecodeData(t, fixture+"email.bounced.json", &bouncedGolden)
+	goldenassert.DecodeData(t, fixture+"email.complained.json", &complainedGolden)
+	goldenassert.DecodeData(t, fixture+"domain.suppression_added.json", &suppressionGolden)
+	goldenassert.DecodeData(t, fixture+"email.failed.json", &failedGolden)
 
-	fireGolden := func(sesEvent *Event) *[]firedEvent {
+	fireGolden := func(sesEvent *Event, transitions ...messagelifecycle.MessageLifecycleTransition) *[]firedEvent {
 		t.Helper()
 		store := newFakeConsumerStore()
+		for _, transition := range transitions {
+			store.lifecycle[transition.ReasonCode] = transition
+		}
 		store.corr["ses-golden"] = &CorrelatedMessage{MessageID: msgID, UserID: userID, AgentID: agent, Subject: subject}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
@@ -558,7 +575,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 		events := fireGolden(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindDelivery, SESMessageID: "ses-golden",
 			Recipients: []RecipientOutcome{{Address: "alice@customer.example.com", Status: StatusDelivered}},
-		})
+		}, deliveredGolden.LifecycleTransitions...)
 		goldenassert.Data(t, fixture+"email.delivered.json", (*events)[0].data)
 	})
 
@@ -570,7 +587,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 				Address: "bob@customer.example.com", Status: StatusBounced,
 				Detail: "550 5.1.1 no such user", Suppress: true,
 			}},
-		})
+		}, append(bouncedGolden.LifecycleTransitions, suppressionGolden.LifecycleTransitions...)...)
 		if len(*events) != 2 {
 			t.Fatalf("expected bounced + suppression, got %v", *events)
 		}
@@ -582,7 +599,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 		events := fireGolden(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindComplaint, SESMessageID: "ses-golden",
 			Recipients: []RecipientOutcome{{Address: "carol@customer.example.com", Status: StatusComplained, Detail: "abuse"}},
-		})
+		}, complainedGolden.LifecycleTransitions...)
 		goldenassert.Data(t, fixture+"email.complained.json", (*events)[0].data)
 	})
 
@@ -608,7 +625,9 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 			Kind: KindDelivery, SESMessageID: "ses-golden-min",
 			Recipients: []RecipientOutcome{{Address: "alice@customer.example.com", Status: StatusDelivered}},
 		})
-		goldenassert.Data(t, fixture+"email.delivered.min.json", (*events)[0].data)
+		data := (*events)[0].data.(eventpayload.EmailDeliveredData)
+		data.LifecycleTransitions = nil // historical/minimal fixture proves optional absence
+		goldenassert.Data(t, fixture+"email.delivered.min.json", data)
 	})
 
 	t.Run("email.bounced minimal", func(t *testing.T) {
@@ -617,7 +636,9 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 			BounceType: "permanent",
 			Recipients: []RecipientOutcome{{Address: "bob@customer.example.com", Status: StatusBounced}},
 		})
-		goldenassert.Data(t, fixture+"email.bounced.min.json", (*events)[0].data)
+		data := (*events)[0].data.(eventpayload.EmailBouncedData)
+		data.LifecycleTransitions = nil // historical/minimal fixture proves optional absence
+		goldenassert.Data(t, fixture+"email.bounced.min.json", data)
 	})
 
 	t.Run("email.complained minimal", func(t *testing.T) {
@@ -625,7 +646,9 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 			Kind: KindComplaint, SESMessageID: "ses-golden-min",
 			Recipients: []RecipientOutcome{{Address: "carol@customer.example.com", Status: StatusComplained}},
 		})
-		goldenassert.Data(t, fixture+"email.complained.min.json", (*events)[0].data)
+		data := (*events)[0].data.(eventpayload.EmailComplainedData)
+		data.LifecycleTransitions = nil // historical/minimal fixture proves optional absence
+		goldenassert.Data(t, fixture+"email.complained.min.json", data)
 	})
 
 	// email.failed via SES Reject must byte-match the SAME committed fixtures
@@ -634,6 +657,9 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 	// there is exactly one canonical email.failed shape, whichever path emits it.
 	t.Run("email.failed via SES Reject", func(t *testing.T) {
 		store := newFakeConsumerStore()
+		for _, transition := range failedGolden.LifecycleTransitions {
+			store.lifecycle[transition.ReasonCode] = transition
+		}
 		store.corr["ses-golden-reject"] = &CorrelatedMessage{
 			MessageID:      "msg_01h2xcejqtf2nbrexx3vqjhp43",
 			UserID:         userID,
@@ -687,7 +713,11 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		goldenassert.Data(t, fixture+"email.failed.min.json", (*events)[0].data)
+		data := (*events)[0].data.(eventpayload.EmailFailedData)
+		data.LifecycleTransitions = nil // historical/minimal fixture proves optional absence
+		data.ReasonCode = ""
+		data.Retryable = nil
+		goldenassert.Data(t, fixture+"email.failed.min.json", data)
 	})
 }
 

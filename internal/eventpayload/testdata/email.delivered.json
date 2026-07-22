@@ -8,6 +8,24 @@
     "agent_email": "support@agents.example.com",
     "direction": "outbound",
     "delivered_to": "alice@customer.example.com",
-    "subject": "Re: Order #1234 delayed"
+    "subject": "Re: Order #1234 delayed",
+    "lifecycle_transitions": [
+      {
+        "id": "mlt_delivered",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp44",
+        "direction": "outbound",
+        "recipient": "alice@customer.example.com",
+        "stage": "delivery",
+        "outcome": "delivered",
+        "reason_code": "delivery.recipient_server_accepted",
+        "retryable": false,
+        "evidence": {},
+        "correlation_ids": {
+          "event_id": "evt_fixture_source"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      }
+    ]
   }
 }

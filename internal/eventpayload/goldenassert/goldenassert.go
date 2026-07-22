@@ -44,3 +44,23 @@ func Data(t *testing.T, path string, got any) {
 		t.Errorf("payload drifted from golden fixture %s\n got: %s\nwant: %s", path, gotJSON, want.Bytes())
 	}
 }
+
+// DecodeData unmarshals a fixture's canonical data document into dst. Producer
+// tests use this to feed the exact canonical lifecycle rows into builders: the
+// builder must preserve persisted rows, not reconstruct a lookalike payload.
+func DecodeData(t *testing.T, path string, dst any) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden fixture %s: %v", path, err)
+	}
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("parse golden fixture %s: %v", path, err)
+	}
+	if err := json.Unmarshal(envelope.Data, dst); err != nil {
+		t.Fatalf("decode golden fixture data %s: %v", path, err)
+	}
+}

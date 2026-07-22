@@ -21,6 +21,23 @@
       "audit@agents.example.com"
     ],
     "subject": "Re: Order #1234 delayed",
-    "message_type": "reply"
+    "message_type": "reply",
+    "lifecycle_transitions": [
+      {
+        "id": "mlt_sent",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp42",
+        "direction": "outbound",
+        "stage": "submission",
+        "outcome": "accepted",
+        "reason_code": "submission.upstream_accepted",
+        "retryable": false,
+        "evidence": {},
+        "correlation_ids": {
+          "event_id": "evt_fixture_source"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      }
+    ]
   }
 }

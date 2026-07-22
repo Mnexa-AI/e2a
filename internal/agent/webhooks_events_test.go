@@ -72,6 +72,8 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 	}
 
 	t.Run("email.sent sync builder", func(t *testing.T) {
+		var canonical eventpayload.EmailSentData
+		goldenassert.DecodeData(t, fixture+"email.sent.json", &canonical)
 		a := &API{}
 		ev := a.buildSentEvent(
 			agent,
@@ -89,10 +91,15 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 			},
 			"reply",
 		)
+		data := ev.Data.(eventpayload.EmailSentData)
+		data.LifecycleTransitions = canonical.LifecycleTransitions
+		ev.Data = data
 		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
 	})
 
 	t.Run("email.sent async builder emits the identical payload", func(t *testing.T) {
+		var canonical eventpayload.EmailSentData
+		goldenassert.DecodeData(t, fixture+"email.sent.json", &canonical)
 		ev := buildEmailSentEventFromRow(&identity.OutboundSentInfo{
 			UserID: "user_7a6b5c4d",
 			Message: &identity.Message{
@@ -107,11 +114,13 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 				Type:           "reply",
 				ConversationID: "conv_9f8e7d6c",
 			},
-		}, "0100019283abcdef-1a2b3c4d-0000")
+		}, "0100019283abcdef-1a2b3c4d-0000", canonical.LifecycleTransitions...)
 		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
 	})
 
 	t.Run("email.failed async builder", func(t *testing.T) {
+		var canonical eventpayload.EmailFailedData
+		goldenassert.DecodeData(t, fixture+"email.failed.json", &canonical)
 		ev := buildEmailFailedEventFromRow(&identity.OutboundSentInfo{
 			UserID: "user_7a6b5c4d",
 			Message: &identity.Message{
@@ -126,7 +135,7 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 				Type:           "send",
 				ConversationID: "conv_9f8e7d6c",
 			},
-		}, "550 5.1.1 user unknown")
+		}, "550 5.1.1 user unknown", canonical.LifecycleTransitions...)
 		goldenassert.Data(t, fixture+"email.failed.json", ev.Data)
 	})
 
