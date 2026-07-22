@@ -331,7 +331,7 @@ func TestSelfSend_LifecycleFailureRollsBackDelivery(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM webhook_events`).Scan(&eventBaseline); err != nil {
 		t.Fatal(err)
 	}
-	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_loopback_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.local_loopback_accepted' THEN RAISE EXCEPTION 'forced loopback lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_loopback_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_loopback_lifecycle();`)
+	_, err := pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_loopback_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_loopback_lifecycle(); CREATE FUNCTION test_fail_loopback_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.local_loopback_accepted' THEN RAISE EXCEPTION 'forced loopback lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_loopback_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_loopback_lifecycle();`)
 	if err != nil {
 		t.Fatal(err)
 	}

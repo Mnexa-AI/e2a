@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -118,6 +120,145 @@ func TestApproveAndAcceptLifecycle(t *testing.T) {
 	}
 }
 
+func TestApproveAndAcceptRejectsUnsupportedTargetBeforeMutation(t *testing.T) {
+	pool := testutil.TestDB(t)
+	installTask6ApprovalJobs(t, pool)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, _ := store.CreateOrGetUser(ctx, "owner-invalid-target@example.com", "Owner", "google-invalid-target")
+	domain := "invalid-target.example.com"
+	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	_ = store.VerifyDomain(ctx, domain, user.ID)
+	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
+	msg, err := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "invalid target", "body", "", nil, "send", "", "", "", 3600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc := identity.AcceptedSend{To: []string{"a@example.net"}, Subject: "invalid target", Method: "smtp", SentAs: "relay", Raw: []byte("raw")}
+	enqueued := 0
+	_, err = store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewRejected, false, acc,
+		func(ctx context.Context, tx pgx.Tx, messageID string) (int64, error) {
+			enqueued++
+			return enqueueTask6ApprovalJob(ctx, tx, messageID)
+		}, nil)
+	if !errors.Is(err, identity.ErrInvalidApprovalTarget) || !strings.Contains(err.Error(), identity.MessageStatusReviewRejected) {
+		t.Fatalf("ApproveAndAccept(invalid target) error = %v, want clear invalid-target error", err)
+	}
+	var status string
+	var deliveryStatus *string
+	var sendJobID *int64
+	if err := pool.QueryRow(ctx, `SELECT status, delivery_status, send_job_id FROM messages WHERE id=$1`, msg.ID).Scan(&status, &deliveryStatus, &sendJobID); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusPendingReview || deliveryStatus != nil || sendJobID != nil || enqueued != 0 {
+		t.Fatalf("invalid target mutated hold: status=%s delivery=%v send_job_id=%v enqueued=%d", status, deliveryStatus, sendJobID, enqueued)
+	}
+	want := []messagelifecycle.ReasonCode{messagelifecycle.ReasonAcceptanceOutboundAPI, messagelifecycle.ReasonReviewHoldCreated}
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	if got := lifecycleReasons(t, pool, msg.ID); !reflect.DeepEqual(got, want) {
+		t.Fatalf("invalid target lifecycle=%v want %v", got, want)
+	}
+	var jobs int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task6_approval_jobs`).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 0 {
+		t.Fatalf("invalid target durable jobs=%d want 0", jobs)
+	}
+}
+
+func TestApproveAndAcceptHumanExpiryRaceHasOneAtomicWinner(t *testing.T) {
+	pool := testutil.TestDB(t)
+	installTask6ApprovalJobs(t, pool)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, _ := store.CreateOrGetUser(ctx, "owner-approval-race@example.com", "Owner", "google-approval-race")
+	domain := "approval-race.example.com"
+	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	_ = store.VerifyDomain(ctx, domain, user.ID)
+	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
+	msg, err := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "approval race", "body", "", nil, "send", "", "", "", 3600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc := identity.AcceptedSend{To: []string{"a@example.net"}, Subject: "approval race", Method: "smtp", SentAs: "relay", Raw: []byte("raw")}
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	targets := []struct{ reviewer, status string }{
+		{user.ID, identity.MessageStatusReviewApproved},
+		{"", identity.MessageStatusReviewExpiredApproved},
+	}
+	var wg sync.WaitGroup
+	for _, target := range targets {
+		target := target
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := store.ApproveAndAccept(ctx, msg.ID, target.reviewer, target.status, false, acc, enqueueTask6ApprovalJob, nil)
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	winners, losers := 0, 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			winners++
+		case errors.Is(err, identity.ErrNotPendingApproval):
+			losers++
+		default:
+			t.Fatalf("approval race error = %v", err)
+		}
+	}
+	if winners != 1 || losers != 1 {
+		t.Fatalf("approval race winners=%d losers=%d want 1/1", winners, losers)
+	}
+
+	var status string
+	var sendJobID *int64
+	if err := pool.QueryRow(ctx, `SELECT status, send_job_id FROM messages WHERE id=$1`, msg.ID).Scan(&status, &sendJobID); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusReviewApproved && status != identity.MessageStatusReviewExpiredApproved {
+		t.Fatalf("winner status=%s", status)
+	}
+	if sendJobID == nil {
+		t.Fatal("winner send_job_id is nil")
+	}
+	var jobs int
+	var durableJobID int64
+	if err := pool.QueryRow(ctx, `SELECT count(*), min(id) FROM task6_approval_jobs WHERE message_id=$1`, msg.ID).Scan(&jobs, &durableJobID); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || *sendJobID != durableJobID {
+		t.Fatalf("durable jobs=%d id=%d send_job_id=%d, want one linked job", jobs, durableJobID, *sendJobID)
+	}
+	reasons := lifecycleReasons(t, pool, msg.ID)
+	resolutionCount, queueCount := 0, 0
+	var resolution messagelifecycle.ReasonCode
+	for _, reason := range reasons {
+		if reason == messagelifecycle.ReasonReviewApproved || reason == messagelifecycle.ReasonReviewExpiredApproved {
+			resolutionCount++
+			resolution = reason
+		}
+		if reason == messagelifecycle.ReasonQueueOutboundSubmission {
+			queueCount++
+		}
+	}
+	if resolutionCount != 1 || queueCount != 1 {
+		t.Fatalf("race lifecycle=%v resolution_count=%d queue_count=%d", reasons, resolutionCount, queueCount)
+	}
+	if status == identity.MessageStatusReviewApproved && resolution != messagelifecycle.ReasonReviewApproved {
+		t.Fatalf("status=%s resolution=%s", status, resolution)
+	}
+	if status == identity.MessageStatusReviewExpiredApproved && resolution != messagelifecycle.ReasonReviewExpiredApproved {
+		t.Fatalf("status=%s resolution=%s", status, resolution)
+	}
+}
+
 func TestApproveAndAcceptLifecycleFailureRollsBack(t *testing.T) {
 	pool := testutil.TestDB(t)
 	installTask6ApprovalJobs(t, pool)
@@ -130,7 +271,7 @@ func TestApproveAndAcceptLifecycleFailureRollsBack(t *testing.T) {
 	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
 	msg, _ := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "Subj", "body", "", nil, "send", "", "", "", 3600)
 	expiredMsg, _ := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "Expired subj", "body", "", nil, "send", "", "", "", 3600)
-	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_approved_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='queue.outbound_submission' THEN RAISE EXCEPTION 'forced lifecycle failure after durable job'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_approved_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_approved_lifecycle();`)
+	_, err := pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_approved_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_approved_lifecycle(); CREATE FUNCTION test_fail_approved_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='queue.outbound_submission' THEN RAISE EXCEPTION 'forced lifecycle failure after durable job'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_approved_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_approved_lifecycle();`)
 	if err != nil {
 		t.Fatalf("create trigger: %v", err)
 	}
@@ -184,7 +325,7 @@ func TestCreatePendingOutboundLifecycleFailureRollsBack(t *testing.T) {
 	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
 	_ = store.VerifyDomain(ctx, domain, user.ID)
 	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
-	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_hold_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='review.hold_created' THEN RAISE EXCEPTION 'forced hold lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_hold_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_hold_lifecycle();`)
+	_, err := pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_hold_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_hold_lifecycle(); CREATE FUNCTION test_fail_hold_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='review.hold_created' THEN RAISE EXCEPTION 'forced hold lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_hold_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_hold_lifecycle();`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +356,7 @@ func TestReviewRejectionLifecycleFailureRollsBack(t *testing.T) {
 	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
 	_ = store.VerifyDomain(ctx, domain, user.ID)
 	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
-	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_rejected_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code IN ('review.rejected','review.expired_rejected') THEN RAISE EXCEPTION 'forced rejected lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_rejected_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_rejected_lifecycle();`)
+	_, err := pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_rejected_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_rejected_lifecycle(); CREATE FUNCTION test_fail_rejected_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code IN ('review.rejected','review.expired_rejected') THEN RAISE EXCEPTION 'forced rejected lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_rejected_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_rejected_lifecycle();`)
 	if err != nil {
 		t.Fatal(err)
 	}

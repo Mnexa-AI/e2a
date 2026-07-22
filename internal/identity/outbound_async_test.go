@@ -2,6 +2,7 @@ package identity_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,47 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 )
+
+func TestStampSendJobIDTxRejectsInboundAtomically(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	agentID := convoTestSetup(t, store, "stamp-inbound")
+	inbound, err := store.CreateInboundMessage(ctx, "", agentID, "sender@example.net", agentID,
+		"<stamp-inbound@example.net>", "Inbound", "", "unread", nil, nil, nil, false, "", nil, nil, nil, identity.InboundScreening{})
+	if err != nil {
+		t.Fatalf("CreateInboundMessage: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS task6_stamp_jobs; CREATE TABLE task6_stamp_jobs (id bigint PRIMARY KEY, message_id text NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS task6_stamp_jobs`) })
+
+	err = store.WithTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO task6_stamp_jobs (id, message_id) VALUES (9191, $1)`, inbound.ID); err != nil {
+			return err
+		}
+		return store.StampSendJobIDTx(ctx, tx, inbound.ID, 9191)
+	})
+	if !errors.Is(err, identity.ErrMessageNotFound) {
+		t.Fatalf("StampSendJobIDTx(inbound) error = %v, want ErrMessageNotFound", err)
+	}
+
+	var sendJobID *int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, inbound.ID).Scan(&sendJobID); err != nil {
+		t.Fatal(err)
+	}
+	var jobs, queueTransitions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task6_stamp_jobs`).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='queue.outbound_submission'`, inbound.ID).Scan(&queueTransitions); err != nil {
+		t.Fatal(err)
+	}
+	if sendJobID != nil || jobs != 0 || queueTransitions != 0 {
+		t.Fatalf("inbound stamp partially committed: send_job_id=%v jobs=%d queue_transitions=%d", sendJobID, jobs, queueTransitions)
+	}
+}
 
 // TestCreateOutboundMessageTx_AcceptedRow pins the async accept-tx store shape
 // (async-message-pipeline.md, slice C): the row lands with delivery_status='accepted',

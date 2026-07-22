@@ -2310,12 +2310,14 @@ func (s *Store) CreateOutboundMessageTx(ctx context.Context, tx pgx.Tx, agentID 
 // ('accepted' with send_job_id IS NULL). Mirrors the webhook_subscriber_deliveries
 // .job_id stamp.
 func (s *Store) StampSendJobIDTx(ctx context.Context, tx pgx.Tx, messageID string, jobID int64) error {
-	var direction string
-	if err := tx.QueryRow(ctx, `UPDATE messages SET send_job_id = $2 WHERE id = $1 RETURNING direction`, messageID, jobID).Scan(&direction); err != nil {
+	var stampedMessageID string
+	if err := tx.QueryRow(ctx, `UPDATE messages SET send_job_id = $2 WHERE id = $1 AND direction = 'outbound' RETURNING id`, messageID, jobID).Scan(&stampedMessageID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrMessageNotFound
+	} else if err != nil {
 		return err
 	}
 	_, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
-		MessageID: messageID, DedupeKey: "queue:outbound", Direction: direction,
+		MessageID: messageID, DedupeKey: "queue:outbound", Direction: "outbound",
 		ReasonCode:     messagelifecycle.ReasonQueueOutboundSubmission,
 		CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": fmt.Sprint(jobID)}),
 		OccurredAt:     time.Now(),
@@ -2534,6 +2536,12 @@ func nullIfEmptyString(s string) interface{} {
 // targets a message that is not (or is no longer) in pending_review status.
 // Handlers map this to HTTP 409 Conflict.
 var ErrNotPendingApproval = fmt.Errorf("message is not pending approval")
+
+// ErrInvalidApprovalTarget is returned when ApproveAndAccept is called with a
+// status that is not an approval outcome. Validation happens before a
+// transaction is opened so unsupported resolutions cannot mutate the hold or
+// enqueue work.
+var ErrInvalidApprovalTarget = fmt.Errorf("invalid approval target")
 
 // approvalTxTimeout caps how long a single approve-and-send transaction may
 // hold its row-level lock. Chosen to sit just above SMTPRelay's worst-case
@@ -3286,6 +3294,15 @@ func (s *Store) ApproveAndAccept(
 	enqueue func(ctx context.Context, tx pgx.Tx, messageID string) (int64, error),
 	completeIdempotency func(ctx context.Context, tx pgx.Tx, approved *Message) error,
 ) (*Message, error) {
+	var reviewReason messagelifecycle.ReasonCode
+	switch targetStatus {
+	case MessageStatusSent, MessageStatusReviewApproved:
+		reviewReason = messagelifecycle.ReasonReviewApproved
+	case MessageStatusReviewExpiredApproved:
+		reviewReason = messagelifecycle.ReasonReviewExpiredApproved
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrInvalidApprovalTarget, targetStatus)
+	}
 	var out *Message
 	err := s.WithTx(ctx, func(tx pgx.Tx) error {
 		var m Message
@@ -3331,10 +3348,6 @@ func (s *Store) ApproveAndAccept(
 		}
 		if msgType != nil {
 			m.Type = *msgType
-		}
-		reviewReason := messagelifecycle.ReasonReviewApproved
-		if targetStatus == MessageStatusReviewExpiredApproved {
-			reviewReason = messagelifecycle.ReasonReviewExpiredApproved
 		}
 		if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 			MessageID: m.ID, DedupeKey: "review:resolution", Direction: "outbound",

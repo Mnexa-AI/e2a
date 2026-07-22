@@ -218,7 +218,7 @@ func TestDeliverOutbound_QueueLifecycleFailureRollsBack(t *testing.T) {
 	api.SetOutboundEnqueuer(txSentinelEnqueuer{})
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "queuelifecyclerb")
-	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_queue_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='queue.outbound_submission' THEN RAISE EXCEPTION 'forced queue lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_queue_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_queue_lifecycle();`)
+	_, err := pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_queue_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_queue_lifecycle(); CREATE FUNCTION test_fail_queue_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='queue.outbound_submission' THEN RAISE EXCEPTION 'forced queue lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_queue_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_queue_lifecycle();`)
 	if err != nil {
 		t.Fatal(err)
 	}
