@@ -46,9 +46,10 @@ rm -rf "$DEST"
 cp -r "$TMP/e2a/v1/generated" "$DEST"
 rm -rf "$TMP"
 
-# Strip the generator's `*_validate_enum` validators so the client tolerates
-# unknown enum values (forward-compat: a new server enum value must not crash a
-# deployed client). Matches the TypeScript SDK's passthrough behavior.
+# Strip the generator's `*_validate_enum` validators from open response
+# vocabularies so the client tolerates additive values. The post-processor
+# preserves validators for the canonical, deliberately closed message
+# lifecycle vocabulary.
 python3 "$ROOT/sdks/python/scripts/strip-enum-validators.py" "$DEST"
 
 # Normalize selected generator-known unused imports without making hand edits

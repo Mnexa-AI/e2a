@@ -42,6 +42,34 @@ class MessageLifecycleTransition(BaseModel):
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["correlation_ids", "direction", "evidence", "id", "message_id", "occurred_at", "outcome", "reason_code", "recipient", "reconstructed", "retryable", "stage"]
 
+    @field_validator('direction')
+    def direction_validate_enum(cls, value):
+        """Validates the enum"""
+        if value not in set(['inbound', 'outbound']):
+            raise ValueError("must be one of enum values ('inbound', 'outbound')")
+        return value
+
+    @field_validator('outcome')
+    def outcome_validate_enum(cls, value):
+        """Validates the enum"""
+        if value not in set(['accepted', 'passed', 'failed', 'indeterminate', 'pending', 'approved', 'rejected', 'blocked', 'applied', 'enqueued', 'deferred', 'delivered', 'bounced', 'reported']):
+            raise ValueError("must be one of enum values ('accepted', 'passed', 'failed', 'indeterminate', 'pending', 'approved', 'rejected', 'blocked', 'applied', 'enqueued', 'deferred', 'delivered', 'bounced', 'reported')")
+        return value
+
+    @field_validator('reason_code')
+    def reason_code_validate_enum(cls, value):
+        """Validates the enum"""
+        if value not in set(['acceptance.inbound_smtp', 'acceptance.outbound_api', 'acceptance.local_loopback', 'authentication.dmarc_pass', 'authentication.dmarc_fail', 'authentication.dmarc_none', 'authentication.dmarc_temporary_error', 'authentication.dmarc_permanent_error', 'review.hold_created', 'review.approved', 'review.rejected', 'review.expired_approved', 'review.expired_rejected', 'suppression.recipient_blocked', 'suppression.hard_bounce_applied', 'suppression.complaint_applied', 'queue.inbound_processing', 'queue.outbound_submission', 'submission.upstream_accepted', 'submission.local_loopback_accepted', 'submission.temporary_failure', 'submission.provider_rejected', 'submission.local_retries_exhausted', 'submission.cancelled', 'delivery.recipient_server_accepted', 'delivery.temporary_delay', 'delivery.permanent_bounce', 'delivery.transient_bounce', 'delivery.undetermined_bounce', 'complaint.recipient_reported']):
+            raise ValueError("must be one of enum values ('acceptance.inbound_smtp', 'acceptance.outbound_api', 'acceptance.local_loopback', 'authentication.dmarc_pass', 'authentication.dmarc_fail', 'authentication.dmarc_none', 'authentication.dmarc_temporary_error', 'authentication.dmarc_permanent_error', 'review.hold_created', 'review.approved', 'review.rejected', 'review.expired_approved', 'review.expired_rejected', 'suppression.recipient_blocked', 'suppression.hard_bounce_applied', 'suppression.complaint_applied', 'queue.inbound_processing', 'queue.outbound_submission', 'submission.upstream_accepted', 'submission.local_loopback_accepted', 'submission.temporary_failure', 'submission.provider_rejected', 'submission.local_retries_exhausted', 'submission.cancelled', 'delivery.recipient_server_accepted', 'delivery.temporary_delay', 'delivery.permanent_bounce', 'delivery.transient_bounce', 'delivery.undetermined_bounce', 'complaint.recipient_reported')")
+        return value
+
+    @field_validator('stage')
+    def stage_validate_enum(cls, value):
+        """Validates the enum"""
+        if value not in set(['accepted', 'authentication', 'review', 'suppression', 'queued', 'submission', 'delivery', 'complaint']):
+            raise ValueError("must be one of enum values ('accepted', 'authentication', 'review', 'suppression', 'queued', 'submission', 'delivery', 'complaint')")
+        return value
+
     model_config = ConfigDict(
         populate_by_name=True,
         validate_assignment=True,

@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Strip OpenAPI-Generator's `*_validate_enum` pydantic validators from the
-generated models so the client tolerates unknown enum values.
+"""Strip OpenAPI-Generator's open-set enum validators from generated models.
 
 Why: the generator emits, for every enum-typed field, a `@field_validator` that
 raises `ValueError` when the value isn't in a hard-coded set. On a RESPONSE
 field that means the day the server adds a new enum value (a new event `type`,
 `delivery_status`, `inbound_policy`, …) every deployed client crashes while
 deserializing — turning an additive, non-breaking server change into a
-client-breaking one. The TypeScript SDK passes unknown enum values through
-untouched; this makes Python match, keeping enum fields typed as plain strings.
+client-breaking one. The TypeScript SDK passes unknown open-set enum values
+through untouched; this makes Python match, keeping those fields typed as
+plain strings.
+
+The canonical ``MessageLifecycleTransition`` vocabulary is deliberately
+closed and versioned. Its generated validators are retained so Python enforces
+the same direction, stage, outcome, and reason-code contract as the API.
 
 Run as part of generate-oag.sh (so the drift gate's regenerated output matches)
 and idempotently re-runnable on the committed tree. Removes each block of the
@@ -28,6 +32,9 @@ import glob
 import os
 import re
 import sys
+
+
+CLOSED_ENUM_MODELS = {"message_lifecycle_transition.py"}
 
 
 def strip_file(path: str) -> bool:
@@ -81,7 +88,11 @@ def main() -> int:
     root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         os.path.dirname(__file__), "..", "src", "e2a", "v1", "generated"
     )
-    models = glob.glob(os.path.join(root, "models", "*.py"))
+    models = [
+        path
+        for path in glob.glob(os.path.join(root, "models", "*.py"))
+        if os.path.basename(path) not in CLOSED_ENUM_MODELS
+    ]
     touched = sum(1 for p in sorted(models) if strip_file(p))
     print(f"strip-enum-validators: removed enum validators from {touched} model file(s)")
     return 0
