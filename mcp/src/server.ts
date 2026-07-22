@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "./client.js";
 import { registerMessageTools } from "./tools/messages.js";
@@ -11,17 +10,7 @@ import { registerTemplateTools } from "./tools/templates.js";
 import { registerApiKeyTools } from "./tools/apikeys.js";
 import { registerLegacyTools } from "./tools/legacy.js";
 import { toolNamesForScope } from "./tools/tiers.js";
-
-// package.json is the single source of truth for the reported MCP server
-// version (mirrors what npm publishes). createRequire lets a plain ESM
-// module (module: Node16 — no "with { type: 'json' }" import-attribute
-// syntax needed, no resolveJsonModule tsconfig flag) load JSON exactly like
-// CommonJS `require`, on every Node version the package supports (>=18).
-// "../package.json" resolves the same way from both src/server.ts (ts-node /
-// vitest) and the compiled dist/server.js (tsc's outDir mirrors rootDir one
-// level under mcp/) — both sit one directory below mcp/package.json.
-const require = createRequire(import.meta.url);
-const PACKAGE_VERSION: string = require("../package.json").version;
+import { resolveServerVersion } from "./version.js";
 
 export interface BuildServerOptions {
   client: McpClient;
@@ -47,7 +36,7 @@ function gateRegistration(server: McpServer, allowed: ReadonlySet<string>): void
   }) as McpServer["registerTool"];
 }
 
-export function buildServer({ client, version = PACKAGE_VERSION }: BuildServerOptions): McpServer {
+export function buildServer({ client, version = resolveServerVersion() }: BuildServerOptions): McpServer {
   const server = new McpServer({
     name: "e2a",
     version,

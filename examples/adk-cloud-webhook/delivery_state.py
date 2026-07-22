@@ -8,25 +8,45 @@ explicit without coupling it to a particular database.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
 from collections import deque
+from email.utils import parseaddr
 from typing import Literal
 
 ClaimResult = Literal["new", "processing", "processed"]
+_SAFE_CONVERSATION_SUFFIX = re.compile(r"^[A-Za-z0-9_-]+$")
+_MAX_CONVERSATION_ID_LENGTH = 200
 
 
 def conversation_id_for(event_id: str, existing: str | None) -> str:
     """Return the upstream thread id or a retry-stable first-contact anchor."""
-    if existing:
+    if existing is not None and existing.strip():
         return existing
-    suffix = event_id.removeprefix("evt_")[:12]
-    return f"conv_{suffix}"
+    suffix = event_id.removeprefix("evt_")
+    candidate = f"conv_{suffix}"
+    if (
+        suffix
+        and len(candidate) <= _MAX_CONVERSATION_ID_LENGTH
+        and _SAFE_CONVERSATION_SUFFIX.fullmatch(suffix)
+    ):
+        return candidate
+    digest = hashlib.sha256(event_id.encode("utf-8")).hexdigest()
+    return f"conv_{digest}"
 
 
-def sender_user_id(header_from: object, message_id: str) -> str:
-    """Return the literal From address or isolate an unparseable sender."""
-    if isinstance(header_from, str) and header_from.strip():
-        return header_from
-    return f"unknown-sender:{message_id}"
+def sender_user_id(header_from: object, inbox: str, message_id: str) -> str:
+    """Return a stable, inbox-scoped, non-identifying ADK user id."""
+    mailbox = parseaddr(header_from)[1] if isinstance(header_from, str) else ""
+    mailbox = mailbox.strip().casefold()
+    local, separator, domain = mailbox.partition("@")
+    if not separator or not local or not domain or "@" in domain:
+        mailbox_key = f"unknown:{message_id}"
+    else:
+        mailbox_key = f"mailbox:{local}@{domain}"
+    namespace = inbox.strip().casefold()
+    digest = hashlib.sha256(f"{namespace}\0{mailbox_key}".encode()).hexdigest()
+    return f"sender_{digest[:32]}"
 
 
 class EventDeduper:

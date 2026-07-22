@@ -1,12 +1,17 @@
-import { test, after } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug, holdAllOutbound } from "../harness/fixtures.ts";
+import { uniqueSlug, holdAllOutbound, SINK_EMAIL } from "../harness/fixtures.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
 const SUITE = "05-security";
+
+afterEach(async () => {
+  const r = await cleanup(client);
+  if (r.failed.length) warn(SUITE, "cleanup-after-each", `failed ${r.failed.length}`, r.failed);
+});
 
 after(async () => {
   const r = await cleanup(client);
@@ -59,7 +64,7 @@ test("security: extremely long subject is bounded (no 500)", async () => {
 
   const subject = "A".repeat(10_000);
   const r = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages`, {
-    body: { to: ["blackhole@e2a.dev"], subject, text: "x" },
+    body: { to: [SINK_EMAIL], subject, text: "x" },
   });
   if (r.status >= 500) {
     fail(SUITE, "long-subject-500", `10k-char subject caused ${r.status}: ${r.raw.slice(0, 200)}`);
@@ -82,7 +87,7 @@ test("security: CRLF injection in subject rejected or sanitized (no header smugg
 
   const r = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages`, {
     body: {
-      to: ["blackhole@e2a.dev"],
+      to: [SINK_EMAIL],
       subject: "Hello\r\nBcc: attacker@evil.com\r\nX-Smuggled: yes",
       text: "x",
     },
@@ -135,7 +140,7 @@ test("security: send body with HTML — html distinct from text", async () => {
 
   const r = await client.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(c.body!.email)}/messages`, {
     body: {
-      to: ["blackhole@e2a.dev"],
+      to: [SINK_EMAIL],
       subject: "html test",
       text: "plain text alt",
       html: "<p>HTML content with <a href='https://evil.example.com'>link</a></p>",

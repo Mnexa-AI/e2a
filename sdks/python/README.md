@@ -103,6 +103,10 @@ retries + idempotency, and async auto-pagination.
 
 ## Quick Start
 
+For signed-webhook examples that fetch and reply through the ergonomic inbound
+facade, see the [minimal Python and TypeScript OpenAI examples with provider
+snippets](../../examples/agent-framework-webhooks/README.md).
+
 ### Synchronous
 
 ```python

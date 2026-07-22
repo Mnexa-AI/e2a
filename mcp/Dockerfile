@@ -28,7 +28,9 @@ RUN npm run build --workspace @e2a/mcp-server
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
+ARG MCP_SERVER_VERSION
 ENV NODE_ENV=production
+ENV MCP_SERVER_VERSION=${MCP_SERVER_VERSION}
 # Fresh install with production-only deps so the runtime image is lean.
 COPY --from=build /app/package.json ./
 COPY --from=build /app/sdks/typescript/package.json sdks/typescript/
@@ -39,6 +41,7 @@ RUN npm install --package-lock=false --omit=dev --workspaces --no-audit --no-fun
 # Built JS only — no TypeScript source ships in the image.
 COPY --from=build /app/sdks/typescript/dist ./sdks/typescript/dist
 COPY --from=build /app/mcp/dist ./mcp/dist
+COPY VERSION ./VERSION
 EXPOSE 3000
 USER node
 CMD ["node", "mcp/dist/bin/http.js"]

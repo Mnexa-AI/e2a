@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup } from "../harness/cleanup.ts";
 import { HttpMcpClient, callTool } from "../harness/mcp.ts";
-import { fail, info, warn, writeReport } from "../harness/report.ts";
+import { info, warn, writeReport } from "../harness/report.ts";
 
 const apiClient = new ApiClient();
 const SUITE = "08-mcp";
@@ -30,11 +30,73 @@ test("mcp: tools/list returns the expected tool surface", async () => {
   assert.ok(Array.isArray(r.tools), "tools is array");
   const names = r.tools.map((t) => t.name).sort();
   info(SUITE, "tool-surface", `MCP exposes ${names.length} tools: ${names.join(", ")}`);
-  // Should at least have these — adjust if the server changes.
-  const required = ["list_agents", "whoami"];
+  const required = ["list_agents", "whoami", "send_message", "approve_review", "reject_review"];
   for (const req of required) {
     assert.ok(names.includes(req), `expected tool "${req}" in surface, got ${names.join(",")}`);
   }
+});
+
+test("mcp: tools/list preserves legacy compatibility aliases", async () => {
+  const r = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
+  const names = r.tools.map((t) => t.name);
+  const aliases = ["send_email", "approve_pending_message", "reject_pending_message"];
+  for (const alias of aliases) {
+    assert.ok(names.includes(alias), `expected compatibility alias "${alias}" in surface`);
+  }
+
+  const send = await callTool(mcp, "send_email", {
+    agent_email: apiClient.env.primaryAgentEmail,
+    to: ["definitely not a valid email"],
+    subject: "legacy compatibility validation probe",
+    body: "must never be sent",
+  });
+  assert.equal(send.isError, true, "legacy send_email schema and handler must reject an invalid recipient");
+  const sendError = send.content?.find((content) => content.type === "text")?.text ?? "";
+  assert.match(
+    sendError,
+    /invalid[_ -]?(?:recipient|request)|\b400\b/i,
+    `send_email should reach the API invalid-recipient handler, got: ${sendError.slice(0, 200)}`,
+  );
+  assert.doesNotMatch(
+    sendError,
+    /unknown\s+(?:key|field)|unrecognized\s+key|input\s+validation|invalid\s+arguments?|schema\s+validation/i,
+    `historical agent_email/body fields must pass strict schema validation: ${sendError.slice(0, 200)}`,
+  );
+
+  const bogusMessageId = `msg_bogus_${Date.now()}`;
+  const approve = await callTool(mcp, "approve_pending_message", {
+    message_id: bogusMessageId,
+    body_text: "historical override field",
+  });
+  assert.equal(approve.isError, true, "legacy approve_pending_message handler must reject an unknown review");
+  const approveError = approve.content?.find((content) => content.type === "text")?.text ?? "";
+  assert.match(
+    approveError,
+    /not[_ -]?found|\b404\b/i,
+    `approve_pending_message should reach the API not-found handler, got: ${approveError.slice(0, 200)}`,
+  );
+  assert.doesNotMatch(
+    approveError,
+    /unknown\s+(?:key|field)|unrecognized\s+key|input\s+validation|invalid\s+arguments?|schema\s+validation/i,
+    `historical body_text field must pass strict schema validation: ${approveError.slice(0, 200)}`,
+  );
+
+  const reject = await callTool(mcp, "reject_pending_message", {
+    message_id: bogusMessageId,
+    reason: "legacy compatibility probe",
+  });
+  assert.equal(reject.isError, true, "legacy reject_pending_message handler must reject an unknown review");
+  const rejectError = reject.content?.find((content) => content.type === "text")?.text ?? "";
+  assert.match(
+    rejectError,
+    /not[_ -]?found|\b404\b/i,
+    `reject_pending_message should reach the API not-found handler, got: ${rejectError.slice(0, 200)}`,
+  );
+  assert.doesNotMatch(
+    rejectError,
+    /unknown\s+(?:key|field)|unrecognized\s+key|input\s+validation|invalid\s+arguments?|schema\s+validation/i,
+    `historical reason field must pass strict schema validation: ${rejectError.slice(0, 200)}`,
+  );
 });
 
 test("mcp: list_agents returns user's agents", async () => {
@@ -88,25 +150,15 @@ test("mcp: unknown tool name produces an error result (isError or JSON-RPC error
   info(SUITE, "unknown-tool-err", detail);
 });
 
-test("mcp: send_email with invalid recipient returns isError, never sends mail", async () => {
-  // Check if send_email is exposed first.
-  const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  const sendTool = list.tools.find((t) => t.name === "send_email" || t.name === "send");
-  if (!sendTool) {
-    info(SUITE, "send-tool-absent", "no send_email tool in MCP surface — skipping invalid-recipient test");
-    return;
-  }
-  const r = await callTool(mcp, sendTool.name, {
+test("mcp: send_message with invalid recipient returns isError, never sends mail", async () => {
+  const r = await callTool(mcp, "send_message", {
+    email: apiClient.env.primaryAgentEmail,
     to: ["definitely not a valid email"],
     subject: "should fail validation",
     text: "should never reach SMTP",
   });
-  if (r.isError) {
-    info(SUITE, "send-bad-recipient-error", "MCP send tool reported isError on invalid recipient — good");
-  } else {
-    const text = r.content?.find((c) => c.type === "text")?.text;
-    fail(SUITE, "send-bad-recipient-accepted", `MCP send accepted invalid recipient: ${text?.slice(0, 200)}`);
-  }
+  const text = r.content?.find((c) => c.type === "text")?.text;
+  assert.equal(r.isError, true, `MCP send accepted invalid recipient: ${text?.slice(0, 200)}`);
 });
 
 test("mcp: list_messages tool works against the inbox", async () => {

@@ -172,6 +172,73 @@ jobs:
       - run: npm run build --workspace @e2a/sdk
       - run: npm test --workspace @e2a/sdk
 
+  agent-framework-examples:
+    name: Minimal agent webhook examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            sdks/python/pyproject.toml
+            examples/agent-framework-webhooks/python/pyproject.toml
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.12.0"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            examples/agent-framework-webhooks/typescript/package-lock.json
+      - name: Install local Python SDK and example
+        run: python -m pip install -e ./sdks/python -e './examples/agent-framework-webhooks/python[dev]'
+      - name: Test and type-check Python examples
+        working-directory: examples/agent-framework-webhooks/python
+        run: |
+          python -m pytest -q
+          python -m mypy agent_webhooks tests
+      - name: Dry-run Python webhook without provider credentials
+        working-directory: examples/agent-framework-webhooks/python
+        run: python -m agent_webhooks.dry_run
+      - name: Build local TypeScript SDK
+        run: |
+          npm ci
+          npm run build --workspace @e2a/sdk
+      - name: Install, test, type-check, and build TypeScript examples
+        working-directory: examples/agent-framework-webhooks/typescript
+        run: |
+          npm ci
+          npm test -- --run
+          npm run typecheck
+          npm run build
+      - name: Dry-run TypeScript webhook without provider credentials
+        working-directory: examples/agent-framework-webhooks/typescript
+        run: npm run dry-run
+
+  adk-cloud-webhook-example:
+    # This expanded tutorial deliberately pins ADK 1.x. A separate job keeps
+    # its dependency environment isolated and verifies its own metadata.
+    name: Expanded ADK 1.x webhook example
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            sdks/python/pyproject.toml
+            examples/adk-cloud-webhook/pyproject.toml
+      - name: Install local Python SDK and ADK tutorial
+        run: python -m pip install -e ./sdks/python -e ./examples/adk-cloud-webhook
+      - name: Verify ADK 1.x dependency resolution
+        run: python -c 'import importlib.metadata as m; version = m.version("google-adk"); assert version.startswith("1."), version; print(f"google-adk={version}")'
+      - name: Test expanded ADK webhook tutorial
+        run: python -m unittest discover -s examples/adk-cloud-webhook -p 'test_*.py'
+
   ts-contract:
     name: TypeScript SDK contract tests
     runs-on: ubuntu-latest

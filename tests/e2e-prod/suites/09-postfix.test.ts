@@ -1,9 +1,9 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
-import { cleanup, track } from "../harness/cleanup.ts";
+import { cleanup, track, untrack } from "../harness/cleanup.ts";
 import { info, warn, writeReport } from "../harness/report.ts";
-import { uniqueSlug } from "../harness/fixtures.ts";
+import { uniqueSlug, SINK_EMAIL } from "../harness/fixtures.ts";
 
 const client = new ApiClient();
 const SUITE = "09-postfix";
@@ -12,7 +12,28 @@ after(async () => {
   const r = await cleanup(client);
   if (r.failed.length) warn(SUITE, "cleanup", `failed ${r.failed.length}`, r.failed);
   writeReport(`./reports/09-postfix.json`);
+  assert.equal(r.failed.length, 0, `final cleanup failed for ${r.failed.length} resources`);
 });
+
+const MAX_CLEANUP_RETRY_MS = 2_000;
+
+async function deleteStressProbeAgent(email: string): Promise<void> {
+  const path = `/v1/agents/${encodeURIComponent(email)}?confirm=DELETE`;
+  let result = await client.delete(path);
+  if (result.status === 429) {
+    const retryAfterSeconds = Number(result.headers["retry-after"]);
+    const requestedMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+      ? retryAfterSeconds * 1_000
+      : 1_000;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(requestedMs, MAX_CLEANUP_RETRY_MS)));
+    result = await client.delete(path);
+  }
+  if (result.status === 200 || result.status === 204 || result.status === 404) {
+    untrack("agent", email);
+    return;
+  }
+  assert.fail(`stress-probe cleanup failed for ${email}: HTTP ${result.status} ${result.raw.slice(0, 200)}`);
+}
 
 test("postfix #4: GET nonexistent path returns 404 JSON error envelope", async () => {
   const r = await client.get("/v1/this/does/not/exist");
@@ -75,7 +96,7 @@ test("postfix #6: GET /agents/{email} with mixed-case still matches", async () =
 test("postfix #7: /send with CRLF in subject is rejected at the API (400)", async () => {
   const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
     body: {
-      to: ["blackhole@e2a.dev"],
+      to: [SINK_EMAIL],
       subject: "Hello\r\nBcc: attacker@evil.com",
       text: "x",
     },
@@ -88,7 +109,7 @@ test("postfix #7: /send with CRLF in subject is rejected at the API (400)", asyn
 test("postfix #7: bare LF in subject is also rejected (no carriage return)", async () => {
   const r = await client.post(`/v1/agents/${encodeURIComponent(client.env.primaryAgentEmail)}/messages`, {
     body: {
-      to: ["blackhole@e2a.dev"],
+      to: [SINK_EMAIL],
       subject: "Hello\nX-Smuggled: yes",
       text: "x",
     },
@@ -96,25 +117,30 @@ test("postfix #7: bare LF in subject is also rejected (no carriage return)", asy
   assert.equal(r.status, 400, `expected 400 for bare LF, got ${r.status}: ${r.raw.slice(0, 200)}`);
 });
 
-test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — does NOT send mail)", async () => {
+test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — does NOT send mail)", async (t) => {
+  if (!client.env.allowStress) {
+    t.skip("set E2E_PROD_STRESS=1 to run the 25-attempt registration rate-limit probe");
+    return;
+  }
   // Agent creation is a pure CRUD op; failing creates don't fan out to SMTP.
   // Probe until we see a 429 OR exhaust 25 attempts.
   let saw429 = false;
   let retryAfter: string | undefined;
   for (let i = 0; i < 25; i++) {
+    const requestedEmail = `${uniqueSlug(`pf${i}`)}@${client.env.sharedDomain}`;
+    track("agent", requestedEmail);
     const r = await client.post<{ email?: string }>("/v1/agents", {
-      body: { email: `${uniqueSlug(`pf${i}`)}@${client.env.sharedDomain}`, name: "pf" },
+      body: { email: requestedEmail, name: "pf" },
     });
+    if (r.status !== 201) untrack("agent", requestedEmail);
     if (r.status === 429) {
       saw429 = true;
       retryAfter = r.headers["retry-after"];
       break;
     }
-    if (r.status === 201 && r.body?.email) {
-      // Track in the cleanup registry so the after() hook removes it,
-      // even if the loop exits early or a later attempt fails — leaving
-      // 10+ probe agents around per run pollutes the account.
-      track("agent", r.body.email);
+    if (r.status === 201) {
+      assert.equal(r.body?.email, requestedEmail, `successful stress-probe create returned an unexpected email: ${r.raw.slice(0, 200)}`);
+      await deleteStressProbeAgent(requestedEmail);
     }
   }
   if (!saw429) {

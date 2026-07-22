@@ -84,7 +84,9 @@ test("authz: send as an unowned agent returns 4xx (cannot impersonate)", async (
 });
 
 test("authz: GET /agents/<email-i-dont-own> returns 404 not_found (no info leak — indistinguishable from nonexistent)", async () => {
-  const r = await client.get(`/v1/agents/${encodeURIComponent("nobody@example.com")}`);
+  const r = await client.get<{ error?: { code?: string } }>(
+    `/v1/agents/${encodeURIComponent("nobody@example.com")}`,
+  );
   assert.equal(r.status, 404, `expected 404, got ${r.status}: ${r.raw.slice(0, 200)}`);
   assert.equal(r.body?.error?.code, "not_found", `expected code not_found, got ${r.body?.error?.code}`);
 });

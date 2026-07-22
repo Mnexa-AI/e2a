@@ -87,13 +87,6 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
   // Set this before any route reads req.protocol. The default trusts only the
   // same-host production proxy, so public clients cannot spoof the scheme.
   app.set("trust proxy", opts.trustProxy ?? "loopback");
-  // The body limit must clear the attachment contract: the tools advertise up
-  // to 10 MB/attachment and 25 MB combined (see tools/attachments.ts), which
-  // base64-encode to ~34 MB on the wire, plus the JSON-RPC envelope. A 1 MB cap
-  // silently 413'd any real attachment before it reached the tool. 40 MB gives
-  // headroom over the combined cap; the fronting proxy (Caddy) is the outer
-  // guard against pathological unauthenticated bodies.
-  app.use(express.json({ limit: "40mb" }));
   // CORS open for v0.2; revisit when we have a real allowlist of MCP hosts.
   app.use(cors({ origin: "*", exposedHeaders: ["Mcp-Session-Id"] }));
 
@@ -167,9 +160,20 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
     });
   });
 
-  app.post("/mcp", async (req, res) => {
-    await handleClientRequest(req, res, cache, opts);
-  });
+  // Authenticate before reading a potentially large request body. The body
+  // limit must clear the attachment contract: tools advertise 10 MB per file
+  // and 25 MB combined, which base64-encode to ~34 MB plus the envelope.
+  // Route-local parsing ensures a missing/revoked credential cannot spend that
+  // parser budget. The fronting proxy remains the outer wire-size guard.
+  const parseMcpJson = express.json({ limit: "40mb" });
+  app.post(
+    "/mcp",
+    authenticateClient(cache, opts),
+    parseMcpJson,
+    async (req, res) => {
+      await handleAuthenticatedClientRequest(req, res, opts);
+    },
+  );
 
   // Stateless transport: there is no standalone SSE stream and no session to
   // terminate, so the GET (SSE notifications) and DELETE (session teardown)
@@ -253,49 +257,62 @@ class InvalidBearerError extends Error {
   }
 }
 
-async function handleClientRequest(
-  req: Request,
-  res: Response,
+interface AuthenticatedContext {
+  bearer: string;
+  principal: ResolvedPrincipal;
+}
+
+function authenticateClient(
   cache: ResolveCache,
   opts: HttpServerOptions,
-): Promise<void> {
-  const bearer = extractBearer(req);
-  if (!bearer) {
-    res.setHeader("WWW-Authenticate", bearerChallenge(req, opts));
-    res.status(401).json(jsonRpcError(req.body, -32001, "missing bearer token"));
-    return;
-  }
-
-  // Resolve the credential's scope + bound agent. A cache hit skips the
-  // backend round-trip; a miss probes `whoami` once and caches the result.
-  // A revoked/expired bearer surfaces as 401 here (InvalidBearerError).
-  let principal = cache.get(bearer);
-  if (!principal) {
-    let resolved: { value: ResolvedPrincipal; cacheable: boolean };
-    try {
-      resolved = await resolvePrincipal(opts, bearer);
-    } catch (err) {
-      if (err instanceof InvalidBearerError) {
-        res.setHeader(
-          "WWW-Authenticate",
-          `${bearerChallenge(req, opts)}, error="invalid_token"`,
-        );
-        res.status(401).json(jsonRpcError(req.body, -32001, "invalid bearer token"));
-        return;
-      }
-      throw err;
+): (req: Request, res: Response, next: NextFunction) => Promise<void> {
+  return async (req, res, next) => {
+    const bearer = extractBearer(req);
+    if (!bearer) {
+      res.setHeader("WWW-Authenticate", bearerChallenge(req, opts));
+      res.status(401).json(jsonRpcError(null, -32001, "missing bearer token"));
+      return;
     }
-    principal = resolved.value;
-    // Only cache a genuine whoami result. A transient backend failure yields a
-    // least-privilege fallback that must NOT stick — re-probe next request so
-    // the session self-corrects once the backend recovers.
-    if (resolved.cacheable) cache.set(bearer, principal);
-  }
 
-  // The cold-path whoami probe above is awaited, so the client may have
-  // disconnected meanwhile. If so, `res`'s "close" has already fired — bail
-  // before building a transport whose teardown listener would never run.
-  if (res.closed) return;
+    // Resolve the credential's scope + bound agent before parsing JSON. A
+    // cache hit skips the backend round-trip; revoked/expired tokens fail here.
+    let principal = cache.get(bearer);
+    if (!principal) {
+      let resolved: { value: ResolvedPrincipal; cacheable: boolean };
+      try {
+        resolved = await resolvePrincipal(opts, bearer);
+      } catch (err) {
+        if (err instanceof InvalidBearerError) {
+          res.setHeader(
+            "WWW-Authenticate",
+            `${bearerChallenge(req, opts)}, error="invalid_token"`,
+          );
+          res.status(401).json(jsonRpcError(null, -32001, "invalid bearer token"));
+          return;
+        }
+        throw err;
+      }
+      principal = resolved.value;
+      if (resolved.cacheable) cache.set(bearer, principal);
+    }
+
+    // The cold-path whoami probe is awaited, so the client may have
+    // disconnected meanwhile. Do not hand an abandoned request to the parser.
+    if (res.closed) return;
+
+    res.locals.auth = { bearer, principal } satisfies AuthenticatedContext;
+    next();
+  };
+}
+
+async function handleAuthenticatedClientRequest(
+  req: Request,
+  res: Response,
+  opts: HttpServerOptions,
+): Promise<void> {
+  const auth = res.locals.auth as AuthenticatedContext | undefined;
+  if (!auth) throw new Error("missing authenticated MCP request context");
+  const { bearer, principal } = auth;
 
   // Stateless: a fresh server + transport per request, torn down when the
   // response closes. The SDK forbids reusing a stateless transport across

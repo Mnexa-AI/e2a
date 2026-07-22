@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
@@ -7,6 +7,13 @@ import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
 const SUITE = "01-basic";
+
+afterEach(async () => {
+  const result = await cleanup(client);
+  if (result.failed.length > 0) {
+    warn(SUITE, "cleanup-after-each", `failed to delete ${result.failed.length} resources`, result.failed);
+  }
+});
 
 after(async () => {
   const result = await cleanup(client);
@@ -51,7 +58,7 @@ test("agents: get primary agent by email", async () => {
 });
 
 test("agents: get nonexistent agent returns 404 not_found (matches every other resource; anti-enumeration preserved)", async () => {
-  const r = await client.get(`/v1/agents/nonexistent-${Date.now()}@agents.e2a.dev`);
+  const r = await client.get<{ error?: { code?: string } }>(`/v1/agents/nonexistent-${Date.now()}@agents.e2a.dev`);
   assert.equal(r.status, 404, `unknown/non-owned agent → 404, got ${r.status}`);
   assert.equal(r.body?.error?.code, "not_found", `expected code not_found, got ${r.body?.error?.code}`);
 });

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-framework-webhooks-python"
+version = "0.1.0"
+description = "Minimal authenticated e2a webhook with the OpenAI Agents SDK"
+requires-python = ">=3.10"
+dependencies = [
+  "e2a>=5.2,<6",
+  "fastapi",
+  "uvicorn[standard]",
+  "python-dotenv",
+  "openai-agents",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "httpx",
+  "mypy",
+]
+
+[project.scripts]
+agent-framework-webhooks = "agent_webhooks.app:run"
+agent-framework-webhooks-dry-run = "agent_webhooks.dry_run:cli_main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent_webhooks"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["agent_webhooks", "tests"]
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+warn_unused_configs = true

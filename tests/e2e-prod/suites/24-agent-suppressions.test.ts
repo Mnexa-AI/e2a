@@ -1,9 +1,9 @@
-import { test, after } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { uniqueSlug } from "../harness/fixtures.ts";
 import { track, cleanup } from "../harness/cleanup.ts";
-import { writeReport } from "../harness/report.ts";
+import { warn, writeReport } from "../harness/report.ts";
 
 // Black-box conformance for the agent-scoped suppression surface (beta):
 // createAgentSuppression, listAgentSuppressions, deleteAgentSuppression.
@@ -15,6 +15,11 @@ import { writeReport } from "../harness/report.ts";
 // domain; no dependency on shared-account state.
 const SUITE = "24-agent-suppressions";
 const client = new ApiClient();
+
+afterEach(async () => {
+  const r = await cleanup(client);
+  if (r.failed.length) warn(SUITE, "cleanup-after-each", `failed ${r.failed.length}`, r.failed);
+});
 
 interface AgentSuppressionView {
   agent_email: string;
