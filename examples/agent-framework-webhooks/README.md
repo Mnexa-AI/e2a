@@ -61,7 +61,8 @@ agent-framework-webhooks
 
 ## Run the TypeScript example
 
-Node 20.19 or newer is required; on Node 22, use 22.12 or newer.
+Use Node 20 (20.19 or newer), Node 22 (22.12 or newer), or Node 24 or
+newer. Node 21 and Node 23 are not supported.
 
 ```bash
 npm ci
@@ -161,11 +162,13 @@ await anthropic.close()
 
 ## LangChain
 
-Install `langchain` (Python) or `langchain` (TypeScript), configure the
-credential required by the selected model provider, and replace the OpenAI
-agent implementation. Create one agent at application startup, invoke it with
-the same normalized prompt, and return the final assistant message text. See
-the official
+For the `openai:` model shown below, install `langchain` and
+`langchain-openai` in Python, or `langchain` and `@langchain/openai` in
+TypeScript, and configure `OPENAI_API_KEY`. Other model providers require
+their corresponding LangChain integration package and credentials. Replace
+the OpenAI agent implementation, create one agent at application startup,
+invoke it with the same normalized prompt, and return the final assistant
+message text. See the official
 [Python agent documentation](https://docs.langchain.com/oss/python/langchain/agents)
 and [JavaScript agent documentation](https://docs.langchain.com/oss/javascript/langchain/agents).
 

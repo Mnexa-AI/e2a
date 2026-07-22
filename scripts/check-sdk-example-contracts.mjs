@@ -18,6 +18,8 @@ const requiredAgentFrameworkDocs = new Map([
     /anthropic\s*=\s*AsyncAnthropic\(\)/,
     /await anthropic\.messages\.create\(/,
     /^## LangChain$/m,
+    /`langchain-openai`/,
+    /`@langchain\/openai`/,
     /create_agent\(/,
     /\.ainvoke\(/,
     /^## Google ADK$/m,
