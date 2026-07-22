@@ -1,17 +1,31 @@
-"""Static contract checks for the public event-envelope constructors."""
+"""Static contract checks for event constructors and narrowing guards."""
+
+from typing import Any
+
+from typing_extensions import assert_type
 
 from e2a.v1 import WebhookEvent, WSEvent
-from e2a.v1.webhook_signature import EmailSentData
+from e2a.v1.generated.models import MessageLifecycleTransition
+from e2a.v1.webhook_signature import (
+    EmailSentData,
+    is_domain_suppression_added,
+    is_email_bounced,
+    is_email_complained,
+    is_email_delivered,
+    is_email_failed,
+    is_email_received,
+    is_email_sent,
+)
 
 
-webhook_event = WebhookEvent(
+webhook_event: WebhookEvent[Any] = WebhookEvent(
     type="email.received",
     id="evt_1",
     schema_version="1",
     created_at="2026-07-01T10:30:00Z",
     data={},
 )
-ws_event = WSEvent(
+ws_event: WSEvent[Any] = WSEvent(
     type="email.received",
     id="evt_1",
     schema_version="1",
@@ -34,3 +48,37 @@ loopback_sent_data: EmailSentData = {
 # fail if the core fields ever become optional again.
 WebhookEvent(type="email.received", data={})  # type: ignore[call-arg]
 WSEvent(type="email.received", data={})  # type: ignore[call-arg]
+
+
+def probe_webhook_narrowing(event: WebhookEvent[Any]) -> None:
+    if is_email_received(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_sent(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_failed(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_delivered(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_bounced(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_complained(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_domain_suppression_added(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+
+
+def probe_websocket_narrowing(event: WSEvent[Any]) -> None:
+    if is_email_received(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_sent(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_failed(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_delivered(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_bounced(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_email_complained(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)
+    if is_domain_suppression_added(event):
+        assert_type(event.data["lifecycle_transitions"][0], MessageLifecycleTransition)

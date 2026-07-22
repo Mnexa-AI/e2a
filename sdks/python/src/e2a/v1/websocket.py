@@ -25,8 +25,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, Mapping, Optional
+from dataclasses import dataclass
+from typing import Any, AsyncIterator, Generic, Optional, TypeVar
 from urllib.parse import quote, urlparse, urlunparse
 
 from .errors import (
@@ -36,6 +36,8 @@ from .errors import (
     E2ANotFoundError,
     E2APermissionError,
 )
+from ._event_lifecycle import coerce_v1_stable_lifecycle
+from .webhook_signature import WebhookEvent
 
 __all__ = ["WSEvent", "WSStream", "WS_CLOSE_REPLACED"]
 
@@ -183,8 +185,11 @@ def _close_disposition(code: int, reason: str) -> str:
     return "transient"
 
 
+WSDataT = TypeVar("WSDataT")
+
+
 @dataclass(frozen=True)
-class WSEvent:
+class WSEvent(WebhookEvent[WSDataT], Generic[WSDataT]):
     """One WebSocket frame: the versioned event envelope (same shape as a
     webhook delivery / ``GET /v1/events/{id}``).
 
@@ -195,16 +200,8 @@ class WSEvent:
     webhook and the WS frame can dedup on it.
     """
 
-    type: str
-    id: str
-    schema_version: str
-    created_at: str
-    data: Dict[str, Any]
-    #: The full parsed envelope (all fields, for forward-compatibility).
-    raw: Mapping[str, Any] = field(default_factory=dict)
-
     @classmethod
-    def from_payload(cls, payload: dict) -> "WSEvent":
+    def from_payload(cls, payload: dict) -> "WSEvent[Any]":
         if not (
             isinstance(payload.get("type"), str)
             and isinstance(payload.get("id"), str)
@@ -218,7 +215,9 @@ class WSEvent:
             id=payload["id"],
             schema_version=payload["schema_version"],
             created_at=payload["created_at"],
-            data=payload["data"],
+            data=coerce_v1_stable_lifecycle(
+                payload["schema_version"], payload["type"], payload["data"]
+            ),
             raw=payload,
         )
 
