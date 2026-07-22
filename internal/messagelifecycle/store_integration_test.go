@@ -5,15 +5,14 @@ package messagelifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/migrations"
@@ -74,6 +73,106 @@ func TestMessageLifecycleMigrationIsIdempotent(t *testing.T) {
 	}
 	if len(after) != 30 {
 		t.Fatalf("catalog row count = %d, want 30", len(after))
+	}
+}
+
+func TestMessageLifecycleMigrationRejectsCatalogDrift(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	sql, err := migrations.FS.ReadFile("073_message_lifecycle.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	const code = "delivery.recipient_server_accepted"
+	if _, err := tx.Exec(ctx, `
+		UPDATE message_lifecycle_reason_codes
+		SET outcome = 'deferred'
+		WHERE code = $1
+	`, code); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx, string(sql))
+	if err == nil {
+		t.Fatal("migration accepted a drifted immutable catalog tuple")
+	}
+	if !strings.Contains(err.Error(), code) {
+		t.Fatalf("migration error %q does not identify drifted code", err)
+	}
+	for _, forbidden := range []string{"deferred", "delivered", "false"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("migration error exposes tuple detail %q: %v", forbidden, err)
+		}
+	}
+}
+
+func TestMessageLifecycleMigrationBuildsTransitionsFromExistingExactCatalog(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	sql, err := migrations.FS.ReadFile("073_message_lifecycle.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DROP TABLE message_lifecycle_transitions`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, string(sql)); err != nil {
+		t.Fatalf("migration with existing exact catalog: %v", err)
+	}
+	var indexExists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT to_regclass('message_lifecycle_message_order_idx') IS NOT NULL
+	`).Scan(&indexExists); err != nil {
+		t.Fatal(err)
+	}
+	if !indexExists {
+		t.Fatal("message lifecycle ordering index was not created")
+	}
+	var transitionConstraints string
+	if err := tx.QueryRow(ctx, `
+		SELECT string_agg(pg_get_constraintdef(oid), E'\n' ORDER BY contype, conname)
+		FROM pg_constraint
+		WHERE conrelid = 'message_lifecycle_transitions'::regclass
+	`).Scan(&transitionConstraints); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"PRIMARY KEY (id)",
+		"CHECK ((direction = ANY",
+		"FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE",
+		"UNIQUE (message_id, dedupe_key)",
+		"FOREIGN KEY (reason_code, stage, outcome, retryable) REFERENCES message_lifecycle_reason_codes(code, stage, outcome, retryable)",
+	} {
+		if !strings.Contains(transitionConstraints, required) {
+			t.Errorf("transition constraints missing %q:\n%s", required, transitionConstraints)
+		}
+	}
+	var catalogConstraints string
+	if err := tx.QueryRow(ctx, `
+		SELECT string_agg(pg_get_constraintdef(oid), E'\n' ORDER BY contype, conname)
+		FROM pg_constraint
+		WHERE conrelid = 'message_lifecycle_reason_codes'::regclass
+	`).Scan(&catalogConstraints); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"PRIMARY KEY (code)",
+		"CHECK ((stage = ANY",
+		"CHECK ((outcome = ANY",
+		"UNIQUE (code, stage, outcome, retryable)",
+	} {
+		if !strings.Contains(catalogConstraints, required) {
+			t.Errorf("catalog constraints missing %q:\n%s", required, catalogConstraints)
+		}
 	}
 }
 
@@ -144,6 +243,67 @@ func TestAppendTxIdenticalReplayReturnsOriginal(t *testing.T) {
 	}
 }
 
+func TestAppendTxReplayNormalizesEquivalentRepresentations(t *testing.T) {
+	tests := []struct {
+		name     string
+		original func(*AppendInput)
+		replayed func(*AppendInput)
+	}{
+		{
+			name: "JSON key order",
+			original: func(in *AppendInput) {
+				in.Evidence = map[string]any{"smtp_detail": "accepted", "failure_code": "none"}
+			},
+			replayed: func(in *AppendInput) {
+				in.Evidence = map[string]any{"failure_code": "none", "smtp_detail": "accepted"}
+			},
+		},
+		{
+			name: "nil and empty maps",
+			original: func(in *AppendInput) {
+				in.Evidence = nil
+				in.CorrelationIDs = nil
+			},
+			replayed: func(in *AppendInput) {
+				in.Evidence = map[string]any{}
+				in.CorrelationIDs = map[string]string{}
+			},
+		},
+		{
+			name: "empty correlation filtering",
+			original: func(in *AppendInput) {
+				in.CorrelationIDs = map[string]string{"event_id": ""}
+			},
+			replayed: func(in *AppendInput) { in.CorrelationIDs = nil },
+		},
+		{
+			name: "timezone and sub-microsecond timestamp",
+			original: func(in *AppendInput) {
+				in.OccurredAt = time.Date(2026, 7, 21, 12, 0, 0, 123456100, time.FixedZone("PDT", -7*60*60))
+			},
+			replayed: func(in *AppendInput) {
+				in.OccurredAt = time.Date(2026, 7, 21, 19, 0, 0, 123456999, time.UTC)
+			},
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := testutil.TestDB(t)
+			messageID := fmt.Sprintf("msg_equivalent_%d", i)
+			insertLifecycleMessage(t, pool, messageID, "outbound")
+			originalInput := lifecycleInput(messageID, "equivalent")
+			tt.original(&originalInput)
+			original := appendAndCommit(t, pool, originalInput)
+			replayedInput := lifecycleInput(messageID, "equivalent")
+			tt.replayed(&replayedInput)
+			replayed := appendAndCommit(t, pool, replayedInput)
+			if !reflect.DeepEqual(replayed, original) {
+				t.Fatalf("equivalent replay differs\noriginal: %#v\nreplayed: %#v", original, replayed)
+			}
+		})
+	}
+}
+
 func TestAppendTxDedupeConflictForSemanticDifferences(t *testing.T) {
 	baseTime := time.Date(2026, 7, 21, 12, 0, 0, 123000000, time.FixedZone("PDT", -7*60*60))
 	tests := []struct {
@@ -163,7 +323,8 @@ func TestAppendTxDedupeConflictForSemanticDifferences(t *testing.T) {
 			pool := testutil.TestDB(t)
 			messageID := "msg_conflict_" + tt.name
 			insertLifecycleMessage(t, pool, messageID, "outbound")
-			originalInput := lifecycleInput(messageID, "same-key")
+			const sensitiveDedupeKey = "customer-secret-dedupe-key"
+			originalInput := lifecycleInput(messageID, sensitiveDedupeKey)
 			originalInput.OccurredAt = baseTime
 			original := appendAndCommit(t, pool, originalInput)
 
@@ -177,6 +338,14 @@ func TestAppendTxDedupeConflictForSemanticDifferences(t *testing.T) {
 			if !errors.Is(err, ErrDedupeConflict) {
 				_ = tx.Rollback(ctx)
 				t.Fatalf("AppendTx error = %v, want ErrDedupeConflict", err)
+			}
+			for _, sensitive := range []string{
+				sensitiveDedupeKey, "250 2.0.0 accepted", "251 forwarded", "evt_123", "evt_other",
+			} {
+				if strings.Contains(err.Error(), sensitive) {
+					_ = tx.Rollback(ctx)
+					t.Fatalf("conflict error exposes sensitive content %q: %v", sensitive, err)
+				}
 			}
 			if err := tx.Commit(ctx); err != nil {
 				t.Fatal(err)
@@ -261,47 +430,59 @@ func TestAppendTxConcurrentDuplicateConverges(t *testing.T) {
 	pool := testutil.TestDB(t)
 	insertLifecycleMessage(t, pool, "msg_concurrent", "outbound")
 	input := lifecycleInput("msg_concurrent", "concurrent")
+	winnerTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	winner, err := AppendTx(ctx, winnerTx, input)
+	if err != nil {
+		_ = winnerTx.Rollback(ctx)
+		t.Fatal(err)
+	}
 
-	start := make(chan struct{})
-	results := make(chan MessageLifecycleTransition, 2)
-	errs := make(chan error, 2)
-	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			tx, err := pool.Begin(ctx)
-			if err != nil {
-				errs <- err
-				return
-			}
-			<-start
-			transition, err := AppendTx(ctx, tx, input)
-			if err != nil {
-				_ = tx.Rollback(ctx)
-				errs <- err
-				return
-			}
-			if err := tx.Commit(ctx); err != nil {
-				errs <- err
-				return
-			}
-			results <- transition
-		}()
+	testCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	type result struct {
+		transition MessageLifecycleTransition
+		err        error
 	}
-	close(start)
-	wg.Wait()
-	close(errs)
-	close(results)
-	for err := range errs {
-		t.Fatalf("concurrent append: %v", err)
+	started := make(chan struct{})
+	resultCh := make(chan result, 1)
+	go func() {
+		loserTx, err := pool.Begin(testCtx)
+		if err != nil {
+			resultCh <- result{err: err}
+			return
+		}
+		close(started)
+		transition, err := AppendTx(testCtx, loserTx, input)
+		if err == nil {
+			err = loserTx.Commit(testCtx)
+		} else {
+			_ = loserTx.Rollback(testCtx)
+		}
+		resultCh <- result{transition: transition, err: err}
+	}()
+	<-started
+	select {
+	case result := <-resultCh:
+		_ = winnerTx.Rollback(ctx)
+		t.Fatalf("loser returned before uncommitted winner resolved: %#v", result)
+	case <-time.After(100 * time.Millisecond):
 	}
-	var got []MessageLifecycleTransition
-	for transition := range results {
-		got = append(got, transition)
+	if err := winnerTx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
-	if len(got) != 2 || !reflect.DeepEqual(got[0], got[1]) {
-		t.Fatalf("concurrent results did not converge: %#v", got)
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("concurrent loser append: %v", result.err)
+		}
+		if !reflect.DeepEqual(result.transition, winner) {
+			t.Fatalf("loser result differs\nwinner: %#v\nloser:  %#v", winner, result.transition)
+		}
+	case <-testCtx.Done():
+		t.Fatalf("concurrent loser did not finish: %v", testCtx.Err())
 	}
 	if count := lifecycleCount(t, pool, input.MessageID); count != 1 {
 		t.Fatalf("row count = %d, want 1", count)
@@ -322,20 +503,36 @@ func lifecycleInput(messageID, dedupeKey string) AppendInput {
 }
 
 func insertLifecycleMessage(t *testing.T, pool interface {
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Begin(context.Context) (pgx.Tx, error)
 }, messageID, direction string) {
 	t.Helper()
 	ctx := context.Background()
 	userID := "usr_" + messageID
 	agentID := "agt_" + messageID
-	if _, err := pool.Exec(ctx, `
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO users (id, email, name, google_subject)
-		VALUES ($1, $2, '', $3);
+		VALUES ($1, $2, '', $3)
+	`, userID, userID+"@example.com", userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO agent_identities (id, registered_domain, user_id, name)
-		VALUES ($4, 'agents.e2a.dev', $1, '');
+		VALUES ($1, 'agents.e2a.dev', $2, '')
+	`, agentID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO messages (id, agent_id, direction)
-		VALUES ($5, $4, $6)
-	`, userID, userID+"@example.com", userID, agentID, messageID, direction); err != nil {
+		VALUES ($1, $2, $3)
+	`, messageID, agentID, direction); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

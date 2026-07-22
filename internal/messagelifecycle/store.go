@@ -75,8 +75,8 @@ func AppendTx(ctx context.Context, tx pgx.Tx, input AppendInput) (MessageLifecyc
 	}
 	if field := semanticDifference(existing, candidate); field != "" {
 		return MessageLifecycleTransition{}, fmt.Errorf(
-			"%w: message_id %q dedupe_key %q differs in %s",
-			ErrDedupeConflict, candidate.MessageID, input.DedupeKey, field,
+			"%w: message_id %q differs in %s",
+			ErrDedupeConflict, candidate.MessageID, field,
 		)
 	}
 	return existing, nil

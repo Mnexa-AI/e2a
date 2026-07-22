@@ -51,6 +51,62 @@ VALUES
     ('complaint.recipient_reported',              'complaint',      'reported',      false)
 ON CONFLICT (code) DO NOTHING;
 
+-- Catalog meanings are immutable. ON CONFLICT deliberately never overwrites
+-- an existing code, while this assertion fails deployment if that code already
+-- has a different tuple. Error text identifies only the stable code.
+DO $$
+DECLARE
+    drifted_code TEXT;
+BEGIN
+    SELECT expected.code
+    INTO drifted_code
+    FROM (VALUES
+        ('acceptance.inbound_smtp',                 'accepted',       'accepted',      false),
+        ('acceptance.outbound_api',                 'accepted',       'accepted',      false),
+        ('acceptance.local_loopback',               'accepted',       'accepted',      false),
+        ('authentication.dmarc_pass',               'authentication', 'passed',        false),
+        ('authentication.dmarc_fail',               'authentication', 'failed',        false),
+        ('authentication.dmarc_none',               'authentication', 'indeterminate', false),
+        ('authentication.dmarc_temporary_error',    'authentication', 'indeterminate', true),
+        ('authentication.dmarc_permanent_error',    'authentication', 'indeterminate', false),
+        ('review.hold_created',                      'review',         'pending',       false),
+        ('review.approved',                          'review',         'approved',      false),
+        ('review.rejected',                          'review',         'rejected',      false),
+        ('review.expired_approved',                  'review',         'approved',      false),
+        ('review.expired_rejected',                  'review',         'rejected',      false),
+        ('suppression.recipient_blocked',            'suppression',    'blocked',       false),
+        ('suppression.hard_bounce_applied',          'suppression',    'applied',       false),
+        ('suppression.complaint_applied',            'suppression',    'applied',       false),
+        ('queue.inbound_processing',                 'queued',         'enqueued',      false),
+        ('queue.outbound_submission',                'queued',         'enqueued',      false),
+        ('submission.upstream_accepted',             'submission',     'accepted',      false),
+        ('submission.local_loopback_accepted',       'submission',     'accepted',      false),
+        ('submission.temporary_failure',             'submission',     'deferred',      true),
+        ('submission.provider_rejected',             'submission',     'failed',        false),
+        ('submission.local_retries_exhausted',       'submission',     'failed',        true),
+        ('submission.cancelled',                     'submission',     'failed',        false),
+        ('delivery.recipient_server_accepted',       'delivery',       'delivered',     false),
+        ('delivery.temporary_delay',                  'delivery',       'deferred',      true),
+        ('delivery.permanent_bounce',                 'delivery',       'bounced',       false),
+        ('delivery.transient_bounce',                 'delivery',       'bounced',       true),
+        ('delivery.undetermined_bounce',              'delivery',       'bounced',       false),
+        ('complaint.recipient_reported',              'complaint',      'reported',      false)
+    ) AS expected(code, stage, outcome, retryable)
+    LEFT JOIN message_lifecycle_reason_codes AS actual
+      ON actual.code = expected.code
+     AND actual.stage = expected.stage
+     AND actual.outcome = expected.outcome
+     AND actual.retryable = expected.retryable
+    WHERE actual.code IS NULL
+    ORDER BY expected.code
+    LIMIT 1;
+
+    IF drifted_code IS NOT NULL THEN
+        RAISE EXCEPTION 'message lifecycle catalog mismatch for code %', drifted_code;
+    END IF;
+END
+$$;
+
 CREATE TABLE IF NOT EXISTS message_lifecycle_transitions (
     id              TEXT PRIMARY KEY,
     message_id      TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
