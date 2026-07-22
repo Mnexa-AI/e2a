@@ -323,7 +323,7 @@ export function MessageLifecycleTimeline({
           {lifecycleSummary(transitions[transitions.length - 1])}
         </div>
         <div style={{ marginTop: 2, fontFamily: "var(--f-mono)", fontSize: 10, color: "var(--fg-subtle)" }}>
-          Observations recorded by e2a · not an inbox-placement claim
+          Observations recorded by e2a
         </div>
       </div>
       <ol
