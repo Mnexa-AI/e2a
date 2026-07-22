@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 5.3.0
 
 ### Added
 - **`client.messages.delete(email, message_id, *, permanent=False)`** — move a
@@ -10,6 +10,9 @@
   already in the trash (irreversible, account scope only; the SDK supplies the
   `?confirm=DELETE` guard the raw API requires on that path). Available on both
   `AsyncE2AClient` and the synchronous `E2AClient`.
+- **`client.messages.get_lifecycle(email, message_id, *, cursor=None, limit=None)`**
+  — page through a message's canonical lifecycle transitions (send, delivery,
+  bounce, review, deletion, …) as `PageMessageLifecycleTransition`. Beta.
 
 ## 5.2.0
 

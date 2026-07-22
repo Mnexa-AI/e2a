@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 5.3.0
 
 ### Added
 - **`client.messages.delete(email, messageId, { permanent })`** — move a message
@@ -9,6 +9,9 @@
   confirmation. Pass `permanent: true` to delete forever a message that is
   already in the trash (irreversible, account scope only; the SDK supplies the
   `?confirm=DELETE` guard the raw API requires on that path).
+- **`client.messages.getLifecycle(email, messageId, { cursor, limit })`** —
+  page through a message's canonical lifecycle transitions (send, delivery,
+  bounce, review, deletion, …) as `PageMessageLifecycleTransition`. Beta.
 
 ## 5.2.0
 
