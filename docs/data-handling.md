@@ -45,5 +45,5 @@ Things e2a doesn't (and can't) handle for you:
 - **Database backups.** Take them, encrypt them, set retention policy. e2a doesn't ship a backup story; use whatever your Postgres provider gives you.
 - **TLS termination** for the API and SMTP. Production mode enforces HTTPS for webhook delivery; the operator's reverse proxy / ingress terminates TLS for inbound API traffic and the SMTP relay's `tls_cert` / `tls_key` config covers `:2525`.
 - **At-rest encryption.** Disk-level / volume-level encryption is the operator's responsibility (Postgres TDE, EBS encryption, GCP CMEK, …). e2a does not currently encrypt message bodies or attachments at the application layer; if your threat model includes a privileged DBA, you'll want to add column-level encryption.
-- **Log redaction.** If your environment can't tolerate sender/recipient addresses in application logs, redact in your log forwarder or run with `--log-format=json` and filter the relevant fields downstream.
+- **Log redaction.** If your environment can't tolerate sender/recipient addresses in application logs, redact in your log forwarder — e2a does not currently offer a built-in structured-log toggle.
 - **Compliance attestations** (SOC 2, HIPAA, ISO 27001) — those are deployment-level, not code-level.
