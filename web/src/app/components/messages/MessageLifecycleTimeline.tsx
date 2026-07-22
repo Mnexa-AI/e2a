@@ -9,6 +9,7 @@ import {
   type MessageLifecyclePageWire,
   type MessageLifecycleTransitionWire,
 } from "../../../lib/messageLifecycle";
+import { messageLifecycleKey } from "../../../lib/swrKeys";
 
 type ReasonCode = MessageLifecycleTransitionWire["reason_code"];
 
@@ -358,9 +359,7 @@ export function MessageLifecycleData({
     (pageIndex, previousPage) => {
       if (previousPage && previousPage.next_cursor === null) return null;
       return [
-        "message-lifecycle",
-        email,
-        messageId,
+        ...messageLifecycleKey(email, messageId),
         pageIndex,
         previousPage?.next_cursor ?? null,
       ] as const;

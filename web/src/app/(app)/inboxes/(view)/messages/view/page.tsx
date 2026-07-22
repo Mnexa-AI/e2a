@@ -43,6 +43,7 @@ import {
   invalidateAgentUnread,
   invalidateAgents,
   invalidateMessageDetail,
+  invalidateMessageLifecycle,
   invalidatePendingList,
   messageDetailKey,
 } from "../../../../../../lib/swrKeys";
@@ -226,15 +227,18 @@ function FocusContent({
       ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.id}`}`
       : inboxLink;
 
-  // Both approve and reject invalidate four SWR caches so the rest
+  // Both approve and reject invalidate five SWR caches so the rest
   // of the dashboard reflects the new state immediately:
-  //   • pendingMessagesKey  → Sidebar badge drops
-  //   • pendingMessageKey   → this focus page itself (the row's
-  //                            status moves from pending_approval
-  //                            to sent/rejected)
-  //   • agentMessagesKey*   → the inbox view drops the pending callout
-  //   • agentsKey           → /inboxes agent cards show updated
-  //                            `pending_count` per agent
+  //   • pendingMessagesKey    → Sidebar badge drops
+  //   • pendingMessageKey     → this focus page itself (the row's
+  //                              status moves from pending_approval
+  //                              to sent/rejected)
+  //   • messageLifecycleKey*  → open lifecycle panels pick up the
+  //                              review-resolution + queueing
+  //                              transitions the action just created
+  //   • agentMessagesKey*     → the inbox view drops the pending callout
+  //   • agentsKey             → /inboxes agent cards show updated
+  //                              `pending_count` per agent
   // We `await Promise.all(...)` before navigating so the inbox
   // re-render happens against fresh data, not the previous payload.
   const refreshAfterMutation = useCallback(
@@ -242,6 +246,7 @@ function FocusContent({
       await Promise.all([
         invalidatePendingList(),
         invalidateMessageDetail(msgId),
+        invalidateMessageLifecycle(email, msgId),
         invalidateAgentMessages(email),
         invalidateAgents(),
       ]);
