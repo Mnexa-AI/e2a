@@ -16,10 +16,11 @@ export interface HttpServerOptions {
    * Externally reachable URL of this MCP server. When set, used verbatim
    * for the RFC 9728 protected-resource metadata `resource` field and
    * the `WWW-Authenticate: resource_metadata=...` value on 401s. When
-   * unset (production default behind Caddy), we synthesize
-   * `https://{Host}` from the inbound request. The local-dev runbook
-   * sets this to `http://localhost:8765` so Claude Code's OAuth probe
-   * can resolve the metadata over loopback http.
+   * unset (production default behind Caddy), we synthesize the URL from
+   * the inbound request Host, forcing `https` for any non-loopback host
+   * (a public MCP endpoint is always TLS-fronted — see #635). The
+   * local-dev runbook sets this to `http://localhost:8765` so Claude
+   * Code's OAuth probe can resolve the metadata over loopback http.
    */
   publicUrl?: string;
   /**
@@ -141,7 +142,7 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
     if (!host) return null;
     const bare = host.split(":")[0]!.toLowerCase();
     if (!allowedHosts.has(bare)) return null;
-    return `${externalScheme(req)}://${host}`;
+    return `${discoveryScheme(req, host)}://${host}`;
   };
 
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
@@ -210,13 +211,33 @@ function externalScheme(req: Request): string {
   return req.protocol === "https" ? "https" : "http";
 }
 
+// isLoopbackHost reports whether a Host header names a local-dev loopback
+// address. Mirrors the bare-host extraction used by the allowlist check (port
+// stripped; IPv6 literals aren't a supported deployment shape for this server).
+function isLoopbackHost(host: string): boolean {
+  const bare = host.split(":")[0]!.toLowerCase();
+  return bare === "localhost" || bare === "127.0.0.1";
+}
+
+// discoveryScheme picks the scheme for synthesized discovery URLs (used only
+// when publicUrl is unset). A public host is always TLS-fronted, so we force
+// https there — this keeps the RFC 9728 `resource` identifier correct even when
+// the fronting proxy's X-Forwarded-Proto isn't trusted (E2A_TRUST_PROXY
+// misconfig, which silently downgraded prod to http; see #635). Loopback dev
+// keeps deriving from the trusted request scheme so http://localhost still works
+// (and local dev sets publicUrl explicitly anyway).
+function discoveryScheme(req: Request, host: string): string {
+  return isLoopbackHost(host) ? externalScheme(req) : "https";
+}
+
 // resourceMetadataURL returns the value the `WWW-Authenticate` header
 // should advertise. Honors publicUrl when set (local-dev http), falls
-// back to the trusted request scheme + Host otherwise.
+// back to the synthesized scheme + Host otherwise.
 function resourceMetadataURL(req: Request, opts: HttpServerOptions): string {
+  const host = req.headers.host ?? "";
   const base = opts.publicUrl
     ? opts.publicUrl.replace(/\/+$/, "")
-    : `${externalScheme(req)}://${req.headers.host}`;
+    : `${discoveryScheme(req, host)}://${host}`;
   return `${base}/.well-known/oauth-protected-resource`;
 }
 

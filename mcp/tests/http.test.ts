@@ -1,10 +1,40 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import http from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpClient } from "../src/client.js";
 import { startHttpServer } from "../src/http-server.js";
 import { ResolveCache } from "../src/resolve.js";
+
+// GET a URL with an explicit Host header. undici's fetch forbids overriding
+// Host, so host-sensitive discovery tests drop to the raw http client.
+function getJsonWithHost(
+  port: number,
+  path: string,
+  host: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<{ resource?: string; [k: string]: unknown }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, path, method: "GET", headers: { Host: host, ...extraHeaders } },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error(`non-JSON response (${res.statusCode}): ${data}`));
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 // Stub the McpClient wrapper — only the methods the tools and the
 // session prefetch (listAgents / agentEmail) actually touch. List
@@ -275,6 +305,27 @@ describe("HTTP MCP server", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.resource).toBe(`http://127.0.0.1:${port}`);
+  });
+
+  // #635: prod served https://api.e2a.dev/mcp but advertised the resource as
+  // http://api.e2a.dev because the fronting proxy's X-Forwarded-Proto wasn't
+  // trusted. A public (non-loopback) host must always be advertised as https,
+  // even without a trusted forwarded-proto header.
+  it("synthesizes https for a public host without X-Forwarded-Proto (#635)", async () => {
+    await close();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["api.e2a.dev"],
+      trustProxy: false,
+      clientFactory: () => stub,
+    });
+    close = c;
+    const body = await getJsonWithHost(
+      port,
+      "/.well-known/oauth-protected-resource",
+      "api.e2a.dev",
+    );
+    expect(body.resource).toBe("https://api.e2a.dev");
   });
 
   it("lists every registered tool after initialize", async () => {
