@@ -41,6 +41,7 @@ import {
 import { formatRelativeAge } from "../../../../../../lib/relativeTime";
 import {
   invalidateAgentMessages,
+  invalidateAgentUnread,
   invalidateAgents,
   invalidateMessageDetail,
   invalidatePendingList,
@@ -173,11 +174,14 @@ function FocusContent({
     {
       shouldRetryOnError: false,
       keepPreviousData: false,
-      // The detail GET flips inbox_status unread → read server-side as a
-      // side effect. Invalidate the inbox cache so the row's read state
-      // reflects immediately rather than waiting for focus revalidation.
-      onSuccess: () => {
+      // An inbound detail GET flips inbox_status unread → read server-side.
+      // Every detail refreshes its inbox row; only inbound wires refresh
+      // unread rollups because outbound loads cannot change that total.
+      onSuccess: (wire) => {
         void invalidateAgentMessages(email);
+        if (wire.direction === "inbound") {
+          void invalidateAgentUnread(email);
+        }
       },
     },
   );

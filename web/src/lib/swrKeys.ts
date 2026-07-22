@@ -17,6 +17,7 @@ import { mutate } from "swr";
 export const agentsKey = "agents";
 export const domainsKey = "domains";
 export const pendingMessagesKey = "pending-messages";
+export const accountUnreadKey = "account-unread";
 
 // Trash views (soft-deleted resources, restorable ~30 days).
 // deletedAgentsKey backs the account-wide /trash page
@@ -122,10 +123,14 @@ export function invalidateAllAgentMessages() {
 }
 
 // After a message is read (its detail fetch flips inbox_status → read on
-// the backend), the Inboxes list unread badge for that agent is stale.
-// Revalidate its per-agent probe so the count drops without a hard refresh.
+// the backend), both its per-agent badge and the account-wide total are
+// stale. Leave every other agent's independent unread probe untouched.
 export function invalidateAgentUnread(email: string) {
-  return mutate(agentUnreadKey(email));
+  return mutate(
+    (key) =>
+      key === accountUnreadKey ||
+      (Array.isArray(key) && key[0] === "agent-unread" && key[1] === email),
+  );
 }
 
 export function invalidateDomains() {

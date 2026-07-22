@@ -17,7 +17,11 @@ import {
 import { PageShell } from "../../components/loft/PageShell";
 import { CounterpartyAvatar } from "../../components/messages/CounterpartyAvatar";
 import { formatRelativeAge } from "../../../lib/relativeTime";
-import { deletedAgentsKey, invalidateAgents } from "../../../lib/swrKeys";
+import {
+  deletedAgentsKey,
+  invalidateAgentUnread,
+  invalidateAgents,
+} from "../../../lib/swrKeys";
 import { TRASH_RETENTION_DAYS, daysLeft } from "../../../lib/trash";
 import type { DashboardAgent } from "../../components/types";
 
@@ -33,11 +37,16 @@ export default function TrashPage() {
   // Two-click "Delete forever": first click arms, second click fires.
   const [armed, setArmed] = useState<string | null>(null);
 
-  const run = async (email: string, op: () => Promise<unknown>) => {
+  const run = async (
+    email: string,
+    op: () => Promise<unknown>,
+    afterSuccess?: () => void,
+  ) => {
     setBusy(email);
     setRowError(null);
     try {
       await op();
+      afterSuccess?.();
       await mutate(); // refresh the trash list
       void invalidateAgents(); // a restore re-adds the inbox to the live list
     } catch (err) {
@@ -139,7 +148,15 @@ export default function TrashPage() {
               <button
                 type="button"
                 disabled={busy === a.email}
-                onClick={() => run(a.email, () => restoreAgent(a.email))}
+                onClick={() =>
+                  run(
+                    a.email,
+                    () => restoreAgent(a.email),
+                    () => {
+                      void invalidateAgentUnread(a.email);
+                    },
+                  )
+                }
                 className="text-[12px] px-3 py-1.5 hover:bg-[var(--bg-elev)] transition"
                 style={{
                   background: "var(--bg-panel)",

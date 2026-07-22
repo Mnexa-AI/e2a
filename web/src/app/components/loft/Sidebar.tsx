@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAuth } from "../AuthProvider";
 import { usePendingCount } from "../hooks/usePendingCount";
+import { useUnreadCount } from "../hooks/useUnreadCount";
 import { ThemeToggle } from "./ThemeToggle";
 import { TokenCanopyGlyph } from "./TokenCanopyBadge";
 
@@ -224,6 +225,7 @@ export function Sidebar({
   const pathname = usePathname() ?? "";
   const { user, signOut } = useAuth();
   const pendingCount = usePendingCount();
+  const unreadCount = useUnreadCount();
 
   return (
     <aside
@@ -281,10 +283,16 @@ export function Sidebar({
       <nav className="flex-1 px-3 pt-3 pb-1.5">
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item);
-          const showBadge =
+          let badgeLabel: number | string | null = null;
+          if (item.href === "/inboxes" && unreadCount && unreadCount.count > 0) {
+            badgeLabel = unreadCount.more ? "99+" : unreadCount.count;
+          } else if (
             item.href === "/reviews" &&
             pendingCount !== null &&
-            pendingCount > 0;
+            pendingCount > 0
+          ) {
+            badgeLabel = pendingCount;
+          }
           return (
             <Link
               key={item.href}
@@ -301,8 +309,9 @@ export function Sidebar({
             >
               <NavIcon kind={item.icon} />
               <span className="flex-1">{item.label}</span>
-              {showBadge && (
+              {badgeLabel !== null && (
                 <span
+                  data-nav-badge
                   className="inline-flex items-center justify-center font-mono text-[10px] font-bold text-white"
                   style={{
                     minWidth: 18,
@@ -312,7 +321,7 @@ export function Sidebar({
                     borderRadius: 999,
                   }}
                 >
-                  {pendingCount}
+                  {badgeLabel}
                 </span>
               )}
             </Link>

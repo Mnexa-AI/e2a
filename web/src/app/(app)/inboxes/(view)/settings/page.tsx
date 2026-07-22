@@ -12,6 +12,7 @@ import { deleteAgent, getProtection } from "../../../../components/onboarding/ap
 import { useAgents } from "../../../../components/hooks/useAgents";
 import {
   invalidateAgents,
+  invalidateAgentUnread,
   invalidateDeletedAgents,
   invalidateProtection,
   protectionKey,
@@ -82,6 +83,7 @@ function AgentSettingsContent({ email }: { email: string }) {
     setDeleteError("");
     try {
       await deleteAgent(agent.email);
+      void invalidateAgentUnread(agent.email);
       await invalidateAgents();
       // The inbox now lives in the trash — a mounted /trash page is stale.
       void invalidateDeletedAgents();
