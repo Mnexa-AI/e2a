@@ -467,6 +467,81 @@ func TestReconstructMalformedOrUncorrelatedEventsAreOmitted(t *testing.T) {
 	}
 }
 
+func TestReconstructInboundSuppressionEventsAreOmitted(t *testing.T) {
+	for _, direction := range []any{"inbound", nil} {
+		name := "omitted direction"
+		data := map[string]any{"message_id": "msg_1", "address": "victim@example.com", "source": "bounce"}
+		if direction != nil {
+			name = "explicit inbound direction"
+			data["direction"] = direction
+		}
+		t.Run(name, func(t *testing.T) {
+			s := baseSnapshot("inbound", "smtp")
+			s.Events = []EventSnapshot{eventSnapshot("evt_inbound_suppression", "domain.suppression_added", reconstructBaseTime.Add(time.Minute), data)}
+			if got := Reconstruct(s); hasStage(got, StageSuppression) {
+				t.Fatalf("inbound event fabricated suppression: %#v", got)
+			}
+		})
+	}
+}
+
+func TestReconstructOversizedStateCorrelationsAreOmittedWithoutDroppingFacts(t *testing.T) {
+	oversized := strings.Repeat("x", maxDiagnosticStringBytes+1)
+	inbound := baseSnapshot("inbound", "smtp")
+	inbound.EmailMessageID = oversized
+	inbound.Authentication = authenticationJSON("pass")
+	got := Reconstruct(inbound)
+	assertReasons(t, got, ReasonAcceptanceInboundSMTP, ReasonAuthenticationDMARCPass)
+	for _, item := range got {
+		if _, exists := item.CorrelationIDs["email_message_id"]; exists {
+			t.Fatalf("oversized email_message_id survived: %#v", item)
+		}
+	}
+
+	providerAt := reconstructBaseTime.Add(time.Minute)
+	outbound := baseSnapshot("outbound", "smtp")
+	outbound.ProviderAcceptedAt = &providerAt
+	outbound.ProviderMessageID = oversized
+	got = Reconstruct(outbound)
+	assertReasons(t, got, ReasonAcceptanceOutboundAPI, ReasonSubmissionUpstreamAccepted)
+	for _, item := range got {
+		if _, exists := item.CorrelationIDs["provider_message_id"]; exists {
+			t.Fatalf("oversized provider_message_id survived: %#v", item)
+		}
+	}
+}
+
+func TestReconstructOversizedEventCorrelationIsOmittedWithoutDroppingFact(t *testing.T) {
+	oversized := strings.Repeat("x", maxDiagnosticStringBytes+1)
+	s := baseSnapshot("outbound", "smtp")
+	s.Events = []EventSnapshot{eventSnapshot("evt_oversized", "email.sent", reconstructBaseTime.Add(time.Minute), map[string]any{
+		"message_id": s.MessageID, "direction": "outbound", "method": "smtp", "provider_message_id": oversized,
+	})}
+	got := findReason(Reconstruct(s), ReasonSubmissionUpstreamAccepted)
+	if got == nil {
+		t.Fatalf("proven submission disappeared: %#v", Reconstruct(s))
+	}
+	if _, exists := got.CorrelationIDs["provider_message_id"]; exists {
+		t.Fatalf("oversized event correlation survived: %#v", got)
+	}
+	if got.CorrelationIDs["event_id"] != "evt_oversized" {
+		t.Fatalf("valid event correlation disappeared: %#v", got)
+	}
+}
+
+func TestFilteredCorrelationCopyOmitsInvalidEmptyAndOversizedEntries(t *testing.T) {
+	got := filteredCorrelationCopy(map[string]string{
+		"event_id":            "evt_valid",
+		"job_id":              "",
+		"provider_message_id": strings.Repeat("x", maxDiagnosticStringBytes+1),
+		"unknown":             "value",
+	})
+	want := map[string]string{"event_id": "evt_valid"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered correlations = %#v, want %#v", got, want)
+	}
+}
+
 func baseSnapshot(direction, method string) Snapshot {
 	return Snapshot{MessageID: "msg_1", AgentID: "agt_1", Direction: direction, Method: method, CreatedAt: reconstructBaseTime}
 }

@@ -33,7 +33,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // ListForMessage returns the lifecycle for one message owned by agentID.
 // Reconstruction is read-only and is never persisted by this method.
 func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) ([]MessageLifecycleTransition, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, fmt.Errorf("begin message lifecycle read: %w", err)
 	}
@@ -42,7 +42,7 @@ func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) (
 	var snapshot Snapshot
 	var authentication []byte
 	err = tx.QueryRow(ctx, `
-		SELECT m.id, m.agent_id, m.direction, COALESCE(m.method, ''),
+		SELECT m.id, m.agent_id, a.user_id, m.direction, COALESCE(m.method, ''),
 		       m.created_at, m.authentication, COALESCE(m.status, ''),
 		       m.approval_expires_at, m.reviewed_at, m.send_job_id,
 		       r.created_at, m.provider_accepted_at,
@@ -51,10 +51,11 @@ func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) (
 		       COALESCE(m.delivery_status, ''),
 		       COALESCE(m.delivery_failure_source, '')
 		FROM messages m
+		JOIN agent_identities a ON a.id = m.agent_id
 		LEFT JOIN river_job r ON r.id = m.send_job_id
 		WHERE m.id = $1 AND m.agent_id = $2
 	`, messageID, agentID).Scan(
-		&snapshot.MessageID, &snapshot.AgentID, &snapshot.Direction, &snapshot.Method,
+		&snapshot.MessageID, &snapshot.AgentID, &snapshot.UserID, &snapshot.Direction, &snapshot.Method,
 		&snapshot.CreatedAt, &authentication, &snapshot.Status,
 		&snapshot.ApprovalExpiresAt, &snapshot.ReviewedAt, &snapshot.SendJobID,
 		&snapshot.JobCreatedAt, &snapshot.ProviderAcceptedAt,
@@ -97,9 +98,9 @@ func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) (
 	suppressionRows, err := tx.Query(ctx, `
 		SELECT id, address, source, source_message_id, created_at
 		FROM suppressions
-		WHERE source_message_id = $1
+		WHERE source_message_id = $1 AND user_id = $2
 		ORDER BY created_at ASC, id ASC
-	`, messageID)
+	`, messageID, snapshot.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("load message lifecycle suppressions: %w", err)
 	}
@@ -121,9 +122,10 @@ func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) (
 		SELECT id, type, envelope, created_at
 		FROM webhook_events
 		WHERE message_id = $1
-		  AND type = ANY($2::text[])
+		  AND user_id = $2
+		  AND type = ANY($3::text[])
 		ORDER BY created_at ASC, id ASC
-	`, messageID, []string{
+	`, messageID, snapshot.UserID, []string{
 		"email.received", "email.sent", "email.failed", "email.delivered",
 		"email.bounced", "email.complained", "email.review_requested",
 		"email.review_approved", "email.review_rejected", "domain.suppression_added",

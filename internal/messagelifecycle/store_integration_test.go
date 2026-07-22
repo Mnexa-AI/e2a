@@ -9,11 +9,14 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/jobs"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/migrations"
 )
@@ -493,7 +496,7 @@ func TestListForMessageOwnedForeignAndMissing(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.TestDB(t)
 	insertLifecycleMessage(t, pool, "msg_list_scope", "outbound")
-	store := NewStore(pool)
+	store := lifecycleStore(t, pool)
 
 	got, err := store.ListForMessage(ctx, "msg_list_scope", "agt_msg_list_scope")
 	if err != nil || len(got) != 1 || got[0].ReasonCode != ReasonAcceptanceOutboundAPI {
@@ -522,7 +525,7 @@ func TestListForMessageHistoricalInboundAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := NewStore(pool).ListForMessage(ctx, "msg_list_auth", "agt_msg_list_auth")
+	got, err := lifecycleStore(t, pool).ListForMessage(ctx, "msg_list_auth", "agt_msg_list_auth")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +564,7 @@ func TestListForMessageHistoricalOutboundRecipientEventAndSuppression(t *testing
 		t.Fatal(err)
 	}
 
-	got, err := NewStore(pool).ListForMessage(ctx, "msg_list_outbound", "agt_msg_list_outbound")
+	got, err := lifecycleStore(t, pool).ListForMessage(ctx, "msg_list_outbound", "agt_msg_list_outbound")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +595,7 @@ func TestListForMessageDeterministicPersistedPrecedenceOrderingAndNoWrites(t *te
 		OccurredAt: when, Evidence: map[string]any{"smtp_detail": "persisted"},
 	})
 
-	store := NewStore(pool)
+	store := lifecycleStore(t, pool)
 	before := lifecycleCount(t, pool, "msg_list_merge")
 	first, err := store.ListForMessage(ctx, "msg_list_merge", "agt_msg_list_merge")
 	if err != nil {
@@ -683,6 +686,108 @@ func TestListForMessageHistoricalSourceIndexMigrationsEmbedded(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListForMessageRejectsCrossTenantHistoricalPoisonRows(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_tenant_scope", "outbound")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, email, name, google_subject)
+		VALUES ('usr_poison', 'poison@example.com', '', 'subject_poison')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO suppressions (id, user_id, address, source, source_message_id, created_at)
+		VALUES ('sup_poison', 'usr_poison', 'suppression-secret@example.com', 'complaint', 'msg_tenant_scope', $1)
+	`, reconstructBaseTime.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	event := eventSnapshot("evt_poison", "email.delivered", reconstructBaseTime.Add(2*time.Minute), map[string]any{
+		"message_id": "msg_tenant_scope", "direction": "outbound",
+		"delivered_to": "event-secret@example.com", "smtp_detail": "foreign tenant secret",
+	})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO webhook_events (id, user_id, type, envelope, message_id, created_at)
+		VALUES ($1, 'usr_poison', $2, $3, 'msg_tenant_scope', $4)
+	`, event.ID, event.Type, event.Envelope, event.CreatedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := lifecycleStore(t, pool).ListForMessage(ctx, "msg_tenant_scope", "agt_msg_tenant_scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ReasonCode != ReasonAcceptanceOutboundAPI {
+		t.Fatalf("cross-tenant historical rows leaked: %#v", got)
+	}
+}
+
+func TestListForMessageUsesRepeatableReadOnlyTransaction(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_repeatable", "outbound")
+	if err := jobs.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := pgxpool.ParseConfig(testutil.TestDBURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracer := &lifecycleQueryTracer{}
+	config.ConnConfig.Tracer = tracer
+	tracedPool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(tracedPool.Close)
+	if _, err := NewStore(tracedPool).ListForMessage(ctx, "msg_repeatable", "agt_msg_repeatable"); err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, sql := range tracer.snapshot() {
+		normalized := strings.ToLower(strings.Join(strings.Fields(sql), " "))
+		if strings.HasPrefix(normalized, "begin") {
+			found = true
+			if !strings.Contains(normalized, "isolation level repeatable read") || !strings.Contains(normalized, "read only") {
+				t.Fatalf("transaction begin = %q, want repeatable read and read only", normalized)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no BEGIN traced: %v", tracer.snapshot())
+	}
+}
+
+type lifecycleQueryTracer struct {
+	mu      sync.Mutex
+	queries []string
+}
+
+func (t *lifecycleQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	t.mu.Lock()
+	t.queries = append(t.queries, data.SQL)
+	t.mu.Unlock()
+	return ctx
+}
+
+func (*lifecycleQueryTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (t *lifecycleQueryTracer) snapshot() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.queries...)
+}
+
+func lifecycleStore(t *testing.T, pool *pgxpool.Pool) *Store {
+	t.Helper()
+	if err := jobs.Migrate(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	return NewStore(pool)
 }
 
 func lifecycleInput(messageID, dedupeKey string) AppendInput {

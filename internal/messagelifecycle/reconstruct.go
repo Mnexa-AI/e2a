@@ -14,6 +14,7 @@ import (
 type Snapshot struct {
 	MessageID             string
 	AgentID               string
+	UserID                string
 	Direction             string
 	Method                string
 	CreatedAt             time.Time
@@ -233,14 +234,33 @@ func addReconstructed(add func(reconstructionCandidate), snapshot Snapshot, reas
 		evidence = map[string]any{}
 	}
 	evidence["source"] = source
-	input := AppendInput{MessageID: snapshot.MessageID, DedupeKey: "reconstructed", Direction: snapshot.Direction, Recipient: recipient, ReasonCode: reason, Evidence: evidence, CorrelationIDs: correlations, OccurredAt: occurredAt}
+	input := AppendInput{MessageID: snapshot.MessageID, DedupeKey: "reconstructed", Direction: snapshot.Direction, Recipient: recipient, ReasonCode: reason, Evidence: evidence, CorrelationIDs: filteredCorrelationCopy(correlations), OccurredAt: occurredAt}
 	transition, err := NewTransition(input)
 	if err != nil {
+		// A remaining validation failure means the durable source does not prove
+		// a valid canonical fact (for example malformed authentication evidence
+		// or a missing required recipient), so omission is deliberate.
 		return
 	}
 	transition.ID = reconstructedID(snapshot.MessageID, sourceKind, sourceID, recipient, reason, transition.OccurredAt)
 	transition.Reconstructed = true
 	add(reconstructionCandidate{transition: transition, sourceKind: sourceKind, sourceID: sourceID, event: event})
+}
+
+// Correlations are optional metadata. Validate each independently with the
+// canonical transition rules so one untrusted identifier cannot erase its fact.
+func filteredCorrelationCopy(correlationIDs map[string]string) map[string]string {
+	result := map[string]string{}
+	for key, value := range correlationIDs {
+		validated, err := validatedCorrelationCopy(map[string]string{key: value})
+		if err != nil {
+			continue
+		}
+		for validatedKey, validatedValue := range validated {
+			result[validatedKey] = validatedValue
+		}
+	}
+	return result
 }
 
 func reconstructEvent(snapshot Snapshot, event EventSnapshot) []reconstructionCandidate {
@@ -351,6 +371,9 @@ func reconstructEvent(snapshot Snapshot, event EventSnapshot) []reconstructionCa
 		}
 		specs = append(specs, reviewEventSpec(data, reason))
 	case "domain.suppression_added":
+		if snapshot.Direction != "outbound" {
+			return nil
+		}
 		var reason ReasonCode
 		source := jsonString(data, "source")
 		if source == "bounce" {
