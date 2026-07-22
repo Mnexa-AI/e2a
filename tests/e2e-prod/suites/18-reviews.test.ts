@@ -1,7 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
-import { uniqueSlug, uniqueSubject, holdAllOutbound } from "../harness/fixtures.ts";
+import { uniqueSlug, uniqueSubject, holdAllOutbound, SINK_EMAIL } from "../harness/fixtures.ts";
 import { fail, info, writeReport } from "../harness/report.ts";
 
 // /v1/reviews is the ACCOUNT-level human-review queue: every message held in
@@ -20,8 +20,6 @@ import { fail, info, writeReport } from "../harness/report.ts";
 // messages, clearing them from the account queue — verified during authoring).
 const SUITE = "18-reviews";
 const client = new ApiClient();
-
-const SINK = "blackhole+e2e@e2a.dev";
 
 interface Review {
   id: string;
@@ -63,7 +61,7 @@ async function createHeldReview(label: string): Promise<{ email: string; id: str
   const subject = uniqueSubject(`review ${label}`);
   const s = await client.post<{ message_id: string; status: string }>(
     `/v1/agents/${encodeURIComponent(email)}/messages`,
-    { body: { to: [SINK], subject, text: "held for review — must never actually go out" } },
+    { body: { to: [SINK_EMAIL], subject, text: "held for review — must never actually go out" } },
   );
   if (s.status !== 202 || !s.body?.message_id) {
     await del(email);
@@ -92,7 +90,7 @@ test("reviews: listReviews returns PageReviewView envelope with the new held rev
     assert.equal(mine!.direction, "outbound", "held outbound draft");
     assert.equal(mine!.header_from, email, "review.header_from is the sending agent identity for outbound mail");
     assert.equal(mine!.envelope_from, null, "review.envelope_from is null for outbound messages");
-    assert.ok(Array.isArray(mine!.to) && mine!.to.includes(SINK), "review.to carries the recipient");
+    assert.ok(Array.isArray(mine!.to) && mine!.to.includes(SINK_EMAIL), "review.to carries the recipient");
     assert.equal(mine!.subject, subject, "review.subject matches the sent subject");
     assert.equal(mine!.review_status, "pending_review", "queued item is pending_review");
     assert.ok(typeof mine!.created_at === "string" && mine!.created_at.length > 0, "created_at present");
@@ -120,7 +118,7 @@ test("reviews: listReviews surfaces every held item; ?limit pagination is undocu
     const mine: string[] = [];
     for (let i = 0; i < 2; i++) {
       const s = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-        body: { to: [SINK], subject: uniqueSubject(`page ${i}`), text: "x" },
+        body: { to: [SINK_EMAIL], subject: uniqueSubject(`page ${i}`), text: "x" },
       });
       assert.equal(s.status, 202, `held send ${i} expected 202, got ${s.status}`);
       mine.push(s.body!.message_id);
@@ -167,7 +165,7 @@ test("reviews: getReview returns full MessageView; nonexistent id → 404", asyn
     assert.equal(r.body?.direction, "outbound");
     assert.equal(r.body?.review_status, "pending_review");
     assert.equal(r.body?.subject, subject);
-    assert.ok(Array.isArray(r.body?.to) && r.body!.to!.includes(SINK), "recipients present");
+    assert.ok(Array.isArray(r.body?.to) && r.body!.to!.includes(SINK_EMAIL), "recipients present");
     assert.ok(r.body?.body?.text, "full detail carries the message body");
 
     const miss = await client.get(`/v1/reviews/msg_nonexistent_${Date.now()}`);
@@ -222,8 +220,8 @@ test("reviews: approveReview resolves the outbound hold (200 terminal or 202 enq
       assert.equal(again.status, 409, `re-approve of sent hold expected 409, got ${again.status}: ${again.raw.slice(0, 200)}`);
     } else if (r.status === 500 && r.body && (r.body as { error?: { message?: string } }).error?.message === "send failed") {
       // KNOWN STAGING LIMITATION, not a reviews-endpoint bug: approve attempts a
-      // real SES send and staging can't deliver to the blackhole sink, so the
-      // send leg 500s ("send failed"). Verified during authoring that the fault
+      // real SES send and staging may not be able to deliver to the configured
+      // sink, so the send leg 500s ("send failed"). Verified during authoring that the fault
       // is the send transport on staging, not the /v1/reviews routing/authz. The hold
       // stays pending_review after the failed send, so we reject it below to
       // clean up. If prod ever runs this against a deliverable sink, the 2xx

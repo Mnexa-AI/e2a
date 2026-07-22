@@ -4,8 +4,10 @@ import { join } from "node:path";
 
 export interface ProdEnv {
   apiUrl: string;
+  siteUrl: string;
   apiKey: string;
   primaryAgentEmail: string;
+  sinkEmail: string;
   sharedDomain: string;
   // Deployed streamable-HTTP MCP endpoint the MCP suites target. Defaults to
   // `${apiUrl}/mcp` (Caddy routes /mcp to the co-versioned mcp-server image);
@@ -19,6 +21,24 @@ export interface ProdEnv {
   allowStress: boolean;
   cleanupMode: "always" | "on_success" | "never";
   rateLimitRps: number;
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+export function resolveSiteUrl(apiUrl: string, explicitSiteUrl?: string): string {
+  if (explicitSiteUrl?.trim()) return normalizeBaseUrl(explicitSiteUrl);
+
+  const normalizedApiUrl = normalizeBaseUrl(apiUrl);
+  const apiOrigin = new URL(normalizedApiUrl).origin;
+  if (apiOrigin === "https://api.e2a.dev") return "https://e2a.dev";
+  if (apiOrigin === "https://api-staging.e2a.dev") return "https://staging.e2a.dev";
+  return normalizedApiUrl;
+}
+
+export function resolveSinkEmail(primaryAgentEmail: string, explicitSinkEmail?: string): string {
+  return explicitSinkEmail?.trim() || primaryAgentEmail;
 }
 
 function readLocalConfig(): { api_key?: string; api_url?: string; agent_email?: string; shared_domain?: string } {
@@ -55,11 +75,15 @@ function pickEnv(canonical: string, ...legacy: string[]): string | undefined {
 
 export function loadEnv(): ProdEnv {
   const local = readLocalConfig();
+  const apiUrl = pickEnv("E2A_URL", "E2A_API_URL") ?? local.api_url ?? "https://e2a.dev";
+  const primaryAgentEmail = pickEnv("E2A_AGENT_EMAIL", "E2A_PRIMARY_AGENT") ?? local.agent_email ?? "";
   const env: ProdEnv = {
-    apiUrl: pickEnv("E2A_URL", "E2A_API_URL") ?? local.api_url ?? "https://e2a.dev",
+    apiUrl,
+    siteUrl: resolveSiteUrl(apiUrl, process.env.E2A_SITE_URL),
     mcpUrl: "", // filled below once apiUrl is known
     apiKey: process.env.E2A_API_KEY ?? local.api_key ?? "",
-    primaryAgentEmail: pickEnv("E2A_AGENT_EMAIL", "E2A_PRIMARY_AGENT") ?? local.agent_email ?? "",
+    primaryAgentEmail,
+    sinkEmail: resolveSinkEmail(primaryAgentEmail, process.env.E2E_SINK_EMAIL),
     sharedDomain: process.env.E2A_SHARED_DOMAIN ?? local.shared_domain ?? "agents.e2a.dev",
     quotaApiKey: process.env.E2A_QUOTA_API_KEY || undefined,
     quotaAgentEmail: process.env.E2A_QUOTA_AGENT_EMAIL || undefined,

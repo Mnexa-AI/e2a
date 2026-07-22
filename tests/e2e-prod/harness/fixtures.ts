@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { ApiClient, RawResponse } from "./client.ts";
+import { loadEnv } from "./env.ts";
 
 const RUN_ID = randomBytes(3).toString("hex");
 
@@ -19,7 +20,7 @@ export function uniqueIdempotencyKey(): string {
   return `idem-${RUN_ID}-${randomBytes(6).toString("hex")}`;
 }
 
-export const SINK_EMAIL = process.env.E2E_SINK_EMAIL ?? "blackhole+e2e@e2a.dev";
+export const SINK_EMAIL = loadEnv().sinkEmail;
 
 // holdAllOutbound replaces the retired `hitl_enabled` flag. It sets an
 // outbound review gate with policy=allowlist + action=review and an empty
