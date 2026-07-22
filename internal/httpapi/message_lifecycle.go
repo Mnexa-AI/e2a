@@ -12,11 +12,13 @@ import (
 )
 
 const messageLifecycleCursorVersion = 1
+const messageLifecycleDefaultLimit = 50
 
 type messageLifecycleInput struct {
-	Email string `path:"email"`
-	ID    string `path:"id"`
-	PageParams
+	Email  string `path:"email"`
+	ID     string `path:"id"`
+	Cursor string `query:"cursor" doc:"Opaque pagination cursor from a previous response's next_cursor."`
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"50" doc:"Maximum number of lifecycle transitions to return (1-100)."`
 }
 
 type messageLifecycleOutput struct {
@@ -88,7 +90,10 @@ func (s *Server) handleMessageLifecycle(ctx context.Context, in *messageLifecycl
 		items = items[start:]
 	}
 
-	limit := effectiveLimit(in.Limit)
+	limit := in.Limit
+	if limit <= 0 {
+		limit = messageLifecycleDefaultLimit
+	}
 	// Keep one extra item only long enough to determine whether another page
 	// exists; it is never exposed in the current response.
 	hasMore := len(items) > limit

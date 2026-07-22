@@ -144,13 +144,15 @@ func TestMessageLifecyclePageBoundaryHasNoDuplicates(t *testing.T) {
 
 func TestMessageLifecycleDefaultAndMaximumLimits(t *testing.T) {
 	srv, _ := newLifecycleServer(t, lifecycleTransitions(101))
-	for _, query := range []string{"", "?limit=100"} {
-		status, body := lifecycleGET(t, srv, "agent@example.com", "msg_one", query)
-		if status != http.StatusOK || len(lifecycleItems(t, body)) != 100 || body["next_cursor"] == nil {
-			t.Fatalf("query %q = %d %#v", query, status, body)
-		}
+	status, body := lifecycleGET(t, srv, "agent@example.com", "msg_one", "")
+	if status != http.StatusOK || len(lifecycleItems(t, body)) != 50 || body["next_cursor"] == nil {
+		t.Fatalf("default limit = %d %#v", status, body)
 	}
-	status, body := lifecycleGET(t, srv, "agent@example.com", "msg_one", "?limit=101")
+	status, body = lifecycleGET(t, srv, "agent@example.com", "msg_one", "?limit=100")
+	if status != http.StatusOK || len(lifecycleItems(t, body)) != 100 || body["next_cursor"] == nil {
+		t.Fatalf("maximum limit = %d %#v", status, body)
+	}
+	status, body = lifecycleGET(t, srv, "agent@example.com", "msg_one", "?limit=101")
 	if status != http.StatusUnprocessableEntity || errCode(body) != "invalid_request" {
 		t.Fatalf("over max = %d %#v", status, body)
 	}
@@ -228,6 +230,19 @@ func TestMessageLifecycleOpenAPIOperationAndEnums(t *testing.T) {
 	op := doc.Paths["/v1/agents/{email}/messages/{id}/lifecycle"].Get
 	if op == nil || op.OperationID != "get-message-lifecycle" {
 		t.Fatalf("lifecycle operation = %#v", op)
+	}
+	var limitSchemaFound bool
+	for _, parameter := range op.Parameters {
+		if parameter.Name != "limit" {
+			continue
+		}
+		limitSchemaFound = true
+		if parameter.Schema.Default != 50 || parameter.Schema.Maximum == nil || *parameter.Schema.Maximum != 100 {
+			t.Errorf("limit schema default=%v maximum=%v; want 50 and 100", parameter.Schema.Default, parameter.Schema.Maximum)
+		}
+	}
+	if !limitSchemaFound {
+		t.Error("lifecycle limit query parameter not found")
 	}
 	var transitionSchemaFound bool
 	for name, schema := range doc.Components.Schemas.Map() {
