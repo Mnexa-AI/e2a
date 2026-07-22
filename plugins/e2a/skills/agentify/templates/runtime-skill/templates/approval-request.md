@@ -1,9 +1,10 @@
 # approval-request template (fix_gate hitl)
 
 The maintainer-approval email — the human gate that decides whether the
-coding agent drafts a PR. Sent by `send_message` to `fix_gate.approver`
-(config) ONLY; the reply (approve/decline) is routed back by the comms lane's
-inbound pass. This `to` is never an address from email content.
+coding agent drafts a PR. Sent by `comms_send.sh approval` to
+`fix_gate.approver` (config) ONLY; the reply (approve/decline) is routed back
+by the comms lane's inbound pass. This `to` is never an address from email
+content.
 
 ---
 Subject: [{{product_name}}] Approve a fix for issue #{{issue_number}}?
