@@ -1,10 +1,13 @@
 package messagelifecycle
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/tokencanopy/e2a/internal/emailauth"
 )
 
 const (
@@ -174,14 +177,84 @@ func validatedEvidenceCopy(evidence map[string]any) (map[string]any, error) {
 		return nil, fmt.Errorf("copy evidence: %w", err)
 	}
 	if authentication, ok := copied["authentication"]; ok {
-		if _, ok := authentication.(map[string]any); !ok {
-			return nil, fmt.Errorf("evidence authentication must be a structured object")
+		encodedAuthentication, err := json.Marshal(authentication)
+		if err != nil {
+			return nil, fmt.Errorf("marshal evidence authentication: %w", err)
+		}
+		if err := validateAuthentication(encodedAuthentication); err != nil {
+			return nil, fmt.Errorf("evidence authentication: %w", err)
 		}
 		if err := validateNestedStrings(authentication); err != nil {
 			return nil, fmt.Errorf("evidence authentication: %w", err)
 		}
 	}
 	return copied, nil
+}
+
+func validateAuthentication(encoded []byte) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &root); err != nil || root == nil {
+		return fmt.Errorf("must be a structured object")
+	}
+	allowedRoot := map[string]bool{"spf": true, "dkim": true, "dmarc": true}
+	for key := range root {
+		if !allowedRoot[key] {
+			return fmt.Errorf("key %q is not allowed", key)
+		}
+	}
+	for _, key := range []string{"spf", "dkim", "dmarc"} {
+		if _, ok := root[key]; !ok {
+			return fmt.Errorf("key %q is required", key)
+		}
+	}
+
+	if err := validateAuthenticationObject(root["spf"], "spf", map[string]bool{
+		"status": true, "domain": true, "aligned": true, "detail": true,
+	}); err != nil {
+		return err
+	}
+
+	var dkimItems []json.RawMessage
+	if bytes.Equal(bytes.TrimSpace(root["dkim"]), []byte("null")) {
+		return fmt.Errorf("dkim must be an array")
+	}
+	if err := json.Unmarshal(root["dkim"], &dkimItems); err != nil {
+		return fmt.Errorf("dkim must be an array")
+	}
+	for index, item := range dkimItems {
+		if err := validateAuthenticationObject(item, fmt.Sprintf("dkim[%d]", index), map[string]bool{
+			"status": true, "domain": true, "selector": true, "aligned": true, "detail": true,
+		}); err != nil {
+			return err
+		}
+	}
+
+	if err := validateAuthenticationObject(root["dmarc"], "dmarc", map[string]bool{
+		"status": true, "domain": true, "policy": true, "aligned_by": true, "detail": true,
+	}); err != nil {
+		return err
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	var authentication emailauth.Authentication
+	if err := decoder.Decode(&authentication); err != nil {
+		return fmt.Errorf("invalid structure: %w", err)
+	}
+	return nil
+}
+
+func validateAuthenticationObject(encoded json.RawMessage, name string, allowed map[string]bool) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil || object == nil {
+		return fmt.Errorf("%s must be an object", name)
+	}
+	for key := range object {
+		if !allowed[key] {
+			return fmt.Errorf("%s key %q is not allowed", name, key)
+		}
+	}
+	return nil
 }
 
 func validateNestedStrings(value any) error {
@@ -214,6 +287,9 @@ func validatedCorrelationCopy(correlationIDs map[string]string) (map[string]stri
 		}
 		if len(value) > maxDiagnosticStringBytes {
 			return nil, fmt.Errorf("correlation value %q exceeds 2 KiB", key)
+		}
+		if value == "" {
+			continue
 		}
 		result[key] = value
 	}

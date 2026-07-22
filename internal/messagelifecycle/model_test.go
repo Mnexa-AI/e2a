@@ -1,10 +1,13 @@
 package messagelifecycle
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tokencanopy/e2a/internal/emailauth"
 )
 
 func TestCatalogIsExhaustive(t *testing.T) {
@@ -134,8 +137,9 @@ func TestCatalogProducerMappings(t *testing.T) {
 func TestNewTransitionDerivesCanonicalFieldsAndCopiesInput(t *testing.T) {
 	when := time.Date(2026, 7, 21, 12, 30, 0, 123, time.FixedZone("test", -7*60*60))
 	authentication := map[string]any{
+		"spf":   map[string]any{"status": "pass", "domain": "example.com", "aligned": true, "detail": "aligned"},
 		"dmarc": map[string]any{"status": "pass"},
-		"dkim":  []any{map[string]any{"domain": "example.com"}},
+		"dkim":  []any{map[string]any{"status": "pass", "domain": "example.com", "selector": "s1", "aligned": true, "detail": "valid"}},
 	}
 	evidence := map[string]any{"authentication": authentication, "source": "smtp"}
 	correlations := map[string]string{"event_id": "evt_123", "email_message_id": "<mail@example.com>"}
@@ -282,11 +286,53 @@ func TestEvidenceRejectsForbiddenUnknownAndInvalidValues(t *testing.T) {
 	}
 }
 
+func TestEvidenceRejectsUnknownAuthenticationKeys(t *testing.T) {
+	tests := map[string]map[string]any{
+		"root credentials":  authenticationEvidence(map[string]any{"credentials": "secret"}, nil, nil, nil),
+		"SPF raw MIME":      authenticationEvidence(nil, map[string]any{"raw_mime": "unsafe"}, nil, nil),
+		"DKIM headers":      authenticationEvidence(nil, nil, map[string]any{"headers": "unsafe"}, nil),
+		"DMARC credentials": authenticationEvidence(nil, nil, nil, map[string]any{"credentials": "secret"}),
+	}
+	for name, evidence := range tests {
+		t.Run(name, func(t *testing.T) {
+			in := validAppendInput()
+			in.Evidence = evidence
+			if _, err := NewTransition(in); err == nil {
+				t.Fatal("NewTransition() accepted unknown authentication key")
+			}
+		})
+	}
+}
+
+func TestEvidenceRejectsInvalidAuthenticationStructure(t *testing.T) {
+	valid := validAuthenticationMap()
+	tests := map[string]any{
+		"authentication string": "not structured",
+		"missing SPF":           map[string]any{"dkim": valid["dkim"], "dmarc": valid["dmarc"]},
+		"missing DKIM":          map[string]any{"spf": valid["spf"], "dmarc": valid["dmarc"]},
+		"missing DMARC":         map[string]any{"spf": valid["spf"], "dkim": valid["dkim"]},
+		"SPF array":             map[string]any{"spf": []any{}, "dkim": valid["dkim"], "dmarc": valid["dmarc"]},
+		"DKIM object":           map[string]any{"spf": valid["spf"], "dkim": map[string]any{}, "dmarc": valid["dmarc"]},
+		"DKIM string item":      map[string]any{"spf": valid["spf"], "dkim": []any{"bad"}, "dmarc": valid["dmarc"]},
+		"DMARC array":           map[string]any{"spf": valid["spf"], "dkim": valid["dkim"], "dmarc": []any{}},
+		"wrong SPF field type":  map[string]any{"spf": map[string]any{"aligned": "yes"}, "dkim": valid["dkim"], "dmarc": valid["dmarc"]},
+	}
+	for name, authentication := range tests {
+		t.Run(name, func(t *testing.T) {
+			in := validAppendInput()
+			in.Evidence = map[string]any{"authentication": authentication}
+			if _, err := NewTransition(in); err == nil {
+				t.Fatal("NewTransition() accepted invalid authentication structure")
+			}
+		})
+	}
+}
+
 func TestEvidenceEnforcesStringAndSerializedLimits(t *testing.T) {
 	tooLong := strings.Repeat("x", 2*1024+1)
 	for name, evidence := range map[string]map[string]any{
 		"top-level string":             {"smtp_detail": tooLong},
-		"nested authentication string": {"authentication": map[string]any{"dmarc": map[string]any{"detail": tooLong}}},
+		"nested authentication string": authenticationEvidence(nil, nil, nil, map[string]any{"detail": tooLong}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			in := validAppendInput()
@@ -297,30 +343,60 @@ func TestEvidenceEnforcesStringAndSerializedLimits(t *testing.T) {
 		})
 	}
 
-	large := strings.Repeat("x", 2*1024)
-	in := validAppendInput()
-	in.Evidence = map[string]any{
-		"smtp_detail": large, "bounce_type": large, "bounce_sub_type": large,
-		"failure_reason": large, "failure_code": large, "review_resolution": large,
-		"suppression_scope": large, "suppression_source": large, "source": large,
-	}
-	if _, err := NewTransition(in); err == nil {
-		t.Fatal("NewTransition() accepted serialized evidence over 16 KiB")
-	}
+	t.Run("exactly 2 KiB strings", func(t *testing.T) {
+		limit := strings.Repeat("x", 2*1024)
+		for name, evidence := range map[string]map[string]any{
+			"top-level": {"smtp_detail": limit},
+			"nested":    authenticationEvidence(nil, nil, nil, map[string]any{"detail": limit}),
+		} {
+			t.Run(name, func(t *testing.T) {
+				in := validAppendInput()
+				in.Evidence = evidence
+				if _, err := NewTransition(in); err != nil {
+					t.Fatalf("NewTransition() rejected string at 2 KiB: %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("serialized evidence boundary", func(t *testing.T) {
+		exact := evidenceWithSerializedSize(t, 16*1024)
+		in := validAppendInput()
+		in.Evidence = exact
+		if _, err := NewTransition(in); err != nil {
+			t.Fatalf("NewTransition() rejected evidence at 16 KiB: %v", err)
+		}
+
+		over := evidenceWithSerializedSize(t, 16*1024+1)
+		in.Evidence = over
+		if _, err := NewTransition(in); err == nil {
+			t.Fatal("NewTransition() accepted serialized evidence at 16 KiB+1")
+		}
+	})
 }
 
-func TestEvidenceAcceptsBoundedStructuredAuthentication(t *testing.T) {
-	in := validAppendInput()
-	in.Evidence = map[string]any{
-		"authentication": map[string]any{
-			"spf":   map[string]any{"status": "pass", "domain": "example.com"},
-			"dkim":  []any{map[string]any{"status": "pass", "selector": "s1"}},
-			"dmarc": map[string]any{"status": "pass"},
-		},
-		"smtp_detail": "250 2.0.0 accepted",
+func TestEvidenceAcceptsConcreteAndMappedAuthentication(t *testing.T) {
+	domain := "example.com"
+	selector := "s1"
+	aligned := true
+	policy := emailauth.DMARCPolicyReject
+	concrete := emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &domain, Aligned: &aligned, Detail: "aligned"},
+		DKIM:  []emailauth.DKIMResult{{Status: emailauth.StatusPass, Domain: &domain, Selector: &selector, Aligned: &aligned, Detail: "valid"}},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &domain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF, emailauth.AlignedByDKIM}, Detail: "passed"},
 	}
-	if _, err := NewTransition(in); err != nil {
-		t.Fatalf("NewTransition() rejected safe evidence: %v", err)
+	for name, authentication := range map[string]any{
+		"struct":  concrete,
+		"pointer": &concrete,
+		"map":     validAuthenticationMap(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := validAppendInput()
+			in.Evidence = map[string]any{"authentication": authentication, "smtp_detail": "250 2.0.0 accepted"}
+			if _, err := NewTransition(in); err != nil {
+				t.Fatalf("NewTransition() rejected valid full authentication: %v", err)
+			}
+		})
 	}
 }
 
@@ -343,6 +419,24 @@ func TestEvidenceValidatesCorrelationIDs(t *testing.T) {
 	in.CorrelationIDs = map[string]string{"event_id": strings.Repeat("x", 2*1024+1)}
 	if _, err := NewTransition(in); err == nil {
 		t.Fatal("NewTransition() accepted correlation value over 2 KiB")
+	}
+
+	inputCorrelations := map[string]string{
+		"event_id": "",
+		"job_id":   strings.Repeat("x", 2*1024),
+	}
+	in = validAppendInput()
+	in.CorrelationIDs = inputCorrelations
+	got, err := NewTransition(in)
+	if err != nil {
+		t.Fatalf("NewTransition() rejected correlation boundary: %v", err)
+	}
+	if _, ok := got.CorrelationIDs["event_id"]; ok {
+		t.Fatal("NewTransition() retained empty correlation value")
+	}
+	inputCorrelations["job_id"] = "mutated"
+	if got.CorrelationIDs["job_id"] != strings.Repeat("x", 2*1024) {
+		t.Fatal("mutating input changed copied correlation value")
 	}
 }
 
@@ -372,4 +466,62 @@ func validAppendInput() AppendInput {
 		ReasonCode: ReasonAcceptanceOutboundAPI,
 		OccurredAt: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC),
 	}
+}
+
+func validAuthenticationMap() map[string]any {
+	return map[string]any{
+		"spf": map[string]any{
+			"status": "pass", "domain": "example.com", "aligned": true, "detail": "aligned",
+		},
+		"dkim": []any{map[string]any{
+			"status": "pass", "domain": "example.com", "selector": "s1", "aligned": true, "detail": "valid",
+		}},
+		"dmarc": map[string]any{
+			"status": "pass", "domain": "example.com", "policy": "reject", "aligned_by": []any{"spf", "dkim"}, "detail": "passed",
+		},
+	}
+}
+
+func authenticationEvidence(root, spf, dkim, dmarc map[string]any) map[string]any {
+	authentication := validAuthenticationMap()
+	for key, value := range root {
+		authentication[key] = value
+	}
+	for key, value := range spf {
+		authentication["spf"].(map[string]any)[key] = value
+	}
+	for key, value := range dkim {
+		authentication["dkim"].([]any)[0].(map[string]any)[key] = value
+	}
+	for key, value := range dmarc {
+		authentication["dmarc"].(map[string]any)[key] = value
+	}
+	return map[string]any{"authentication": authentication}
+}
+
+func evidenceWithSerializedSize(t *testing.T, target int) map[string]any {
+	t.Helper()
+	limit := strings.Repeat("x", 2*1024)
+	evidence := map[string]any{
+		"smtp_detail": limit, "bounce_type": limit, "bounce_sub_type": limit,
+		"failure_reason": limit, "failure_code": limit, "review_resolution": limit,
+		"suppression_scope": limit, "source": "",
+	}
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatalf("marshal boundary evidence: %v", err)
+	}
+	remainder := target - len(encoded)
+	if remainder < 0 || remainder > 2*1024 {
+		t.Fatalf("cannot construct %d-byte evidence: remainder %d", target, remainder)
+	}
+	evidence["source"] = strings.Repeat("y", remainder)
+	encoded, err = json.Marshal(evidence)
+	if err != nil {
+		t.Fatalf("marshal sized evidence: %v", err)
+	}
+	if len(encoded) != target {
+		t.Fatalf("serialized evidence size = %d, want %d", len(encoded), target)
+	}
+	return evidence
 }
