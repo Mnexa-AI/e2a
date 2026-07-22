@@ -1,8 +1,9 @@
-import { test, after } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
-import { cleanup, track } from "../harness/cleanup.ts";
-import { uniqueSlug, holdAllOutbound } from "../harness/fixtures.ts";
+import { cleanup, track, untrack } from "../harness/cleanup.ts";
+import { agentHeadroom, type AgentCapacityView } from "../harness/account.ts";
+import { uniqueSlug, holdAllOutbound, SINK_EMAIL } from "../harness/fixtures.ts";
 import { info, warn, writeReport, fail } from "../harness/report.ts";
 
 const client = new ApiClient();
@@ -10,38 +11,78 @@ const client = new ApiClient();
 const burst = new ApiClient(client.env, 5);
 const SUITE = "03-concurrency";
 
+afterEach(async () => {
+  const r = await cleanup(client);
+  if (r.failed.length) warn(SUITE, "cleanup-after-each", `failed ${r.failed.length}`, r.failed);
+});
+
 after(async () => {
   const r = await cleanup(client);
   if (r.failed.length) warn(SUITE, "cleanup", `failed ${r.failed.length}`, r.failed);
   writeReport(`./reports/03-concurrency.json`);
 });
 
-test("concurrency: 5 parallel creates with distinct slugs all succeed", async () => {
+test("concurrency: 5 parallel creates with distinct slugs all succeed", async (t) => {
+  const account = await client.get<AgentCapacityView>("/v1/account");
+  assert.equal(account.status, 200, `account capacity lookup failed: ${account.status} ${account.raw.slice(0, 200)}`);
+  const available = agentHeadroom(account.body!);
+  if (available < 5) {
+    t.skip(`requires 5 free agent slots; account currently has ${available}`);
+    return;
+  }
   const slugs = Array.from({ length: 5 }, () => uniqueSlug("par"));
-  const results = await Promise.all(
-    slugs.map((slug) =>
-      burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "par" } }),
+  const emails = slugs.map((slug) => `${slug}@${burst.env.sharedDomain}`);
+  for (const email of emails) track("agent", email);
+  const settled = await Promise.allSettled(
+    emails.map((email) =>
+      burst.post<{ email: string }>("/v1/agents", { body: { email, name: "par" } }),
     ),
   );
+  settled.forEach((result, i) => {
+    if (result.status === "fulfilled" && result.value.status !== 201) untrack("agent", emails[i]);
+  });
+  const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  assert.equal(
+    rejected.length,
+    0,
+    `parallel create transport failures: ${rejected.map((result) => String(result.reason)).join(" | ")}`,
+  );
+  const results = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   for (const r of results) {
     assert.equal(r.status, 201, `parallel create failed: ${r.status} ${r.raw.slice(0, 200)}`);
-    if (r.body?.email) track("agent", r.body.email);
   }
 });
 
-test("concurrency: 5 parallel creates with the SAME slug — exactly one wins, rest 409/4xx", async () => {
+test("concurrency: 5 parallel creates with the SAME slug — exactly one wins, rest 409/4xx", async (t) => {
+  const account = await client.get<AgentCapacityView>("/v1/account");
+  assert.equal(account.status, 200, `account capacity lookup failed: ${account.status} ${account.raw.slice(0, 200)}`);
+  const available = agentHeadroom(account.body!);
+  if (available < 1) {
+    t.skip("requires 1 free agent slot; account currently has none");
+    return;
+  }
   const slug = uniqueSlug("race");
-  const results = await Promise.all(
+  const email = `${slug}@${burst.env.sharedDomain}`;
+  track("agent", email);
+  const settled = await Promise.allSettled(
     Array.from({ length: 5 }, () =>
-      burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "race" } }),
+      burst.post<{ email: string }>("/v1/agents", { body: { email, name: "race" } }),
     ),
   );
+  const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  const hasSuccess = settled.some((result) => result.status === "fulfilled" && result.value.status === 201);
+  if (!hasSuccess && rejected.length === 0) untrack("agent", email);
+  assert.equal(
+    rejected.length,
+    0,
+    `same-slug race transport failures: ${rejected.map((result) => String(result.reason)).join(" | ")}`,
+  );
+  const results = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   const successes = results.filter((r) => r.status === 201);
   const conflicts = results.filter((r) => r.status === 409);
   const otherFails = results.filter((r) => r.status !== 201 && r.status !== 409);
 
   assert.equal(successes.length, 1, `expected exactly 1 success, got ${successes.length}: ${results.map((r) => r.status).join(",")}`);
-  for (const w of successes) if (w.body?.email) track("agent", w.body.email);
 
   if (otherFails.length > 0) {
     info(
@@ -168,7 +209,7 @@ test("concurrency: 8 parallel sends from HITL agent — all queue (no dropped/du
     Array.from({ length: N }, (_, i) =>
       burst.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
         body: {
-          to: ["blackhole@e2a.dev"],
+          to: [SINK_EMAIL],
           subject: `parallel ${i}`,
           text: `parallel send #${i}`,
         },

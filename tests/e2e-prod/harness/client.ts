@@ -36,15 +36,17 @@ export class RateLimiter {
 export class ApiClient {
   readonly env: ProdEnv;
   readonly limiter: RateLimiter;
+  private readonly baseUrl: string;
 
-  constructor(env?: ProdEnv, rpsOverride?: number) {
+  constructor(env?: ProdEnv, rpsOverride?: number, baseUrlOverride?: string) {
     this.env = env ?? loadEnv();
     this.limiter = new RateLimiter(rpsOverride ?? this.env.rateLimitRps);
+    this.baseUrl = baseUrlOverride ?? this.env.apiUrl;
   }
 
   async request<T = unknown>(method: string, path: string, opts: RequestOpts = {}): Promise<RawResponse<T>> {
     await this.limiter.tick();
-    const url = new URL(path, this.env.apiUrl);
+    const url = new URL(path, this.baseUrl);
     if (opts.query) {
       for (const [k, v] of Object.entries(opts.query)) {
         if (v !== undefined) url.searchParams.set(k, String(v));

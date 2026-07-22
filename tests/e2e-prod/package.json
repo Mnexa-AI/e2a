@@ -5,7 +5,8 @@
   "scripts": {
     "smoke": "node smoke.ts",
     "pretest": "rm -rf reports/coverage",
-    "test": "node --test --test-reporter=spec suites/*.test.ts",
+    "test": "node --test --test-concurrency=1 --test-reporter=spec suites/*.test.ts",
+    "test:unit": "node --test harness/*.test.ts",
     "coverage:gate": "python3 coverage_gate.py",
     "coverage": "npm test; npm run coverage:gate",
     "typecheck": "tsc --noEmit"

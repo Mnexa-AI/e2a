@@ -5,6 +5,7 @@ import { cleanup } from "../harness/cleanup.ts";
 import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
+const siteClient = new ApiClient(client.env, undefined, client.env.siteUrl);
 const SUITE = "13-billing-surface";
 
 after(async () => {
@@ -100,7 +101,7 @@ test("billing: usage.agents counts roughly match the actual /agents list", async
 // --- /api/billing/* method discipline (Stripe sidecar) ---
 
 test("billing: GET /api/billing/health returns 200", async () => {
-  const r = await client.get("/api/billing/health", { apiKey: null });
+  const r = await siteClient.get("/api/billing/health", { apiKey: null });
   // Health may be intentionally unauthenticated; if not, allow 401.
   if (r.status >= 500) {
     fail(SUITE, "billing-health-5xx", `/api/billing/health returned ${r.status}: ${r.raw.slice(0, 200)}`);
@@ -117,7 +118,7 @@ test("billing: GET /api/billing/checkout is rejected (CSRF discipline — POST o
   // Harness uses redirect:"manual" (client.ts) so any 200 or 3xx here is the
   // smoking-gun leak: it means a top-level <a> click could mint a real Stripe
   // checkout session for a victim's account.
-  const r = await client.get("/api/billing/checkout");
+  const r = await siteClient.get("/api/billing/checkout");
   if (r.status === 200 || (r.status >= 300 && r.status < 400)) {
     fail(
       SUITE,
@@ -131,7 +132,7 @@ test("billing: GET /api/billing/checkout is rejected (CSRF discipline — POST o
 });
 
 test("billing: GET /api/billing/portal is rejected (CSRF discipline — POST only)", async () => {
-  const r = await client.get("/api/billing/portal");
+  const r = await siteClient.get("/api/billing/portal");
   if (r.status === 200 || (r.status >= 300 && r.status < 400)) {
     fail(
       SUITE,
@@ -144,7 +145,7 @@ test("billing: GET /api/billing/portal is rejected (CSRF discipline — POST onl
 });
 
 test("billing: POST /api/billing/checkout without auth returns 401", async () => {
-  const r = await client.post("/api/billing/checkout", {
+  const r = await siteClient.post("/api/billing/checkout", {
     body: { plan: "pro" },
     apiKey: null,
   });
@@ -162,7 +163,7 @@ test("billing: POST /api/billing/checkout without auth returns 401", async () =>
 });
 
 test("billing: POST /api/billing/webhook with empty body returns 400 (signature missing)", async () => {
-  const r = await client.post("/api/billing/webhook", {
+  const r = await siteClient.post("/api/billing/webhook", {
     body: "",
     headers: { "Content-Type": "application/json" },
     apiKey: null,
@@ -176,7 +177,7 @@ test("billing: POST /api/billing/webhook with empty body returns 400 (signature 
 });
 
 test("billing: POST /api/billing/webhook with invalid signature returns 400", async () => {
-  const r = await client.post("/api/billing/webhook", {
+  const r = await siteClient.post("/api/billing/webhook", {
     body: JSON.stringify({ id: "evt_test", type: "ping" }),
     headers: { "Content-Type": "application/json", "Stripe-Signature": "t=0,v1=nope" },
     apiKey: null,
@@ -190,7 +191,7 @@ test("billing: POST /api/billing/webhook with invalid signature returns 400", as
 // --- Static pricing page ---
 
 test("billing: GET /pricing returns 200 HTML", async () => {
-  const r = await client.get("/pricing", { apiKey: null });
+  const r = await siteClient.get("/pricing", { apiKey: null });
   if (r.status !== 200) {
     fail(SUITE, "pricing-non-200", `/pricing returned ${r.status}: ${r.raw.slice(0, 200)}`);
     return;
@@ -207,7 +208,7 @@ test("billing: GET /pricing returns 200 HTML", async () => {
 });
 
 test("billing: GET /pricing/ (trailing slash) is reachable", async () => {
-  const r = await client.get("/pricing/", { apiKey: null });
+  const r = await siteClient.get("/pricing/", { apiKey: null });
   if (r.status >= 500) {
     fail(SUITE, "pricing-slash-5xx", `/pricing/ returned ${r.status}`);
     return;
@@ -220,7 +221,7 @@ test("billing: GET /pricing/ (trailing slash) is reachable", async () => {
 // --- /billing dashboard page (Next.js app router) ---
 
 test("billing: GET /billing page is reachable (web dashboard route)", async () => {
-  const r = await client.get("/billing", { apiKey: null });
+  const r = await siteClient.get("/billing", { apiKey: null });
   // The dashboard requires auth, so a 302 to /login or a 200 with a client-side
   // auth gate is both acceptable. A 404 would be a bug.
   if (r.status === 404) {
