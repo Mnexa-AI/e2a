@@ -2,7 +2,12 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { E2AConnectionError, E2AError } from "@e2a/sdk/v1";
+import {
+  E2AConnectionError,
+  E2AError,
+  EventView,
+  ValidateTemplateResponse,
+} from "@e2a/sdk/v1";
 import type { McpClient } from "../src/client.js";
 import { buildServer } from "../src/server.js";
 import { ADMIN_TOOLS, assertToolTiersComplete, toolNamesForScope, RUNTIME_TOOLS } from "../src/tools/tiers.js";
@@ -2072,6 +2077,42 @@ describe("e2a MCP server", () => {
       createdAt = "2026-06-01T00:00:00Z";
     }
     expect(toMcpOutput([new FakeAgentView()])).toEqual([{ created_at: "2026-06-01T00:00:00Z" }]);
+  });
+
+  it("preserves arbitrary keys inside generated free-form map fields", () => {
+    const validation = Object.assign(new ValidateTemplateResponse(), {
+      valid: true,
+      errors: [],
+      suggestedData: {
+        firstName: "firstName_value",
+        userProfile: { postalCode: "userProfile.postalCode_value" },
+      },
+    });
+    expect(JSON.parse(JSON.stringify(toMcpOutput(validation)))).toEqual({
+      valid: true,
+      errors: [],
+      suggested_data: {
+        firstName: "firstName_value",
+        userProfile: { postalCode: "userProfile.postalCode_value" },
+      },
+    });
+
+    const event = Object.assign(new EventView(), {
+      id: "evt_1",
+      type: "future.event",
+      schemaVersion: "1",
+      createdAt: new Date("2026-07-22T00:00:00Z"),
+      status: "processed",
+      data: { customKey: { nestedValue: true } },
+    });
+    expect(JSON.parse(JSON.stringify(toMcpOutput(event)))).toEqual({
+      id: "evt_1",
+      type: "future.event",
+      schema_version: "1",
+      created_at: "2026-07-22T00:00:00.000Z",
+      status: "processed",
+      data: { customKey: { nestedValue: true } },
+    });
   });
 
   // ── Templates (beta) ────────────────────────────────────────────
