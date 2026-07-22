@@ -1,7 +1,7 @@
 import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
-import { cleanup, track } from "../harness/cleanup.ts";
+import { cleanup, track, untrack } from "../harness/cleanup.ts";
 import { agentHeadroom, type AgentCapacityView } from "../harness/account.ts";
 import { uniqueSlug, holdAllOutbound, SINK_EMAIL } from "../harness/fixtures.ts";
 import { info, warn, writeReport, fail } from "../harness/report.ts";
@@ -31,15 +31,15 @@ test("concurrency: 5 parallel creates with distinct slugs all succeed", async (t
     return;
   }
   const slugs = Array.from({ length: 5 }, () => uniqueSlug("par"));
+  const emails = slugs.map((slug) => `${slug}@${burst.env.sharedDomain}`);
+  for (const email of emails) track("agent", email);
   const settled = await Promise.allSettled(
-    slugs.map((slug) =>
-      burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "par" } }),
+    emails.map((email) =>
+      burst.post<{ email: string }>("/v1/agents", { body: { email, name: "par" } }),
     ),
   );
   settled.forEach((result, i) => {
-    if (result.status === "fulfilled" && result.value.status === 201) {
-      track("agent", result.value.body?.email ?? `${slugs[i]}@${burst.env.sharedDomain}`);
-    }
+    if (result.status === "fulfilled" && result.value.status !== 201) untrack("agent", emails[i]);
   });
   const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
   assert.equal(
@@ -62,17 +62,16 @@ test("concurrency: 5 parallel creates with the SAME slug — exactly one wins, r
     return;
   }
   const slug = uniqueSlug("race");
+  const email = `${slug}@${burst.env.sharedDomain}`;
+  track("agent", email);
   const settled = await Promise.allSettled(
     Array.from({ length: 5 }, () =>
-      burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "race" } }),
+      burst.post<{ email: string }>("/v1/agents", { body: { email, name: "race" } }),
     ),
   );
-  for (const result of settled) {
-    if (result.status === "fulfilled" && result.value.status === 201) {
-      track("agent", result.value.body?.email ?? `${slug}@${burst.env.sharedDomain}`);
-    }
-  }
   const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  const hasSuccess = settled.some((result) => result.status === "fulfilled" && result.value.status === 201);
+  if (!hasSuccess && rejected.length === 0) untrack("agent", email);
   assert.equal(
     rejected.length,
     0,

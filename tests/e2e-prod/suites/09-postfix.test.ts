@@ -128,18 +128,19 @@ test("postfix #1 #2: /agents 429 includes Retry-After header (active probe — d
   let retryAfter: string | undefined;
   for (let i = 0; i < 25; i++) {
     const requestedEmail = `${uniqueSlug(`pf${i}`)}@${client.env.sharedDomain}`;
+    track("agent", requestedEmail);
     const r = await client.post<{ email?: string }>("/v1/agents", {
       body: { email: requestedEmail, name: "pf" },
     });
+    if (r.status !== 201) untrack("agent", requestedEmail);
     if (r.status === 429) {
       saw429 = true;
       retryAfter = r.headers["retry-after"];
       break;
     }
     if (r.status === 201) {
-      track("agent", r.body?.email ?? requestedEmail);
-      assert.ok(r.body?.email, `successful stress-probe create omitted email: ${r.raw.slice(0, 200)}`);
-      await deleteStressProbeAgent(r.body.email);
+      assert.equal(r.body?.email, requestedEmail, `successful stress-probe create returned an unexpected email: ${r.raw.slice(0, 200)}`);
+      await deleteStressProbeAgent(requestedEmail);
     }
   }
   if (!saw429) {

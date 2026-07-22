@@ -51,6 +51,17 @@ test("mcp: tools/list preserves legacy compatibility aliases", async () => {
     body: "must never be sent",
   });
   assert.equal(send.isError, true, "legacy send_email schema and handler must reject an invalid recipient");
+  const sendError = send.content?.find((content) => content.type === "text")?.text ?? "";
+  assert.match(
+    sendError,
+    /invalid[_ -]?(?:recipient|request)|\b400\b/i,
+    `send_email should reach the API invalid-recipient handler, got: ${sendError.slice(0, 200)}`,
+  );
+  assert.doesNotMatch(
+    sendError,
+    /unknown\s+(?:key|field)|unrecognized\s+key|input\s+validation|invalid\s+arguments?|schema\s+validation/i,
+    `historical agent_email/body fields must pass strict schema validation: ${sendError.slice(0, 200)}`,
+  );
 
   const bogusMessageId = `msg_bogus_${Date.now()}`;
   const approve = await callTool(mcp, "approve_pending_message", {
@@ -58,12 +69,34 @@ test("mcp: tools/list preserves legacy compatibility aliases", async () => {
     body_text: "historical override field",
   });
   assert.equal(approve.isError, true, "legacy approve_pending_message handler must reject an unknown review");
+  const approveError = approve.content?.find((content) => content.type === "text")?.text ?? "";
+  assert.match(
+    approveError,
+    /not[_ -]?found|\b404\b/i,
+    `approve_pending_message should reach the API not-found handler, got: ${approveError.slice(0, 200)}`,
+  );
+  assert.doesNotMatch(
+    approveError,
+    /unknown\s+(?:key|field)|unrecognized\s+key|input\s+validation|invalid\s+arguments?|schema\s+validation/i,
+    `historical body_text field must pass strict schema validation: ${approveError.slice(0, 200)}`,
+  );
 
   const reject = await callTool(mcp, "reject_pending_message", {
     message_id: bogusMessageId,
     reason: "legacy compatibility probe",
   });
   assert.equal(reject.isError, true, "legacy reject_pending_message handler must reject an unknown review");
+  const rejectError = reject.content?.find((content) => content.type === "text")?.text ?? "";
+  assert.match(
+    rejectError,
+    /not[_ -]?found|\b404\b/i,
+    `reject_pending_message should reach the API not-found handler, got: ${rejectError.slice(0, 200)}`,
+  );
+  assert.doesNotMatch(
+    rejectError,
+    /unknown\s+(?:key|field)|unrecognized\s+key|input\s+validation|invalid\s+arguments?|schema\s+validation/i,
+    `historical reason field must pass strict schema validation: ${rejectError.slice(0, 200)}`,
+  );
 });
 
 test("mcp: list_agents returns user's agents", async () => {
