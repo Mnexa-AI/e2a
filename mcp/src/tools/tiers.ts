@@ -25,6 +25,7 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "get_agent",
   "list_messages",
   "get_message",
+  "get_message_lifecycle",
   "get_attachment",
   // Soft delete + restore are both per-agent inbox hygiene: the REST handler
   // pins an agent-scoped credential to its own bound agent (resolveOwnedAgent).

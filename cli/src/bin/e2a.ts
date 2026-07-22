@@ -17,7 +17,7 @@ import { config } from "../commands/config.js";
 import { listen } from "../commands/listen.js";
 import { whoami } from "../commands/whoami.js";
 import { send, reply } from "../commands/send.js";
-import { messagesList, messagesGet } from "../commands/messages.js";
+import { messagesList, messagesGet, messagesLifecycle } from "../commands/messages.js";
 import { agentsList, agentsCreate, agentsGet } from "../commands/agents.js";
 import { protectionGet, protectionSet } from "../commands/protection.js";
 import { keysCreate, keysList, keysDelete } from "../commands/keys.js";
@@ -73,6 +73,11 @@ Usage:
   e2a messages get <id> [--text]    Fetch one message; marks it read
         --text                     Print body text only (parsed reply-text preferred)
         --agent <email>            Inbox to read (or config agent_email)
+  e2a messages lifecycle <id>       Show observed lifecycle transitions
+        --cursor <cursor>          Continue from a prior page
+        --limit <n>                Page size, 1–100
+        --agent <email>            Owning inbox (or config agent_email)
+        --json                     Print the canonical lifecycle page as JSON
   e2a listen [options]              Stream inbound email over WebSocket
         --agent <email>            Agent inbox to listen on (or config agent_email)
         --forward <url>            POST each message to a local URL (dev webhook proxy)
@@ -463,8 +468,19 @@ async function main() {
           text: hasFlag(rest, "--text"),
           json: hasFlag(rest, "--json"),
         });
+      } else if (sub === "lifecycle") {
+        checkFlags(rest, ["--cursor", "--limit", "--json", "--agent"]);
+        await messagesLifecycle(
+          getPositionals(rest, 1, "usage: e2a messages lifecycle <id> [options]")[0],
+          {
+            agent: getFlagChecked(rest, "--agent"),
+            cursor: getFlagChecked(rest, "--cursor"),
+            limit: getFlagChecked(rest, "--limit"),
+            json: hasFlag(rest, "--json"),
+          },
+        );
       } else {
-        process.stderr.write("Usage: e2a messages [list|get <id>]\n");
+        process.stderr.write("Usage: e2a messages [list|get <id>|lifecycle <id>]\n");
         process.exit(EXIT.USAGE);
       }
       break;
