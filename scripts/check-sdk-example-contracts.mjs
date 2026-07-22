@@ -4,14 +4,8 @@ import fs from "node:fs";
 
 const agentFrameworkReadme = "examples/agent-framework-webhooks/README.md";
 const requiredAgentFrameworkFiles = [
-  "examples/agent-framework-webhooks/python/agent_webhooks/adapters/openai.py",
-  "examples/agent-framework-webhooks/python/agent_webhooks/adapters/anthropic.py",
-  "examples/agent-framework-webhooks/python/agent_webhooks/adapters/langchain.py",
-  "examples/agent-framework-webhooks/python/agent_webhooks/adapters/adk.py",
-  "examples/agent-framework-webhooks/typescript/src/adapters/openai.ts",
-  "examples/agent-framework-webhooks/typescript/src/adapters/anthropic.ts",
-  "examples/agent-framework-webhooks/typescript/src/adapters/langchain.ts",
-  "examples/agent-framework-webhooks/typescript/src/adapters/adk.ts",
+  "examples/agent-framework-webhooks/python/agent_webhooks/agent.py",
+  "examples/agent-framework-webhooks/typescript/src/agent.ts",
 ];
 
 const requiredAgentFrameworkDocs = new Map([
@@ -20,6 +14,9 @@ const requiredAgentFrameworkDocs = new Map([
     /npm run dry-run/,
     /client\.inbound\.from_event/,
     /client\.inbound\.fromEvent/,
+    /^## Anthropic$/m,
+    /^## LangChain$/m,
+    /^## Google ADK$/m,
   ]],
   ["README.md", [/examples\/agent-framework-webhooks\/README\.md/]],
   ["sdks/python/README.md", [/examples\/agent-framework-webhooks\/README\.md/]],
@@ -71,8 +68,34 @@ const checks = new Map([
 let failed = false;
 for (const file of requiredAgentFrameworkFiles) {
   if (!fs.existsSync(file)) {
-    console.error(`${file}: required agent-framework adapter is missing`);
+    console.error(`${file}: required minimal OpenAI agent is missing`);
     failed = true;
+  }
+}
+
+const executableAgentFrameworkSource = [
+  ...fs.readdirSync("examples/agent-framework-webhooks/python/agent_webhooks", {
+    recursive: true,
+  }).filter((file) => file.endsWith(".py"))
+    .map((file) => `examples/agent-framework-webhooks/python/agent_webhooks/${file}`),
+  ...fs.readdirSync("examples/agent-framework-webhooks/typescript/src", {
+    recursive: true,
+  }).filter((file) => file.endsWith(".ts"))
+    .map((file) => `examples/agent-framework-webhooks/typescript/src/${file}`),
+];
+
+const forbiddenLowLevelInboundCalls = [
+  /client\.(?:api\.)?messages\.(?:get|get_message|getMessage|reply)\s*\(/,
+];
+
+for (const file of executableAgentFrameworkSource) {
+  if (!fs.existsSync(file)) continue;
+  const source = fs.readFileSync(file, "utf8");
+  for (const pattern of forbiddenLowLevelInboundCalls) {
+    if (pattern.test(source)) {
+      console.error(`${file}: legacy low-level inbound call matched ${pattern}`);
+      failed = true;
+    }
   }
 }
 

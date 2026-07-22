@@ -104,8 +104,8 @@ retries + idempotency, and async auto-pagination.
 ## Quick Start
 
 For signed-webhook examples that fetch and reply through the ergonomic inbound
-facade with OpenAI Agents SDK, Anthropic, LangChain, or Google ADK, see the
-[Python and TypeScript agent framework integrations](../../examples/agent-framework-webhooks/README.md).
+facade, see the [minimal Python and TypeScript OpenAI examples with provider
+snippets](../../examples/agent-framework-webhooks/README.md).
 
 ### Synchronous
 

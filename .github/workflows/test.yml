@@ -173,7 +173,7 @@ jobs:
       - run: npm test --workspace @e2a/sdk
 
   agent-framework-examples:
-    name: Agent framework webhook examples
+    name: Minimal agent webhook examples
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -187,8 +187,7 @@ jobs:
             examples/agent-framework-webhooks/python/pyproject.toml
       - uses: actions/setup-node@v7
         with:
-          # @google/adk's TypeScript package requires Node 24.13 or newer.
-          node-version: "24.13.0"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: |
             package-lock.json

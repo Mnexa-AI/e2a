@@ -1,53 +1,46 @@
-# Agent framework webhooks
+# Minimal agent webhooks
 
-Copyable e2a webhook integrations for four agent stacks in both Python and
-TypeScript. Every adapter uses the same authenticated inbound lifecycle; the
-provider-specific file only turns normalized email fields into one model turn.
+Two small, runnable references show the same authenticated inbound flow with
+the OpenAI Agents SDK:
 
-| Framework | Python implementation and docs | TypeScript implementation and docs | Runtime credential |
-|---|---|---|---|
-| OpenAI Agents SDK | [`openai.py`](python/agent_webhooks/adapters/openai.py) · [Python SDK docs](https://openai.github.io/openai-agents-python/) | [`openai.ts`](typescript/src/adapters/openai.ts) · [TypeScript SDK docs](https://openai.github.io/openai-agents-js/) | `OPENAI_API_KEY` |
-| Anthropic Messages SDK | [`anthropic.py`](python/agent_webhooks/adapters/anthropic.py) · [Python SDK docs](https://platform.claude.com/docs/en/cli-sdks-libraries/sdks/python) | [`anthropic.ts`](typescript/src/adapters/anthropic.ts) · [TypeScript SDK docs](https://platform.claude.com/docs/en/cli-sdks-libraries/sdks/typescript) | `ANTHROPIC_API_KEY` |
-| LangChain | [`langchain.py`](python/agent_webhooks/adapters/langchain.py) · [Python agent docs](https://docs.langchain.com/oss/python/langchain/agents) | [`langchain.ts`](typescript/src/adapters/langchain.ts) · [JavaScript agent docs](https://docs.langchain.com/oss/javascript/langchain/agents) | `OPENAI_API_KEY` |
-| Google ADK | [`adk.py`](python/agent_webhooks/adapters/adk.py) · [Python quickstart](https://adk.dev/get-started/python/) | [`adk.ts`](typescript/src/adapters/adk.ts) · [TypeScript quickstart](https://adk.dev/get-started/typescript/) | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+- [Python webhook](python/) and its [OpenAI agent](python/agent_webhooks/agent.py)
+  ([official OpenAI Agents SDK documentation](https://openai.github.io/openai-agents-python/)).
+- [TypeScript webhook](typescript/) and its [OpenAI agent](typescript/src/agent.ts)
+  ([official OpenAI Agents SDK documentation](https://openai.github.io/openai-agents-js/)).
 
-## What happens for each delivery
+The delivery code is deliberately provider-neutral. To use Anthropic,
+LangChain, or Google ADK, keep the handler and replace only the small model
+call; compact substitutions are shown below.
 
-Both hosts perform the same steps:
+## Shared delivery lifecycle
 
-1. Read the exact request bytes and `X-E2A-Signature` header.
-2. Verify and parse with `construct_event` (Python) or `constructEvent`
-   (TypeScript) before any fetch, model call, or reply.
-3. Ignore events other than `email.received`, then claim `event.id` in the
-   example deduper.
-4. Hydrate the ergonomic email object with
-   `client.inbound.from_event(event)` or `client.inbound.fromEvent(event)`.
-5. Reuse the hydrated conversation ID, or derive a deterministic
-   `conv_<full-event-id-suffix>` anchor when first contact has no conversation
-   yet (unsafe or oversized IDs fall back to a full SHA-256 digest).
-   The same effective ID is passed to the adapter and the bound reply, so ADK
-   session memory and e2a threading cannot diverge on retries.
-6. Run the selected adapter on a small projection of normalized fields.
-7. Reply through the bound `email.reply(...)`, using `event.id` as the
-   idempotency key, and return the e2a send status.
+Both webhooks:
 
-An `accepted` or `sent` send is reported as `replied`. Other statuses, including
-`pending_review`, pass through unchanged so an application can surface a HITL
-hold. Empty model output is acknowledged as `no_reply` and does not send mail.
+1. enforce a 1 MiB body limit while preserving the exact signed bytes;
+2. verify and parse with `construct_event` (Python) or `constructEvent`
+   (TypeScript) before fetching mail or calling a model;
+3. ignore non-`email.received` events and claim `event.id` before processing;
+4. hydrate the ergonomic facade with `client.inbound.from_event(event)` or
+   `client.inbound.fromEvent(event)`;
+5. reuse the email conversation ID, or derive a collision-safe, retry-stable
+   conversation anchor for first contact;
+6. project normalized fields into an untrusted model prompt;
+7. send through the bound `email.reply(...)`, using `event.id` as the
+   idempotency key; and
+8. release the event claim on failure so webhook delivery can retry.
 
-e2a webhooks are delivered at least once. The in-memory claim plus reply
-idempotency key prevents a duplicate side effect within this single-process
-tutorial. On failure the claim is released for retry. In production, replace
-the in-memory deduper with a durable unique claim on `event.id`.
+An `accepted` or `sent` send becomes `replied`. Other send statuses, including
+`pending_review`, pass through unchanged. Empty model output becomes
+`no_reply` and sends nothing.
 
-## Run without provider keys
+Webhook delivery is at least once. The included in-memory claim prevents a
+duplicate side effect only within one tutorial process, while the stable reply
+idempotency key protects retries. Production deployments should claim
+`event.id` in durable shared storage with a unique constraint.
 
-The fake adapter signs a first-contact fixture delivery and executes the real shared path,
-including signature verification, facade hydration, prompt projection,
-deduplication, and bound reply delegation. It makes no provider or e2a network
-request.
+## Run the Python example
 
-Python (3.10+, with 3.12 used in CI):
+Python 3.10 or newer is required (CI uses 3.12).
 
 ```bash
 cd examples/agent-framework-webhooks/python
@@ -55,11 +48,20 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ../../../sdks/python -e '.[dev]'
 pytest -q
-mypy agent_webhooks
+mypy agent_webhooks tests
 python -m agent_webhooks.dry_run
 ```
 
-TypeScript (Node 24.13+ is required by the ADK package):
+For a live webhook, copy `.env.example`, set `E2A_API_KEY`,
+`E2A_WEBHOOK_SECRET`, and `OPENAI_API_KEY`, then start it:
+
+```bash
+agent-framework-webhooks
+```
+
+## Run the TypeScript example
+
+Node 18 or newer is required.
 
 ```bash
 npm ci
@@ -72,58 +74,27 @@ npm run build
 npm run dry-run
 ```
 
-Each dry run prints one `status=replied`, one `status=duplicate`, and the single
-captured deterministic reply.
-
-## Configure a real framework
-
-Copy the language-specific environment template, set the two e2a credentials,
-and select exactly one of `openai`, `anthropic`, `langchain`, or `adk`:
+For a live webhook, copy `.env.example`, set `E2A_API_KEY`,
+`E2A_WEBHOOK_SECRET`, and `OPENAI_API_KEY`, then start it:
 
 ```bash
-cp .env.example .env
-# E2A_API_KEY=e2a_...
-# E2A_WEBHOOK_SECRET=whsec_...
-# AGENT_FRAMEWORK=openai
-```
-
-`E2A_API_KEY` should be an agent-scoped key for the inbox being fetched and
-replied from. `E2A_WEBHOOK_SECRET` is the signing secret returned once when the
-subscription is created. `E2A_API_URL` is optional and defaults to the hosted
-API.
-
-| `AGENT_FRAMEWORK` | Required environment | Optional model override (default) |
-|---|---|---|
-| `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` (`gpt-5.6`) |
-| `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` (`claude-opus-4-8`) |
-| `langchain` | `OPENAI_API_KEY` | `LANGCHAIN_MODEL` (Python: `openai:gpt-5.5`; TypeScript: `openai:gpt-5.4`) |
-| `adk` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `ADK_MODEL` (`gemini-flash-latest`) |
-
-ADK can instead use Vertex AI with `GOOGLE_GENAI_USE_VERTEXAI=true` plus
-`GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`. The included LangChain
-example intentionally installs and accepts only the `openai:` provider prefix.
-`AGENT_FRAMEWORK=fake` remains available for local checks and needs no provider
-credential.
-
-Start the Python server:
-
-```bash
-cd examples/agent-framework-webhooks/python
-source .venv/bin/activate
-agent-framework-webhooks
-# equivalent: uvicorn agent_webhooks.app:create_app --factory --host 0.0.0.0 --port 8000
-```
-
-Start the TypeScript server after the install/build commands above:
-
-```bash
-cd examples/agent-framework-webhooks/typescript
-npm run build
 npm start
 ```
 
-Expose port 8000 at a public HTTPS URL, then create an account-level webhook
-subscription with a separate account-scoped key:
+`E2A_API_KEY` should be scoped to the receiving agent. The webhook signing
+secret is returned once when the subscription is created. `E2A_API_URL` is
+optional and defaults to the hosted API. `OPENAI_MODEL` optionally overrides
+the example's default model.
+
+The dry runs need no provider or e2a credentials. Each signs a first-contact
+fixture and executes signature verification, facade hydration, safe prompt
+projection, bound reply delegation, and duplicate handling without network
+access.
+
+## Create the subscription
+
+Expose port 8000 at a public HTTPS URL, then use a separate account-scoped key
+to create the account-level subscription:
 
 ```bash
 curl -X POST https://api.e2a.dev/v1/webhooks \
@@ -136,26 +107,80 @@ curl -X POST https://api.e2a.dev/v1/webhooks \
   }'
 ```
 
-Copy the returned `whsec_...` value immediately into
-`E2A_WEBHOOK_SECRET`, then send mail to the filtered agent address.
+Copy the returned `whsec_...` value into `E2A_WEBHOOK_SECRET`, then send mail
+to the filtered agent address.
 
 ## Trust boundaries
 
-`construct_event(...)` / `constructEvent(...)` verifies the webhook envelope's
-HMAC signature and replay timestamp. That proves the payload was delivered by
-the holder of the webhook signing secret. It is distinct from
-`email.verified`, which reports whether the hydrated inbound message passed
-DMARC alignment. A valid webhook signature does not make the sender, subject,
-or content trustworthy; a DMARC pass authenticates a domain, not a person or
-the truth of the message.
+`construct_event(...)` / `constructEvent(...)` verifies the webhook
+envelope's HMAC signature and replay timestamp. This proves that the payload
+came from the holder of the webhook signing secret; application code does not
+need a second signature check. It is separate from `email.verified`, which
+reports DMARC alignment for the hydrated message.
 
-The prompt contains only normalized `from`, `subject`, plain-text body,
-`verified`, and `flagged` values. All of those fields are treated as untrusted
-model input. Raw MIME, the full `MessageView`, and attachments are deliberately
-excluded.
+A valid webhook signature does not make the sender, subject, or content
+trustworthy. A DMARC pass authenticates a domain, not a person or the truth of
+the message. The model prompt includes only normalized `from`, `subject`,
+plain-text body, `verified`, and `flagged` values, all treated as untrusted
+input. Raw MIME, the full message view, and attachments are excluded from
+prompts and logs.
 
-The tutorial deduper and both ADK session stores are in memory. They lose state
-on restart and are not shared across workers. Production deployments need a
-durable event claim and, when conversation memory matters, a durable framework
-session service. The expanded [ADK webhook example](../adk-cloud-webhook/README.md)
-walks through conversation/session mapping in more detail.
+## Anthropic
+
+Keep the verified webhook handler unchanged and replace the OpenAI agent body
+with a Messages call. Join only returned text blocks. See the official
+[Python SDK](https://platform.claude.com/docs/en/api/client-sdks#python) and
+[TypeScript SDK](https://platform.claude.com/docs/en/api/client-sdks#typescript)
+documentation.
+
+```python
+from anthropic import AsyncAnthropic
+
+message = await AsyncAnthropic().messages.create(
+    model="claude-opus-4-8",
+    max_tokens=1024,
+    system=REPLY_INSTRUCTIONS,
+    messages=[{"role": "user", "content": email_prompt(email)}],
+)
+reply = "\n".join(block.text for block in message.content if block.type == "text")
+```
+
+## LangChain
+
+Create one agent at application startup, invoke it with the same normalized
+prompt, and return the final assistant message text. See the official
+[Python agent documentation](https://docs.langchain.com/oss/python/langchain/agents)
+and [JavaScript agent documentation](https://docs.langchain.com/oss/javascript/langchain/agents).
+
+```python
+from langchain.agents import create_agent
+
+agent = create_agent(model="openai:gpt-5.5", tools=[], system_prompt=REPLY_INSTRUCTIONS)
+result = await agent.ainvoke({"messages": [{"role": "user", "content": email_prompt(email)}]})
+reply = result["messages"][-1].content
+```
+
+If a framework returns structured content, extract and join only its text
+blocks before calling `email.reply(...)`.
+
+## Google ADK
+
+Use the effective e2a conversation ID as ADK's `sessionId` and an opaque,
+inbox-scoped sender identity as `userId`. Then run the safe prompt through the
+session and take text only from the final response event:
+
+```python
+async for agent_event in runner.run_async(
+    user_id=sender_user_id,
+    session_id=conversation_id,
+    new_message=types.Content(role="user", parts=[types.Part(text=email_prompt(email))]),
+):
+    if agent_event.is_final_response() and agent_event.content:
+        reply = "\n".join(part.text or "" for part in agent_event.content.parts)
+```
+
+Create or load the session before running it. The expanded
+[ADK webhook tutorial](../adk-cloud-webhook/README.md) covers collision-safe
+sender identities, first-contact conversation mapping, and durable session
+storage. See the official ADK [Python](https://adk.dev/get-started/python/)
+and [TypeScript](https://adk.dev/get-started/typescript/) documentation.
