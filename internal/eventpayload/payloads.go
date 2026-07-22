@@ -108,6 +108,11 @@ type EmailSentData struct {
 	BCC               []string `json:"bcc,omitempty" nullable:"false"`
 	Subject           string   `json:"subject"`
 	MessageType       string   `json:"message_type" doc:"Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."`
+	// BatchID correlates this send to the batch it was submitted under
+	// (POST /v1/agents/{email}/batches). Omitted for single sends. Lets a
+	// subscriber group per-recipient delivery outcomes back to the batch
+	// call (docs/design/batch-send.md §7.3).
+	BatchID string `json:"batch_id,omitempty"`
 }
 
 // EmailFailedData is the `data` payload of an email.failed event — an
@@ -126,6 +131,10 @@ type EmailFailedData struct {
 	BCC            []string `json:"bcc,omitempty" nullable:"false"`
 	Subject        string   `json:"subject"`
 	MessageType    string   `json:"message_type" doc:"Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."`
+	// BatchID correlates this failure to the batch it was submitted under
+	// (POST /v1/agents/{email}/batches). Omitted for single sends
+	// (docs/design/batch-send.md §7.3).
+	BatchID string `json:"batch_id,omitempty"`
 	// Reason is the human-readable terminal failure diagnostic (e.g. the SMTP
 	// response of a permanent reject).
 	Reason string `json:"reason"`

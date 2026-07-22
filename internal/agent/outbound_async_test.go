@@ -31,6 +31,17 @@ func (f *fakeOutboundEnqueuer) EnqueueSendTx(_ context.Context, _ pgx.Tx, _ stri
 	return f.jobID, nil
 }
 
+// EnqueueBatchTx satisfies the widened OutboundEnqueuer interface. Batch
+// tests use a dedicated fake below; single-send fake tests never invoke
+// this method — a call would indicate a wiring mistake.
+func (f *fakeOutboundEnqueuer) EnqueueBatchTx(_ context.Context, _ pgx.Tx, messageIDs []string) ([]int64, error) {
+	ids := make([]int64, len(messageIDs))
+	for i := range ids {
+		ids[i] = f.jobID + int64(i)
+	}
+	return ids, nil
+}
+
 type fakeNotifyEnqueuer struct{ called int }
 
 func (f *fakeNotifyEnqueuer) EnqueueNotifyTx(_ context.Context, _ pgx.Tx, _ string) (int64, error) {

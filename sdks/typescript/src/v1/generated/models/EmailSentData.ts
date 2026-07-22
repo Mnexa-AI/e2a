@@ -14,6 +14,7 @@ import { HttpFile } from '../http/http.js';
 
 export class EmailSentData {
     'agentEmail': string;
+    'batchId'?: string;
     'bcc'?: Array<string>;
     'cc'?: Array<string>;
     'conversationId'?: string;
@@ -43,6 +44,12 @@ export class EmailSentData {
         {
             "name": "agentEmail",
             "baseName": "agent_email",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "batchId",
+            "baseName": "batch_id",
             "type": "string",
             "format": ""
         },

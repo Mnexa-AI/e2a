@@ -634,9 +634,9 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id
 		    AND m.delivery_status = 'sending'
-		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender, m.to_recipients, m.cc, m.bcc`,
+		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender, m.to_recipients, m.cc, m.bcc, COALESCE(m.batch_id, '')`,
 		messageID, providerMessageID,
-	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC)
+	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC, &m.BatchID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -671,10 +671,10 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 		    AND m.delivery_status IN ('accepted', 'sending')
 		    AND m.provider_accepted_at IS NOT NULL
 		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender,
-		           m.to_recipients, m.cc, m.bcc, COALESCE(m.provider_message_id, '')`,
+		           m.to_recipients, m.cc, m.bcc, COALESCE(m.provider_message_id, ''), COALESCE(m.batch_id, '')`,
 		messageID,
 	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender,
-		&m.ToRecipients, &m.CC, &m.BCC, &providerMessageID)
+		&m.ToRecipients, &m.CC, &m.BCC, &providerMessageID, &m.BatchID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
 	}
@@ -758,10 +758,10 @@ func (s *Store) MarkOutboundFailedTx(ctx context.Context, tx pgx.Tx, messageID, 
 		    AND m.delivery_status IN ('accepted', 'sending')
 		    AND m.provider_accepted_at IS NULL
 		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender, m.to_recipients, m.cc, m.bcc,
-		           COALESCE(m.delivery_detail, '')`,
+		           COALESCE(m.delivery_detail, ''), COALESCE(m.batch_id, '')`,
 		messageID, nullIfEmpty(detail), string(source),
 	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender, &m.ToRecipients, &m.CC, &m.BCC,
-		&m.DeliveryDetail)
+		&m.DeliveryDetail, &m.BatchID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -825,6 +825,45 @@ func (s *Store) SuppressedAddresses(ctx context.Context, userID string, addrs []
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// SuppressedAddressesWithSource returns address→source for every address in
+// addrs that is suppressed for the user. Used by batch-send accept-tx to
+// populate the per-item `suppressed` slot in the response with the reason
+// category (bounce / complaint / manual), per
+// docs/design/batch-send.md §1.3.
+//
+// The `source` values come straight from suppressions.source (see
+// migrations/031_delivery_feedback.sql). Empty input → empty map (not nil,
+// so callers can iterate without a nil-check).
+func (s *Store) SuppressedAddressesWithSource(ctx context.Context, userID string, addrs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(addrs) == 0 {
+		return out, nil
+	}
+	norm := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		norm = append(norm, NormalizeEmail(a))
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT address, source FROM suppressions WHERE user_id = $1 AND address = ANY($2)`,
+		userID, norm,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var address, source string
+		if err := rows.Scan(&address, &source); err != nil {
+			return nil, err
+		}
+		out[address] = source
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ListSuppressions returns the user's suppression list, newest first.
