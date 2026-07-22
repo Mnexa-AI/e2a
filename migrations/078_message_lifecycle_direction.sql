@@ -26,6 +26,29 @@ BEGIN
 END;
 $$;
 
+-- Direction remains mutable for messages that have no lifecycle observations.
+-- Once a child exists, changing the parent would rewrite the meaning of the
+-- append-only ledger, so reject it with an indexed existence check.
+CREATE OR REPLACE FUNCTION enforce_message_direction_with_lifecycle()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.direction IS DISTINCT FROM OLD.direction
+       AND EXISTS (
+           SELECT 1
+             FROM message_lifecycle_transitions
+            WHERE message_id = OLD.id
+       ) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            CONSTRAINT = 'message_direction_matches_lifecycle',
+            MESSAGE = 'message direction cannot change after lifecycle observations exist';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -40,6 +63,24 @@ BEGIN
         ON message_lifecycle_transitions
         FOR EACH ROW
         EXECUTE FUNCTION enforce_message_lifecycle_direction();
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_trigger
+         WHERE tgrelid = 'messages'::regclass
+           AND tgname = 'message_direction_matches_lifecycle'
+           AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER message_direction_matches_lifecycle
+        BEFORE UPDATE OF direction
+        ON messages
+        FOR EACH ROW
+        EXECUTE FUNCTION enforce_message_direction_with_lifecycle();
     END IF;
 END;
 $$;

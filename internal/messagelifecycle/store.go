@@ -162,6 +162,7 @@ func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) (
 	// lifecycle representation.
 	for i := range result {
 		result[i].DedupeKey = ""
+		result[i].SourceTransitionID = ""
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit message lifecycle read: %w", err)

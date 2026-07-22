@@ -316,6 +316,31 @@ func TestMergeTransitionsSuppressesOnlyMatchingReconstructedSource(t *testing.T)
 	}
 }
 
+func TestMergeTransitionsUsesEmbeddedCanonicalTransitionIdentity(t *testing.T) {
+	s := baseSnapshot("outbound", "smtp")
+	at := reconstructBaseTime.Add(time.Minute)
+	canonical := persistedTransition("mlt_canonical_delivery", ReasonDeliveryRecipientServerAccepted, "a@example.com", at)
+	s.Events = []EventSnapshot{eventSnapshot("evt_delivery", "email.delivered", at.Add(time.Second), map[string]any{
+		"message_id": s.MessageID, "direction": "outbound", "delivered_to": "a@example.com",
+		"lifecycle_transitions": []MessageLifecycleTransition{canonical},
+	})}
+	reconstructed := Reconstruct(s)
+	delivery := findReason(reconstructed, ReasonDeliveryRecipientServerAccepted)
+	if delivery == nil || delivery.SourceTransitionID != canonical.ID {
+		t.Fatalf("embedded canonical identity = %#v", reconstructed)
+	}
+	got := MergeTransitions([]MessageLifecycleTransition{canonical}, reconstructed)
+	var deliveries int
+	for _, item := range got {
+		if item.ReasonCode == ReasonDeliveryRecipientServerAccepted {
+			deliveries++
+		}
+	}
+	if deliveries != 1 {
+		t.Fatalf("embedded canonical transition duplicated: %#v", got)
+	}
+}
+
 func TestMergeTransitionsMatchesPersistedProviderDedupeIdentity(t *testing.T) {
 	s := baseSnapshot("outbound", "smtp")
 	oldAt := reconstructBaseTime.Add(time.Minute)
@@ -415,6 +440,40 @@ func TestMergeTransitionsUsesTimestampFallbackForLegacyObservations(t *testing.T
 	got := MergeTransitions([]MessageLifecycleTransition{persisted}, []MessageLifecycleTransition{newer, old})
 	if len(got) != 2 || got[0].ID != old.ID || got[1].ID != persisted.ID {
 		t.Fatalf("timestamp-fallback merge = %#v", got)
+	}
+}
+
+func TestReconstructRetainsDistinctTerminalFailureEventsForSameProviderMessage(t *testing.T) {
+	s := baseSnapshot("outbound", "smtp")
+	s.DeliveryFailureSource = "provider"
+	s.ProviderMessageID = "provider-message-1"
+	oldAt := reconstructBaseTime.Add(time.Minute)
+	newAt := reconstructBaseTime.Add(2 * time.Minute)
+	s.Events = []EventSnapshot{
+		eventSnapshot("evt_failed_old", "email.failed", oldAt, map[string]any{"message_id": s.MessageID, "direction": "outbound", "reason": "old failure"}),
+		eventSnapshot("evt_failed_new", "email.failed", newAt, map[string]any{"message_id": s.MessageID, "direction": "outbound", "reason": "new failure"}),
+	}
+	reconstructed := Reconstruct(s)
+	var failures []MessageLifecycleTransition
+	for _, item := range reconstructed {
+		if item.ReasonCode == ReasonSubmissionProviderRejected {
+			failures = append(failures, item)
+		}
+	}
+	if len(failures) != 2 || failures[0].CorrelationIDs["event_id"] != "evt_failed_old" || failures[1].CorrelationIDs["event_id"] != "evt_failed_new" {
+		t.Fatalf("terminal failures = %#v", failures)
+	}
+	persisted := persistedTransition("mlt_failed_new", ReasonSubmissionProviderRejected, "", newAt)
+	persisted.CorrelationIDs["event_id"] = "evt_failed_new"
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, reconstructed)
+	failures = failures[:0]
+	for _, item := range got {
+		if item.ReasonCode == ReasonSubmissionProviderRejected {
+			failures = append(failures, item)
+		}
+	}
+	if len(failures) != 2 || failures[0].CorrelationIDs["event_id"] != "evt_failed_old" || failures[1].ID != persisted.ID {
+		t.Fatalf("terminal failure merge = %#v", got)
 	}
 }
 

@@ -241,6 +241,17 @@ func TestMessageLifecycleDirectionMigrationIsIdempotentAndExistingRowSafe(t *tes
 	if triggerCount != 1 {
 		t.Fatalf("direction trigger count = %d, want 1", triggerCount)
 	}
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM pg_trigger
+		WHERE tgrelid = 'messages'::regclass
+		  AND tgname = 'message_direction_matches_lifecycle'
+		  AND NOT tgisinternal
+	`).Scan(&triggerCount); err != nil {
+		t.Fatal(err)
+	}
+	if triggerCount != 1 {
+		t.Fatalf("parent direction trigger count = %d, want 1", triggerCount)
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO message_lifecycle_transitions
 			(id, message_id, dedupe_key, direction, stage, outcome, reason_code, retryable, occurred_at)
@@ -248,14 +259,18 @@ func TestMessageLifecycleDirectionMigrationIsIdempotentAndExistingRowSafe(t *tes
 		        'accepted', 'accepted', 'acceptance.inbound_smtp', false, now())
 	`)
 	assertDirectionConstraintError(t, err)
-	_, err = pool.Exec(ctx, `UPDATE message_lifecycle_transitions SET direction='inbound' WHERE id='mlt_direction_ok'`)
-	assertDirectionConstraintError(t, err)
 }
 
 func TestMessageLifecycleDirectSQLDirectionInvariant(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.TestDB(t)
 	insertLifecycleMessage(t, pool, "msg_direction_sql", "outbound")
+	if _, err := pool.Exec(ctx, `UPDATE messages SET direction='inbound' WHERE id='msg_direction_sql'`); err != nil {
+		t.Fatalf("direction change without lifecycle child rejected: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE messages SET direction='outbound' WHERE id='msg_direction_sql'`); err != nil {
+		t.Fatalf("direction restoration without lifecycle child rejected: %v", err)
+	}
 
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO message_lifecycle_transitions
@@ -272,12 +287,21 @@ func TestMessageLifecycleDirectSQLDirectionInvariant(t *testing.T) {
 		        'accepted', 'accepted', 'acceptance.inbound_smtp', false, now())
 	`)
 	assertDirectionConstraintError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE message_lifecycle_transitions SET direction='inbound' WHERE id='mlt_direction_ok'`)
+	assertDirectionConstraintError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE messages SET direction='inbound' WHERE id='msg_direction_sql'`)
+	assertConstraintError(t, err, "message_direction_matches_lifecycle")
 }
 
 func assertDirectionConstraintError(t *testing.T, err error) {
 	t.Helper()
+	assertConstraintError(t, err, "message_lifecycle_direction_matches_message")
+}
+
+func assertConstraintError(t *testing.T, err error, constraint string) {
+	t.Helper()
 	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "message_lifecycle_direction_matches_message" {
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != constraint {
 		t.Fatalf("direction constraint error = %#v", err)
 	}
 }

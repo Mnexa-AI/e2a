@@ -15,6 +15,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/jobs"
 	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/usage"
@@ -124,7 +125,7 @@ func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
 				providerEventID = "sns-test"
 				recipient = "bob@customer.example.com"
 			}
-			userID, messageID, _ := seedOutbound(t, store, "causal-"+string(rune('a'+i)), providerID, []string{recipient})
+			userID, messageID, agentEmail := seedOutbound(t, store, "causal-"+string(rune('a'+i)), providerID, []string{recipient})
 			outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
 			ev := &delivery.Event{
 				Kind: tc.kind, SESMessageID: providerID, ProviderEventID: providerEventID,
@@ -152,6 +153,24 @@ func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
 			}
 			if lifecycleCount != 2 {
 				t.Fatalf("causal lifecycle transitions=%d want 2", lifecycleCount)
+			}
+			if err := jobs.Migrate(ctx, pool); err != nil {
+				t.Fatalf("migrate River lifecycle read dependency: %v", err)
+			}
+			publicLifecycle, err := messagelifecycle.NewStore(pool).ListForMessage(ctx, messageID, agentEmail)
+			if err != nil {
+				t.Fatalf("list public lifecycle: %v", err)
+			}
+			for _, reason := range []messagelifecycle.ReasonCode{tc.feedbackReason, tc.suppressionReason} {
+				count := 0
+				for _, transition := range publicLifecycle {
+					if transition.ReasonCode == reason {
+						count++
+					}
+				}
+				if count != 1 {
+					t.Fatalf("public lifecycle reason %s count=%d want 1: %+v", reason, count, publicLifecycle)
+				}
 			}
 
 			var eventEnvelope, suppressionEnvelope []byte

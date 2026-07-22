@@ -223,9 +223,13 @@ func MergeTransitions(persisted, reconstructed []MessageLifecycleTransition) []M
 	ownedSourceLessTimestamps := make(map[string]bool, len(persisted))
 	ownedAllTimestamps := make(map[string]bool, len(persisted))
 	ownedSemantics := make(map[string]bool, len(persisted))
+	ownedTransitionIDs := make(map[string]bool, len(persisted))
 	result := make([]MessageLifecycleTransition, 0, len(persisted)+len(reconstructed))
 	for _, item := range persisted {
 		ownedSemantics[semanticKey(item.ReasonCode, item.Recipient)] = true
+		if item.ID != "" {
+			ownedTransitionIDs[item.ID] = true
+		}
 		timestampKey := timestampObservationKey(item)
 		ownedAllTimestamps[timestampKey] = true
 		if sourceKey, ok := sourceObservationKey(item); ok {
@@ -240,7 +244,8 @@ func MergeTransitions(persisted, reconstructed []MessageLifecycleTransition) []M
 		key := observationKey(item)
 		sourceKey, hasSource := sourceObservationKey(item)
 		timestampKey := timestampObservationKey(item)
-		matchesPersisted := (isStateFallback(item) && ownedSemantics[semanticKey(item.ReasonCode, item.Recipient)]) ||
+		matchesPersisted := (item.SourceTransitionID != "" && ownedTransitionIDs[item.SourceTransitionID]) ||
+			(isStateFallback(item) && ownedSemantics[semanticKey(item.ReasonCode, item.Recipient)]) ||
 			(hasSource && ownedSources[sourceKey]) || ownedSourceLessTimestamps[timestampKey] || (!hasSource && ownedAllTimestamps[timestampKey])
 		if matchesPersisted || seenFallback[key] {
 			continue
@@ -456,10 +461,33 @@ func reconstructEvent(snapshot Snapshot, event EventSnapshot) []reconstructionCa
 		var candidate reconstructionCandidate
 		addReconstructed(func(value reconstructionCandidate) { candidate = value }, snapshot, spec.reason, spec.recipient, envelope.CreatedAt, "webhook_events.envelope", "event", event.ID, spec.evidence, correlations, true)
 		if candidate.transition.ID != "" {
+			candidate.transition.SourceTransitionID = embeddedTransitionID(data["lifecycle_transitions"], snapshot, spec.reason, spec.recipient)
 			result = append(result, candidate)
 		}
 	}
 	return result
+}
+
+func embeddedTransitionID(raw json.RawMessage, snapshot Snapshot, reason ReasonCode, recipient string) string {
+	var transitions []MessageLifecycleTransition
+	if len(raw) == 0 || json.Unmarshal(raw, &transitions) != nil {
+		return ""
+	}
+	for _, transition := range transitions {
+		if !strings.HasPrefix(transition.ID, "mlt_") || transition.MessageID != snapshot.MessageID ||
+			transition.Direction != snapshot.Direction || transition.ReasonCode != reason || transition.Recipient != recipient {
+			continue
+		}
+		canonical, err := NewTransition(AppendInput{
+			MessageID: transition.MessageID, DedupeKey: "embedded", Direction: transition.Direction, Recipient: transition.Recipient,
+			ReasonCode: transition.ReasonCode, Evidence: transition.Evidence,
+			CorrelationIDs: transition.CorrelationIDs, OccurredAt: transition.OccurredAt,
+		})
+		if err == nil && transition.Stage == canonical.Stage && transition.Outcome == canonical.Outcome && transition.Retryable == canonical.Retryable {
+			return transition.ID
+		}
+	}
+	return ""
 }
 
 func eventRecipientSpec(data map[string]json.RawMessage, reason ReasonCode) struct {
@@ -529,6 +557,9 @@ func semanticKey(reason ReasonCode, recipient string) string {
 // rows without either use their observed timestamp; differing timestamps are
 // distinct facts rather than retries of one fact.
 func observationKey(item MessageLifecycleTransition) string {
+	if item.SourceTransitionID != "" {
+		return semanticKey(item.ReasonCode, item.Recipient) + "\x00transition_id\x00" + item.SourceTransitionID
+	}
 	if key, ok := sourceObservationKey(item); ok {
 		return key
 	}
@@ -550,7 +581,7 @@ func sourceObservationKey(item MessageLifecycleTransition) (string, bool) {
 	// Acceptance and submission producers historically used both names for the
 	// same RFC 5322 message identity. Restrict the alias to pre-delivery stages
 	// so one provider message can still have multiple feedback observations.
-	if item.Stage == StageAccepted || item.Stage == StageSubmission {
+	if item.Stage == StageAccepted || item.ReasonCode == ReasonSubmissionUpstreamAccepted || item.ReasonCode == ReasonSubmissionLocalLoopbackAccepted {
 		for _, correlation := range []string{"provider_message_id", "email_message_id"} {
 			if value := item.CorrelationIDs[correlation]; value != "" {
 				return semantic + "\x00message_id\x00" + value, true
