@@ -1,4 +1,4 @@
-import { test, before, after } from "node:test";
+import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
@@ -14,6 +14,11 @@ const mcp = new HttpMcpClient(apiClient.env.mcpUrl, apiClient.env.apiKey);
 
 before(async () => {
   info(SUITE, "transport", `MCP over HTTP → ${apiClient.env.mcpUrl}`);
+});
+
+afterEach(async () => {
+  const r = await cleanup(apiClient);
+  if (r.failed.length) warn(SUITE, "cleanup-after-each", `failed ${r.failed.length}`, r.failed);
 });
 
 after(async () => {
@@ -59,28 +64,23 @@ test("mcp-ext: create_agent tool registers a new agent via MCP", async () => {
   );
 });
 
-test("mcp-ext: send_email tool happy path with HITL agent queues message", async () => {
+test("mcp-ext: send_message tool happy path with HITL agent queues message", async () => {
   const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  if (!list.tools.find((t) => t.name === "send_email")) {
-    info(SUITE, "send-email-absent", "no send_email tool — skipping happy-path");
+  if (!list.tools.find((t) => t.name === "send_message")) {
+    info(SUITE, "send-message-absent", "no send_message tool — skipping happy-path");
     return;
   }
   const email = await ensureHitlAgent();
-  // The MCP send_email tool's schema uses `agent_email` (matching the
-  // E2A_AGENT_EMAIL env var name), NOT `from` (which is the raw HTTP
-  // API name). Passing `from` triggers Zod's strict-schema rejection
-  // before the tool body ever runs. The corresponding param is also
-  // optional when E2A_AGENT_EMAIL is set in the server env, but we
-  // pass it explicitly here because this test creates a fresh agent
-  // per run and we want to send from THAT agent, not the env default.
-  const r = await callTool(mcp, "send_email", {
-    agent_email: email,
+  // Pass the canonical `email` selector because this test creates a fresh
+  // agent and must send from it rather than the server's configured default.
+  const r = await callTool(mcp, "send_message", {
+    email,
     to: [SINK_EMAIL],
     subject: uniqueSubject("mcp send"),
     text: "from MCP",
   });
   if (r.isError) {
-    fail(SUITE, "send-email-error", `send_email isError on valid input: ${extractText(r).slice(0, 200)}`);
+    fail(SUITE, "send-message-error", `send_message isError on valid input: ${extractText(r).slice(0, 200)}`);
     return;
   }
   const parsed = JSON.parse(extractText(r)) as { message_id?: string; status?: string };
@@ -141,10 +141,10 @@ test("mcp-ext: list_reviews and get_review round-trip", async () => {
   await apiClient.post(`/v1/reviews/${id}/reject`, { body: { reason: "e2e mcp pending cleanup" } });
 });
 
-test("mcp-ext: reject_pending_message via MCP transitions the message", async () => {
+test("mcp-ext: reject_review via MCP transitions the message", async () => {
   const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  if (!list.tools.find((t) => t.name === "reject_pending_message")) {
-    info(SUITE, "reject-tool-absent", "no reject_pending_message — skipping");
+  if (!list.tools.find((t) => t.name === "reject_review")) {
+    info(SUITE, "reject-review-absent", "no reject_review — skipping");
     return;
   }
   const email = await ensureHitlAgent();
@@ -156,22 +156,22 @@ test("mcp-ext: reject_pending_message via MCP transitions the message", async ()
     return;
   }
   const id = s.body.message_id;
-  const r = await callTool(mcp, "reject_pending_message", { message_id: id, reason: "e2e mcp reject" });
+  const r = await callTool(mcp, "reject_review", { message_id: id, reason: "e2e mcp reject" });
   if (r.isError) {
-    fail(SUITE, "reject-error", `reject_pending_message isError: ${extractText(r).slice(0, 200)}`);
+    fail(SUITE, "reject-review-error", `reject_review isError: ${extractText(r).slice(0, 200)}`);
     return;
   }
   // Re-reject — should now fail (already rejected, 409 from API; MCP should surface as error).
-  const r2 = await callTool(mcp, "reject_pending_message", { message_id: id, reason: "should fail" });
+  const r2 = await callTool(mcp, "reject_review", { message_id: id, reason: "should fail" });
   if (!r2.isError) {
     info(SUITE, "double-reject-not-error", "re-reject of already-rejected message did not surface as error");
   }
 });
 
-test("mcp-ext: approve_pending_message via MCP sends the message", async () => {
+test("mcp-ext: approve_review via MCP sends the message", async () => {
   const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  if (!list.tools.find((t) => t.name === "approve_pending_message")) {
-    info(SUITE, "approve-tool-absent", "no approve_pending_message — skipping");
+  if (!list.tools.find((t) => t.name === "approve_review")) {
+    info(SUITE, "approve-review-absent", "no approve_review — skipping");
     return;
   }
   const email = await ensureHitlAgent();
@@ -183,13 +183,13 @@ test("mcp-ext: approve_pending_message via MCP sends the message", async () => {
     return;
   }
   const id = s.body.message_id;
-  const r = await callTool(mcp, "approve_pending_message", { message_id: id });
+  const r = await callTool(mcp, "approve_review", { message_id: id });
   if (r.isError) {
-    fail(SUITE, "approve-error", `approve_pending_message isError: ${extractText(r).slice(0, 200)}`);
+    fail(SUITE, "approve-review-error", `approve_review isError: ${extractText(r).slice(0, 200)}`);
     return;
   }
   // Re-approve — should fail with 409 (already sent).
-  const r2 = await callTool(mcp, "approve_pending_message", { message_id: id });
+  const r2 = await callTool(mcp, "approve_review", { message_id: id });
   if (!r2.isError) {
     info(SUITE, "double-approve-not-error", "re-approve of sent message did not surface as error");
   }

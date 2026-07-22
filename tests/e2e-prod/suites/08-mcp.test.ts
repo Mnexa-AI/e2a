@@ -30,10 +30,18 @@ test("mcp: tools/list returns the expected tool surface", async () => {
   assert.ok(Array.isArray(r.tools), "tools is array");
   const names = r.tools.map((t) => t.name).sort();
   info(SUITE, "tool-surface", `MCP exposes ${names.length} tools: ${names.join(", ")}`);
-  // Should at least have these — adjust if the server changes.
-  const required = ["list_agents", "whoami"];
+  const required = ["list_agents", "whoami", "send_message", "approve_review", "reject_review"];
   for (const req of required) {
     assert.ok(names.includes(req), `expected tool "${req}" in surface, got ${names.join(",")}`);
+  }
+});
+
+test("mcp: tools/list preserves legacy compatibility aliases", async () => {
+  const r = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
+  const names = r.tools.map((t) => t.name);
+  const aliases = ["send_email", "approve_pending_message", "reject_pending_message"];
+  for (const alias of aliases) {
+    assert.ok(names.includes(alias), `expected compatibility alias "${alias}" in surface`);
   }
 });
 
@@ -88,15 +96,9 @@ test("mcp: unknown tool name produces an error result (isError or JSON-RPC error
   info(SUITE, "unknown-tool-err", detail);
 });
 
-test("mcp: send_email with invalid recipient returns isError, never sends mail", async () => {
-  // Check if send_email is exposed first.
-  const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  const sendTool = list.tools.find((t) => t.name === "send_email" || t.name === "send");
-  if (!sendTool) {
-    info(SUITE, "send-tool-absent", "no send_email tool in MCP surface — skipping invalid-recipient test");
-    return;
-  }
-  const r = await callTool(mcp, sendTool.name, {
+test("mcp: send_message with invalid recipient returns isError, never sends mail", async () => {
+  const r = await callTool(mcp, "send_message", {
+    email: apiClient.env.primaryAgentEmail,
     to: ["definitely not a valid email"],
     subject: "should fail validation",
     text: "should never reach SMTP",

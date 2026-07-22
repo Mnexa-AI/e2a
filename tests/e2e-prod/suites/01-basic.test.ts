@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup, track } from "../harness/cleanup.ts";
@@ -7,6 +7,13 @@ import { fail, info, warn, writeReport } from "../harness/report.ts";
 
 const client = new ApiClient();
 const SUITE = "01-basic";
+
+afterEach(async () => {
+  const result = await cleanup(client);
+  if (result.failed.length > 0) {
+    warn(SUITE, "cleanup-after-each", `failed to delete ${result.failed.length} resources`, result.failed);
+  }
+});
 
 after(async () => {
   const result = await cleanup(client);

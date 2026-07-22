@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { uniqueSlug } from "../harness/fixtures.ts";
@@ -15,6 +15,10 @@ import { writeReport } from "../harness/report.ts";
 // domain; no dependency on shared-account state.
 const SUITE = "24-agent-suppressions";
 const client = new ApiClient();
+
+afterEach(async () => {
+  await cleanup(client);
+});
 
 interface AgentSuppressionView {
   agent_email: string;
