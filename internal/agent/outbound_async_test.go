@@ -105,6 +105,13 @@ func (f fakeAsyncDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) 
 	return f.out
 }
 
+type countingAsyncDeliverer struct{ calls int }
+
+func (d *countingAsyncDeliverer) Deliver(context.Context, *outboundsend.SendJob) outboundsend.DeliverOutcome {
+	d.calls++
+	return outboundsend.DeliverOutcome{ProviderMessageID: "unexpected"}
+}
+
 type blockingAsyncDeliverer struct {
 	entered chan struct{}
 	release chan struct{}
@@ -416,7 +423,7 @@ func TestSendWorker_UpstreamAcceptedLifecycleEventParity(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
 		t.Fatal(err)
 	}
-	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "provider-accepted-1", SentAs: "relay"}})
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool))), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "provider-accepted-1", SentAs: "relay"}})
 	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err != nil {
 		t.Fatal(err)
 	}
@@ -427,6 +434,16 @@ func TestSendWorker_UpstreamAcceptedLifecycleEventParity(t *testing.T) {
 		if tr.Stage == messagelifecycle.StageSubmission {
 			submission = append(submission, tr)
 		}
+	}
+	var usageEvents, summary int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM usage_events WHERE user_id=$1`, user.ID).Scan(&usageEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(sum(outbound_count),0) FROM usage_summaries WHERE user_id=$1`, user.ID).Scan(&summary); err != nil {
+		t.Fatal(err)
+	}
+	if usageEvents != 1 || summary != 1 {
+		t.Fatalf("submission metering events=%d summary=%d", usageEvents, summary)
 	}
 	if len(submission) != 1 || submission[0].ReasonCode != messagelifecycle.ReasonSubmissionUpstreamAccepted {
 		t.Fatalf("submission lifecycle = %+v, want one upstream acceptance", submission)
@@ -549,7 +566,7 @@ func TestSendWorker_DuplicateAttemptLifecycleReusesLogicalTransition(t *testing.
 	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
 	observedAt := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 2; i++ {
-		if err := adapter.DeferTerminalFailure(ctx, res.MessageID, jobID, 6, observedAt, "451 retry later"); err != nil {
+		if err := adapter.DeferTerminalFailure(ctx, res.MessageID, jobID, 6, observedAt.Add(time.Duration(i)*time.Minute), fmt.Sprintf("451 retry later probe %d", i)); err != nil {
 			t.Fatalf("defer %d: %v", i, err)
 		}
 	}
@@ -561,6 +578,81 @@ func TestSendWorker_DuplicateAttemptLifecycleReusesLogicalTransition(t *testing.
 	want := fmt.Sprintf("submission:job:%d:attempt:6:submission.temporary_failure", jobID)
 	if count != 1 || key != want {
 		t.Fatalf("duplicate lifecycle count=%d key=%q want 1/%q", count, key, want)
+	}
+}
+
+func TestSendWorker_ProviderOutageSnoozeRedriveLifecycleIsFirstWins(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "outagesnooze")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"outage@example.net"}, Subject: "outage", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	w := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("dial provider unavailable"), Outage: true}})
+	base := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 2; i++ {
+		j := workerJobWithID(res.MessageID, jobID, 1)
+		at := base.Add(time.Duration(i) * time.Minute)
+		j.AttemptedAt = &at
+		if err := w.Work(ctx, j); err == nil {
+			t.Fatal("outage must snooze")
+		}
+	}
+	j := workerJobWithID(res.MessageID, jobID, 2)
+	at := base.Add(2 * time.Minute)
+	j.AttemptedAt = &at
+	if err := w.Work(ctx, j); err == nil {
+		t.Fatal("next outage attempt must snooze")
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.temporary_failure'`, res.MessageID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("outage temporary rows=%d want one for attempt 1 plus one for attempt 2", count)
+	}
+}
+
+func TestSendWorker_ProviderEvidenceRepairUsesDurableLifecycleAttribution(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "evidencerepair")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"repair@example.net"}, Subject: "evidence repair", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordProviderAcceptEvidence(ctx, res.MessageID, "provider-repair"); err != nil {
+		t.Fatal(err)
+	}
+	var acceptedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT provider_accepted_at FROM messages WHERE id=$1`, res.MessageID).Scan(&acceptedAt); err != nil {
+		t.Fatal(err)
+	}
+	deliverer := &countingAsyncDeliverer{}
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), deliverer)
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 5)); err != nil {
+		t.Fatal(err)
+	}
+	if deliverer.calls != 0 {
+		t.Fatal("provider evidence repair resubmitted")
+	}
+	var occurred time.Time
+	var dedupe string
+	if err := pool.QueryRow(ctx, `SELECT occurred_at,dedupe_key FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.upstream_accepted'`, res.MessageID).Scan(&occurred, &dedupe); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("submission:job:%d:attempt:0:submission.upstream_accepted", jobID)
+	if !occurred.Equal(acceptedAt) || dedupe != want {
+		t.Fatalf("repair occurred=%s/%s key=%q want %q", occurred, acceptedAt, dedupe, want)
 	}
 }
 

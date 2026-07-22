@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/tokencanopy/e2a/internal/emailauth"
 )
@@ -664,5 +665,19 @@ func TestSafeCorrelationIDsOmitsUnsafeValuesIndependently(t *testing.T) {
 	want := map[string]string{"job_id": "42"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("SafeCorrelationIDs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestSafeDiagnosticEvidencePreservesUTF8AndBoundsBytes(t *testing.T) {
+	input := strings.Repeat("é", 2000)
+	got := SafeDiagnostic(input)
+	if !utf8.ValidString(got) {
+		t.Fatal("SafeDiagnostic returned invalid UTF-8")
+	}
+	if len(got) > maxDiagnosticStringBytes {
+		t.Fatalf("diagnostic bytes=%d", len(got))
+	}
+	if got == input {
+		t.Fatal("oversized diagnostic was not bounded")
 	}
 }

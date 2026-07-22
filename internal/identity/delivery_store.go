@@ -347,7 +347,8 @@ type OutboundSendPayload struct {
 	// evidence for this message (provider_accepted_at): the provider already
 	// has it, so the worker must settle it as sent instead of re-submitting
 	// (the SMTP-accept↔mark-sent crash window's duplicate residual).
-	ProviderAccepted bool
+	ProviderAccepted   bool
+	ProviderAcceptedAt *time.Time
 	// ProviderMessageID is the evidence-repaired provider id ('' when none).
 	ProviderMessageID string
 }
@@ -356,9 +357,10 @@ type OutboundSendPayload struct {
 // adapters need to build the email.sent / email.failed event and meter usage,
 // resolved from the row + its owning agent in one transaction.
 type OutboundSentInfo struct {
-	Message *Message
-	UserID  string
-	Domain  string
+	Message            *Message
+	UserID             string
+	Domain             string
+	ProviderAcceptedAt time.Time
 }
 
 // SendOutcome is the current terminal-ish state of an async send, for wait=sent
@@ -567,19 +569,20 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 	recipients = append(recipients, cc...)
 	recipients = append(recipients, bcc...)
 	p := &OutboundSendPayload{
-		ID:                messageID,
-		UserID:            userID,
-		AgentID:           agentID,
-		Domain:            registeredDomain,
-		MessageType:       messageType,
-		DeliveryStatus:    deliveryStatus,
-		EnvelopeFrom:      envelopeFrom,
-		SentAs:            sentAs,
-		Recipients:        recipients,
-		Raw:               raw,
-		CreatedAt:         createdAt,
-		ProviderAccepted:  providerAcceptedAt != nil,
-		ProviderMessageID: providerMessageID,
+		ID:                 messageID,
+		UserID:             userID,
+		AgentID:            agentID,
+		Domain:             registeredDomain,
+		MessageType:        messageType,
+		DeliveryStatus:     deliveryStatus,
+		EnvelopeFrom:       envelopeFrom,
+		SentAs:             sentAs,
+		Recipients:         recipients,
+		Raw:                raw,
+		CreatedAt:          createdAt,
+		ProviderAccepted:   providerAcceptedAt != nil,
+		ProviderAcceptedAt: providerAcceptedAt,
+		ProviderMessageID:  providerMessageID,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -615,6 +618,15 @@ func (s *Store) DeferOutboundTerminalFailure(ctx context.Context, messageID stri
 		    AND delivery_status IN ('accepted', 'sending')`,
 		messageID, jobID, nullIfEmpty(detail),
 	)
+	return err
+}
+
+// PreserveOutboundTerminalFailure durably records authoritative failure
+// provenance after the richer terminal transaction failed. It deliberately
+// leaves the row preterminal and emits no event so the terminal reconciler can
+// retry the complete state+lifecycle+event transaction later.
+func (s *Store) PreserveOutboundTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource) error {
+	_, err := s.pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',delivery_detail=$3,delivery_failure_source=$4,send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullIfEmpty(detail), string(source))
 	return err
 }
 
@@ -661,6 +673,7 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 // proceeds to the failure write, whose own CAS re-checks the evidence.
 func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx, messageID string) (*OutboundSentInfo, string, error) {
 	var providerMessageID string
+	var providerAcceptedAt time.Time
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent"}
 	err := tx.QueryRow(ctx,
 		`UPDATE messages m
@@ -671,10 +684,10 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 		    AND m.delivery_status IN ('accepted', 'sending')
 		    AND m.provider_accepted_at IS NOT NULL
 		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender,
-		           m.to_recipients, m.cc, m.bcc, COALESCE(m.provider_message_id, '')`,
+		           m.to_recipients, m.cc, m.bcc, COALESCE(m.provider_message_id, ''),m.provider_accepted_at`,
 		messageID,
 	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender,
-		&m.ToRecipients, &m.CC, &m.BCC, &providerMessageID)
+		&m.ToRecipients, &m.CC, &m.BCC, &providerMessageID, &providerAcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
 	}
@@ -686,6 +699,9 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 		return nil, "", err
 	}
 	info, err := outboundSentInfoTx(ctx, tx, m)
+	if info != nil {
+		info.ProviderAcceptedAt = providerAcceptedAt
+	}
 	return info, providerMessageID, err
 }
 

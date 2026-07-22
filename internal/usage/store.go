@@ -56,6 +56,20 @@ func (s *Store) RecordUsageEvent(ctx context.Context, event *UsageEvent) error {
 	return err
 }
 
+func (s *Store) RecordUsageEventTx(ctx context.Context, tx pgx.Tx, event *UsageEvent) error {
+	if event.ID == "" {
+		event.ID = generateBillingID()
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now()
+	}
+	if event.EventType == "" {
+		event.EventType = "message"
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO usage_events (id,user_id,agent_id,domain,direction,event_type,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, event.ID, event.UserID, event.AgentID, event.Domain, event.Direction, event.EventType, event.CreatedAt)
+	return err
+}
+
 func (s *Store) GetUsageSummary(ctx context.Context, userID, bucketDate string) (*UsageSummary, error) {
 	sum := &UsageSummary{}
 	var bucketTime time.Time
@@ -89,6 +103,17 @@ func (s *Store) IncrementUsageSummary(ctx context.Context, userID, bucketDate, d
 	return err
 }
 
+func (s *Store) IncrementUsageSummaryTx(ctx context.Context, tx pgx.Tx, userID, bucketDate, direction string) error {
+	inbound, outbound := 0, 0
+	if direction == "inbound" {
+		inbound = 1
+	} else {
+		outbound = 1
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO usage_summaries (user_id,bucket_date,inbound_count,outbound_count,total_count) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id,bucket_date) DO UPDATE SET inbound_count=usage_summaries.inbound_count+$3,outbound_count=usage_summaries.outbound_count+$4,total_count=usage_summaries.total_count+$5`, userID, bucketDate, inbound, outbound, inbound+outbound)
+	return err
+}
+
 // GetAccountClass returns the account class for a user. A missing user (no row)
 // resolves to ClassStandard so the metering gate fails toward metering — a
 // real customer must never be silently exempted from billing because of a
@@ -103,6 +128,18 @@ func (s *Store) GetAccountClass(ctx context.Context, userID string) (AccountClas
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ClassStandard, nil
 		}
+		return ClassStandard, err
+	}
+	return AccountClass(class), nil
+}
+
+func (s *Store) GetAccountClassTx(ctx context.Context, tx pgx.Tx, userID string) (AccountClass, error) {
+	var class string
+	err := tx.QueryRow(ctx, `SELECT account_class FROM users WHERE id=$1`, userID).Scan(&class)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ClassStandard, nil
+	}
+	if err != nil {
 		return ClassStandard, err
 	}
 	return AccountClass(class), nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/delivery"
@@ -261,6 +263,15 @@ func (f *terminalFixture) status(t *testing.T, messageID string) (string, string
 		t.Fatalf("read message %s: %v", messageID, err)
 	}
 	return status, detail
+}
+
+func mustSendJobID(t *testing.T, pool *pgxpool.Pool, messageID string) int64 {
+	t.Helper()
+	var id int64
+	if err := pool.QueryRow(context.Background(), `SELECT send_job_id FROM messages WHERE id=$1`, messageID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func (f *terminalFixture) failedEventCount(t *testing.T, messageID string) int {
@@ -551,6 +562,10 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 	if err := store.RecordProviderAcceptEvidence(context.Background(), evidenceID, "ses-evidence-abc"); err != nil {
 		t.Fatalf("RecordProviderAcceptEvidence: %v", err)
 	}
+	var providerAcceptedAt time.Time
+	if err := pool.QueryRow(context.Background(), `SELECT provider_accepted_at FROM messages WHERE id=$1`, evidenceID).Scan(&providerAcceptedAt); err != nil {
+		t.Fatal(err)
+	}
 
 	gate := &fakeRampGate{}
 	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
@@ -587,6 +602,17 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 		t.Fatal("provider correction missing upstream acceptance lifecycle")
 	}
 	f.assertEventCarriesOnly(t, evidenceID, webhookpub.EventEmailSent, accepted)
+	if !accepted.OccurredAt.Equal(providerAcceptedAt) {
+		t.Fatalf("correction occurred_at=%s want provider_accepted_at=%s", accepted.OccurredAt, providerAcceptedAt)
+	}
+	var dedupe string
+	if err := pool.QueryRow(context.Background(), `SELECT dedupe_key FROM message_lifecycle_transitions WHERE id=$1`, accepted.ID).Scan(&dedupe); err != nil {
+		t.Fatal(err)
+	}
+	wantDedupe := fmt.Sprintf("submission:job:%d:attempt:0:submission.upstream_accepted", mustSendJobID(t, pool, evidenceID))
+	if dedupe != wantDedupe {
+		t.Fatalf("correction dedupe=%q want %q", dedupe, wantDedupe)
+	}
 	if got := f.failedEventCount(t, evidenceID); got != 0 {
 		t.Errorf("email.failed count = %d, want 0 — evidence must suppress the false failure", got)
 	}
@@ -619,6 +645,116 @@ func TestReconcileOutboxFailureRollsBackAndConverges(t *testing.T) {
 		END; $f$ LANGUAGE plpgsql;
 		CREATE TRIGGER test_fail_submission_outbox BEFORE INSERT ON webhook_events FOR EACH ROW EXECUTE FUNCTION test_fail_submission_outbox();`,
 		`DROP TRIGGER IF EXISTS test_fail_submission_outbox ON webhook_events; DROP FUNCTION IF EXISTS test_fail_submission_outbox();`)
+}
+
+func TestReconcileMeterFailureRollsBackAndConvergesOnce(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	adapter := agent.NewOutboundSendStore(store, webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)), usage.NewUsageTracker(usage.NewStore(pool)))
+	f := newTerminalFixture(t, pool, store, adapter)
+	messageID := f.seed(t, "atomic-meter", "accepted", "discarded", false)
+	if err := store.RecordProviderAcceptEvidence(context.Background(), messageID, "provider-meter"); err != nil {
+		t.Fatal(err)
+	}
+	install := `CREATE FUNCTION test_fail_submission_meter() RETURNS trigger AS $f$ BEGIN RAISE EXCEPTION 'forced meter failure'; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_submission_meter BEFORE INSERT ON usage_events FOR EACH ROW EXECUTE FUNCTION test_fail_submission_meter();`
+	uninstall := `DROP TRIGGER IF EXISTS test_fail_submission_meter ON usage_events; DROP FUNCTION IF EXISTS test_fail_submission_meter();`
+	if _, err := pool.Exec(context.Background(), install); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter)
+	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err == nil {
+		t.Fatal("forced meter failure succeeded")
+	}
+	status, _ := f.status(t, messageID)
+	var usageEvents, summary int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM usage_events WHERE user_id=(SELECT user_id FROM agent_identities WHERE id=$1)`, f.agentID).Scan(&usageEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(sum(outbound_count),0) FROM usage_summaries WHERE user_id=(SELECT user_id FROM agent_identities WHERE id=$1)`, f.agentID).Scan(&summary); err != nil {
+		t.Fatal(err)
+	}
+	if status != "accepted" || usageEvents != 0 || summary != 0 || f.sentEventCount(t, messageID) != 0 || f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionUpstreamAccepted) != nil {
+		t.Fatalf("partial meter commit status=%s events=%d summary=%d", status, usageEvents, summary)
+	}
+	if _, err := pool.Exec(context.Background(), uninstall); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM usage_events WHERE user_id=(SELECT user_id FROM agent_identities WHERE id=$1)`, f.agentID).Scan(&usageEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(sum(outbound_count),0) FROM usage_summaries WHERE user_id=(SELECT user_id FROM agent_identities WHERE id=$1)`, f.agentID).Scan(&summary); err != nil {
+		t.Fatal(err)
+	}
+	if usageEvents != 1 || summary != 1 {
+		t.Fatalf("recovered metering events=%d summary=%d", usageEvents, summary)
+	}
+	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM usage_events WHERE user_id=(SELECT user_id FROM agent_identities WHERE id=$1)`, f.agentID).Scan(&usageEvents); err != nil {
+		t.Fatal(err)
+	}
+	if usageEvents != 1 {
+		t.Fatalf("duplicate metering=%d", usageEvents)
+	}
+}
+
+func TestSendWorkerProviderRejectionLifecycleFailurePreservesProvenanceForReconcile(t *testing.T) {
+	testProviderRejectionAtomicFailure(t, "lifecycle", `CREATE FUNCTION test_fail_provider_reject_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.provider_rejected' THEN RAISE EXCEPTION 'forced lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_provider_reject_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_provider_reject_lifecycle();`, `DROP TRIGGER IF EXISTS test_fail_provider_reject_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_provider_reject_lifecycle();`)
+}
+
+func TestSendWorkerProviderRejectionOutboxFailurePreservesProvenanceForReconcile(t *testing.T) {
+	testProviderRejectionAtomicFailure(t, "outbox", `CREATE FUNCTION test_fail_provider_reject_outbox() RETURNS trigger AS $f$ BEGIN IF NEW.type='email.failed' THEN RAISE EXCEPTION 'forced outbox failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_provider_reject_outbox BEFORE INSERT ON webhook_events FOR EACH ROW EXECUTE FUNCTION test_fail_provider_reject_outbox();`, `DROP TRIGGER IF EXISTS test_fail_provider_reject_outbox ON webhook_events; DROP FUNCTION IF EXISTS test_fail_provider_reject_outbox();`)
+}
+
+func testProviderRejectionAtomicFailure(t *testing.T, label, install, uninstall string) {
+	t.Helper()
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	adapter := agent.NewOutboundSendStore(store, webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)), usage.NewNoopUsageTracker())
+	f := newTerminalFixture(t, pool, store, adapter)
+	messageID := f.seed(t, "provider-reject-"+label, "accepted", "discarded", false)
+	jobID := mustSendJobID(t, pool, messageID)
+	if _, err := pool.Exec(context.Background(), install); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
+	w := outboundsend.NewSendWorker(adapter, &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 explicit rejection"), Permanent: true}})
+	rj := &river.Job[outboundsend.OutboundSendArgs]{JobRow: &rivertype.JobRow{ID: jobID, Attempt: 2, CreatedAt: time.Now().UTC()}, Args: outboundsend.OutboundSendArgs{MessageID: messageID}}
+	if err := w.Work(context.Background(), rj); err == nil {
+		t.Fatal("provider rejection must cancel")
+	}
+	var status, source, detail string
+	if err := pool.QueryRow(context.Background(), `SELECT delivery_status,COALESCE(delivery_failure_source,''),COALESCE(delivery_detail,'') FROM messages WHERE id=$1`, messageID).Scan(&status, &source, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if status != "accepted" || source != "provider" || detail != "550 explicit rejection" {
+		t.Fatalf("fallback status=%q source=%q detail=%q", status, source, detail)
+	}
+	if f.failedEventCount(t, messageID) != 0 || f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionProviderRejected) != nil {
+		t.Fatal("failed terminal tx published partial event/lifecycle")
+	}
+	if _, err := pool.Exec(context.Background(), uninstall); err != nil {
+		t.Fatal(err)
+	}
+	if err := outboundsend.NewTerminalReconcileWorker(pool, adapter).Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatal(err)
+	}
+	tr := f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionProviderRejected)
+	if tr == nil {
+		t.Fatal("reconciler lost provider rejection provenance")
+	}
+	f.assertEventCarriesOnly(t, messageID, webhookpub.EventEmailFailed, tr)
+	if err := outboundsend.NewTerminalReconcileWorker(pool, adapter).Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatal(err)
+	}
+	if f.failedEventCount(t, messageID) != 1 {
+		t.Fatal("provider rejection reconciliation duplicated event")
+	}
 }
 
 func testReconcileAtomicFailure(t *testing.T, label, install, uninstall string) {
@@ -708,6 +844,9 @@ func (s failingTerminalStore) MarkSent(context.Context, string, int64, int, time
 }
 func (s failingTerminalStore) MarkFailed(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode) error {
 	return s.err
+}
+func (s failingTerminalStore) PreserveTerminalFailure(context.Context, string, int64, string, delivery.FailureSource) error {
+	return nil
 }
 func (s failingTerminalStore) SuppressedRecipients(context.Context, string, string, []string) ([]string, error) {
 	return nil, nil

@@ -24,6 +24,51 @@ func TestNoopUsageTracker_AlwaysAllows(t *testing.T) {
 	}
 }
 
+func TestLiveUsageTracker_RecordAndCheckTxParticipatesInCallerTransaction(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := usage.NewStore(pool)
+	tracker := usage.NewUsageTracker(store)
+	identityStore := identity.NewStore(pool)
+	user, err := identityStore.CreateOrGetUser(ctx, "usage-tx@example.test", "Usage", "usage-tx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tracker.RecordAndCheckTx(ctx, tx, user.ID, "agent_usage", "example.test", "outbound"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM usage_events WHERE user_id=$1`, user.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("rolled back usage events=%d", count)
+	}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tracker.RecordAndCheckTx(ctx, tx, user.ID, "agent_usage", "example.test", "outbound"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM usage_events WHERE user_id=$1`, user.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("committed usage events=%d", count)
+	}
+}
+
 // -- Store tests (DB required) --
 
 func TestUsageSummaryIncrementAndGet(t *testing.T) {

@@ -26,10 +26,11 @@ type fakeStore struct {
 	suppressed    []string
 	suppressedErr error
 
-	sent     []sentCall
-	failed   []failedCall
-	deferred []failedCall
-	released []string
+	sent      []sentCall
+	failed    []failedCall
+	deferred  []failedCall
+	temporary []failedCall
+	released  []string
 	// suppressionUserID records the tenant the guard was scoped to.
 	suppressionUserID  string
 	suppressionAgentID string
@@ -57,12 +58,16 @@ func (f *fakeStore) MarkFailed(_ context.Context, id string, _ int64, attempt in
 	f.failed = append(f.failed, failedCall{id, attempt, detail, source})
 	return nil
 }
+func (f *fakeStore) PreserveTerminalFailure(context.Context, string, int64, string, delivery.FailureSource) error {
+	return nil
+}
 func (f *fakeStore) DeferTerminalFailure(_ context.Context, id string, _ int64, _ int, _ time.Time, detail string) error {
 	f.deferred = append(f.deferred, failedCall{id: id, detail: detail})
 	return nil
 }
 func (f *fakeStore) RecordTemporaryFailure(_ context.Context, id string, _ int64, _ int, _ time.Time, _ string) error {
 	f.released = append(f.released, id)
+	f.temporary = append(f.temporary, failedCall{id: id})
 	return f.releaseErr
 }
 func (f *fakeStore) ReleaseSend(_ context.Context, id string, _ int64) error {
@@ -230,6 +235,18 @@ func TestSendWorker_ProviderEvidenceSettlesWithoutResubmit(t *testing.T) {
 	}
 	if len(st.failed) != 0 || len(st.deferred) != 0 {
 		t.Errorf("evidence settle must not fail/defer, got failed=%+v deferred=%+v", st.failed, st.deferred)
+	}
+}
+
+func TestSendWorker_ProviderOutageRecordsTemporaryLifecycleBeforeSnooze(t *testing.T) {
+	st := &fakeStore{job: acceptedJob("msg_outage")}
+	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("dial unavailable"), Outage: true}}
+	err := outboundsend.NewSendWorker(st, dl).Work(context.Background(), job("msg_outage", 1))
+	if err == nil {
+		t.Fatal("outage must snooze")
+	}
+	if len(st.temporary) != 1 || len(st.released) != 1 {
+		t.Fatalf("temporary=%+v released=%+v", st.temporary, st.released)
 	}
 }
 

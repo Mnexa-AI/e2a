@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -49,8 +50,8 @@ type OutboundEnqueuer interface {
 // outboundSendStore implements outboundsend.Store over identity.Store +
 // webhookpub.Outbox + the usage tracker. ClaimSend persists the short-lived
 // sending state before provider I/O; MarkSent/MarkFailed then record one monotonic
-// terminal outcome in fresh transactions. Successful sends are metered post-commit
-// (the message only becomes billable once submitted).
+// terminal outcome, lifecycle row, usage meter, and event in one fresh
+// transaction (the message only becomes billable once submitted).
 type outboundSendStore struct {
 	store  *identity.Store
 	outbox webhookpub.Outbox
@@ -116,19 +117,20 @@ func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, job
 		return nil, err
 	}
 	return &outboundsend.SendJob{
-		MessageID:         p.ID,
-		UserID:            p.UserID,
-		AgentID:           p.AgentID,
-		Domain:            p.Domain,
-		MessageType:       p.MessageType,
-		Status:            p.DeliveryStatus,
-		EnvelopeFrom:      p.EnvelopeFrom,
-		Recipients:        p.Recipients,
-		RawMessage:        p.Raw,
-		SentAs:            p.SentAs,
-		AcceptedAt:        p.CreatedAt,
-		ProviderAccepted:  p.ProviderAccepted,
-		ProviderMessageID: p.ProviderMessageID,
+		MessageID:          p.ID,
+		UserID:             p.UserID,
+		AgentID:            p.AgentID,
+		Domain:             p.Domain,
+		MessageType:        p.MessageType,
+		Status:             p.DeliveryStatus,
+		EnvelopeFrom:       p.EnvelopeFrom,
+		Recipients:         p.Recipients,
+		RawMessage:         p.Raw,
+		SentAs:             p.SentAs,
+		AcceptedAt:         p.CreatedAt,
+		ProviderAccepted:   p.ProviderAccepted,
+		ProviderAcceptedAt: p.ProviderAcceptedAt,
+		ProviderMessageID:  p.ProviderMessageID,
 	}, nil
 }
 
@@ -154,6 +156,9 @@ func (a *outboundSendStore) MarkSent(ctx context.Context, messageID string, jobI
 		if info == nil {
 			return nil
 		}
+		if err := a.meterSentTx(ctx, tx, info); err != nil {
+			return err
+		}
 		transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt,
 			messagelifecycle.ReasonSubmissionUpstreamAccepted, "", providerMessageID)
 		if err != nil {
@@ -165,27 +170,23 @@ func (a *outboundSendStore) MarkSent(ctx context.Context, messageID string, jobI
 	}); err != nil {
 		return err
 	}
-	if info == nil {
-		return nil
-	}
-	a.meterSent(ctx, info, messageID)
 	return nil
 }
 
-// meterSent meters a durably-sent message after its commit (side-effect only —
-// never block on quota; the accept-time cap pre-check is the gate). Mirrors the
-// synchronous path, which meters only once the message row exists. KNOWN
-// best-effort window: a crash between the 'sent' commit and this call drops the
-// meter (the re-drive no-ops on 'sent'), so a durably-sent message can go
-// unmetered. Rare + customer-favoring; fold into the MarkSent tx if billing
-// accuracy ever demands it.
-func (a *outboundSendStore) meterSent(ctx context.Context, info *identity.OutboundSentInfo, messageID string) {
+// meterSentTx makes async terminal metering part of the same commit as state,
+// lifecycle, and event publication. The accept-time cap pre-check remains the
+// quota gate; this write is accounting, but an accounting failure must roll the
+// terminal transaction back so the reconciler can converge without undercount.
+func (a *outboundSendStore) meterSentTx(ctx context.Context, tx pgx.Tx, info *identity.OutboundSentInfo) error {
 	if a.usage == nil {
-		return
+		return nil
 	}
-	if _, err := a.usage.RecordAndCheck(ctx, info.UserID, info.Message.AgentID, info.Domain, "outbound"); err != nil {
-		log.Printf("[outbound-send] usage recording error for %s: %v", messageID, err)
+	tracker, ok := a.usage.(usage.TransactionalUsageTracker)
+	if !ok {
+		return fmt.Errorf("outbound usage tracker lacks transaction support")
 	}
+	_, err := tracker.RecordAndCheckTx(ctx, tx, info.UserID, info.Message.AgentID, info.Domain, "outbound")
+	return err
 }
 
 // MarkFailed is the guarded terminal write (async-send-contract §3.1): inside
@@ -199,6 +200,7 @@ func (a *outboundSendStore) meterSent(ctx context.Context, info *identity.Outbou
 // where evidence lands between the two statements (the row is then left for the
 // reconciler's next pass to settle as sent).
 func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
+	detail = messagelifecycle.SafeDiagnostic(detail)
 	var resolved *identity.OutboundSentInfo
 	var resolvedProviderID string
 	if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
@@ -208,6 +210,11 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 		}
 		if info != nil {
 			resolved, resolvedProviderID = info, providerID
+			attempt = 0
+			occurredAt = info.ProviderAcceptedAt
+			if err := a.meterSentTx(ctx, tx, info); err != nil {
+				return err
+			}
 			transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt,
 				messagelifecycle.ReasonSubmissionUpstreamAccepted, "", providerID)
 			if err != nil {
@@ -238,36 +245,53 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 	}
 	if resolved != nil {
 		log.Printf("[outbound-send] %s: terminal-failure guard settled as sent on provider evidence (provider id %q)", messageID, resolvedProviderID)
-		a.meterSent(ctx, resolved, messageID)
 	}
 	return nil
 }
 
+func (a *outboundSendStore) PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource) error {
+	return a.store.PreserveOutboundTerminalFailure(ctx, messageID, jobID, messagelifecycle.SafeDiagnostic(detail), source)
+}
+
 func (a *outboundSendStore) DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error {
+	detail = messagelifecycle.SafeDiagnostic(detail)
 	return a.store.WithTx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE messages SET delivery_detail=$3, send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullableLifecycleDetail(detail))
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
 		}
-		_, err = appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, messagelifecycle.ReasonSubmissionTemporaryFailure, detail, "")
+		_, err = appendTemporaryFirstTx(ctx, tx, messageID, jobID, attempt, occurredAt, detail)
 		return err
 	})
 }
 
 func (a *outboundSendStore) RecordTemporaryFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error {
+	detail = messagelifecycle.SafeDiagnostic(detail)
 	return a.store.WithTx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE messages SET delivery_status='accepted', send_claimed_at=NULL WHERE id=$1 AND send_job_id=$2 AND delivery_status='sending'`, messageID, jobID)
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
 		}
-		_, err = appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, messagelifecycle.ReasonSubmissionTemporaryFailure, detail, "")
+		_, err = appendTemporaryFirstTx(ctx, tx, messageID, jobID, attempt, occurredAt, detail)
 		return err
 	})
 }
 
+func appendTemporaryFirstTx(ctx context.Context, tx pgx.Tx, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) (messagelifecycle.MessageLifecycleTransition, error) {
+	key := outboundsend.SubmissionDedupeKey(jobID, attempt, messagelifecycle.ReasonSubmissionTemporaryFailure)
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM message_lifecycle_transitions WHERE message_id=$1 AND dedupe_key=$2)`, messageID, key).Scan(&exists); err != nil {
+		return messagelifecycle.MessageLifecycleTransition{}, err
+	}
+	if exists {
+		return messagelifecycle.MessageLifecycleTransition{}, nil
+	}
+	return appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, messagelifecycle.ReasonSubmissionTemporaryFailure, detail, "")
+}
+
 func appendSubmissionTransition(ctx context.Context, tx pgx.Tx, messageID string, jobID int64, attempt int, occurredAt time.Time, reason messagelifecycle.ReasonCode, detail, providerID string) (messagelifecycle.MessageLifecycleTransition, error) {
 	evidence := map[string]any{}
-	if safe := boundedLifecycleDiagnostic(detail); safe != "" {
+	if safe := messagelifecycle.SafeDiagnostic(detail); safe != "" {
 		evidence["failure_reason"] = safe
 	}
 	if reason != messagelifecycle.ReasonSubmissionUpstreamAccepted {
@@ -277,13 +301,6 @@ func appendSubmissionTransition(ctx context.Context, tx pgx.Tx, messageID string
 		MessageID: messageID, DedupeKey: outboundsend.SubmissionDedupeKey(jobID, attempt, reason), Direction: "outbound", ReasonCode: reason,
 		Evidence: evidence, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(jobID, 10), "provider_message_id": providerID}), OccurredAt: occurredAt,
 	})
-}
-
-func boundedLifecycleDiagnostic(value string) string {
-	if len(value) <= 2*1024 {
-		return value
-	}
-	return value[:2*1024]
 }
 
 func nullableLifecycleDetail(value string) any {

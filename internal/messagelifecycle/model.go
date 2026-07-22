@@ -6,7 +6,25 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+// SafeDiagnostic bounds optional untrusted diagnostics to the canonical
+// per-string limit without splitting a UTF-8 encoding. Invalid input bytes are
+// discarded so optional evidence can never reject the lifecycle observation.
+func SafeDiagnostic(value string) string {
+	if !utf8.ValidString(value) {
+		value = strings.ToValidUTF8(value, "")
+	}
+	if len(value) <= maxDiagnosticStringBytes {
+		return value
+	}
+	value = value[:maxDiagnosticStringBytes]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
+}
 
 const (
 	maxDiagnosticStringBytes = 2 * 1024
