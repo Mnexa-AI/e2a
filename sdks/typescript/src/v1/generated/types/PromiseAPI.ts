@@ -14,17 +14,12 @@ import { ApproveRequest } from '../models/ApproveRequest.js';
 import { Attachment } from '../models/Attachment.js';
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { AttachmentView } from '../models/AttachmentView.js';
-<<<<<<< HEAD
-=======
-import { AuthVerdict } from '../models/AuthVerdict.js';
 import { BatchMessage } from '../models/BatchMessage.js';
 import { BatchResult } from '../models/BatchResult.js';
 import { BatchStatusRollupView } from '../models/BatchStatusRollupView.js';
 import { BatchSuppressedItem } from '../models/BatchSuppressedItem.js';
 import { BatchSuppressedResult } from '../models/BatchSuppressedResult.js';
 import { BatchView } from '../models/BatchView.js';
-import { CheckResult } from '../models/CheckResult.js';
->>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
 import { ConversationDetailView } from '../models/ConversationDetailView.js';
 import { ConversationSummaryView } from '../models/ConversationSummaryView.js';
 import { CreateAPIKeyRequest } from '../models/CreateAPIKeyRequest.js';
@@ -51,6 +46,7 @@ import { DomainSendingFailedData } from '../models/DomainSendingFailedData.js';
 import { DomainSendingVerifiedData } from '../models/DomainSendingVerifiedData.js';
 import { DomainSuppressionAddedData } from '../models/DomainSuppressionAddedData.js';
 import { DomainView } from '../models/DomainView.js';
+import { DuplicateRecipientDetails } from '../models/DuplicateRecipientDetails.js';
 import { EmailBouncedData } from '../models/EmailBouncedData.js';
 import { EmailComplainedData } from '../models/EmailComplainedData.js';
 import { EmailDeliveredData } from '../models/EmailDeliveredData.js';
@@ -116,6 +112,8 @@ import { RetryAfterDetails } from '../models/RetryAfterDetails.js';
 import { ReviewView } from '../models/ReviewView.js';
 import { RotateSecretResponse } from '../models/RotateSecretResponse.js';
 import { SPFResult } from '../models/SPFResult.js';
+import { SendBatchRequest } from '../models/SendBatchRequest.js';
+import { SendBatchResponse } from '../models/SendBatchResponse.js';
 import { SendEmailRequest } from '../models/SendEmailRequest.js';
 import { SendResultView } from '../models/SendResultView.js';
 import { StarterTemplateDetailView } from '../models/StarterTemplateDetailView.js';
@@ -129,6 +127,7 @@ import { TemplateView } from '../models/TemplateView.js';
 import { TestWebhookRequest } from '../models/TestWebhookRequest.js';
 import { TestWebhookResponse } from '../models/TestWebhookResponse.js';
 import { ThreatCategoryView } from '../models/ThreatCategoryView.js';
+import { TooManyMessagesDetails } from '../models/TooManyMessagesDetails.js';
 import { TooManyRecipientsDetails } from '../models/TooManyRecipientsDetails.js';
 import { UnsubscribeOptions } from '../models/UnsubscribeOptions.js';
 import { UpdateAgentRequest } from '../models/UpdateAgentRequest.js';
@@ -1055,9 +1054,6 @@ export class PromiseMessagesApi {
     }
 
     /**
-<<<<<<< HEAD
-     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.
-=======
      * Returns the batch header (counts + the list of items dropped by the suppression filter at accept time) plus a live rollup of the batch\'s child messages by delivery status. The rollup is computed on read from the messages table — poll it after a batch send to watch delivery progress. For per-recipient detail beyond the aggregate, use GET /v1/messages?batch_id={batch_id}. Account-scoped: a batch owned by another account returns 404 not_found.
      * Get a batch\'s header and delivery-status rollup
      * @param batchId The batch id, e.g. bat_abc123.
@@ -1080,8 +1076,7 @@ export class PromiseMessagesApi {
     }
 
     /**
-     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
->>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
+     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.
      * Get a message
      * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.
@@ -1203,6 +1198,32 @@ export class PromiseMessagesApi {
     public restoreMessage(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.restoreMessage(email, id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Fan out N independent emails in one API call. Each `messages[i]` item is a full send request in its own right (to/subject/body/template/attachments/reply_to) — the batch endpoint is essentially single-send in a loop, sharing rate-limit reservation and idempotency across all N items. Response `results[]` is positionally aligned with the input `messages[]`; each slot is either `{message_id}` (accepted) or `{suppressed: {address, reason}}` (dropped because a recipient was on this account\'s suppression list). See docs/design/batch-send.md for the full contract.  MVP restrictions: HITL-enabled agents are refused with 403 `batch_hitl_unsupported` (§5.1); per-item content override is native (each item carries its own body or template_data); attachments are per-item with a 25 MiB batch-wide combined cap (§14 Q15); rate limits count as N sends (§4.2); duplicate recipients across items are rejected (§14 Q11). All error responses include `details.item_index` (or `details.item_indices`) to identify the offending item where relevant.
+     * Send a batch of up to 100 emails
+     * @param email
+     * @param sendBatchRequest
+     * @param [idempotencyKey] Optional idempotency key for safe retries. Same semantics as single-send: 24h TTL, path+body hash, replay returns the cached 202 verbatim (409 in-flight, 422 mismatch).
+     */
+    public sendBatchWithHttpInfo(email: string, sendBatchRequest: SendBatchRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<HttpInfo<SendBatchResponse>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.sendBatchWithHttpInfo(email, sendBatchRequest, idempotencyKey, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Fan out N independent emails in one API call. Each `messages[i]` item is a full send request in its own right (to/subject/body/template/attachments/reply_to) — the batch endpoint is essentially single-send in a loop, sharing rate-limit reservation and idempotency across all N items. Response `results[]` is positionally aligned with the input `messages[]`; each slot is either `{message_id}` (accepted) or `{suppressed: {address, reason}}` (dropped because a recipient was on this account\'s suppression list). See docs/design/batch-send.md for the full contract.  MVP restrictions: HITL-enabled agents are refused with 403 `batch_hitl_unsupported` (§5.1); per-item content override is native (each item carries its own body or template_data); attachments are per-item with a 25 MiB batch-wide combined cap (§14 Q15); rate limits count as N sends (§4.2); duplicate recipients across items are rejected (§14 Q11). All error responses include `details.item_index` (or `details.item_indices`) to identify the offending item where relevant.
+     * Send a batch of up to 100 emails
+     * @param email
+     * @param sendBatchRequest
+     * @param [idempotencyKey] Optional idempotency key for safe retries. Same semantics as single-send: 24h TTL, path+body hash, replay returns the cached 202 verbatim (409 in-flight, 422 mismatch).
+     */
+    public sendBatch(email: string, sendBatchRequest: SendBatchRequest, idempotencyKey?: string, _options?: PromiseConfigurationOptions): Promise<SendBatchResponse> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.sendBatch(email, sendBatchRequest, idempotencyKey, observableOptions);
         return result.toPromise();
     }
 

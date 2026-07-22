@@ -228,9 +228,6 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-<<<<<<< HEAD
-     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.
-=======
      * Returns the batch header (counts + the list of items dropped by the suppression filter at accept time) plus a live rollup of the batch\'s child messages by delivery status. The rollup is computed on read from the messages table — poll it after a batch send to watch delivery progress. For per-recipient detail beyond the aggregate, use GET /v1/messages?batch_id={batch_id}. Account-scoped: a batch owned by another account returns 404 not_found.
      * Get a batch\'s header and delivery-status rollup
      * @param batchId The batch id, e.g. bat_abc123.
@@ -269,8 +266,7 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
     }
 
     /**
-     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and inbound auth headers.
->>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
+     * Fetch a single message (inbound or outbound) by id, scoped to an agent the caller owns. A trashed message remains readable by this direct GET and includes deleted_at until it is permanently purged (30 days after deletion by default, deployment-configurable); ordinary lists, conversations, reply targets, and forward targets exclude it. Includes the raw message and canonical inbound authentication evidence. Fetching an unread inbound message marks it read as a side effect.
      * Get a message
      * @param email The agent\&#39;s full email address.
      * @param id The message id, e.g. msg_abc123.

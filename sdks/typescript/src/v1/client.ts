@@ -323,6 +323,7 @@ export interface ListMessagesParams {
   from_?: string;
   subjectContains?: string;
   conversationId?: string;
+  batchId?: string;
   labels?: string[];
   since?: string;
   until?: string;
@@ -338,7 +339,7 @@ class MessagesResource {
     return new AutoPager(async (cursor) => {
       const page = await call(() =>
         this.api.listMessages(email, params.direction, params.readStatus, params.sort, params.from_,
-          params.subjectContains, params.conversationId, params.labels, params.since, params.until,
+          params.subjectContains, params.conversationId, params.batchId, params.labels, params.since, params.until,
           cursor, params.limit, params.deleted),
       );
       return { items: page.items ?? [], next_cursor: page.nextCursor };

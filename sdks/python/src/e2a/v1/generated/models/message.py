@@ -32,13 +32,8 @@ class Message(BaseModel):
     agent_email: StrictStr
     approval_expires_at: Optional[datetime] = None
     attachments: Optional[List[AttachmentMetaView]] = None
-<<<<<<< HEAD
     authentication: Optional[Authentication] = Field(description="Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.")
-=======
-    auth: Optional[AuthVerdict] = None
-    auth_headers: Optional[Dict[str, StrictStr]] = None
     batch_id: Optional[StrictStr] = None
->>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
     bcc: Optional[List[StrictStr]] = None
     cc: Optional[List[StrictStr]] = None
     conversation_id: Optional[StrictStr] = None
@@ -82,11 +77,7 @@ class Message(BaseModel):
     webhook_error: Optional[StrictStr] = None
     webhook_status: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-<<<<<<< HEAD
-    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "authentication", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "envelope_from", "expires_at", "flag_reason", "flagged", "header_from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "verified_domain", "webhook_attempts", "webhook_error", "webhook_status"]
-=======
-    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "auth", "auth_headers", "batch_id", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "expires_at", "flag_reason", "flagged", "from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "webhook_attempts", "webhook_error", "webhook_status"]
->>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
+    __properties: ClassVar[List[str]] = ["agent_email", "approval_expires_at", "attachments", "authentication", "batch_id", "bcc", "cc", "conversation_id", "created_at", "deleted_at", "delivered_to", "delivery_detail", "delivery_status", "direction", "edited", "email_message_id", "envelope_from", "expires_at", "flag_reason", "flagged", "header_from", "html", "id", "labels", "method", "provider_message_id", "raw_message", "read_status", "rejection_reason", "reply_to", "review_reason", "reviewed_at", "reviewed_by_name", "reviewed_by_user_id", "scan_action", "scan_score", "sent_as", "size_bytes", "status", "subject", "text", "to", "type", "verified_domain", "webhook_attempts", "webhook_error", "webhook_status"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -214,13 +205,8 @@ class Message(BaseModel):
             "agent_email": obj.get("agent_email"),
             "approval_expires_at": obj.get("approval_expires_at"),
             "attachments": [AttachmentMetaView.from_dict(_item) for _item in obj["attachments"]] if obj.get("attachments") is not None else None,
-<<<<<<< HEAD
             "authentication": Authentication.from_dict(obj["authentication"]) if obj.get("authentication") is not None else None,
-=======
-            "auth": AuthVerdict.from_dict(obj["auth"]) if obj.get("auth") is not None else None,
-            "auth_headers": obj.get("auth_headers"),
             "batch_id": obj.get("batch_id"),
->>>>>>> 7ef81607 (feat(batch-send): observability — getBatch, listMessages filter, batch_id events)
             "bcc": obj.get("bcc"),
             "cc": obj.get("cc"),
             "conversation_id": obj.get("conversation_id"),

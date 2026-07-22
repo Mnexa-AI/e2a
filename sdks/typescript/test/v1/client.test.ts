@@ -316,6 +316,14 @@ describe("E2AClient", () => {
     expect(url.searchParams.has("from_")).toBe(false);
   });
 
+  it("messages.list exposes batchId as the wire batch_id query", async () => {
+    globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
+
+    await client.messages.list("bot@test.dev", { batchId: "bat_123" }).page();
+
+    expect(new URL(lastCall().url).searchParams.get("batch_id")).toBe("bat_123");
+  });
+
   it("messages.list({ deleted: true }) lists the trash", async () => {
     globalThis.fetch = mockFetch(200, { items: [], next_cursor: null });
     await client.messages.list("bot@test.dev", { deleted: true }).toArray({ limit: 10 });

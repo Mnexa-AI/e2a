@@ -596,16 +596,6 @@ components:
         - created_at
         - status_rollup
       type: object
-    CheckResult:
-      additionalProperties: true
-      properties:
-        detail:
-          type: string
-        status:
-          type: string
-      required:
-        - status
-      type: object
     ConversationDetailView:
       additionalProperties: true
       properties:
@@ -2237,7 +2227,6 @@ components:
           description: Inbound SMTP authentication evidence. Only dmarc.status=pass authenticates the RFC 5322 From domain; even a pass does not authenticate the mailbox local part, a person, or message content. Null means there was no authenticating inbound SMTP peer, as with outbound or providerless loopback delivery.
         batch_id:
           type: string
-
         bcc:
           items:
             type: string
@@ -3405,6 +3394,7 @@ components:
         - status
         - domain
         - aligned
+      type: object
     SendBatchRequest:
       additionalProperties: false
       properties:
@@ -7619,6 +7609,8 @@ x-e2a-standalone-schema-refs:
     $ref: "#/components/schemas/DomainSendingVerifiedData"
   DomainSuppressionAddedData:
     $ref: "#/components/schemas/DomainSuppressionAddedData"
+  DuplicateRecipientDetails:
+    $ref: "#/components/schemas/DuplicateRecipientDetails"
   EmailBouncedData:
     $ref: "#/components/schemas/EmailBouncedData"
   EmailComplainedData:
@@ -7641,6 +7633,8 @@ x-e2a-standalone-schema-refs:
     $ref: "#/components/schemas/RateLimitedDetails"
   RetryAfterDetails:
     $ref: "#/components/schemas/RetryAfterDetails"
+  TooManyMessagesDetails:
+    $ref: "#/components/schemas/TooManyMessagesDetails"
   TooManyRecipientsDetails:
     $ref: "#/components/schemas/TooManyRecipientsDetails"
   ValidationErrorDetails:
