@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
 import { cleanup } from "../harness/cleanup.ts";
 import { HttpMcpClient, callTool } from "../harness/mcp.ts";
-import { fail, info, warn, writeReport } from "../harness/report.ts";
+import { info, warn, writeReport } from "../harness/report.ts";
 
 const apiClient = new ApiClient();
 const SUITE = "08-mcp";
@@ -103,12 +103,8 @@ test("mcp: send_message with invalid recipient returns isError, never sends mail
     subject: "should fail validation",
     text: "should never reach SMTP",
   });
-  if (r.isError) {
-    info(SUITE, "send-bad-recipient-error", "MCP send tool reported isError on invalid recipient — good");
-  } else {
-    const text = r.content?.find((c) => c.type === "text")?.text;
-    fail(SUITE, "send-bad-recipient-accepted", `MCP send accepted invalid recipient: ${text?.slice(0, 200)}`);
-  }
+  const text = r.content?.find((c) => c.type === "text")?.text;
+  assert.equal(r.isError, true, `MCP send accepted invalid recipient: ${text?.slice(0, 200)}`);
 });
 
 test("mcp: list_messages tool works against the inbox", async () => {
