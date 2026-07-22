@@ -135,7 +135,7 @@ npm test --workspace @e2a/mcp-server -- --run
 
 Expected: all PASS.
 
-- [ ] **Step 6: Run freshness and risk-proportionate verification**
+- [x] **Step 6: Run freshness and risk-proportionate verification**
 
 Run:
 
@@ -153,7 +153,7 @@ npm run build --workspace @e2a/mcp-server
 
 Expected: all PASS; compatibility check reports no stable breaking changes.
 
-- [ ] **Step 7: Commit and publish the completed beta labeling**
+- [x] **Step 7: Commit and publish the completed beta labeling**
 
 ```bash
 git add docs internal/httpapi api/openapi.yaml sdks cli mcp web
