@@ -252,6 +252,12 @@ func (s *Server) applyEvolutionStance() {
 	for _, schema := range []string{"SendEmailRequest", "ReplyRequest", "ForwardRequest"} {
 		markProperty(schemas, schema, "unsubscribe", extStabilityLevel, stabilityBeta)
 	}
+	// Message lifecycle is a beta capability embedded as an optional field in
+	// otherwise-stable event payloads. Mark only the property: the existing
+	// event types, payload schemas, envelope, and delivery semantics remain GA.
+	for _, schema := range []string{"EmailReceivedData", "EmailSentData", "EmailFailedData", "EmailDeliveredData", "EmailBouncedData", "EmailComplainedData", "DomainSuppressionAddedData"} {
+		markProperty(schemas, schema, "lifecycle_transitions", extStabilityLevel, stabilityBeta)
+	}
 	// The event-type vocabulary is stable EXCEPT the screening + review-hold
 	// members (their payloads may still change). The field is stable; the beta
 	// subset of its value set is machine-readable via x-experimental-values.

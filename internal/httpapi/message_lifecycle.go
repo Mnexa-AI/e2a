@@ -14,6 +14,7 @@ import (
 const messageLifecycleCursorVersion = 1
 const messageLifecycleDefaultLimit = 50
 const messageLifecycleSortAscending = "asc"
+const messageLifecycleBetaDoc = "Beta: message lifecycle may change before it is declared stable."
 
 type messageLifecycleInput struct {
 	Email  string `path:"email"`
@@ -40,10 +41,11 @@ func (s *Server) registerMessageLifecycle() {
 		OperationID: "get-message-lifecycle",
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages/{id}/lifecycle",
-		Summary:     "Get a message's lifecycle",
-		Description: "Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.",
+		Summary:     "Get a message's lifecycle (beta)",
+		Description: "Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. " + messageLifecycleBetaDoc,
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
+		Extensions:  beta(),
 	}, s.handleMessageLifecycle)
 }
 

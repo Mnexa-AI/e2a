@@ -19,6 +19,7 @@ var betaOperationIDs = []string{
 	"deleteAgentSuppression",
 	"deleteTemplate",
 	"getAgentProtection",
+	"get-message-lifecycle",
 	"getReview",
 	"getStarterTemplate",
 	"getTemplate",
@@ -307,6 +308,13 @@ func TestSpecBetaMarkers(t *testing.T) {
 			t.Errorf("%s description must contain shared beta sentence, got %q", id, desc)
 		}
 	}
+	lifecycleOp := opFor("get-message-lifecycle")
+	if summary, _ := lifecycleOp["summary"].(string); !strings.Contains(summary, "(beta)") {
+		t.Errorf("get-message-lifecycle summary must visibly say (beta), got %q", summary)
+	}
+	if desc, _ := lifecycleOp["description"].(string); !strings.Contains(desc, "Beta: message lifecycle") {
+		t.Errorf("get-message-lifecycle description must describe its beta status, got %q", desc)
+	}
 	for _, id := range []string{"sendMessage", "replyToMessage", "forwardMessage", "listSuppressions", "deleteSuppression", "createAgent", "listMessages", "createWebhook", "listEvents", "deleteMessage", "restoreMessage", "restoreAgent", "deleteAgent"} {
 		if got := opExt(id, "x-stability"); got != nil {
 			t.Errorf("%s is stable GA surface and must NOT carry x-stability, got %v", id, got)
@@ -325,12 +333,28 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 		return sc[extension]
 	}
-	for _, name := range []string{"AgentSuppressionView", "CreateAgentSuppressionRequest", "PageAgentSuppressionView", "UnsubscribeOptions", "TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
+	for _, name := range []string{"AgentSuppressionView", "CreateAgentSuppressionRequest", "PageAgentSuppressionView", "UnsubscribeOptions", "TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView", "MessageLifecycleTransition", "PageMessageLifecycleTransition"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s must not carry duplicate x-stability alias, got %v", name, got)
 		}
 		if got := schemaExt(name, "x-stability-level"); got != "beta" {
 			t.Errorf("schema %s must carry canonical x-stability-level: beta, got %v", name, got)
+		}
+	}
+
+	// Lifecycle data is beta even when embedded in an otherwise-stable event
+	// payload. Keep the marker on the optional property so existing event
+	// schemas and envelopes retain their GA stability.
+	for _, name := range []string{"EmailReceivedData", "EmailSentData", "EmailFailedData", "EmailDeliveredData", "EmailBouncedData", "EmailComplainedData", "DomainSuppressionAddedData"} {
+		property, _ := schemaProps(t, doc, name)["lifecycle_transitions"].(map[string]any)
+		if property == nil || property["x-stability-level"] != "beta" {
+			t.Errorf("%s.lifecycle_transitions must carry canonical x-stability-level: beta", name)
+		}
+		if property != nil && property["x-stability"] != nil {
+			t.Errorf("%s.lifecycle_transitions must not carry duplicate x-stability alias", name)
+		}
+		if got := schemaExt(name, "x-stability-level"); got != nil {
+			t.Errorf("stable parent schema %s must remain unmarked, got %v", name, got)
 		}
 	}
 	for _, name := range []string{"MessageView", "AgentView", "WebhookView", "SendEmailRequest", "ReplyRequest", "ForwardRequest", "SuppressionView", "PageSuppressionView", "DeleteSuppressionResult", "ErrorEnvelope", "DeleteMessageResult"} {
