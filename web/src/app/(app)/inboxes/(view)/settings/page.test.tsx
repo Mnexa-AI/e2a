@@ -36,6 +36,15 @@ jest.mock("next/link", () => {
   };
 });
 
+const mockInvalidateAgentUnread = jest.fn();
+jest.mock("../../../../../lib/swrKeys", () => {
+  const actual = jest.requireActual("../../../../../lib/swrKeys");
+  return {
+    ...actual,
+    invalidateAgentUnread: (email: string) => mockInvalidateAgentUnread(email),
+  };
+});
+
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
@@ -88,6 +97,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   mockRouterPush.mockReset();
   mockRouterReplace.mockReset();
+  mockInvalidateAgentUnread.mockReset();
   jest.spyOn(window, "confirm").mockReturnValue(true);
 });
 
@@ -179,6 +189,7 @@ describe("AgentSettingsPage", () => {
 
   it("clicking 'Delete inbox' DELETEs and routes back to /inboxes", async () => {
     setSearchParams({ email: baseAgent.email });
+    mockInvalidateAgentUnread.mockReturnValue(new Promise(() => {}));
     let deleted = false;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/v1/agents" && !init?.method) {
@@ -217,6 +228,48 @@ describe("AgentSettingsPage", () => {
       expect(deleted).toBe(true);
     });
     expect(mockRouterReplace).toHaveBeenCalledWith("/inboxes");
+    expect(mockInvalidateAgentUnread).toHaveBeenCalledWith(baseAgent.email);
+  });
+
+  it("surfaces a failed DELETE without invalidating unread counts", async () => {
+    setSearchParams({ email: baseAgent.email });
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/v1/agents" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ items: [baseAgent] }),
+        });
+      }
+      if (
+        url === `/v1/agents/${encodeURIComponent(baseAgent.email)}?confirm=DELETE` &&
+        init?.method === "DELETE"
+      ) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve("delete exploded"),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+
+    render(<AgentSettingsPage />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Delete inbox/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete inbox/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("delete exploded")).toBeInTheDocument();
+    });
+    expect(mockInvalidateAgentUnread).not.toHaveBeenCalled();
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 
   it("aborts deletion when the confirm prompt is cancelled", async () => {
@@ -250,6 +303,7 @@ describe("AgentSettingsPage", () => {
     // the negative assertion deterministic).
     await new Promise((r) => setTimeout(r, 10));
     expect(deleted).toBe(false);
+    expect(mockInvalidateAgentUnread).not.toHaveBeenCalled();
     expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 });

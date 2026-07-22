@@ -29,6 +29,15 @@ jest.mock("next/link", () => {
   };
 });
 
+const mockInvalidateAgentUnread = jest.fn();
+jest.mock("../../../lib/swrKeys", () => {
+  const actual = jest.requireActual("../../../lib/swrKeys");
+  return {
+    ...actual,
+    invalidateAgentUnread: (email: string) => mockInvalidateAgentUnread(email),
+  };
+});
+
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
@@ -60,6 +69,7 @@ function mockTrash(items: unknown[]) {
 
 beforeEach(() => {
   mockFetch.mockReset();
+  mockInvalidateAgentUnread.mockReset();
 });
 
 describe("TrashPage", () => {
@@ -83,6 +93,7 @@ describe("TrashPage", () => {
   });
 
   it("Restore POSTs to the restore endpoint", async () => {
+    mockInvalidateAgentUnread.mockReturnValue(new Promise(() => {}));
     let restored = false;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/v1/agents?deleted=true" && !init?.method) {
@@ -124,7 +135,50 @@ describe("TrashPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Restore$/ }));
     await waitFor(() => {
       expect(restored).toBe(true);
+      expect(mockInvalidateAgentUnread).toHaveBeenCalledWith(
+        "support@acme.com",
+      );
     });
+    await waitFor(() => {
+      expect(screen.getByTestId("trash-empty")).toBeInTheDocument();
+    });
+  });
+
+  it("surfaces a failed restore without invalidating unread counts", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/v1/agents?deleted=true" && !init?.method) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ items: [trashedAgent] }),
+        });
+      }
+      if (
+        url === "/v1/agents/support%40acme.com/restore" &&
+        init?.method === "POST"
+      ) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve("restore exploded"),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+    });
+
+    render(<TrashPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Restore$/ }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("restore exploded")).toBeInTheDocument();
+    });
+    expect(mockInvalidateAgentUnread).not.toHaveBeenCalled();
   });
 
   it("Delete forever requires a second confirming click", async () => {
@@ -173,5 +227,9 @@ describe("TrashPage", () => {
         "/v1/agents/support%40acme.com?confirm=DELETE&permanent=true",
       );
     });
+    await waitFor(() => {
+      expect(screen.getByTestId("trash-empty")).toBeInTheDocument();
+    });
+    expect(mockInvalidateAgentUnread).not.toHaveBeenCalled();
   });
 });

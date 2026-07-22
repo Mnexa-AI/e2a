@@ -40,6 +40,7 @@ jest.mock("next/link", () => {
 // `as const` tuples), so we keep `requireActual` and override only
 // the side-effect functions we want to observe.
 const mockInvalidateAgentMessages = jest.fn();
+const mockInvalidateAgentUnread = jest.fn();
 const mockInvalidateMessageDetail = jest.fn();
 jest.mock("../../../../../../lib/swrKeys", () => {
   const actual = jest.requireActual("../../../../../../lib/swrKeys");
@@ -47,6 +48,7 @@ jest.mock("../../../../../../lib/swrKeys", () => {
     ...actual,
     invalidateAgentMessages: (email: string) =>
       mockInvalidateAgentMessages(email),
+    invalidateAgentUnread: (email: string) => mockInvalidateAgentUnread(email),
     invalidateMessageDetail: (id: string) => mockInvalidateMessageDetail(id),
   };
 });
@@ -167,6 +169,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   mockRouterPush.mockReset();
   mockInvalidateAgentMessages.mockReset();
+  mockInvalidateAgentUnread.mockReset();
   mockInvalidateMessageDetail.mockReset();
 });
 
@@ -344,7 +347,7 @@ describe("AgentMessageFocusPage", () => {
   // window-focus revalidation eventually catches up. Pre-SWR this
   // was free (every navigation refetched the inbox); post-SWR it
   // needs an explicit cache invalidation.
-  it("invalidates the per-agent inbox cache after a successful inbound load", async () => {
+  it("invalidates the inbox and unread caches after a successful inbound load", async () => {
     setSearchParams({ email: "support@acme.io", id: "msg_in1", direction: "inbound" });
     mockDetail(INBOUND_DETAIL);
 
@@ -357,7 +360,29 @@ describe("AgentMessageFocusPage", () => {
       expect(mockInvalidateAgentMessages).toHaveBeenCalledWith(
         "support@acme.io",
       );
+      expect(mockInvalidateAgentUnread).toHaveBeenCalledWith(
+        "support@acme.io",
+      );
     });
+  });
+
+  it("does not invalidate unread counts after a successful outbound load", async () => {
+    setSearchParams({
+      email: "support@acme.io",
+      id: "msg_pending",
+      direction: "outbound",
+      pending: "1",
+    });
+    mockDetail(OUTBOUND_PENDING);
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(mockInvalidateAgentMessages).toHaveBeenCalledWith(
+        "support@acme.io",
+      );
+    });
+    expect(mockInvalidateAgentUnread).not.toHaveBeenCalled();
   });
 
   it("clicking Approve POSTs to /v1/reviews/{id}/approve and redirects to the thread", async () => {
