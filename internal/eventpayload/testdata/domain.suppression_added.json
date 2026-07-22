@@ -23,7 +23,8 @@
           "suppression_source": "bounce"
         },
         "correlation_ids": {
-          "event_id": "evt_fixture_source"
+          "provider_event_id": "sns-test",
+          "provider_message_id": "ses-golden"
         },
         "occurred_at": "2026-07-01T10:30:00.123456789Z",
         "reconstructed": false

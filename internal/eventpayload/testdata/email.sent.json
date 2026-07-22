@@ -33,7 +33,8 @@
         "retryable": false,
         "evidence": {},
         "correlation_ids": {
-          "event_id": "evt_fixture_source"
+          "job_id": "999",
+          "provider_message_id": "0100019283abcdef-1a2b3c4d-0000"
         },
         "occurred_at": "2026-07-01T10:30:00.123456789Z",
         "reconstructed": false

@@ -38,7 +38,7 @@
           "failure_reason": "550 5.1.1 user unknown"
         },
         "correlation_ids": {
-          "event_id": "evt_fixture_source"
+          "job_id": "4243"
         },
         "occurred_at": "2026-07-01T10:30:00.123456789Z",
         "reconstructed": false

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/emailauth"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // ReviewListItem is one row of the human review queue (GET /v1/reviews):
@@ -239,7 +241,20 @@ func (s *Store) ListExpiredReviews(ctx context.Context, limit int) ([]Expiration
 // trashed holds stay pending_review with their clock paused until RestoreAgent
 // shifts approval_expires_at (or the trash purge drops them). Same TOCTOU
 // closure as the outbound arms (ExpireReject / ApproveAndAccept).
-func (s *Store) transitionReview(ctx context.Context, messageID, agentID, newStatus string, reviewerID *string, rejectionReason string) error {
+func (s *Store) transitionReview(ctx context.Context, messageID, agentID, newStatus string, reviewerID *string, rejectionReason string) (messagelifecycle.MessageLifecycleTransition, error) {
+	var reason messagelifecycle.ReasonCode
+	switch newStatus {
+	case MessageStatusReviewApproved:
+		reason = messagelifecycle.ReasonReviewApproved
+	case MessageStatusReviewRejected:
+		reason = messagelifecycle.ReasonReviewRejected
+	case MessageStatusReviewExpiredApproved:
+		reason = messagelifecycle.ReasonReviewExpiredApproved
+	case MessageStatusReviewExpiredRejected:
+		reason = messagelifecycle.ReasonReviewExpiredRejected
+	default:
+		return messagelifecycle.MessageLifecycleTransition{}, fmt.Errorf("invalid review transition status %q", newStatus)
+	}
 	args := []any{messageID, newStatus, reviewerID, rejectionReason}
 	where := `id = $1 AND direction = 'inbound' AND status = 'pending_review'
 	    AND NOT EXISTS (SELECT 1 FROM agent_identities ai
@@ -248,22 +263,28 @@ func (s *Store) transitionReview(ctx context.Context, messageID, agentID, newSta
 		args = append(args, agentID)
 		where += ` AND agent_id = $5`
 	}
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE messages
+	var transition messagelifecycle.MessageLifecycleTransition
+	err := s.WithTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE messages
 		    SET status = $2,
 		        reviewed_at = now(),
 		        reviewed_by_user_id = $3,
 		        rejection_reason = NULLIF($4, '')
 		  WHERE `+where,
-		args...,
-	)
-	if err != nil {
+			args...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotPendingReview
+		}
+		transition, err = messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+			MessageID: messageID, DedupeKey: "review:resolution", Direction: "inbound",
+			ReasonCode: reason, Evidence: map[string]any{"review_resolution": newStatus}, OccurredAt: time.Now(),
+		})
 		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotPendingReview
-	}
-	return nil
+	})
+	return transition, err
 }
 
 // ApproveInboundReview releases a held inbound message to the agent (status
@@ -271,6 +292,11 @@ func (s *Store) transitionReview(ctx context.Context, messageID, agentID, newSta
 // reviewerID identifies the human. Held content is retained (the message is now
 // delivered).
 func (s *Store) ApproveInboundReview(ctx context.Context, messageID, agentID, reviewerID string) error {
+	_, err := s.ApproveInboundReviewWithTransition(ctx, messageID, agentID, reviewerID)
+	return err
+}
+
+func (s *Store) ApproveInboundReviewWithTransition(ctx context.Context, messageID, agentID, reviewerID string) (messagelifecycle.MessageLifecycleTransition, error) {
 	return s.transitionReview(ctx, messageID, agentID, MessageStatusReviewApproved, &reviewerID, "")
 }
 
@@ -279,17 +305,32 @@ func (s *Store) ApproveInboundReview(ctx context.Context, messageID, agentID, re
 // identifies the human; reason is operator-facing. The raw payload is retained
 // (hidden) indefinitely for security forensics unless the message is deleted.
 func (s *Store) RejectInboundReview(ctx context.Context, messageID, agentID, reviewerID, reason string) error {
-	return s.transitionReview(ctx, messageID, agentID, MessageStatusReviewRejected, &reviewerID, reason)
+	_, err := s.RejectInboundReviewWithTransition(ctx, messageID, agentID, reviewerID, reason)
+	return err
+}
+
+func (s *Store) RejectInboundReviewWithTransition(ctx context.Context, messageID, agentID, reviewerID, rejectionReason string) (messagelifecycle.MessageLifecycleTransition, error) {
+	return s.transitionReview(ctx, messageID, agentID, MessageStatusReviewRejected, &reviewerID, rejectionReason)
 }
 
 // ExpireApproveReview is the worker-side TTL auto-approve: releases the message
 // (status review_expired_approved) with no human reviewer. System-scoped.
 func (s *Store) ExpireApproveReview(ctx context.Context, messageID string) error {
+	_, err := s.ExpireApproveReviewWithTransition(ctx, messageID)
+	return err
+}
+
+func (s *Store) ExpireApproveReviewWithTransition(ctx context.Context, messageID string) (messagelifecycle.MessageLifecycleTransition, error) {
 	return s.transitionReview(ctx, messageID, "", MessageStatusReviewExpiredApproved, nil, "")
 }
 
 // ExpireRejectReview is the worker-side TTL auto-reject: drops the message
 // (status review_expired_rejected) with no human reviewer. System-scoped.
 func (s *Store) ExpireRejectReview(ctx context.Context, messageID, reason string) error {
-	return s.transitionReview(ctx, messageID, "", MessageStatusReviewExpiredRejected, nil, reason)
+	_, err := s.ExpireRejectReviewWithTransition(ctx, messageID, reason)
+	return err
+}
+
+func (s *Store) ExpireRejectReviewWithTransition(ctx context.Context, messageID, rejectionReason string) (messagelifecycle.MessageLifecycleTransition, error) {
+	return s.transitionReview(ctx, messageID, "", MessageStatusReviewExpiredRejected, nil, rejectionReason)
 }

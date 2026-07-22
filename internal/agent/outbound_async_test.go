@@ -17,6 +17,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
@@ -192,6 +193,20 @@ func TestHoldForApprovalCore_SuppressedAgentCreatesHoldWithoutNotificationJob(t 
 	if notify.called != 0 {
 		t.Errorf("notification jobs enqueued = %d, want 0", notify.called)
 	}
+}
+
+func TestHoldForApprovalCore_ReviewRequestedUsesExactPersistedHoldTransition(t *testing.T) {
+	api, store, _, _, pool := setupAsyncAPIWithPool(t)
+	_, ag := selfAgent(t, store, "reviewrequestedlifecycle")
+	ag.HITLTTLSeconds = identity.HITLDefaultTTLSeconds
+
+	msg, err := api.HoldForApprovalCore(context.Background(), ag, outbound.SendRequest{
+		To: []string{"review-target@example.test"}, Subject: "held with lifecycle", Body: "body",
+	}, "send", "")
+	if err != nil {
+		t.Fatalf("HoldForApprovalCore: %v", err)
+	}
+	assertReviewEventLifecycleMatchesRow(t, pool, msg.ID, webhookpub.EventEmailReviewRequested, messagelifecycle.ReasonReviewHoldCreated)
 }
 
 // TestDeliverOutbound_MissingQueueFailsClosed prevents a regression to the
@@ -439,7 +454,7 @@ func TestSendWorker_UpstreamAcceptedLifecycleEventParity(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
 		t.Fatal(err)
 	}
-	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool))), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "provider-accepted-1", SentAs: "relay"}})
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool))), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "0100019283abcdef-1a2b3c4d-0000", SentAs: "relay"}})
 	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err != nil {
 		t.Fatal(err)
 	}
@@ -464,12 +479,13 @@ func TestSendWorker_UpstreamAcceptedLifecycleEventParity(t *testing.T) {
 	if len(submission) != 1 || submission[0].ReasonCode != messagelifecycle.ReasonSubmissionUpstreamAccepted {
 		t.Fatalf("submission lifecycle = %+v, want one upstream acceptance", submission)
 	}
-	if submission[0].CorrelationIDs["job_id"] != fmt.Sprint(jobID) || submission[0].CorrelationIDs["provider_message_id"] != "provider-accepted-1" {
+	if submission[0].CorrelationIDs["job_id"] != fmt.Sprint(jobID) || submission[0].CorrelationIDs["provider_message_id"] != "0100019283abcdef-1a2b3c4d-0000" {
 		t.Fatalf("correlations = %#v", submission[0].CorrelationIDs)
 	}
 	if len(eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent)) != 1 || eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent)[0].ID != submission[0].ID {
 		t.Fatal("email.sent must embed only the exact stored submission transition")
 	}
+	goldenassert.Lifecycle(t, "../eventpayload/testdata/email.sent.json", eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent))
 	for _, tr := range rows {
 		if tr.Stage == messagelifecycle.StageDelivery {
 			t.Fatalf("provider acceptance overstated as delivery: %+v", tr)

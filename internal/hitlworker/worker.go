@@ -144,24 +144,26 @@ func (w *Worker) sweepReviews(ctx context.Context) {
 		canEmit := mErr == nil && meta != nil && ownerUserID != ""
 
 		if c.ExpirationAction == identity.HITLExpirationApprove {
-			if err := w.store.ExpireApproveReview(ctx, c.MessageID); err != nil {
+			transition, err := w.store.ExpireApproveReviewWithTransition(ctx, c.MessageID)
+			if err != nil {
 				if err != identity.ErrNotPendingReview {
 					log.Printf("[hitl-worker] expire-approve review %s: %v", c.MessageID, err)
 				}
 				continue // not transitioned by us → don't emit
 			}
 			if canEmit {
-				w.emitInboundResolved(meta, ownerUserID, true, "")
+				w.emitInboundResolved(meta, ownerUserID, true, "", transition)
 			}
 		} else {
-			if err := w.store.ExpireRejectReview(ctx, c.MessageID, "ttl_expired"); err != nil {
+			transition, err := w.store.ExpireRejectReviewWithTransition(ctx, c.MessageID, "ttl_expired")
+			if err != nil {
 				if err != identity.ErrNotPendingReview {
 					log.Printf("[hitl-worker] expire-reject review %s: %v", c.MessageID, err)
 				}
 				continue
 			}
 			if canEmit {
-				w.emitInboundResolved(meta, ownerUserID, false, "ttl_expired")
+				w.emitInboundResolved(meta, ownerUserID, false, "ttl_expired", transition)
 			}
 		}
 	}

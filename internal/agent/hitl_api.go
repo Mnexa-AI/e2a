@@ -386,7 +386,8 @@ func (a *API) RejectPendingCore(ctx context.Context, userID, messageID, expected
 // status='pending_review' AND agent_id, so a concurrent reviewer or the TTL sweep
 // racing this call results in ErrNotPendingReview (409), never a double release.
 func (a *API) ApproveInboundReviewCore(ctx context.Context, userID string, msg *identity.ReviewMessageMeta) *OutboundError {
-	if err := a.store.ApproveInboundReview(ctx, msg.ID, msg.AgentID, userID); err != nil {
+	transition, err := a.store.ApproveInboundReviewWithTransition(ctx, msg.ID, msg.AgentID, userID)
+	if err != nil {
 		if errors.Is(err, identity.ErrNotPendingReview) {
 			return &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending review"}
 		}
@@ -398,7 +399,7 @@ func (a *API) ApproveInboundReviewCore(ctx context.Context, userID string, msg *
 	// Post-side-effect publish (the release row is already committed): reuse the
 	// approved-event plumbing (deterministic id off the message id → MTA/retry
 	// idempotent). A minimal *identity.Message carries the id publishApproved needs.
-	a.publishApproved(ctx, a.buildInboundReleasedEvent(msg, a.reviewOwnerID(ctx, msg.AgentID, userID), userID), &identity.Message{ID: msg.ID, AgentID: msg.AgentID})
+	a.publishApproved(ctx, a.buildInboundReleasedEvent(msg, a.reviewOwnerID(ctx, msg.AgentID, userID), userID, transition), &identity.Message{ID: msg.ID, AgentID: msg.AgentID})
 	return nil
 }
 
@@ -420,7 +421,8 @@ func (a *API) reviewOwnerID(ctx context.Context, agentID, fallbackUserID string)
 // forensics) and fires email.review_rejected. Compare-and-set semantics as in
 // ApproveInboundReviewCore.
 func (a *API) RejectInboundReviewCore(ctx context.Context, userID, reason string, msg *identity.ReviewMessageMeta) *OutboundError {
-	if err := a.store.RejectInboundReview(ctx, msg.ID, msg.AgentID, userID, reason); err != nil {
+	transition, err := a.store.RejectInboundReviewWithTransition(ctx, msg.ID, msg.AgentID, userID, reason)
+	if err != nil {
 		if errors.Is(err, identity.ErrNotPendingReview) {
 			return &OutboundError{Status: http.StatusConflict, Code: "message_not_pending", Msg: "message is not pending review"}
 		}
@@ -429,6 +431,6 @@ func (a *API) RejectInboundReviewCore(ctx context.Context, userID, reason string
 	}
 	log.Printf("[mail:%s] dir=inbound type=%s status=%s agent=%s rejected_by=user:%s reason=%q",
 		msg.ID, msg.Type, identity.MessageStatusReviewRejected, msg.AgentID, userID, reason)
-	a.publishRejected(ctx, a.buildInboundRejectedEvent(msg, a.reviewOwnerID(ctx, msg.AgentID, userID), userID, reason), msg.ID)
+	a.publishRejected(ctx, a.buildInboundRejectedEvent(msg, a.reviewOwnerID(ctx, msg.AgentID, userID), userID, reason, transition), msg.ID)
 	return nil
 }

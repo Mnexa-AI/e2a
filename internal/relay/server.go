@@ -6,7 +6,6 @@ import (
 	crand "crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -655,23 +654,17 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// durable push path; WS is an opportunistic live-tail on top of it,
 	// available to every agent regardless of how it's configured.
 	//
-	// The frame is the SAME versioned envelope the webhook channel delivers —
-	// this trigger's email.received event (type/id/schema_version/created_at/
-	// data) with identical fields and the identical event id, so a consumer
-	// can share one parser across both channels and dedup WS-vs-webhook on
-	// the event id. Byte layout may differ between the channels (the webhook
-	// body round-trips through Postgres JSONB, which reorders keys and
-	// de-escapes Go's HTML escapes) — JSON key order/escaping is not
-	// contractual, the marshaled JSON value is.
+	// The frame is the exact committed versioned envelope the webhook channel
+	// delivers. Loading it after the transaction commits keeps the live-tail and
+	// reconnect-drain paths byte-identical and ensures neither path rebuilds an
+	// event under the durable event id.
 	if srv.hub != nil && !screenRes.Hold && srv.hub.IsConnected(agent.ID) {
-		if notification, err := json.Marshal(event.AsEnvelope()); err == nil {
+		if notification, loadErr := srv.store.GetEventEnvelope(ctx, messageID, webhookpub.EventEmailReceived); loadErr == nil && len(notification) > 0 {
 			if srv.hub.Send(agent.ID, notification) {
 				log.Printf("[mail:%s] ws_notify=sent slug=%s", messageID, slug)
 			}
 		} else {
-			// Practically unreachable (the envelope marshals plain structs),
-			// but a silent swallow would make a dropped live frame invisible.
-			log.Printf("[mail:%s] ws_notify=marshal_failed slug=%s err=%v", messageID, slug, err)
+			log.Printf("[mail:%s] ws_notify=envelope_unavailable slug=%s err=%v", messageID, slug, loadErr)
 		}
 	}
 	return nil

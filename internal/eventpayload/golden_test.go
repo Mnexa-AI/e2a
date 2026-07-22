@@ -24,7 +24,7 @@ var update = flag.Bool("update", false, "regenerate the golden payload fixtures 
 // format of created_at/received_at.
 var fixtureCreatedAt = time.Date(2026, 7, 1, 10, 30, 0, 123456789, time.UTC)
 
-func fixtureTransition(id, messageID, direction, recipient string, reason messagelifecycle.ReasonCode, evidence map[string]any) messagelifecycle.MessageLifecycleTransition {
+func fixtureTransition(id, messageID, direction, recipient string, reason messagelifecycle.ReasonCode, evidence map[string]any, correlations map[string]string) messagelifecycle.MessageLifecycleTransition {
 	definition, ok := messagelifecycle.Lookup(reason)
 	if !ok {
 		panic("unknown fixture reason " + reason)
@@ -36,7 +36,7 @@ func fixtureTransition(id, messageID, direction, recipient string, reason messag
 		ID: id, MessageID: messageID, Direction: direction, Recipient: recipient,
 		Stage: definition.Stage, Outcome: definition.Outcome, ReasonCode: reason,
 		Retryable: definition.Retryable, Evidence: evidence,
-		CorrelationIDs: map[string]string{"event_id": "evt_fixture_source"},
+		CorrelationIDs: correlations,
 		OccurredAt:     fixtureCreatedAt, Reconstructed: false,
 	}
 }
@@ -57,16 +57,28 @@ func canonicalEvents() []struct {
 	spfAligned := true
 	policy := emailauth.DMARCPolicyReject
 	retryableFalse := false
-	receivedTransitions := []messagelifecycle.MessageLifecycleTransition{
-		fixtureTransition("mlt_received_accept", "msg_01h2xcejqtf2nbrexx3vqjhp41", "inbound", "", messagelifecycle.ReasonAcceptanceInboundSMTP, map[string]any{"source": "smtp"}),
-		fixtureTransition("mlt_received_auth", "msg_01h2xcejqtf2nbrexx3vqjhp41", "inbound", "", messagelifecycle.ReasonAuthenticationDMARCPass, nil),
+	authentication := &emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &spfDomain, Aligned: &spfAligned},
+		DKIM:  []emailauth.DKIMResult{},
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &spfDomain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
 	}
-	sentTransition := fixtureTransition("mlt_sent", "msg_01h2xcejqtf2nbrexx3vqjhp42", "outbound", "", messagelifecycle.ReasonSubmissionUpstreamAccepted, nil)
-	failedTransition := fixtureTransition("mlt_failed", "msg_01h2xcejqtf2nbrexx3vqjhp43", "outbound", "", messagelifecycle.ReasonSubmissionProviderRejected, map[string]any{"failure_code": "submission.provider_rejected", "failure_reason": "550 5.1.1 user unknown"})
-	deliveredTransition := fixtureTransition("mlt_delivered", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "alice@customer.example.com", messagelifecycle.ReasonDeliveryRecipientServerAccepted, nil)
-	bouncedTransition := fixtureTransition("mlt_bounced", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "bob@customer.example.com", messagelifecycle.ReasonDeliveryPermanentBounce, map[string]any{"bounce_type": "permanent", "bounce_sub_type": "General", "smtp_detail": "550 5.1.1 no such user"})
-	complainedTransition := fixtureTransition("mlt_complained", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "carol@customer.example.com", messagelifecycle.ReasonComplaintRecipientReported, map[string]any{"smtp_detail": "abuse"})
-	suppressionTransition := fixtureTransition("mlt_suppressed", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "bob@customer.example.com", messagelifecycle.ReasonSuppressionHardBounceApplied, map[string]any{"suppression_scope": "account", "suppression_source": "bounce"})
+	authEvidence, err := messagelifecycle.SafeAuthenticationEvidence(authentication)
+	if err != nil {
+		panic(err)
+	}
+	inboundCorrelations := map[string]string{"email_message_id": "<fixture@customer.example.com>"}
+	receivedTransitions := []messagelifecycle.MessageLifecycleTransition{
+		fixtureTransition("mlt_received_accept", "msg_01h2xcejqtf2nbrexx3vqjhp41", "inbound", "", messagelifecycle.ReasonAcceptanceInboundSMTP, nil, inboundCorrelations),
+		fixtureTransition("mlt_received_auth", "msg_01h2xcejqtf2nbrexx3vqjhp41", "inbound", "", messagelifecycle.ReasonAuthenticationDMARCPass, authEvidence, inboundCorrelations),
+		fixtureTransition("mlt_received_queue", "msg_01h2xcejqtf2nbrexx3vqjhp41", "inbound", "", messagelifecycle.ReasonQueueInboundProcessing, nil, map[string]string{"job_id": "4242"}),
+	}
+	sentTransition := fixtureTransition("mlt_sent", "msg_01h2xcejqtf2nbrexx3vqjhp42", "outbound", "", messagelifecycle.ReasonSubmissionUpstreamAccepted, nil, map[string]string{"job_id": "999", "provider_message_id": "0100019283abcdef-1a2b3c4d-0000"})
+	failedTransition := fixtureTransition("mlt_failed", "msg_01h2xcejqtf2nbrexx3vqjhp43", "outbound", "", messagelifecycle.ReasonSubmissionProviderRejected, map[string]any{"failure_code": "submission.provider_rejected", "failure_reason": "550 5.1.1 user unknown"}, map[string]string{"job_id": "4243"})
+	providerCorrelations := map[string]string{"provider_event_id": "sns-test", "provider_message_id": "ses-golden"}
+	deliveredTransition := fixtureTransition("mlt_delivered", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "alice@customer.example.com", messagelifecycle.ReasonDeliveryRecipientServerAccepted, nil, providerCorrelations)
+	bouncedTransition := fixtureTransition("mlt_bounced", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "bob@customer.example.com", messagelifecycle.ReasonDeliveryPermanentBounce, map[string]any{"bounce_type": "permanent", "bounce_sub_type": "General", "smtp_detail": "550 5.1.1 no such user"}, providerCorrelations)
+	complainedTransition := fixtureTransition("mlt_complained", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "carol@customer.example.com", messagelifecycle.ReasonComplaintRecipientReported, map[string]any{"smtp_detail": "abuse"}, providerCorrelations)
+	suppressionTransition := fixtureTransition("mlt_suppressed", "msg_01h2xcejqtf2nbrexx3vqjhp44", "outbound", "bob@customer.example.com", messagelifecycle.ReasonSuppressionHardBounceApplied, map[string]any{"suppression_scope": "account", "suppression_source": "bounce"}, providerCorrelations)
 	return []struct {
 		fixture string
 		event   webhookpub.Event
@@ -88,14 +100,10 @@ func canonicalEvents() []struct {
 					To:             []string{"support@agents.example.com"},
 					CC:             []string{"ops@customer.example.com"},
 					ReplyTo:        []string{"reply@customer.example.com"},
-					Authentication: &emailauth.Authentication{
-						SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &spfDomain, Aligned: &spfAligned},
-						DKIM:  []emailauth.DKIMResult{},
-						DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &spfDomain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
-					},
-					DeliveredTo: "support@agents.example.com",
-					Subject:     "Order #1234 delayed",
-					ReceivedAt:  fixtureCreatedAt,
+					Authentication: authentication,
+					DeliveredTo:    "support@agents.example.com",
+					Subject:        "Order #1234 delayed",
+					ReceivedAt:     fixtureCreatedAt,
 					Attachments: []eventpayload.AttachmentMetaView{
 						{Filename: "invoice.pdf", ContentType: "application/pdf", SizeBytes: 12345, Index: 0},
 					},

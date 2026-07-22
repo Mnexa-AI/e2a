@@ -58,7 +58,7 @@ func TestEventPayloadSchemasAreOpen(t *testing.T) {
 func TestStableEmailPayloadsUseCanonicalLifecycleComponent(t *testing.T) {
 	registry := New(Deps{}).API.OpenAPI().Components.Schemas
 	wantRef := "#/components/schemas/MessageLifecycleTransition"
-	for _, name := range []string{"EmailReceivedData", "EmailSentData", "EmailFailedData", "EmailDeliveredData", "EmailBouncedData", "EmailComplainedData"} {
+	for _, name := range []string{"EmailReceivedData", "EmailSentData", "EmailFailedData", "EmailDeliveredData", "EmailBouncedData", "EmailComplainedData", "DomainSuppressionAddedData"} {
 		schema := registry.Map()[name]
 		if schema == nil {
 			t.Fatalf("component %s missing", name)

@@ -438,6 +438,10 @@ type Message struct {
 	// Never serialized — the wire representation is Attachments below.
 	AttachmentsJSON    json.RawMessage `json:"-"`
 	ManagedUnsubscribe bool            `json:"-"`
+	// LifecycleTransitions carries exact rows appended by the transaction that
+	// returned this message. It is internal event-building context, never part of
+	// the Message JSON representation.
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"-"`
 	// Attachments is the typed per-attachment METADATA for the wire (the
 	// user-data export's Message schema) — the same AttachmentMetaView shape
 	// {filename, content_type, size_bytes (DECODED), index} the live API
@@ -2374,13 +2378,15 @@ func (s *Store) CreatePendingOutboundMessageManagedTx(ctx context.Context, tx pg
 	}); err != nil {
 		return nil, err
 	}
-	if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+	hold, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 		MessageID: m.ID, DedupeKey: "review:hold", Direction: "outbound",
 		ReasonCode: messagelifecycle.ReasonReviewHoldCreated,
 		Evidence:   map[string]any{"review_resolution": "pending"}, OccurredAt: m.CreatedAt,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
+	m.LifecycleTransitions = []messagelifecycle.MessageLifecycleTransition{hold}
 	return m, nil
 }
 
@@ -3349,12 +3355,14 @@ func (s *Store) ApproveAndAccept(
 		if msgType != nil {
 			m.Type = *msgType
 		}
-		if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		transition, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 			MessageID: m.ID, DedupeKey: "review:resolution", Direction: "outbound",
 			ReasonCode: reviewReason, Evidence: map[string]any{"review_resolution": targetStatus}, OccurredAt: time.Now(),
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
+		m.LifecycleTransitions = []messagelifecycle.MessageLifecycleTransition{transition}
 		jobID, err := enqueue(ctx, tx, m.ID)
 		if err != nil {
 			return err
@@ -3432,6 +3440,7 @@ func (s *Store) LoadOutboundDraft(ctx context.Context, messageID string) (*Messa
 // guard lives INSIDE the CAS so it is atomic with the transition — a
 // separate read would reopen the sweep's TOCTOU window.
 func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Message, error) {
+	var transition messagelifecycle.MessageLifecycleTransition
 	err := s.WithTx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE messages
 		    SET status = $2,
@@ -3447,7 +3456,7 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 		if tag.RowsAffected() == 0 {
 			return ErrNotPendingApproval
 		}
-		_, err = messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		transition, err = messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 			MessageID: messageID, DedupeKey: "review:resolution", Direction: "outbound",
 			ReasonCode: messagelifecycle.ReasonReviewExpiredRejected,
 			Evidence:   map[string]any{"review_resolution": MessageStatusReviewExpiredRejected}, OccurredAt: time.Now(),
@@ -3497,6 +3506,7 @@ func (s *Store) ExpireReject(ctx context.Context, messageID, reason string) (*Me
 	if rejectionReason != nil {
 		m.RejectionReason = *rejectionReason
 	}
+	m.LifecycleTransitions = []messagelifecycle.MessageLifecycleTransition{transition}
 	return m, nil
 }
 
@@ -3509,6 +3519,7 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 	// "not pending" with a follow-up existence check only when rows-affected
 	// is 0.
 	var rowsAffected int64
+	var transition messagelifecycle.MessageLifecycleTransition
 	err := s.WithTx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE messages
 		    SET status = $3,
@@ -3527,7 +3538,7 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 		if rowsAffected == 0 {
 			return nil
 		}
-		_, err = messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		transition, err = messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 			MessageID: messageID, DedupeKey: "review:resolution", Direction: "outbound",
 			ReasonCode: messagelifecycle.ReasonReviewRejected,
 			Evidence:   map[string]any{"review_resolution": MessageStatusReviewRejected}, OccurredAt: time.Now(),
@@ -3552,7 +3563,11 @@ func (s *Store) RejectPending(ctx context.Context, messageID, userID, reason str
 		}
 		return nil, ErrNotPendingApproval
 	}
-	return s.GetOutboundMessageForUser(ctx, messageID, userID)
+	m, err := s.GetOutboundMessageForUser(ctx, messageID, userID)
+	if err == nil {
+		m.LifecycleTransitions = []messagelifecycle.MessageLifecycleTransition{transition}
+	}
+	return m, err
 }
 
 func (s *Store) ListActivityByAgent(ctx context.Context, agentID string, limit int) ([]Message, error) {

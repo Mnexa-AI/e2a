@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -10,11 +11,37 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
+
+func assertReviewEventLifecycleMatchesRow(t *testing.T, pool *pgxpool.Pool, messageID, eventType string, wantReason messagelifecycle.ReasonCode) {
+	t.Helper()
+	var eventRaw, rowRaw []byte
+	if err := pool.QueryRow(context.Background(),
+		`SELECT envelope->'data'->'lifecycle_transitions' FROM webhook_events WHERE message_id=$1 AND type=$2`,
+		messageID, eventType).Scan(&eventRaw); err != nil {
+		t.Fatalf("read event lifecycle: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT jsonb_build_array(to_jsonb(t) - 'dedupe_key') FROM message_lifecycle_transitions t WHERE message_id=$1 AND reason_code=$2`,
+		messageID, wantReason).Scan(&rowRaw); err != nil {
+		t.Fatalf("read persisted lifecycle: %v", err)
+	}
+	var eventTransitions, rowTransitions []messagelifecycle.MessageLifecycleTransition
+	if err := json.Unmarshal(eventRaw, &eventTransitions); err != nil {
+		t.Fatalf("decode event lifecycle: %v", err)
+	}
+	if err := json.Unmarshal(rowRaw, &rowTransitions); err != nil {
+		t.Fatalf("decode persisted lifecycle: %v", err)
+	}
+	if len(eventTransitions) != 1 || len(rowTransitions) != 1 || eventTransitions[0].ID != rowTransitions[0].ID || eventTransitions[0].ReasonCode != wantReason {
+		t.Fatalf("event lifecycle = %+v, persisted = %+v, want exact %s transition", eventTransitions, rowTransitions, wantReason)
+	}
+}
 
 // waitForEvent asserts an event of the given type for the user landed in the
 // durable outbox (webhook_events). The approve/reject core writes the event in
@@ -90,6 +117,7 @@ func TestApproveInboundReviewCore_ReleasesAndPublishes(t *testing.T) {
 		t.Errorf("status = %q, want review_approved", got)
 	}
 	waitForEvent(t, pool, userID, webhookpub.EventEmailReviewApproved)
+	assertReviewEventLifecycleMatchesRow(t, pool, msgID, webhookpub.EventEmailReviewApproved, messagelifecycle.ReasonReviewApproved)
 
 	// A second approve (already resolved) is a clean 409, not a double release.
 	if derr := api.ApproveInboundReviewCore(ctx, userID, meta); derr == nil || derr.Status != http.StatusConflict || derr.Code != "message_not_pending" {
@@ -115,6 +143,7 @@ func TestRejectInboundReviewCore_DropsAndPublishes(t *testing.T) {
 		t.Errorf("row = status %q reason %q, want review_rejected/prompt injection", st, reason)
 	}
 	waitForEvent(t, pool, userID, webhookpub.EventEmailReviewRejected)
+	assertReviewEventLifecycleMatchesRow(t, pool, msgID, webhookpub.EventEmailReviewRejected, messagelifecycle.ReasonReviewRejected)
 }
 
 func statusOf(t *testing.T, pool *pgxpool.Pool, ctx context.Context, msgID string) string {

@@ -13,6 +13,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
+	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -116,12 +117,19 @@ func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
 			ctx := context.Background()
 			store := identity.NewStore(pool)
 			providerID := "ses-causal-" + string(rune('a'+i))
-			userID, messageID, _ := seedOutbound(t, store, "causal-"+string(rune('a'+i)), providerID, []string{"Person@Example.COM"})
+			providerEventID := "sns-causal-" + string(rune('a'+i))
+			recipient := "person@example.com"
+			if tc.name == "hard bounce" {
+				providerID = "ses-golden"
+				providerEventID = "sns-test"
+				recipient = "bob@customer.example.com"
+			}
+			userID, messageID, _ := seedOutbound(t, store, "causal-"+string(rune('a'+i)), providerID, []string{recipient})
 			outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
 			ev := &delivery.Event{
-				Kind: tc.kind, SESMessageID: providerID, ProviderEventID: "sns-causal-" + string(rune('a'+i)),
-				OccurredAt: time.Date(2026, 7, 21, 12, i, 0, 0, time.UTC), BounceType: tc.bounceType,
-				Recipients: []delivery.RecipientOutcome{{Address: " person@example.com ", Status: tc.status, Detail: tc.detail, Suppress: true}},
+				Kind: tc.kind, SESMessageID: providerID, ProviderEventID: providerEventID,
+				OccurredAt: time.Date(2026, 7, 21, 12, i, 0, 0, time.UTC), BounceType: tc.bounceType, BounceSubType: "General",
+				Recipients: []delivery.RecipientOutcome{{Address: " " + recipient + " ", Status: tc.status, Detail: tc.detail, Suppress: true}},
 			}
 			consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox))
 			if err := consumer.Process(ctx, ev); err != nil {
@@ -132,7 +140,7 @@ func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
 			}
 
 			var suppressions int
-			if err := pool.QueryRow(ctx, `SELECT count(*) FROM suppressions WHERE user_id=$1 AND address='person@example.com' AND source_message_id=$2`, userID, messageID).Scan(&suppressions); err != nil {
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM suppressions WHERE user_id=$1 AND address=$2 AND source_message_id=$3`, userID, recipient, messageID).Scan(&suppressions); err != nil {
 				t.Fatal(err)
 			}
 			if suppressions != 1 {
@@ -171,6 +179,13 @@ func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
 				}
 				if len(decoded.Data.LifecycleTransitions) != 1 || decoded.Data.LifecycleTransitions[0].ReasonCode != wantReason {
 					t.Fatalf("%s event lifecycle=%+v want only %s", label, decoded.Data.LifecycleTransitions, wantReason)
+				}
+				if tc.name == "hard bounce" {
+					fixture := "../eventpayload/testdata/email.bounced.json"
+					if label == "suppression" {
+						fixture = "../eventpayload/testdata/domain.suppression_added.json"
+					}
+					goldenassert.Lifecycle(t, fixture, decoded.Data.LifecycleTransitions)
 				}
 				for _, transition := range decoded.Data.LifecycleTransitions {
 					var persisted int

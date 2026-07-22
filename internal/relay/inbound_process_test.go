@@ -6,16 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"nhooyr.io/websocket"
 
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
+	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/jobs"
 	"github.com/tokencanopy/e2a/internal/messagelifecycle"
@@ -25,6 +30,113 @@ import (
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 	"github.com/tokencanopy/e2a/internal/ws"
 )
+
+func TestInboundLiveWebSocketUsesCommittedEventEnvelopeBytes(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	const domain = "ws-live-envelope.example.com"
+	const agentEmail = "bot@" + domain
+	user, err := store.CreateOrGetUser(ctx, "owner@"+domain, "O", "g-ws-live-envelope")
+	if err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("domain: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE domains SET verified=true WHERE domain=$1`, domain); err != nil {
+		t.Fatalf("verify domain: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, agentEmail, domain, "", "", "", user.ID)
+	if err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+	key, err := store.CreateAPIKey(ctx, user.ID, "ws-live-envelope", nil)
+	if err != nil {
+		t.Fatalf("api key: %v", err)
+	}
+
+	hub := ws.NewHub()
+	t.Cleanup(hub.Close)
+	wsHandler := ws.NewHandler(hub, store)
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsHandler.ServeWithEmail(w, r, agentEmail)
+	}))
+	t.Cleanup(httpServer.Close)
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + key.PlaintextKey}},
+	})
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
+	deadline := time.Now().Add(2 * time.Second)
+	for !hub.IsConnected(agent.ID) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !hub.IsConnected(agent.ID) {
+		t.Fatal("websocket did not connect")
+	}
+
+	server := relay.NewServer(&config.Config{SMTP: config.SMTPConfig{Domain: domain}, Env: "development"}, store, usage.NewNoopUsageTracker(), hub)
+	server.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
+	server.SetAuthenticationChecker(func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication {
+		authDomain := "customer.example.com"
+		aligned := true
+		policy := emailauth.DMARCPolicyReject
+		return &emailauth.Authentication{
+			SPF:   emailauth.SPFResult{Status: emailauth.StatusPass, Domain: &authDomain, Aligned: &aligned},
+			DKIM:  []emailauth.DKIMResult{},
+			DMARC: emailauth.DMARCResult{Status: emailauth.StatusPass, Domain: &authDomain, Policy: &policy, AlignedBy: []emailauth.AlignmentMechanism{emailauth.AlignedBySPF}},
+		}
+	})
+
+	raw := []byte("From: alice@customer.example.com\r\nTo: " + agentEmail + "\r\nMessage-ID: <fixture@customer.example.com>\r\nSubject: exact bytes\r\n\r\nbody")
+	intakeID := identity.NewInboundIntakeID()
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		_, insertErr := store.InsertInboundIntakeTx(ctx, tx, intakeID, agentEmail, "alice@customer.example.com", "mx.customer.example.com", "1.2.3.4", "<fixture@customer.example.com>", "hash-ws-live", raw)
+		if insertErr != nil {
+			return insertErr
+		}
+		return store.StampInboundIntakeJobIDTx(ctx, tx, intakeID, 4242)
+	}); err != nil {
+		t.Fatalf("insert intake: %v", err)
+	}
+	intake, err := store.LoadInboundIntake(ctx, intakeID)
+	if err != nil {
+		t.Fatalf("load intake: %v", err)
+	}
+	if err := server.ProcessIntake(ctx, intake); err != nil {
+		t.Fatalf("process intake: %v", err)
+	}
+
+	readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, liveFrame, err := conn.Read(readCtx)
+	if err != nil {
+		t.Fatalf("read live frame: %v", err)
+	}
+	var messageID string
+	if err := pool.QueryRow(ctx, `SELECT id FROM messages WHERE agent_id=$1 AND direction='inbound'`, agentEmail).Scan(&messageID); err != nil {
+		t.Fatalf("load message id: %v", err)
+	}
+	storedEnvelope, err := store.GetEventEnvelope(ctx, messageID, webhookpub.EventEmailReceived)
+	if err != nil {
+		t.Fatalf("load stored envelope: %v", err)
+	}
+	if !reflect.DeepEqual(liveFrame, storedEnvelope) {
+		t.Fatalf("live WebSocket frame did not reuse committed event bytes\nlive:   %s\nstored: %s", liveFrame, storedEnvelope)
+	}
+	var stored struct {
+		Data eventpayload.EmailReceivedData `json:"data"`
+	}
+	if err := json.Unmarshal(storedEnvelope, &stored); err != nil {
+		t.Fatal(err)
+	}
+	goldenassert.Lifecycle(t, "../eventpayload/testdata/email.received.json", stored.Data.LifecycleTransitions)
+}
 
 // TestInbound_ProcessIntake_RealPath exercises the ACTUAL async worker Processor
 // (relay.Server.ProcessIntake → processInbound with the MarkInboundIntakeProcessedTx
