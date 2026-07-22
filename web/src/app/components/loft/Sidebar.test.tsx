@@ -48,10 +48,20 @@ jest.mock("../hooks/usePendingCount", () => ({
   usePendingCount: () => mockPendingCount,
 }));
 
+let mockUnreadCount: { count: number; more: boolean } | null = null;
+jest.mock("../hooks/useUnreadCount", () => ({
+  useUnreadCount: () => mockUnreadCount,
+}));
+
 beforeEach(() => {
   mockPathname = "/inboxes";
   mockPendingCount = null;
+  mockUnreadCount = null;
 });
+
+function navBadge(href: string): Element | null {
+  return document.querySelector(`a[href="${href}"] [data-nav-badge]`);
+}
 
 // The Sidebar's NAV_ITEMS array is the canonical source of truth for
 // what the user can reach from the global chrome. These tests pin the
@@ -147,15 +157,47 @@ describe("Sidebar — nav entries", () => {
     expect(agents).not.toHaveAttribute("aria-current", "page");
   });
 
+  it("does not show an Inboxes badge while unread count is unknown or zero", () => {
+    const { rerender } = render(<Sidebar />);
+    expect(navBadge("/inboxes")).toBeNull();
+
+    mockUnreadCount = { count: 0, more: false };
+    rerender(<Sidebar />);
+    expect(navBadge("/inboxes")).toBeNull();
+  });
+
+  it("shows a positive unread count only in the Inboxes link", () => {
+    mockUnreadCount = { count: 7, more: false };
+    render(<Sidebar />);
+
+    expect(navBadge("/inboxes")).toHaveTextContent("7");
+    expect(navBadge("/reviews")).toBeNull();
+  });
+
+  it("shows 99+ when the unread result says more messages exist", () => {
+    mockUnreadCount = { count: 99, more: true };
+    render(<Sidebar />);
+
+    expect(navBadge("/inboxes")).toHaveTextContent("99+");
+  });
+
+  it("shows Inboxes and Pending badges with their own values", () => {
+    mockUnreadCount = { count: 12, more: false };
+    mockPendingCount = 3;
+    render(<Sidebar />);
+
+    expect(navBadge("/inboxes")).toHaveTextContent("12");
+    expect(navBadge("/reviews")).toHaveTextContent("3");
+  });
+
   it("shows the pending count badge only when > 0", () => {
     mockPendingCount = 0;
     const { rerender } = render(<Sidebar />);
-    expect(screen.queryByText("0")).not.toBeInTheDocument();
+    expect(navBadge("/reviews")).toBeNull();
     // Re-render with a real count → badge appears in the Pending link.
     mockPendingCount = 3;
     rerender(<Sidebar />);
-    const pending = document.querySelector(`a[href="/reviews"]`);
-    expect(pending?.textContent).toContain("3");
+    expect(navBadge("/reviews")).toHaveTextContent("3");
   });
 });
 
