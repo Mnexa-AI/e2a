@@ -829,12 +829,16 @@ func testProviderRejectionAtomicFailure(t *testing.T, label, install, uninstall 
 	f := newTerminalFixture(t, pool, store, adapter)
 	messageID := f.seed(t, "provider-reject-"+label, "accepted", "discarded", false)
 	jobID := mustSendJobID(t, pool, messageID)
+	if _, err := pool.Exec(context.Background(), `UPDATE messages SET sent_as='own_address' WHERE id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(context.Background(), install); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
 	deliverer := &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 explicit rejection"), Permanent: true}}
-	w := outboundsend.NewSendWorker(adapter, deliverer)
+	ramp := &fakeRampGate{decision: outboundsend.RampDecision{Allowed: true}}
+	w := outboundsend.NewSendWorker(adapter, deliverer, ramp)
 	rj := &river.Job[outboundsend.OutboundSendArgs]{JobRow: &rivertype.JobRow{ID: jobID, Attempt: 2, CreatedAt: time.Now().UTC()}, Args: outboundsend.OutboundSendArgs{MessageID: messageID}}
 	if err := w.Work(context.Background(), rj); err == nil {
 		t.Fatal("provider rejection must cancel")
@@ -856,6 +860,15 @@ func testProviderRejectionAtomicFailure(t *testing.T, label, install, uninstall 
 	}
 	if f.failedEventCount(t, messageID) != 0 || f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionProviderRejected) != nil {
 		t.Fatal("failed terminal tx published partial event/lifecycle")
+	}
+	if err := w.Work(context.Background(), rj); err != nil {
+		t.Fatalf("fallback re-drive: %v", err)
+	}
+	if deliverer.calls != 1 {
+		t.Fatalf("fallback re-drive provider calls=%d, want exactly the original call", deliverer.calls)
+	}
+	if len(ramp.calls) != 1 || len(ramp.released) != 1 || len(ramp.resolved) != 1 {
+		t.Fatalf("fallback ramp reserve=%d release=%v resolve=%v, want one of each without re-reserve", len(ramp.calls), ramp.released, ramp.resolved)
 	}
 	if _, err := pool.Exec(context.Background(), uninstall); err != nil {
 		t.Fatal(err)

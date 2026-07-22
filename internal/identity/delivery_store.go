@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -494,6 +495,10 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 		providerAcceptedAt *time.Time
 		providerMessageID  string
 		messageType        string
+		failureSource      string
+		failureReason      string
+		failureOccurredAt  *time.Time
+		failureAttempt     *int
 	)
 	var userID, registeredDomain string
 	// Lock agent first to match permanent agent deletion's lock order, then
@@ -515,13 +520,16 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 		`SELECT COALESCE(m.delivery_status,''), COALESCE(m.envelope_from,''), COALESCE(m.sent_as,''),
 		        COALESCE(m.message_type,''),
 		        m.to_recipients, m.cc, m.bcc, m.raw_message, m.created_at,
-		        m.deleted_at, m.send_job_id, m.provider_accepted_at, COALESCE(m.provider_message_id,'')
+		        m.deleted_at, m.send_job_id, m.provider_accepted_at, COALESCE(m.provider_message_id,''),
+		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_failure_reason_code,''),
+		        m.delivery_failure_occurred_at,m.delivery_failure_attempt
 		   FROM messages m
 		  WHERE m.id = $1 AND m.agent_id = $2 AND m.direction = 'outbound'
 		  FOR UPDATE OF m`,
 		messageID, agentID,
 	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &messageType, &to, &cc, &bcc, &raw, &createdAt,
-		&deletedAt, &stampedJobID, &providerAcceptedAt, &providerMessageID)
+		&deletedAt, &stampedJobID, &providerAcceptedAt, &providerMessageID,
+		&failureSource, &failureReason, &failureOccurredAt, &failureAttempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
@@ -533,6 +541,12 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 	}
 	if stampedJobID == nil || *stampedJobID != jobID ||
 		(deliveryStatus != "accepted" && deliveryStatus != "sending") {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	if isCompleteTerminalFallback(failureSource, failureReason, failureOccurredAt, failureAttempt) {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
@@ -595,6 +609,20 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 		return nil, err
 	}
 	return p, nil
+}
+
+func isCompleteTerminalFallback(source, reason string, occurredAt *time.Time, attempt *int) bool {
+	if occurredAt == nil || occurredAt.IsZero() || attempt == nil || *attempt < 0 {
+		return false
+	}
+	switch messagelifecycle.ReasonCode(reason) {
+	case messagelifecycle.ReasonSubmissionProviderRejected:
+		return delivery.FailureSource(source) == delivery.FailureSourceProvider
+	case messagelifecycle.ReasonSubmissionLocalRetriesExhausted, messagelifecycle.ReasonSubmissionCancelled:
+		return delivery.FailureSource(source) == delivery.FailureSourceLocal
+	default:
+		return false
+	}
 }
 
 // ReleaseOutboundSendClaim moves a side-effect-free provider failure back to
@@ -707,8 +735,49 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx, messageID string) (*OutboundSentInfo, string, error) {
 	var providerMessageID string
 	var providerAcceptedAt time.Time
-	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent"}
+	var (
+		jobID             *int64
+		failureSource     string
+		failureReason     string
+		failureOccurredAt *time.Time
+		failureAttempt    *int
+		blockedRecipients []string
+	)
 	err := tx.QueryRow(ctx,
+		`SELECT send_job_id,COALESCE(delivery_failure_source,''),COALESCE(delivery_failure_reason_code,''),
+		        delivery_failure_occurred_at,delivery_failure_attempt,delivery_failure_blocked_recipients
+		   FROM messages
+		  WHERE id=$1 AND direction='outbound'
+		    AND delivery_status IN ('accepted','sending')
+		    AND provider_accepted_at IS NOT NULL
+		  FOR UPDATE`, messageID,
+	).Scan(&jobID, &failureSource, &failureReason, &failureOccurredAt, &failureAttempt, &blockedRecipients)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	if jobID != nil && isCompleteTerminalFallback(failureSource, failureReason, failureOccurredAt, failureAttempt) {
+		seen := make(map[string]struct{}, len(blockedRecipients))
+		for _, raw := range blockedRecipients {
+			if recipient := NormalizeEmail(raw); recipient != "" {
+				seen[recipient] = struct{}{}
+			}
+		}
+		blockedRecipients = blockedRecipients[:0]
+		for recipient := range seen {
+			blockedRecipients = append(blockedRecipients, recipient)
+		}
+		sort.Strings(blockedRecipients)
+		for _, recipient := range blockedRecipients {
+			if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: messagelifecycle.SendSuppressionDedupeKey(*jobID, *failureAttempt, recipient), Direction: "outbound", Recipient: recipient, ReasonCode: messagelifecycle.ReasonSuppressionRecipientBlocked, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(*jobID, 10)}), OccurredAt: failureOccurredAt.UTC()}); err != nil {
+				return nil, "", err
+			}
+		}
+	}
+	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent"}
+	err = tx.QueryRow(ctx,
 		`UPDATE messages m
 		    SET delivery_status = 'sent', send_claimed_at = NULL, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL,
 		        delivery_failure_occurred_at=NULL, delivery_failure_attempt=NULL, delivery_failure_blocked_recipients=NULL

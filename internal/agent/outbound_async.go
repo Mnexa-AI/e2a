@@ -247,7 +247,7 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 			return err
 		}
 		for _, recipient := range blockedRecipients {
-			if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: "suppression:send:" + recipient, Direction: "outbound", Recipient: recipient, ReasonCode: messagelifecycle.ReasonSuppressionRecipientBlocked, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(jobID, 10)}), OccurredAt: occurredAt}); err != nil {
+			if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: messagelifecycle.SendSuppressionDedupeKey(jobID, attempt, recipient), Direction: "outbound", Recipient: recipient, ReasonCode: messagelifecycle.ReasonSuppressionRecipientBlocked, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(jobID, 10)}), OccurredAt: occurredAt}); err != nil {
 				return err
 			}
 		}

@@ -188,6 +188,50 @@ func TestClaimOutboundForSend_JobOwnership(t *testing.T) {
 	}
 }
 
+func TestClaimOutboundForSend_PartialFallbackProvenanceRemainsClaimable(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	agentID := convoTestSetup(t, store, "async-partial-fallback")
+
+	seed := func(t *testing.T, jobID int64) string {
+		t.Helper()
+		var messageID string
+		if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+			m, err := store.CreateOutboundMessageTx(ctx, tx, agentID, []string{"a@gmail.com"}, nil, nil, "S", "send", "smtp", "", "conv-partial", []byte("raw"), "accepted", "agent@test.e2a.dev", "relay")
+			if err != nil {
+				return err
+			}
+			messageID = m.ID
+			return store.StampSendJobIDTx(ctx, tx, messageID, jobID)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return messageID
+	}
+
+	cases := []struct {
+		name   string
+		jobID  int64
+		update string
+	}{
+		{"missing observation", 5001, `delivery_failure_source='local',delivery_failure_reason_code='submission.cancelled'`},
+		{"source reason mismatch", 5002, `delivery_failure_source='local',delivery_failure_reason_code='submission.provider_rejected',delivery_failure_occurred_at=now(),delivery_failure_attempt=2`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			messageID := seed(t, tc.jobID)
+			if _, err := pool.Exec(ctx, `UPDATE messages SET `+tc.update+` WHERE id=$1`, messageID); err != nil {
+				t.Fatal(err)
+			}
+			payload, err := store.ClaimOutboundForSend(ctx, messageID, tc.jobID)
+			if err != nil || payload == nil {
+				t.Fatalf("ClaimOutboundForSend = (%v, %v), want claimable partial provenance", payload, err)
+			}
+		})
+	}
+}
+
 func TestOutboundForSend_UsesRegisteredParentDomain(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

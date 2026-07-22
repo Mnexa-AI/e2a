@@ -4,10 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 )
+
+// SendSuppressionDedupeKey is the stable message-local identity for a
+// recipient suppression observed by one outbound River attempt.
+func SendSuppressionDedupeKey(jobID int64, attempt int, recipient string) string {
+	return "suppression:send:job:" + strconv.FormatInt(jobID, 10) + ":attempt:" + strconv.Itoa(attempt) + ":recipient:" + recipient
+}
 
 // SafeDiagnostic bounds optional untrusted diagnostics to the canonical
 // per-string limit without splitting a UTF-8 encoding. Invalid input bytes are
