@@ -13,7 +13,7 @@ import (
 // vocabularies that can EVOLVE are OPEN sets — plain strings whose known
 // values are documented in the field description — because a closed enum on a
 // response is a promise the vocabulary can never grow, and breaking that
-// promise breaks spec-generated clients. Only two kinds of response fields
+// promise breaks spec-generated clients. Only three kinds of response fields
 // may keep a closed enum:
 //
 //   - normalized exhaustive classifications: the server actively maps every
@@ -22,22 +22,30 @@ import (
 //   - invariants of the model: values that cannot grow by construction —
 //     the binary message direction, and the single-value `code` discriminator
 //     constants on the typed error envelopes.
+//   - explicitly versioned canonical protocol vocabularies whose closed set is
+//     the interoperability contract. Message lifecycle values are intentionally
+//     in this category: extensions require a versioned contract change rather
+//     than an unannounced additive response value.
 //
 // Adding an entry here is a contract decision, not a formality: be able to
-// state which of the two categories the field falls into, and record it in a
+// state which of the three categories the field falls into, and record it in a
 // comment on the struct tag.
 var closedResponseEnumAllowlist = map[string]string{
-	"EmailBouncedData.bounce_type": "normalized exhaustive classification (undetermined is the guaranteed catch-all)",
-	"MessageSummaryView.direction": "binary invariant of the model",
-	"MessageView.direction":        "binary invariant of the model",
-	"ReviewView.direction":         "binary invariant of the model",
-	"SPFResult.status":             "normalized exhaustive RFC 7208 result classification",
-	"DKIMResult.status":            "normalized exhaustive RFC 8601 DKIM result classification",
-	"DMARCResult.status":           "normalized exhaustive RFC 7489/9989 DMARC result classification",
-	"DMARCResult.policy":           "normalized exhaustive DMARC policy classification",
-	"DMARCResult.aligned_by[]":     "model invariant: DMARC aligns through SPF and/or DKIM only",
-	"LimitExceededErrorBody.code":  "single-value discriminator constant of the typed 402 envelope",
-	"RateLimitedErrorBody.code":    "single-value discriminator constant of the typed 429 envelope",
+	"EmailBouncedData.bounce_type":           "normalized exhaustive classification (undetermined is the guaranteed catch-all)",
+	"MessageSummaryView.direction":           "binary invariant of the model",
+	"MessageView.direction":                  "binary invariant of the model",
+	"ReviewView.direction":                   "binary invariant of the model",
+	"SPFResult.status":                       "normalized exhaustive RFC 7208 result classification",
+	"DKIMResult.status":                      "normalized exhaustive RFC 8601 DKIM result classification",
+	"DMARCResult.status":                     "normalized exhaustive RFC 7489/9989 DMARC result classification",
+	"DMARCResult.policy":                     "normalized exhaustive DMARC policy classification",
+	"DMARCResult.aligned_by[]":               "model invariant: DMARC aligns through SPF and/or DKIM only",
+	"MessageLifecycleTransition.direction":   "closed canonical lifecycle protocol vocabulary; extensions require a versioned contract change",
+	"MessageLifecycleTransition.stage":       "closed canonical lifecycle protocol vocabulary; extensions require a versioned contract change",
+	"MessageLifecycleTransition.outcome":     "closed canonical lifecycle protocol vocabulary; extensions require a versioned contract change",
+	"MessageLifecycleTransition.reason_code": "closed canonical lifecycle protocol vocabulary; extensions require a versioned contract change",
+	"LimitExceededErrorBody.code":            "single-value discriminator constant of the typed 402 envelope",
+	"RateLimitedErrorBody.code":              "single-value discriminator constant of the typed 429 envelope",
 }
 
 // TestResponseEnumsAreOpenSets is the stance gate for the open/closed enum

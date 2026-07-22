@@ -12,6 +12,7 @@
 
 import { AttachmentMetaView } from '../models/AttachmentMetaView.js';
 import { Authentication } from '../models/Authentication.js';
+import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { HttpFile } from '../http/http.js';
 
 export class EmailReceivedData {
@@ -42,6 +43,7 @@ export class EmailReceivedData {
     * Parsed RFC 5322 From address; never replaced by Reply-To.
     */
     'headerFrom': string | null;
+    'lifecycleTransitions'?: Array<MessageLifecycleTransition>;
     'messageId': string;
     'receivedAt': Date;
     'replyTo': Array<string>;
@@ -109,6 +111,12 @@ export class EmailReceivedData {
             "name": "headerFrom",
             "baseName": "header_from",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "lifecycleTransitions",
+            "baseName": "lifecycle_transitions",
+            "type": "Array<MessageLifecycleTransition>",
             "format": ""
         },
         {

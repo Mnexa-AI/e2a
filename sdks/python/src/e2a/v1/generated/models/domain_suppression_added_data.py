@@ -19,6 +19,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.message_lifecycle_transition import MessageLifecycleTransition
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -27,11 +28,12 @@ class DomainSuppressionAddedData(BaseModel):
     DomainSuppressionAddedData
     """ # noqa: E501
     address: StrictStr
+    lifecycle_transitions: Optional[List[MessageLifecycleTransition]] = None
     message_id: Optional[StrictStr] = None
     reason: Optional[StrictStr] = None
     source: StrictStr = Field(description="How the suppression was created. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: bounce, complaint.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["address", "message_id", "reason", "source"]
+    __properties: ClassVar[List[str]] = ["address", "lifecycle_transitions", "message_id", "reason", "source"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -74,6 +76,13 @@ class DomainSuppressionAddedData(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in lifecycle_transitions (list)
+        _items = []
+        if self.lifecycle_transitions:
+            for _item_lifecycle_transitions in self.lifecycle_transitions:
+                if _item_lifecycle_transitions:
+                    _items.append(_item_lifecycle_transitions.to_dict())
+            _dict['lifecycle_transitions'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -92,6 +101,7 @@ class DomainSuppressionAddedData(BaseModel):
 
         _obj = cls.model_validate({
             "address": obj.get("address"),
+            "lifecycle_transitions": [MessageLifecycleTransition.from_dict(_item) for _item in obj["lifecycle_transitions"]] if obj.get("lifecycle_transitions") is not None else None,
             "message_id": obj.get("message_id"),
             "reason": obj.get("reason"),
             "source": obj.get("source")

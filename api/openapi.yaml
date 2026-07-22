@@ -1093,6 +1093,10 @@ components:
       properties:
         address:
           type: string
+        lifecycle_transitions:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
+          type: array
         message_id:
           type: string
         reason:
@@ -1168,6 +1172,10 @@ components:
         direction:
           description: Always "outbound" on this event.
           type: string
+        lifecycle_transitions:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
+          type: array
         message_id:
           type: string
         smtp_detail:
@@ -1192,6 +1200,10 @@ components:
         direction:
           description: Always "outbound" on this event.
           type: string
+        lifecycle_transitions:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
+          type: array
         message_id:
           type: string
         smtp_detail:
@@ -1215,6 +1227,10 @@ components:
         direction:
           description: Always "outbound" on this event.
           type: string
+        lifecycle_transitions:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
+          type: array
         message_id:
           type: string
         smtp_detail:
@@ -1247,6 +1263,10 @@ components:
           type: string
         from:
           type: string
+        lifecycle_transitions:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
+          type: array
         message_id:
           type: string
         message_type:
@@ -1319,6 +1339,10 @@ components:
           type:
             - string
             - "null"
+        lifecycle_transitions:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
+          type: array
         message_id:
           type: string
         received_at:
@@ -1374,6 +1398,10 @@ components:
           type: string
         from:
           type: string
+        lifecycle_transitions:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
+          type: array
         message_id:
           type: string
         message_type:
@@ -2163,6 +2191,110 @@ components:
         text:
           type: string
       type: object
+    MessageLifecycleTransition:
+      additionalProperties: true
+      properties:
+        correlation_ids:
+          additionalProperties:
+            type: string
+          type: object
+        direction:
+          enum:
+            - inbound
+            - outbound
+          type: string
+        evidence:
+          additionalProperties: {}
+          type: object
+        id:
+          type: string
+        message_id:
+          type: string
+        occurred_at:
+          format: date-time
+          type: string
+        outcome:
+          enum:
+            - accepted
+            - passed
+            - failed
+            - indeterminate
+            - pending
+            - approved
+            - rejected
+            - blocked
+            - applied
+            - enqueued
+            - deferred
+            - delivered
+            - bounced
+            - reported
+          type: string
+        reason_code:
+          enum:
+            - acceptance.inbound_smtp
+            - acceptance.outbound_api
+            - acceptance.local_loopback
+            - authentication.dmarc_pass
+            - authentication.dmarc_fail
+            - authentication.dmarc_none
+            - authentication.dmarc_temporary_error
+            - authentication.dmarc_permanent_error
+            - review.hold_created
+            - review.approved
+            - review.rejected
+            - review.expired_approved
+            - review.expired_rejected
+            - suppression.recipient_blocked
+            - suppression.hard_bounce_applied
+            - suppression.complaint_applied
+            - queue.inbound_processing
+            - queue.outbound_submission
+            - submission.upstream_accepted
+            - submission.local_loopback_accepted
+            - submission.temporary_failure
+            - submission.provider_rejected
+            - submission.local_retries_exhausted
+            - submission.cancelled
+            - delivery.recipient_server_accepted
+            - delivery.temporary_delay
+            - delivery.permanent_bounce
+            - delivery.transient_bounce
+            - delivery.undetermined_bounce
+            - complaint.recipient_reported
+          type: string
+        recipient:
+          type:
+            - string
+            - "null"
+        reconstructed:
+          type: boolean
+        retryable:
+          type: boolean
+        stage:
+          enum:
+            - accepted
+            - authentication
+            - review
+            - suppression
+            - queued
+            - submission
+            - delivery
+            - complaint
+          type: string
+      required:
+        - id
+        - message_id
+        - direction
+        - stage
+        - outcome
+        - reason_code
+        - retryable
+        - evidence
+        - correlation_ids
+        - occurred_at
+        - reconstructed
+      type: object
     MessageParsedView:
       additionalProperties: true
       properties:
@@ -2518,6 +2650,21 @@ components:
         items:
           items:
             $ref: "#/components/schemas/EventView"
+          type: array
+        next_cursor:
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_cursor
+      type: object
+    PageMessageLifecycleTransition:
+      additionalProperties: true
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/MessageLifecycleTransition"
           type: array
         next_cursor:
           type:
@@ -5304,6 +5451,63 @@ paths:
       security:
         - bearer: []
       summary: Forward a message
+      tags:
+        - messages
+  /v1/agents/{email}/messages/{id}/lifecycle:
+    get:
+      description: Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+      operationId: get-message-lifecycle
+      parameters:
+        - in: path
+          name: email
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Opaque pagination cursor from a previous response's next_cursor.
+          explode: false
+          in: query
+          name: cursor
+          schema:
+            description: Opaque pagination cursor from a previous response's next_cursor.
+            type: string
+        - description: Maximum number of lifecycle transitions to return (1-100).
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            description: Maximum number of lifecycle transitions to return (1-100).
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageMessageLifecycleTransition"
+          description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          description: Error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestID"
+      security:
+        - bearer: []
+      summary: Get a message's lifecycle
       tags:
         - messages
   /v1/agents/{email}/messages/{id}/reply:

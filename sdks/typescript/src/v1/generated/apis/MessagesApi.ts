@@ -14,6 +14,7 @@ import { ErrorEnvelope } from '../models/ErrorEnvelope.js';
 import { ForwardRequest } from '../models/ForwardRequest.js';
 import { LimitExceededEnvelope } from '../models/LimitExceededEnvelope.js';
 import { MessageView } from '../models/MessageView.js';
+import { PageMessageLifecycleTransition } from '../models/PageMessageLifecycleTransition.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { RateLimitedEnvelope } from '../models/RateLimitedEnvelope.js';
 import { ReplyRequest } from '../models/ReplyRequest.js';
@@ -253,6 +254,66 @@ export class MessagesApiRequestFactory extends BaseAPIRequestFactory {
         // Make Request Context
         const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
         requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+
+        let authMethod: SecurityAuthentication | undefined;
+        // Apply auth methods
+        authMethod = _config.authMethods["bearer"]
+        if (authMethod?.applySecurityAuthentication) {
+            await authMethod?.applySecurityAuthentication(requestContext);
+        }
+        
+        const defaultAuth: SecurityAuthentication | undefined = _config?.authMethods?.default
+        if (defaultAuth?.applySecurityAuthentication) {
+            await defaultAuth?.applySecurityAuthentication(requestContext);
+        }
+
+        return requestContext;
+    }
+
+    /**
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+     * Get a message\'s lifecycle
+     * @param email 
+     * @param id 
+     * @param cursor Opaque pagination cursor from a previous response\&#39;s next_cursor.
+     * @param limit Maximum number of lifecycle transitions to return (1-100).
+     */
+    public async getMessageLifecycle(email: string, id: string, cursor?: string, limit?: number, _options?: Configuration): Promise<RequestContext> {
+        let _config = _options || this.configuration;
+
+        // verify required parameter 'email' is not null or undefined
+        if (email === null || email === undefined) {
+            throw new RequiredError("MessagesApi", "getMessageLifecycle", "email");
+        }
+
+
+        // verify required parameter 'id' is not null or undefined
+        if (id === null || id === undefined) {
+            throw new RequiredError("MessagesApi", "getMessageLifecycle", "id");
+        }
+
+
+
+
+        // Path Params
+        const localVarPath = '/v1/agents/{email}/messages/{id}/lifecycle'
+            .replace('{' + 'email' + '}', encodeURIComponent(String(email)))
+            .replace('{' + 'id' + '}', encodeURIComponent(String(id)));
+
+        // Make Request Context
+        const requestContext = _config.baseServer.makeRequestContext(localVarPath, HttpMethod.GET);
+        requestContext.setHeaderParam("Accept", "application/json, */*;q=0.8")
+
+        // Query Params
+        if (cursor !== undefined) {
+            requestContext.setQueryParam("cursor", ObjectSerializer.serialize(cursor, "string", ""));
+        }
+
+        // Query Params
+        if (limit !== undefined) {
+            requestContext.setQueryParam("limit", ObjectSerializer.serialize(limit, "number", "int64"));
+        }
 
 
         let authMethod: SecurityAuthentication | undefined;
@@ -844,6 +905,42 @@ export class MessagesApiResponseProcessor {
                 ObjectSerializer.parse(await response.body.text(), contentType),
                 "MessageView", ""
             ) as MessageView;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+
+        throw new ApiException<string | Blob | undefined>(response.httpStatusCode, "Unknown API Status Code!", await response.getBodyAsAny(), response.headers);
+    }
+
+    /**
+     * Unwraps the actual response sent by the server from the response context and deserializes the response content
+     * to the expected objects
+     *
+     * @params response Response returned by the server for a request to getMessageLifecycle
+     * @throws ApiException if the response code was not in [200, 299]
+     */
+     public async getMessageLifecycleWithHttpInfo(response: ResponseContext): Promise<HttpInfo<PageMessageLifecycleTransition >> {
+        const contentType = ObjectSerializer.normalizeMediaType(response.headers["content-type"]);
+        if (isCodeInRange("200", response.httpStatusCode)) {
+            const body: PageMessageLifecycleTransition = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "PageMessageLifecycleTransition", ""
+            ) as PageMessageLifecycleTransition;
+            return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
+        }
+        if (isCodeInRange("0", response.httpStatusCode)) {
+            const body: ErrorEnvelope = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "ErrorEnvelope", ""
+            ) as ErrorEnvelope;
+            throw new ApiException<ErrorEnvelope>(response.httpStatusCode, "Error", body, response.headers);
+        }
+
+        // Work around for missing responses in specification, e.g. for petstore.yaml
+        if (response.httpStatusCode >= 200 && response.httpStatusCode <= 299) {
+            const body: PageMessageLifecycleTransition = ObjectSerializer.deserialize(
+                ObjectSerializer.parse(await response.body.text(), contentType),
+                "PageMessageLifecycleTransition", ""
+            ) as PageMessageLifecycleTransition;
             return new HttpInfo(response.httpStatusCode, response.headers, response.body, body);
         }
 

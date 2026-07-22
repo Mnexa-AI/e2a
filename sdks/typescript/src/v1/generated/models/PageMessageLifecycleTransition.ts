@@ -13,15 +13,9 @@
 import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { HttpFile } from '../http/http.js';
 
-export class DomainSuppressionAddedData {
-    'address': string;
-    'lifecycleTransitions'?: Array<MessageLifecycleTransition>;
-    'messageId'?: string;
-    'reason'?: string;
-    /**
-    * How the suppression was created. Open set: new values may be added over time, so treat these as strings and tolerate unknown values. Known values: bounce, complaint.
-    */
-    'source': string;
+export class PageMessageLifecycleTransition {
+    'items': Array<MessageLifecycleTransition>;
+    'nextCursor': string | null;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -29,38 +23,20 @@ export class DomainSuppressionAddedData {
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
         {
-            "name": "address",
-            "baseName": "address",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "lifecycleTransitions",
-            "baseName": "lifecycle_transitions",
+            "name": "items",
+            "baseName": "items",
             "type": "Array<MessageLifecycleTransition>",
             "format": ""
         },
         {
-            "name": "messageId",
-            "baseName": "message_id",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "reason",
-            "baseName": "reason",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "source",
-            "baseName": "source",
+            "name": "nextCursor",
+            "baseName": "next_cursor",
             "type": "string",
             "format": ""
         }    ];
 
     static getAttributeTypeMap() {
-        return DomainSuppressionAddedData.attributeTypeMap;
+        return PageMessageLifecycleTransition.attributeTypeMap;
     }
 
     public constructor() {

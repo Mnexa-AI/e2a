@@ -60,6 +60,7 @@ import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
+import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
@@ -70,6 +71,7 @@ import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventView } from '../models/PageEventView.js';
+import { PageMessageLifecycleTransition } from '../models/PageMessageLifecycleTransition.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
@@ -1064,6 +1066,34 @@ export class PromiseMessagesApi {
     public getMessage(email: string, id: string, _options?: PromiseConfigurationOptions): Promise<MessageView> {
         const observableOptions = wrapOptions(_options);
         const result = this.api.getMessage(email, id, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+     * Get a message\'s lifecycle
+     * @param email
+     * @param id
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor.
+     * @param [limit] Maximum number of lifecycle transitions to return (1-100).
+     */
+    public getMessageLifecycleWithHttpInfo(email: string, id: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<HttpInfo<PageMessageLifecycleTransition>> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getMessageLifecycleWithHttpInfo(email, id, cursor, limit, observableOptions);
+        return result.toPromise();
+    }
+
+    /**
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+     * Get a message\'s lifecycle
+     * @param email
+     * @param id
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor.
+     * @param [limit] Maximum number of lifecycle transitions to return (1-100).
+     */
+    public getMessageLifecycle(email: string, id: string, cursor?: string, limit?: number, _options?: PromiseConfigurationOptions): Promise<PageMessageLifecycleTransition> {
+        const observableOptions = wrapOptions(_options);
+        const result = this.api.getMessageLifecycle(email, id, cursor, limit, observableOptions);
         return result.toPromise();
     }
 

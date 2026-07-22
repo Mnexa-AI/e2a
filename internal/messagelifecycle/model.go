@@ -64,7 +64,7 @@ type MessageLifecycleTransition struct {
 	ID             string            `json:"id"`
 	MessageID      string            `json:"message_id"`
 	Direction      string            `json:"direction" enum:"inbound,outbound"`
-	Recipient      string            `json:"recipient,omitempty"`
+	Recipient      string            `json:"recipient,omitempty" nullable:"true"`
 	Stage          Stage             `json:"stage" enum:"accepted,authentication,review,suppression,queued,submission,delivery,complaint"`
 	Outcome        Outcome           `json:"outcome" enum:"accepted,passed,failed,indeterminate,pending,approved,rejected,blocked,applied,enqueued,deferred,delivered,bounced,reported"`
 	ReasonCode     ReasonCode        `json:"reason_code" enum:"acceptance.inbound_smtp,acceptance.outbound_api,acceptance.local_loopback,authentication.dmarc_pass,authentication.dmarc_fail,authentication.dmarc_none,authentication.dmarc_temporary_error,authentication.dmarc_permanent_error,review.hold_created,review.approved,review.rejected,review.expired_approved,review.expired_rejected,suppression.recipient_blocked,suppression.hard_bounce_applied,suppression.complaint_applied,queue.inbound_processing,queue.outbound_submission,submission.upstream_accepted,submission.local_loopback_accepted,submission.temporary_failure,submission.provider_rejected,submission.local_retries_exhausted,submission.cancelled,delivery.recipient_server_accepted,delivery.temporary_delay,delivery.permanent_bounce,delivery.transient_bounce,delivery.undetermined_bounce,complaint.recipient_reported"`

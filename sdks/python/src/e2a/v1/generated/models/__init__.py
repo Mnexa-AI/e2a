@@ -73,6 +73,7 @@ from e2a.v1.generated.models.limits_caps_view import LimitsCapsView
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView
 from e2a.v1.generated.models.message import Message
 from e2a.v1.generated.models.message_body_view import MessageBodyView
+from e2a.v1.generated.models.message_lifecycle_transition import MessageLifecycleTransition
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView
 from e2a.v1.generated.models.message_summary_view import MessageSummaryView
 from e2a.v1.generated.models.message_view import MessageView
@@ -83,6 +84,7 @@ from e2a.v1.generated.models.page_agent_view import PageAgentView
 from e2a.v1.generated.models.page_conversation_summary_view import PageConversationSummaryView
 from e2a.v1.generated.models.page_domain_view import PageDomainView
 from e2a.v1.generated.models.page_event_view import PageEventView
+from e2a.v1.generated.models.page_message_lifecycle_transition import PageMessageLifecycleTransition
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView
 from e2a.v1.generated.models.page_review_view import PageReviewView
 from e2a.v1.generated.models.page_starter_template_view import PageStarterTemplateView

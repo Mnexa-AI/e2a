@@ -19,6 +19,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.message_lifecycle_transition import MessageLifecycleTransition
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -31,11 +32,12 @@ class EmailBouncedData(BaseModel):
     bounce_type: StrictStr
     delivered_to: StrictStr = Field(description="The one recipient address this per-recipient outcome is about.")
     direction: StrictStr = Field(description="Always \"outbound\" on this event.")
+    lifecycle_transitions: Optional[List[MessageLifecycleTransition]] = None
     message_id: StrictStr
     smtp_detail: Optional[StrictStr] = None
     subject: Optional[StrictStr] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "bounce_sub_type", "bounce_type", "delivered_to", "direction", "message_id", "smtp_detail", "subject"]
+    __properties: ClassVar[List[str]] = ["agent_email", "bounce_sub_type", "bounce_type", "delivered_to", "direction", "lifecycle_transitions", "message_id", "smtp_detail", "subject"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -78,6 +80,13 @@ class EmailBouncedData(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in lifecycle_transitions (list)
+        _items = []
+        if self.lifecycle_transitions:
+            for _item_lifecycle_transitions in self.lifecycle_transitions:
+                if _item_lifecycle_transitions:
+                    _items.append(_item_lifecycle_transitions.to_dict())
+            _dict['lifecycle_transitions'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -100,6 +109,7 @@ class EmailBouncedData(BaseModel):
             "bounce_type": obj.get("bounce_type"),
             "delivered_to": obj.get("delivered_to"),
             "direction": obj.get("direction"),
+            "lifecycle_transitions": [MessageLifecycleTransition.from_dict(_item) for _item in obj["lifecycle_transitions"]] if obj.get("lifecycle_transitions") is not None else None,
             "message_id": obj.get("message_id"),
             "smtp_detail": obj.get("smtp_detail"),
             "subject": obj.get("subject")

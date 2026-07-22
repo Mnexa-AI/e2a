@@ -97,6 +97,7 @@ __all__ = [
     "LimitsUsageView",
     "Message",
     "MessageBodyView",
+    "MessageLifecycleTransition",
     "MessageParsedView",
     "MessageSummaryView",
     "MessageView",
@@ -107,6 +108,7 @@ __all__ = [
     "PageConversationSummaryView",
     "PageDomainView",
     "PageEventView",
+    "PageMessageLifecycleTransition",
     "PageMessageSummaryView",
     "PageReviewView",
     "PageStarterTemplateView",
@@ -260,6 +262,7 @@ from e2a.v1.generated.models.limits_caps_view import LimitsCapsView as LimitsCap
 from e2a.v1.generated.models.limits_usage_view import LimitsUsageView as LimitsUsageView
 from e2a.v1.generated.models.message import Message as Message
 from e2a.v1.generated.models.message_body_view import MessageBodyView as MessageBodyView
+from e2a.v1.generated.models.message_lifecycle_transition import MessageLifecycleTransition as MessageLifecycleTransition
 from e2a.v1.generated.models.message_parsed_view import MessageParsedView as MessageParsedView
 from e2a.v1.generated.models.message_summary_view import MessageSummaryView as MessageSummaryView
 from e2a.v1.generated.models.message_view import MessageView as MessageView
@@ -270,6 +273,7 @@ from e2a.v1.generated.models.page_agent_view import PageAgentView as PageAgentVi
 from e2a.v1.generated.models.page_conversation_summary_view import PageConversationSummaryView as PageConversationSummaryView
 from e2a.v1.generated.models.page_domain_view import PageDomainView as PageDomainView
 from e2a.v1.generated.models.page_event_view import PageEventView as PageEventView
+from e2a.v1.generated.models.page_message_lifecycle_transition import PageMessageLifecycleTransition as PageMessageLifecycleTransition
 from e2a.v1.generated.models.page_message_summary_view import PageMessageSummaryView as PageMessageSummaryView
 from e2a.v1.generated.models.page_review_view import PageReviewView as PageReviewView
 from e2a.v1.generated.models.page_starter_template_view import PageStarterTemplateView as PageStarterTemplateView

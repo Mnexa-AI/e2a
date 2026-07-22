@@ -60,6 +60,7 @@ import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
+import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
@@ -70,6 +71,7 @@ import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventView } from '../models/PageEventView.js';
+import { PageMessageLifecycleTransition } from '../models/PageMessageLifecycleTransition.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
@@ -1361,6 +1363,39 @@ export interface MessagesApiGetMessageRequest {
     id: string
 }
 
+export interface MessagesApiGetMessageLifecycleRequest {
+    /**
+     *
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApigetMessageLifecycle
+     */
+    email: string
+    /**
+     *
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApigetMessageLifecycle
+     */
+    id: string
+    /**
+     * Opaque pagination cursor from a previous response\&#39;s next_cursor.
+     * Defaults to: undefined
+     * @type string
+     * @memberof MessagesApigetMessageLifecycle
+     */
+    cursor?: string
+    /**
+     * Maximum number of lifecycle transitions to return (1-100).
+     * Minimum: 1
+     * Maximum: 100
+     * Defaults to: 50
+     * @type number
+     * @memberof MessagesApigetMessageLifecycle
+     */
+    limit?: number
+}
+
 export interface MessagesApiListMessagesRequest {
     /**
      *
@@ -1641,6 +1676,24 @@ export class ObjectMessagesApi {
      */
     public getMessage(param: MessagesApiGetMessageRequest, options?: ConfigurationOptions): Promise<MessageView> {
         return this.api.getMessage(param.email, param.id,  options).toPromise();
+    }
+
+    /**
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+     * Get a message\'s lifecycle
+     * @param param the request object
+     */
+    public getMessageLifecycleWithHttpInfo(param: MessagesApiGetMessageLifecycleRequest, options?: ConfigurationOptions): Promise<HttpInfo<PageMessageLifecycleTransition>> {
+        return this.api.getMessageLifecycleWithHttpInfo(param.email, param.id, param.cursor, param.limit,  options).toPromise();
+    }
+
+    /**
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.
+     * Get a message\'s lifecycle
+     * @param param the request object
+     */
+    public getMessageLifecycle(param: MessagesApiGetMessageLifecycleRequest, options?: ConfigurationOptions): Promise<PageMessageLifecycleTransition> {
+        return this.api.getMessageLifecycle(param.email, param.id, param.cursor, param.limit,  options).toPromise();
     }
 
     /**

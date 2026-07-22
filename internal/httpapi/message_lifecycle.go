@@ -41,7 +41,7 @@ func (s *Server) registerMessageLifecycle() {
 		Method:      http.MethodGet,
 		Path:        "/v1/agents/{email}/messages/{id}/lifecycle",
 		Summary:     "Get a message's lifecycle",
-		Description: "Returns the ordered observations e2a recorded for one inbound or outbound message. Delivery means recipient-server acceptance and does not claim inbox placement.",
+		Description: "Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement.",
 		Tags:        []string{"messages"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, s.handleMessageLifecycle)

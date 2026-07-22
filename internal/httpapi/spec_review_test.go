@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -36,6 +37,22 @@ func renderSpec(t *testing.T) map[string]any {
 	var doc map[string]any
 	if err := yaml.Unmarshal(y, &doc); err != nil {
 		t.Fatalf("unmarshal spec: %v", err)
+	}
+	return doc
+}
+
+// readCommittedSpec reads the exact OpenAPI artifact consumed by docs and SDK
+// generation. Lifecycle schema review covers both this artifact and the live
+// handler document so a correct handler cannot hide a stale generated contract.
+func readCommittedSpec(t *testing.T) map[string]any {
+	t.Helper()
+	b, err := os.ReadFile(specGoldenPath)
+	if err != nil {
+		t.Fatalf("read committed spec: %v", err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("unmarshal committed spec: %v", err)
 	}
 	return doc
 }
@@ -124,6 +141,173 @@ func schemaProps(t *testing.T, doc map[string]any, schemaName string) map[string
 	}
 	props, _ := sc["properties"].(map[string]any)
 	return props
+}
+
+func schemaByName(t *testing.T, doc map[string]any, schemaName string) map[string]any {
+	t.Helper()
+	comps, _ := doc["components"].(map[string]any)
+	schemas, _ := comps["schemas"].(map[string]any)
+	schema, ok := schemas[schemaName].(map[string]any)
+	if !ok {
+		t.Fatalf("schema %q not found in spec", schemaName)
+	}
+	return schema
+}
+
+func refName(ref string) string {
+	return strings.TrimPrefix(ref, "#/components/schemas/")
+}
+
+// TestMessageLifecycleContractSchema pins the canonical diagnostic contract on
+// both sources consumers can observe: the live Huma document and the committed
+// OpenAPI artifact used for SDK generation. The lifecycle vocabulary is a
+// deliberately closed, versioned protocol vocabulary. It excludes content
+// screening and prompt-injection decisions from this first contract.
+func TestMessageLifecycleContractSchema(t *testing.T) {
+	docs := map[string]func(*testing.T) map[string]any{
+		"live":      renderSpec,
+		"committed": readCommittedSpec,
+	}
+	for name, load := range docs {
+		t.Run(name, func(t *testing.T) {
+			assertMessageLifecycleContractSchema(t, load(t))
+		})
+	}
+}
+
+func assertMessageLifecycleContractSchema(t *testing.T, doc map[string]any) {
+	t.Helper()
+	paths, _ := doc["paths"].(map[string]any)
+	path, ok := paths["/v1/agents/{email}/messages/{id}/lifecycle"].(map[string]any)
+	if !ok {
+		t.Fatal("GET /v1/agents/{email}/messages/{id}/lifecycle path missing")
+	}
+	op, ok := path["get"].(map[string]any)
+	if !ok || op["operationId"] != "get-message-lifecycle" {
+		t.Fatalf("lifecycle GET operation = %#v, want operationId get-message-lifecycle", op)
+	}
+	description, _ := op["description"].(string)
+	if !strings.Contains(description, "ascending (occurred_at, id)") {
+		t.Errorf("lifecycle operation must document deterministic ascending (occurred_at, id) ordering; description=%q", description)
+	}
+
+	params, _ := op["parameters"].([]any)
+	seenCursor := false
+	seenLimit := false
+	for _, raw := range params {
+		param, _ := raw.(map[string]any)
+		if param["in"] != "query" {
+			continue
+		}
+		schema, _ := param["schema"].(map[string]any)
+		switch param["name"] {
+		case "cursor":
+			seenCursor = true
+			if required, _ := param["required"].(bool); required {
+				t.Error("lifecycle cursor must be optional")
+			}
+			if schema["type"] != "string" {
+				t.Errorf("lifecycle cursor schema = %#v, want string", schema)
+			}
+		case "limit":
+			seenLimit = true
+			if schema["default"] != 50 || schema["minimum"] != 1 || schema["maximum"] != 100 {
+				t.Errorf("lifecycle limit schema = %#v, want default 50, minimum 1, maximum 100", schema)
+			}
+		}
+	}
+	if !seenCursor || !seenLimit {
+		t.Errorf("lifecycle query parameters cursor=%v limit=%v, want both", seenCursor, seenLimit)
+	}
+
+	responses, _ := op["responses"].(map[string]any)
+	pageRef := responseSchemaRef(responses, "200")
+	if pageRef == "" {
+		t.Fatal("lifecycle GET 200 response schema missing")
+	}
+	page := schemaByName(t, doc, refName(pageRef))
+	pageProps, _ := page["properties"].(map[string]any)
+	items, _ := pageProps["items"].(map[string]any)
+	itemSchema, _ := items["items"].(map[string]any)
+	if items["type"] != "array" || itemSchema["$ref"] != "#/components/schemas/MessageLifecycleTransition" {
+		t.Errorf("lifecycle page items = %#v, want array of MessageLifecycleTransition", items)
+	}
+	if !typeIsNullable(pageProps, "next_cursor") {
+		t.Errorf("lifecycle page next_cursor must be nullable; got %#v", pageProps["next_cursor"])
+	}
+
+	transition := schemaByName(t, doc, "MessageLifecycleTransition")
+	props, _ := transition["properties"].(map[string]any)
+	required, _ := transition["required"].([]any)
+	wantRequired := []string{"id", "message_id", "direction", "stage", "outcome", "reason_code", "retryable", "evidence", "correlation_ids", "occurred_at", "reconstructed"}
+	for _, field := range wantRequired {
+		if !containsAnyString(required, field) {
+			t.Errorf("MessageLifecycleTransition required fields %v missing %q", required, field)
+		}
+	}
+	if containsAnyString(required, "recipient") {
+		t.Error("MessageLifecycleTransition.recipient must remain optional")
+	}
+	if !typeIsNullable(props, "recipient") {
+		t.Errorf("MessageLifecycleTransition.recipient must accept null; got %#v", props["recipient"])
+	}
+
+	closedEnums := map[string][]string{
+		"direction": {"inbound", "outbound"},
+		"stage":     {"accepted", "authentication", "review", "suppression", "queued", "submission", "delivery", "complaint"},
+		"outcome":   {"accepted", "passed", "failed", "indeterminate", "pending", "approved", "rejected", "blocked", "applied", "enqueued", "deferred", "delivered", "bounced", "reported"},
+		"reason_code": {
+			"acceptance.inbound_smtp", "acceptance.outbound_api", "acceptance.local_loopback",
+			"authentication.dmarc_pass", "authentication.dmarc_fail", "authentication.dmarc_none", "authentication.dmarc_temporary_error", "authentication.dmarc_permanent_error",
+			"review.hold_created", "review.approved", "review.rejected", "review.expired_approved", "review.expired_rejected",
+			"suppression.recipient_blocked", "suppression.hard_bounce_applied", "suppression.complaint_applied",
+			"queue.inbound_processing", "queue.outbound_submission",
+			"submission.upstream_accepted", "submission.local_loopback_accepted", "submission.temporary_failure", "submission.provider_rejected", "submission.local_retries_exhausted", "submission.cancelled",
+			"delivery.recipient_server_accepted", "delivery.temporary_delay", "delivery.permanent_bounce", "delivery.transient_bounce", "delivery.undetermined_bounce",
+			"complaint.recipient_reported",
+		},
+	}
+	for field, want := range closedEnums {
+		got := enumOf(props, field)
+		if !setEqual(got, want...) {
+			t.Errorf("MessageLifecycleTransition.%s enum = %v, want exact closed vocabulary %v", field, got, want)
+		}
+		for _, value := range got {
+			lower := strings.ToLower(value)
+			if strings.Contains(lower, "screening") || strings.Contains(lower, "prompt_injection") || strings.Contains(lower, "prompt-injection") {
+				t.Errorf("MessageLifecycleTransition.%s must exclude screening/prompt-injection vocabulary, got %q", field, value)
+			}
+		}
+	}
+	for _, field := range []string{"evidence", "correlation_ids"} {
+		property, _ := props[field].(map[string]any)
+		if additional, exists := property["additionalProperties"]; !exists || additional == false {
+			t.Errorf("MessageLifecycleTransition.%s must accept additive keys; got %#v", field, property)
+		}
+	}
+
+	for _, component := range []string{"EmailReceivedData", "EmailSentData", "EmailFailedData", "EmailDeliveredData", "EmailBouncedData", "EmailComplainedData", "DomainSuppressionAddedData"} {
+		schema := schemaByName(t, doc, component)
+		componentProps, _ := schema["properties"].(map[string]any)
+		property, _ := componentProps["lifecycle_transitions"].(map[string]any)
+		arrayItems, _ := property["items"].(map[string]any)
+		if property["type"] != "array" || arrayItems["$ref"] != "#/components/schemas/MessageLifecycleTransition" {
+			t.Errorf("%s.lifecycle_transitions = %#v, want optional canonical transition array", component, property)
+		}
+		required, _ := schema["required"].([]any)
+		if containsAnyString(required, "lifecycle_transitions") {
+			t.Errorf("%s.lifecycle_transitions must remain optional for historical events", component)
+		}
+	}
+}
+
+func containsAnyString(values []any, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // enumOf returns the enum string slice for a property, or nil if absent.

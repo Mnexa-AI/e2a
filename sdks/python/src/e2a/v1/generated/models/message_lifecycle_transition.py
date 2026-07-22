@@ -17,25 +17,30 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
-from e2a.v1.generated.models.message_lifecycle_transition import MessageLifecycleTransition
 from typing import Optional, Set
 from typing_extensions import Self
 
-class EmailComplainedData(BaseModel):
+class MessageLifecycleTransition(BaseModel):
     """
-    EmailComplainedData
+    MessageLifecycleTransition
     """ # noqa: E501
-    agent_email: StrictStr
-    delivered_to: StrictStr = Field(description="The one recipient address this per-recipient outcome is about.")
-    direction: StrictStr = Field(description="Always \"outbound\" on this event.")
-    lifecycle_transitions: Optional[List[MessageLifecycleTransition]] = None
+    correlation_ids: Dict[str, StrictStr]
+    direction: StrictStr
+    evidence: Dict[str, Any]
+    id: StrictStr
     message_id: StrictStr
-    smtp_detail: Optional[StrictStr] = None
-    subject: Optional[StrictStr] = None
+    occurred_at: datetime
+    outcome: StrictStr
+    reason_code: StrictStr
+    recipient: Optional[StrictStr] = None
+    reconstructed: StrictBool
+    retryable: StrictBool
+    stage: StrictStr
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "delivered_to", "direction", "lifecycle_transitions", "message_id", "smtp_detail", "subject"]
+    __properties: ClassVar[List[str]] = ["correlation_ids", "direction", "evidence", "id", "message_id", "occurred_at", "outcome", "reason_code", "recipient", "reconstructed", "retryable", "stage"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -55,7 +60,7 @@ class EmailComplainedData(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of EmailComplainedData from a JSON string"""
+        """Create an instance of MessageLifecycleTransition from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -78,23 +83,21 @@ class EmailComplainedData(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in lifecycle_transitions (list)
-        _items = []
-        if self.lifecycle_transitions:
-            for _item_lifecycle_transitions in self.lifecycle_transitions:
-                if _item_lifecycle_transitions:
-                    _items.append(_item_lifecycle_transitions.to_dict())
-            _dict['lifecycle_transitions'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
+        # set to None if recipient (nullable) is None
+        # and model_fields_set contains the field
+        if self.recipient is None and "recipient" in self.model_fields_set:
+            _dict['recipient'] = None
+
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of EmailComplainedData from a dict"""
+        """Create an instance of MessageLifecycleTransition from a dict"""
         if obj is None:
             return None
 
@@ -102,13 +105,18 @@ class EmailComplainedData(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "agent_email": obj.get("agent_email"),
-            "delivered_to": obj.get("delivered_to"),
+            "correlation_ids": obj.get("correlation_ids"),
             "direction": obj.get("direction"),
-            "lifecycle_transitions": [MessageLifecycleTransition.from_dict(_item) for _item in obj["lifecycle_transitions"]] if obj.get("lifecycle_transitions") is not None else None,
+            "evidence": obj.get("evidence"),
+            "id": obj.get("id"),
             "message_id": obj.get("message_id"),
-            "smtp_detail": obj.get("smtp_detail"),
-            "subject": obj.get("subject")
+            "occurred_at": obj.get("occurred_at"),
+            "outcome": obj.get("outcome"),
+            "reason_code": obj.get("reason_code"),
+            "recipient": obj.get("recipient"),
+            "reconstructed": obj.get("reconstructed"),
+            "retryable": obj.get("retryable"),
+            "stage": obj.get("stage")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():
