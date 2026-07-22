@@ -1034,21 +1034,6 @@ function LifecycleSection({ msg, email }: { msg: LoadedMessage; email: string })
   return (
     <Collapsible
       label="Lifecycle"
-      meta={
-        <span
-          style={{
-            padding: "1px 5px",
-            borderRadius: 3,
-            background: "var(--info-bg)",
-            color: "var(--info-strong)",
-            fontSize: 9,
-            fontWeight: 700,
-            textTransform: "uppercase",
-          }}
-        >
-          Beta
-        </span>
-      }
       defaultOpen
     >
       <MessageLifecycleData email={email} messageId={msg.data.id} />

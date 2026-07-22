@@ -104,11 +104,12 @@ describe("ThreadBubble canonical lifecycle", () => {
 
     render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
 
-    const toggle = screen.getByRole("button", { name: /lifecycle.*beta/i });
+    const toggle = screen.getByRole("button", { name: /show lifecycle/i });
+    expect(toggle).not.toHaveTextContent(/beta/i);
     expect(mockGetLifecycle).not.toHaveBeenCalled();
     fireEvent.click(toggle);
 
-    expect(await screen.findByText("Accepted by upstream provider")).toBeInTheDocument();
+    expect(await screen.findByText("Handed off to delivery provider")).toBeInTheDocument();
     expect(mockGetLifecycle).toHaveBeenCalledWith(
       "support@acme.dev",
       "msg_lifecycle_thread",

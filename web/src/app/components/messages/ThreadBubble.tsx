@@ -315,7 +315,7 @@ export function ThreadBubble({
             type="button"
             onClick={() => setShowLifecycle((value) => !value)}
             aria-expanded={showLifecycle}
-            aria-label={`${showLifecycle ? "Hide" : "Show"} lifecycle beta`}
+            aria-label={`${showLifecycle ? "Hide" : "Show"} lifecycle`}
             style={{
               color: "var(--accent-strong)",
               background: "transparent",
@@ -327,21 +327,7 @@ export function ThreadBubble({
               flexShrink: 0,
             }}
           >
-            {showLifecycle ? "Hide lifecycle ▴" : "Lifecycle ▾"}{" "}
-            <span
-              style={{
-                display: "inline-block",
-                padding: "0 4px",
-                borderRadius: 3,
-                background: "var(--info-bg)",
-                color: "var(--info-strong)",
-                fontSize: 9,
-                fontWeight: 700,
-                textTransform: "uppercase",
-              }}
-            >
-              Beta
-            </span>
+            {showLifecycle ? "Hide lifecycle ▴" : "Lifecycle ▾"}
           </button>
         </div>
 

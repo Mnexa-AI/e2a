@@ -239,7 +239,8 @@ describe("AgentMessageFocusPage", () => {
     });
     expect(screen.getByRole("button", { name: /Lifecycle/i })).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(await screen.findByText(/review\.hold_created/)).toBeInTheDocument();
+    expect(await screen.findByText("Waiting for review")).toBeInTheDocument();
+    expect(screen.queryByText(/review\.hold_created/)).not.toBeInTheDocument();
     expect(screen.getAllByText("Pending review")).toHaveLength(2);
     expect(screen.getByText("Beta")).toBeInTheDocument();
   });

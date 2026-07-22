@@ -44,7 +44,7 @@ describe("MessageLifecycleData", () => {
 
     expect(await screen.findByText("Accepted by e2a")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /load more observations/i }));
-    expect(await screen.findByText("Accepted by upstream provider")).toBeInTheDocument();
+    expect(await screen.findByText("Handed off to delivery provider")).toBeInTheDocument();
     expect(screen.getByText("Accepted by e2a")).toBeInTheDocument();
     expect(mockGetLifecycle).toHaveBeenLastCalledWith(
       "agent@example.com",
