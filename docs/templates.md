@@ -50,7 +50,7 @@ interpreted; there is no escape sequence and no other directive syntax.
 ## Sending with a template
 
 Reference the template by its per-account alias (`template_alias`) or id
-(`template_id`) — mutually exclusive with literal `subject`/`body`/`html_body` —
+(`template_id`) — mutually exclusive with literal `subject`/`text`/`html` —
 and pass the variables in `template_data`:
 
 ```bash
@@ -77,7 +77,7 @@ curl -X POST https://api.e2a.dev/v1/agents/billing-bot%40agents.e2a.dev/messages
 Rendering happens **before** any human-in-the-loop review hold, so reviewers
 see the final subject and body.
 
-> **Wire change.** To make room for the template shape, `subject` and `body`
+> **Wire change.** To make room for the template shape, `subject` and `text`
 > moved from schema-required to handler-enforced on
 > `POST /v1/agents/{email}/messages`. A literal send that omits them now
 > returns **400 `invalid_request`** where it previously returned a **422**
