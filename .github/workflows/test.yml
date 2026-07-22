@@ -504,6 +504,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyyaml
+      - name: Test operation ID normalization
+        run: python3 -m unittest scripts/test_check_sdk_operation_coverage.py
       - name: Check every operation is reachable from both SDKs
         run: python3 scripts/check-sdk-operation-coverage.py
 
