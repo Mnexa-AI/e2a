@@ -388,8 +388,8 @@ Python generated SDK; generated files are never edited by hand.
 
 Handwritten surfaces add:
 
-- TypeScript `E2AClient.getMessageLifecycle(...)`;
-- Python async and sync `get_message_lifecycle(...)`;
+- TypeScript `E2AClient.messages.getLifecycle(...)`;
+- Python async and sync `messages.get_lifecycle(...)`;
 - CLI `e2a messages lifecycle <message-id> --agent <email>` with JSON output
   following existing global output conventions;
 - MCP `get_message_lifecycle` with agent email, message ID, limit, and cursor;
