@@ -1,6 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { ApiClient } from "../harness/client.ts";
+import { isEventsLogDisabled } from "../harness/event-capability.ts";
 import { uniqueSlug, uniqueSubject, holdAllOutbound } from "../harness/fixtures.ts";
 import { writeReport, info } from "../harness/report.ts";
 
@@ -64,12 +65,13 @@ const SUITE = "21-webhook-events";
 const client = new ApiClient();
 
 // Capability probe: deployments may disable the event log and report
-// events_log_disabled. Skip the suite only for that explicit 501 response. Probe
-// once at module load (top-level await; the runner waits for module eval to finish).
+// events_log_disabled. Skip only when both the 501 status and standard error code
+// match; any other response proceeds so the tests surface it. Probe once at module
+// load (top-level await; the runner waits for module eval to finish).
 let skip: string | false = false;
 try {
   const eventsProbe = await client.get("/v1/events", { query: { limit: 1 } });
-  if (eventsProbe.status === 501) {
+  if (isEventsLogDisabled(eventsProbe.status, eventsProbe.body)) {
     skip = "event-log capability disabled on this target (events_log_disabled)";
   }
 } catch {
