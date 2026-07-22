@@ -555,7 +555,7 @@ describe("e2a MCP server", () => {
     }
 
     // Reads → readOnlyHint.
-    for (const n of ["list_messages", "get_message", "whoami", "list_domains", "get_event", "list_webhook_deliveries", "list_templates", "get_template", "validate_template", "list_starter_templates", "get_starter_template", "list_api_keys"]) {
+    for (const n of ["list_messages", "whoami", "list_domains", "get_event", "list_webhook_deliveries", "list_templates", "get_template", "validate_template", "list_starter_templates", "get_starter_template", "list_api_keys"]) {
       expect(byName.get(n)?.readOnlyHint, `${n} readOnlyHint`).toBe(true);
     }
     // Deletes → destructive + idempotent.
@@ -577,6 +577,7 @@ describe("e2a MCP server", () => {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
       expect(byName.get(n)?.readOnlyHint ?? false, `${n} not read-only`).toBe(false);
     }
+    expect(byName.get("get_message")?.readOnlyHint, "get_message not read-only").toBe(false);
   });
 
   it("send_message forwards args to client.send", async () => {
