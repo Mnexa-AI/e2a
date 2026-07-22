@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@e2a/sdk": "file:../../../sdks/typescript",
-    "@openai/agents": "^0.3.0",
+    "@openai/agents": "^0.13.5",
     "dotenv": "^17.0.0",
     "express": "^5.0.0"
   },
