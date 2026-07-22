@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { E2AConnectionError, E2AError } from "@e2a/sdk/v1";
@@ -13,8 +14,22 @@ import { registerWebhookTools } from "../src/tools/webhooks.js";
 import { registerEventTools } from "../src/tools/events.js";
 import { registerTemplateTools } from "../src/tools/templates.js";
 import { registerApiKeyTools } from "../src/tools/apikeys.js";
+import { registerLegacyTools } from "../src/tools/legacy.js";
 import { CodedError, runTool, toMcpOutput } from "../src/tools/util.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+
+const frozenToolNames = JSON.parse(
+  readFileSync(new URL("../tool-names.v1.json", import.meta.url), "utf8"),
+) as string[];
+
+const REVIEW_ALIASES = [
+  "list_pending_messages",
+  "get_pending_message",
+  "approve_pending_message",
+  "reject_pending_message",
+  "approve_message",
+  "reject_message",
+] as const;
 
 // Build a small RFC822 blob with one attachment so the MessageView's
 // `rawMessage` decodes to a known attachment set (the v1 MessageView no
@@ -313,61 +328,7 @@ describe("e2a MCP server", () => {
   it("registers exactly the v1 tool set", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(
-      [
-        "send_message",
-        "reply_to_message",
-        "forward_message",
-        "update_message_labels",
-        "list_conversations",
-        "get_conversation",
-        "list_messages",
-        "get_message",
-        "get_attachment",
-        "restore_message",
-        "delete_message",
-        "list_agents",
-        "get_agent",
-        "whoami",
-        "create_agent",
-        "update_agent",
-        "delete_agent",
-        "restore_agent",
-        "get_protection",
-        "update_protection",
-        "list_domains",
-        "register_domain",
-        "verify_domain",
-        "get_domain",
-        "delete_domain",
-        "list_reviews",
-        "get_review",
-        "approve_review",
-        "reject_review",
-        "list_webhooks",
-        "get_webhook",
-        "create_webhook",
-        "update_webhook",
-        "delete_webhook",
-        "rotate_webhook_secret",
-        "test_webhook",
-        "list_webhook_deliveries",
-        "list_events",
-        "get_event",
-        "redeliver_event",
-        "list_templates",
-        "get_template",
-        "create_template",
-        "update_template",
-        "delete_template",
-        "validate_template",
-        "list_starter_templates",
-        "get_starter_template",
-        "list_api_keys",
-        "create_api_key",
-        "delete_api_key",
-      ].sort(),
-    );
+    expect(names).toEqual(frozenToolNames);
   });
 
   it("documents the fail-closed configuration for reviewing every outbound message", async () => {
@@ -451,6 +412,15 @@ describe("e2a MCP server", () => {
   // ── §6a scope/tier gating ──────────────────────────────────────────
   // account scope sees the full surface; agent scope sees only the runtime tier.
 
+  it("keeps the frozen v1 tool-name baseline sorted, unique, and callable", async () => {
+    expect(frozenToolNames).toHaveLength(59);
+    expect(frozenToolNames).toEqual([...new Set(frozenToolNames)].sort());
+    const accountNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
+    for (const name of frozenToolNames) {
+      expect(accountNames.has(name), `frozen MCP tool ${name} must remain callable`).toBe(true);
+    }
+  });
+
   it("every registered tool has exactly one tier (drift guard)", () => {
     // Collect the TRUE registered set by running the register*Tools functions
     // against a name-recording fake server — BEFORE gating, so an untiered tool
@@ -471,8 +441,9 @@ describe("e2a MCP server", () => {
     registerEventTools(recorder, stub);
     registerTemplateTools(recorder, stub);
     registerApiKeyTools(recorder, stub);
+    registerLegacyTools(recorder, stub);
 
-    expect(names).toHaveLength(51);
+    expect(names).toHaveLength(59);
     // Throws if any registered tool is untiered / double-tiered / phantom.
     expect(() => assertToolTiersComplete(names)).not.toThrow();
   });
@@ -481,32 +452,32 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(RUNTIME_TOOLS.size).toBe(13);
-    expect(ADMIN_TOOLS.size).toBe(38);
-    expect(toolNamesForScope("account").size).toBe(51);
+    expect(RUNTIME_TOOLS.size).toBe(15);
+    expect(ADMIN_TOOLS.size).toBe(44);
+    expect(toolNamesForScope("account").size).toBe(59);
   });
 
-  it("account scope exposes all 51 tools (runtime + admin)", async () => {
+  it("account scope exposes all 59 canonical and compatibility tools", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
-    expect(tools).toHaveLength(51);
+    expect(tools).toHaveLength(59);
     const names = new Set(tools.map((tool) => tool.name));
     for (const name of ["list_reviews", "get_review", "approve_review", "reject_review"]) {
       expect(names.has(name), `account review tool ${name} should be visible`).toBe(true);
     }
   });
 
-  it("agent scope exposes only the 13 runtime tools — all review tools hidden", async () => {
+  it("agent scope exposes 13 canonical runtime tools plus two runtime aliases", async () => {
     const ag = await connect(makeStubClient({ scope: "agent" }));
     const names = new Set((await ag.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(13);
+    expect(names.size).toBe(15);
     // Runtime tools present: an agent can send and read its own mailbox, but
     // account review discovery and decisions stay with the account owner.
     for (const n of [
       "whoami", "get_agent", "list_messages", "get_message",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
-      "restore_message", "delete_message",
+      "restore_message", "delete_message", "send_email", "get_attachment_data",
     ]) {
       expect(names.has(n), `runtime tool ${n} should be visible to agent scope`).toBe(true);
     }
@@ -528,6 +499,9 @@ describe("e2a MCP server", () => {
     ]) {
       expect(names.has(n), `admin tool ${n} must be hidden from agent scope`).toBe(false);
     }
+    for (const name of REVIEW_ALIASES) {
+      expect(names.has(name), `review alias ${name} must be hidden from agent scope`).toBe(false);
+    }
   });
 
   it("agent scope cannot call a hidden admin tool (errors + handler never runs)", async () => {
@@ -547,10 +521,27 @@ describe("e2a MCP server", () => {
       .toHaveLength(0);
   });
 
+  it("agent scope cannot call a hidden review alias", async () => {
+    const agentStub = makeStubClient({ scope: "agent" });
+    const agentClient = await connect(agentStub);
+    let errored = false;
+    try {
+      const result = await agentClient.callTool({
+        name: "get_pending_message",
+        arguments: { message_id: "msg_p" },
+      });
+      errored = result.isError === true;
+    } catch {
+      errored = true;
+    }
+    expect(errored).toBe(true);
+    expect((agentStub.getReview as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(0);
+  });
+
   // ── §6a tool annotations (#2) ───────────────────────────────────────
 
   it("every tool carries MCP annotations with the correct hints", async () => {
-    const { tools } = await client.listTools(); // account scope → all 51
+    const { tools } = await client.listTools(); // account scope → all 59
     const byName = new Map(tools.map((t) => [t.name, t.annotations ?? {}]));
 
     // Every tool has an annotations object.
@@ -597,6 +588,30 @@ describe("e2a MCP server", () => {
       { to: ["alice@example.com"], subject: "hi", text: "hello", cc: ["bob@example.com"] },
       {},
       undefined,
+    );
+  });
+
+  it("send_email preserves legacy body/html_body/agent_email inputs", async () => {
+    await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: ["alice@example.com"],
+        subject: "Legacy",
+        body: "plain",
+        html_body: "<p>html</p>",
+        agent_email: "bot@example.com",
+        idempotency_key: "legacy-send-1",
+      },
+    });
+    expect(stub.send).toHaveBeenCalledWith(
+      {
+        to: ["alice@example.com"],
+        subject: "Legacy",
+        text: "plain",
+        html: "<p>html</p>",
+      },
+      { idempotencyKey: "legacy-send-1" },
+      "bot@example.com",
     );
   });
 
@@ -969,6 +984,47 @@ describe("e2a MCP server", () => {
     expect(Buffer.from(parsed.data as string, "base64").toString()).toBe("%PDF-1.4 fake pdf bytes");
   });
 
+  it("get_attachment_data preserves the inline legacy attachment envelope", async () => {
+    const result = await client.callTool({
+      name: "get_attachment_data",
+      arguments: {
+        message_id: "msg_in",
+        attachment_index: 0,
+        agent_email: "bot@example.com",
+      },
+    });
+    expect(stub.getAttachment).toHaveBeenCalledWith(
+      "msg_in",
+      0,
+      { inline: true },
+      "bot@example.com",
+    );
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(JSON.parse(content[0]!.text)).toEqual({
+      filename: "report.pdf",
+      content_type: "application/pdf",
+      size_bytes: 23,
+      data: Buffer.from("%PDF-1.4 fake pdf bytes").toString("base64"),
+    });
+  });
+
+  it("get_attachment_data fails closed when inline bytes are absent", async () => {
+    (stub.getAttachment as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      index: 0,
+      filename: "report.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 23,
+      downloadUrl: "https://api.test/download",
+      expiresAt: "2026-05-20T10:15:00Z",
+    });
+    const result = await client.callTool({
+      name: "get_attachment_data",
+      arguments: { message_id: "msg_in", attachment_index: 0 },
+    });
+    expect(stub.getAttachment).toHaveBeenCalledWith("msg_in", 0, { inline: true }, undefined);
+    expect(result.isError).toBe(true);
+  });
+
   it("get_attachment surfaces a server error (e.g. out-of-range/too-large) as isError", async () => {
     // The size cap + index bounds are now SERVER concerns (413/404); the tool
     // forwards and surfaces the structured code.
@@ -1313,6 +1369,110 @@ describe("e2a MCP server", () => {
       arguments: { message_id: "msg_p" },
     });
     expect(stub.getReview).toHaveBeenCalledWith("msg_p");
+  });
+
+  it("list_pending_messages walks the account queue and preserves the legacy messages envelope", async () => {
+    (stub.listReviews as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        items: [{ id: "msg_in", direction: "inbound", reviewStatus: "pending_review" }],
+        next_cursor: "legacy_next",
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: "msg_out", direction: "outbound", reviewStatus: "pending_review" }],
+        next_cursor: undefined,
+      });
+
+    const result = await client.callTool({ name: "list_pending_messages", arguments: {} });
+
+    expect(stub.listReviews).toHaveBeenNthCalledWith(1, { limit: 100 });
+    expect(stub.listReviews).toHaveBeenNthCalledWith(2, { cursor: "legacy_next", limit: 100 });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(JSON.parse(content[0]!.text)).toEqual({
+      messages: [
+        { id: "msg_in", direction: "inbound", review_status: "pending_review" },
+        { id: "msg_out", direction: "outbound", review_status: "pending_review" },
+      ],
+    });
+  });
+
+  it("get_pending_message delegates to canonical review detail", async () => {
+    await client.callTool({
+      name: "get_pending_message",
+      arguments: { message_id: "msg_p" },
+    });
+    expect(stub.getReview).toHaveBeenCalledWith("msg_p");
+  });
+
+  it("approve_pending_message maps legacy body fields, attachments, and idempotency", async () => {
+    await client.callTool({
+      name: "approve_pending_message",
+      arguments: {
+        message_id: "msg_p",
+        subject: "edited",
+        body_text: "legacy text",
+        body_html: "<p>legacy</p>",
+        attachments: [{ filename: "a.txt", content_type: "text/plain", data: "YQ==" }],
+        idempotency_key: "legacy-approve-1",
+      },
+    });
+    expect(stub.approveReview).toHaveBeenCalledWith(
+      "msg_p",
+      {
+        subject: "edited",
+        text: "legacy text",
+        html: "<p>legacy</p>",
+        attachments: [{ filename: "a.txt", contentType: "text/plain", data: "YQ==" }],
+      },
+      { idempotencyKey: "legacy-approve-1" },
+    );
+  });
+
+  it("approve_message preserves its text/html override vocabulary", async () => {
+    await client.callTool({
+      name: "approve_message",
+      arguments: {
+        message_id: "msg_p",
+        text: "current text",
+        html: "<p>current</p>",
+        idempotency_key: "legacy-approve-2",
+      },
+    });
+    expect(stub.approveReview).toHaveBeenCalledWith(
+      "msg_p",
+      { text: "current text", html: "<p>current</p>" },
+      { idempotencyKey: "legacy-approve-2" },
+    );
+  });
+
+  it("both reject aliases delegate reason and remain destructive", async () => {
+    for (const name of ["reject_pending_message", "reject_message"] as const) {
+      await client.callTool({
+        name,
+        arguments: { message_id: "msg_p", reason: `rejected by ${name}` },
+      });
+      expect(stub.rejectReview).toHaveBeenLastCalledWith("msg_p", `rejected by ${name}`);
+    }
+    const tools = new Map((await client.listTools()).tools.map((tool) => [tool.name, tool.annotations]));
+    expect(tools.get("reject_pending_message")?.destructiveHint).toBe(true);
+    expect(tools.get("reject_message")?.destructiveHint).toBe(true);
+  });
+
+  it("every legacy alias advertises its canonical replacement", async () => {
+    const tools = new Map((await client.listTools()).tools.map((tool) => [tool.name, tool.description ?? ""]));
+    const replacements = new Map([
+      ["send_email", "send_message"],
+      ["get_attachment_data", "get_attachment"],
+      ["list_pending_messages", "list_reviews"],
+      ["get_pending_message", "get_review"],
+      ["approve_pending_message", "approve_review"],
+      ["reject_pending_message", "reject_review"],
+      ["approve_message", "approve_review"],
+      ["reject_message", "reject_review"],
+    ]);
+    for (const [name, replacement] of replacements) {
+      expect(tools.get(name), `${name} deprecation description`).toMatch(/deprecated/i);
+      expect(tools.get(name), `${name} replacement`).toContain(replacement);
+    }
   });
 
   it("approve_review strips message_id and maps overrides to camelCase", async () => {
