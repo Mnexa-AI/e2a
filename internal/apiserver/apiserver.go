@@ -113,6 +113,8 @@ func BuildDeps(p Params) httpapi.Deps {
 		Authenticator:          p.API.AuthenticateUser,
 		PrincipalAuthenticator: p.API.AuthenticatePrincipal,
 		AuthChallenge:          p.API.WWWAuthenticateChallenge,
+		MagicLinkApprove:       p.API.ApproveMagicLinkHandler(),
+		MagicLinkReject:        p.API.RejectMagicLinkHandler(),
 		ListAgents:             p.Store.ListAgentsByUser,
 		GetAgent:               p.Store.GetAgentByEmail,
 		GetMessage:             p.Store.GetMessageWithContent,
