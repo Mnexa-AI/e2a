@@ -3,7 +3,7 @@
 //
 // The Python service shells out to this script rather than embedding a JS
 // runtime. It imports `@e2a/sdk/v1` resolved from node_modules — populated at
-// image build time by `npm install @e2a/sdk@5.2.0` (see ../Dockerfile), the
+// image build time by `npm install @e2a/sdk@5.3.0` (see ../Dockerfile), the
 // same "published package only, never workspace source" discipline as
 // requirements.txt for the Python SDK.
 //
