@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -176,4 +177,28 @@ func TestApprovePendingCore_AsyncSelfSendLifecycleStaysSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertApprovedLoopbackLifecycleParity(t, pool, msg.ID, inboundID)
+	sentEnvelope, err := store.GetEventEnvelope(ctx, msg.ID, "email.sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receivedEnvelope, err := store.GetEventEnvelope(ctx, inboundID, "email.received")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lifecycleBefore int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN ($1,$2)`, msg.ID, inboundID).Scan(&lifecycleBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{}, complete); oerr == nil || oerr.Code != "message_not_pending" {
+		t.Fatalf("duplicate approval error=%+v", oerr)
+	}
+	var lifecycleAfter int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN ($1,$2)`, msg.ID, inboundID).Scan(&lifecycleAfter); err != nil {
+		t.Fatal(err)
+	}
+	sentAfter, _ := store.GetEventEnvelope(ctx, msg.ID, "email.sent")
+	receivedAfter, _ := store.GetEventEnvelope(ctx, inboundID, "email.received")
+	if lifecycleAfter != lifecycleBefore || !bytes.Equal(sentEnvelope, sentAfter) || !bytes.Equal(receivedEnvelope, receivedAfter) {
+		t.Fatalf("duplicate approval changed lifecycle/envelopes: lifecycle %d->%d", lifecycleBefore, lifecycleAfter)
+	}
 }

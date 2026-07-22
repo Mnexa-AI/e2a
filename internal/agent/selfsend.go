@@ -99,13 +99,6 @@ func (a *API) performSelfSend(
 			return fmt.Errorf("self-send inbound method: %w", txErr)
 		}
 		inboundMsg.Method = "loopback"
-		acceptedOutbound, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
-			MessageID: outboundMsg.ID, DedupeKey: "acceptance", Direction: "outbound",
-			ReasonCode: messagelifecycle.ReasonAcceptanceOutboundAPI, OccurredAt: outboundMsg.CreatedAt,
-		})
-		if txErr != nil {
-			return txErr
-		}
 		submittedOutbound, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 			MessageID: outboundMsg.ID, DedupeKey: "submission:local-loopback", Direction: "outbound",
 			ReasonCode:     messagelifecycle.ReasonSubmissionLocalLoopbackAccepted,
@@ -124,7 +117,7 @@ func (a *API) performSelfSend(
 		}
 
 		if a.outbox != nil {
-			if receivedEvent, txErr = a.publishLoopbackEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, msgType, rawMessage, []messagelifecycle.MessageLifecycleTransition{acceptedOutbound, submittedOutbound}, []messagelifecycle.MessageLifecycleTransition{acceptedInbound}); txErr != nil {
+			if receivedEvent, txErr = a.publishLoopbackEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, msgType, rawMessage, []messagelifecycle.MessageLifecycleTransition{submittedOutbound}, []messagelifecycle.MessageLifecycleTransition{acceptedInbound}); txErr != nil {
 				return txErr
 			}
 		}

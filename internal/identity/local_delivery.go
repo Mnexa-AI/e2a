@@ -153,7 +153,7 @@ func (s *Store) ExpireAndDeliverLocal(
 }
 
 func appendLocalDeliveryLifecycle(ctx context.Context, tx pgx.Tx, outbound, inbound *Message, result SendResult, reviewReason messagelifecycle.ReasonCode, resolution string) ([]messagelifecycle.MessageLifecycleTransition, []messagelifecycle.MessageLifecycleTransition, error) {
-	reviewed, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+	_, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 		MessageID: outbound.ID, DedupeKey: "review:resolution", Direction: "outbound",
 		ReasonCode: reviewReason, Evidence: map[string]any{"review_resolution": resolution}, OccurredAt: time.Now(),
 	})
@@ -176,7 +176,7 @@ func appendLocalDeliveryLifecycle(ctx context.Context, tx pgx.Tx, outbound, inbo
 	if err != nil {
 		return nil, nil, err
 	}
-	return []messagelifecycle.MessageLifecycleTransition{reviewed, submitted}, []messagelifecycle.MessageLifecycleTransition{accepted}, nil
+	return []messagelifecycle.MessageLifecycleTransition{submitted}, []messagelifecycle.MessageLifecycleTransition{accepted}, nil
 }
 
 func finalizeLocalDeliveryTx(

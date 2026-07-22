@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,22 @@ type fakeOutboundEnqueuer struct{ jobID int64 }
 
 func (f *fakeOutboundEnqueuer) EnqueueSendTx(_ context.Context, _ pgx.Tx, _ string) (int64, error) {
 	return f.jobID, nil
+}
+
+type txSentinelEnqueuer struct{}
+
+func (txSentinelEnqueuer) EnqueueSendTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, `INSERT INTO task6_durable_jobs (message_id) VALUES ($1) RETURNING id`, messageID).Scan(&id)
+	return id, err
+}
+
+func installTask6DurableJobs(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `DROP TABLE IF EXISTS task6_durable_jobs; CREATE TABLE task6_durable_jobs (id bigserial PRIMARY KEY, message_id text NOT NULL UNIQUE)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS task6_durable_jobs`) })
 }
 
 type fakeNotifyEnqueuer struct{ called int }
@@ -146,6 +163,12 @@ func TestDeliverOutbound_AcceptTransactionLifecycleRollsBackAsAUnit(t *testing.T
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "acceptrollback")
 	callbackCalled := false
+	var lifecycleBaseline int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleBaseline)
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
 		To: []string{"alice@external.test"}, Subject: "rollback boundary", Body: "never accepted",
@@ -178,19 +201,21 @@ func TestDeliverOutbound_AcceptTransactionLifecycleRollsBackAsAUnit(t *testing.T
 	if messages != 0 {
 		t.Fatalf("accepted messages after aborted transaction = %d, want 0", messages)
 	}
-	var lifecycle int
+	var lifecycleAfter int
 	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN (SELECT id FROM messages WHERE agent_id=$1 AND subject=$2)`, ag.ID, "rollback boundary").Scan(&lifecycle)
+		return tx.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleAfter)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if lifecycle != 0 {
-		t.Fatalf("lifecycle rows after abort=%d want 0", lifecycle)
+	if lifecycleAfter != lifecycleBaseline {
+		t.Fatalf("lifecycle rows after abort before=%d after=%d", lifecycleBaseline, lifecycleAfter)
 	}
 }
 
 func TestDeliverOutbound_QueueLifecycleFailureRollsBack(t *testing.T) {
 	api, store, _, _, pool := setupAsyncAPIWithPool(t)
+	installTask6DurableJobs(t, pool)
+	api.SetOutboundEnqueuer(txSentinelEnqueuer{})
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "queuelifecyclerb")
 	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_queue_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='queue.outbound_submission' THEN RAISE EXCEPTION 'forced queue lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_queue_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_queue_lifecycle();`)
@@ -200,16 +225,29 @@ func TestDeliverOutbound_QueueLifecycleFailureRollsBack(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_queue_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_queue_lifecycle();`)
 	})
+	var lifecycleBaseline int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleBaseline); err != nil {
+		t.Fatal(err)
+	}
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"a@example.net"}, Subject: "queue lifecycle rollback", Body: "body"}, "send", "", nil, nil)
 	if res != nil || oerr == nil {
 		t.Fatalf("result=%+v error=%+v want failure", res, oerr)
 	}
-	var messages int
+	var messages, jobsCount, lifecycleAfter int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject='queue lifecycle rollback'`, ag.ID).Scan(&messages); err != nil {
 		t.Fatal(err)
 	}
 	if messages != 0 {
 		t.Fatalf("message survived queue lifecycle failure: %d", messages)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task6_durable_jobs`).Scan(&jobsCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleAfter); err != nil {
+		t.Fatal(err)
+	}
+	if jobsCount != 0 || lifecycleAfter != lifecycleBaseline {
+		t.Fatalf("partial accept jobs=%d lifecycle before=%d after=%d", jobsCount, lifecycleBaseline, lifecycleAfter)
 	}
 }
 
@@ -220,7 +258,9 @@ func TestDeliverOutbound_QueueLifecycleFailureRollsBack(t *testing.T) {
 // SendWorker over the store adapter + a fake deliverer then flips the row to sent,
 // records the provider id, and emits email.sent.
 func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
-	api, store, outbox, enq := setupAsyncAPI(t)
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	installTask6DurableJobs(t, pool)
+	api.SetOutboundEnqueuer(txSentinelEnqueuer{})
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "asyncacc")
 
@@ -257,8 +297,15 @@ func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
 	if providerID != "" {
 		t.Errorf("provider_message_id = %q, want empty at accept", providerID)
 	}
-	if sendJobID == nil || *sendJobID != enq.jobID {
-		t.Errorf("send_job_id = %v, want %d", sendJobID, enq.jobID)
+	if sendJobID == nil {
+		t.Fatal("send_job_id is nil")
+	}
+	var durableMessageID string
+	if err := pool.QueryRow(ctx, `SELECT message_id FROM task6_durable_jobs WHERE id=$1`, *sendJobID).Scan(&durableMessageID); err != nil {
+		t.Fatalf("durable job: %v", err)
+	}
+	if durableMessageID != res.MessageID {
+		t.Fatalf("durable job message=%s want %s", durableMessageID, res.MessageID)
 	}
 	if len(raw) == 0 {
 		t.Errorf("raw_message empty; the composed bytes must be persisted for the worker")
@@ -274,7 +321,7 @@ func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if acceptance != 1 || queued != 1 || lifecycleJobID != "999" {
+	if acceptance != 1 || queued != 1 || lifecycleJobID != fmt.Sprint(*sendJobID) {
 		t.Fatalf("accept lifecycle acceptance=%d queued=%d job=%q", acceptance, queued, lifecycleJobID)
 	}
 
@@ -283,7 +330,7 @@ func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
 	worker := outboundsend.NewSendWorker(adapter, fakeAsyncDeliverer{
 		out: outboundsend.DeliverOutcome{ProviderMessageID: "<ses-async-1@amazonses.com>", SentAs: "relay"},
 	})
-	if err := worker.Work(ctx, workerJob(res.MessageID, 1)); err != nil {
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, *sendJobID, 1)); err != nil {
 		t.Fatalf("worker.Work: %v", err)
 	}
 
@@ -306,7 +353,7 @@ func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
 	}
 
 	// Re-running the worker is a no-op (delivery_status past accepted/sending).
-	if err := worker.Work(ctx, workerJob(res.MessageID, 2)); err != nil {
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, *sendJobID, 2)); err != nil {
 		t.Fatalf("worker.Work re-drive: %v", err)
 	}
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 1 {
