@@ -43,6 +43,27 @@ test("mcp: tools/list preserves legacy compatibility aliases", async () => {
   for (const alias of aliases) {
     assert.ok(names.includes(alias), `expected compatibility alias "${alias}" in surface`);
   }
+
+  const send = await callTool(mcp, "send_email", {
+    agent_email: apiClient.env.primaryAgentEmail,
+    to: ["definitely not a valid email"],
+    subject: "legacy compatibility validation probe",
+    body: "must never be sent",
+  });
+  assert.equal(send.isError, true, "legacy send_email schema and handler must reject an invalid recipient");
+
+  const bogusMessageId = `msg_bogus_${Date.now()}`;
+  const approve = await callTool(mcp, "approve_pending_message", {
+    message_id: bogusMessageId,
+    body_text: "historical override field",
+  });
+  assert.equal(approve.isError, true, "legacy approve_pending_message handler must reject an unknown review");
+
+  const reject = await callTool(mcp, "reject_pending_message", {
+    message_id: bogusMessageId,
+    reason: "legacy compatibility probe",
+  });
+  assert.equal(reject.isError, true, "legacy reject_pending_message handler must reject an unknown review");
 });
 
 test("mcp: list_agents returns user's agents", async () => {

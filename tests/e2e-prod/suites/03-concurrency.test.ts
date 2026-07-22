@@ -31,14 +31,23 @@ test("concurrency: 5 parallel creates with distinct slugs all succeed", async (t
     return;
   }
   const slugs = Array.from({ length: 5 }, () => uniqueSlug("par"));
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     slugs.map((slug) =>
       burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "par" } }),
     ),
   );
-  results.forEach((r, i) => {
-    if (r.status === 201) track("agent", r.body?.email ?? `${slugs[i]}@${burst.env.sharedDomain}`);
+  settled.forEach((result, i) => {
+    if (result.status === "fulfilled" && result.value.status === 201) {
+      track("agent", result.value.body?.email ?? `${slugs[i]}@${burst.env.sharedDomain}`);
+    }
   });
+  const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  assert.equal(
+    rejected.length,
+    0,
+    `parallel create transport failures: ${rejected.map((result) => String(result.reason)).join(" | ")}`,
+  );
+  const results = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   for (const r of results) {
     assert.equal(r.status, 201, `parallel create failed: ${r.status} ${r.raw.slice(0, 200)}`);
   }
@@ -53,18 +62,27 @@ test("concurrency: 5 parallel creates with the SAME slug — exactly one wins, r
     return;
   }
   const slug = uniqueSlug("race");
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     Array.from({ length: 5 }, () =>
       burst.post<{ email: string }>("/v1/agents", { body: { email: `${slug}@${burst.env.sharedDomain}`, name: "race" } }),
     ),
   );
+  for (const result of settled) {
+    if (result.status === "fulfilled" && result.value.status === 201) {
+      track("agent", result.value.body?.email ?? `${slug}@${burst.env.sharedDomain}`);
+    }
+  }
+  const rejected = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  assert.equal(
+    rejected.length,
+    0,
+    `same-slug race transport failures: ${rejected.map((result) => String(result.reason)).join(" | ")}`,
+  );
+  const results = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   const successes = results.filter((r) => r.status === 201);
   const conflicts = results.filter((r) => r.status === 409);
   const otherFails = results.filter((r) => r.status !== 201 && r.status !== 409);
 
-  for (const winner of successes) {
-    track("agent", winner.body?.email ?? `${slug}@${burst.env.sharedDomain}`);
-  }
   assert.equal(successes.length, 1, `expected exactly 1 success, got ${successes.length}: ${results.map((r) => r.status).join(",")}`);
 
   if (otherFails.length > 0) {

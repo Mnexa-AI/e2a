@@ -37,8 +37,12 @@ export function resolveSiteUrl(apiUrl: string, explicitSiteUrl?: string): string
   return normalizedApiUrl;
 }
 
-export function resolveSinkEmail(primaryAgentEmail: string, explicitSinkEmail?: string): string {
-  return explicitSinkEmail?.trim() || primaryAgentEmail;
+export function resolveSinkEmail(explicitSinkEmail?: string): string {
+  const sinkEmail = explicitSinkEmail?.trim();
+  if (!sinkEmail) {
+    throw new Error("E2E_SINK_EMAIL is required and must name a safe test sink; never use a real agent address");
+  }
+  return sinkEmail;
 }
 
 function readLocalConfig(): { api_key?: string; api_url?: string; agent_email?: string; shared_domain?: string } {
@@ -83,7 +87,7 @@ export function loadEnv(): ProdEnv {
     mcpUrl: "", // filled below once apiUrl is known
     apiKey: process.env.E2A_API_KEY ?? local.api_key ?? "",
     primaryAgentEmail,
-    sinkEmail: resolveSinkEmail(primaryAgentEmail, process.env.E2E_SINK_EMAIL),
+    sinkEmail: resolveSinkEmail(process.env.E2E_SINK_EMAIL),
     sharedDomain: process.env.E2A_SHARED_DOMAIN ?? local.shared_domain ?? "agents.e2a.dev",
     quotaApiKey: process.env.E2A_QUOTA_API_KEY || undefined,
     quotaAgentEmail: process.env.E2A_QUOTA_AGENT_EMAIL || undefined,

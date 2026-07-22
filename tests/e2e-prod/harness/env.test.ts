@@ -31,25 +31,28 @@ test("resolveSiteUrl keeps other API targets as the site target", () => {
   );
 });
 
-test("resolveSinkEmail prefers an explicit sink", () => {
-  assert.equal(
-    resolveSinkEmail("primary@agents.example.test", "sink@example.test"),
-    "sink@example.test",
-  );
+test("resolveSinkEmail returns the explicit non-empty sink", () => {
+  assert.equal(resolveSinkEmail(" sink@example.test "), "sink@example.test");
 });
 
-test("resolveSinkEmail falls back to the primary agent email", () => {
-  assert.equal(
-    resolveSinkEmail("primary@agents.example.test"),
-    "primary@agents.example.test",
+test("resolveSinkEmail rejects a missing or empty sink", () => {
+  assert.throws(
+    () => resolveSinkEmail(),
+    /E2E_SINK_EMAIL.*required/i,
+  );
+  assert.throws(
+    () => resolveSinkEmail("   "),
+    /E2E_SINK_EMAIL.*required/i,
   );
 });
 
 test("ApiClient can override its base URL without changing existing constructor arguments", async () => {
   const originalApiKey = process.env.E2A_API_KEY;
   const originalAgentEmail = process.env.E2A_AGENT_EMAIL;
+  const originalSinkEmail = process.env.E2E_SINK_EMAIL;
   process.env.E2A_API_KEY = "test-key";
   process.env.E2A_AGENT_EMAIL = "primary@agents.example.test";
+  process.env.E2E_SINK_EMAIL = "sink@example.test";
   const { ApiClient } = await import("./client.ts");
   const env: ProdEnv = {
     apiUrl: "https://api.example.test",
@@ -79,6 +82,8 @@ test("ApiClient can override its base URL without changing existing constructor 
     else process.env.E2A_API_KEY = originalApiKey;
     if (originalAgentEmail === undefined) delete process.env.E2A_AGENT_EMAIL;
     else process.env.E2A_AGENT_EMAIL = originalAgentEmail;
+    if (originalSinkEmail === undefined) delete process.env.E2E_SINK_EMAIL;
+    else process.env.E2E_SINK_EMAIL = originalSinkEmail;
   }
 
   assert.equal(requestedUrl, "https://site.example.test/pricing");
