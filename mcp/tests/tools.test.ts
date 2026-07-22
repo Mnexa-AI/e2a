@@ -175,7 +175,13 @@ function makeStubClient(
       expiresAt: "2026-05-20T10:15:00Z",
       ...(opts?.inline ? { data: Buffer.from("%PDF-1.4 fake pdf bytes").toString("base64") } : {}),
     })),
-    listReviews: vi.fn(async () => []),
+    listReviews: vi.fn(async (params: { cursor?: string; limit?: number } = {}) => ({
+      items: [
+        { id: "msg_in", direction: "inbound", reviewStatus: "pending_review" },
+        { id: "msg_out", direction: "outbound", reviewStatus: "pending_review" },
+      ],
+      next_cursor: params.cursor ? undefined : "reviews_next",
+    })),
     getReview: vi.fn(async (id: string) => ({
       messageId: id,
       reviewStatus: "pending_review",
@@ -475,8 +481,8 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(RUNTIME_TOOLS.size).toBe(15);
-    expect(ADMIN_TOOLS.size).toBe(36);
+    expect(RUNTIME_TOOLS.size).toBe(13);
+    expect(ADMIN_TOOLS.size).toBe(38);
     expect(toolNamesForScope("account").size).toBe(51);
   });
 
@@ -484,27 +490,32 @@ describe("e2a MCP server", () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
     expect(tools).toHaveLength(51);
+    const names = new Set(tools.map((tool) => tool.name));
+    for (const name of ["list_reviews", "get_review", "approve_review", "reject_review"]) {
+      expect(names.has(name), `account review tool ${name} should be visible`).toBe(true);
+    }
   });
 
-  it("agent scope exposes only the 15 runtime tools — admin tools hidden", async () => {
+  it("agent scope exposes only the 13 runtime tools — all review tools hidden", async () => {
     const ag = await connect(makeStubClient({ scope: "agent" }));
     const names = new Set((await ag.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(15);
-    // Runtime tools present (an agent can send + read its own pending queue,
-    // but NOT approve/reject — that's an account-owner action, see below):
+    expect(names.size).toBe(13);
+    // Runtime tools present: an agent can send and read its own mailbox, but
+    // account review discovery and decisions stay with the account owner.
     for (const n of [
       "whoami", "get_agent", "list_messages", "get_message",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
-      "list_reviews", "get_review", "restore_message", "delete_message",
+      "restore_message", "delete_message",
     ]) {
       expect(names.has(n), `runtime tool ${n} should be visible to agent scope`).toBe(true);
     }
-    // Admin tools hidden — incl. approve/reject: self-approval would defeat HITL.
+    // Admin tools hidden — all review operations are account-only; exposing
+    // discovery would leak held inbound content and account-wide queue state.
     for (const n of [
       "list_agents", "create_agent", "update_agent", "delete_agent", "restore_agent",
       "get_protection", "update_protection",
-      "approve_review", "reject_review",
+      "list_reviews", "get_review", "approve_review", "reject_review",
       "list_domains", "get_domain", "register_domain", "verify_domain", "delete_domain",
       "list_webhooks", "get_webhook", "create_webhook", "update_webhook",
       "delete_webhook", "rotate_webhook_secret", "test_webhook", "list_webhook_deliveries",
@@ -1271,9 +1282,29 @@ describe("e2a MCP server", () => {
     expect(JSON.parse(content[0]!.text)).toEqual({ deleted: true, id: "key_1" });
   });
 
-  it("list_reviews calls the SDK", async () => {
-    await client.callTool({ name: "list_reviews", arguments: {} });
-    expect(stub.listReviews).toHaveBeenCalledOnce();
+  it("list_reviews forwards pagination and returns both directions in the MCP envelope", async () => {
+    const result = await client.callTool({
+      name: "list_reviews",
+      arguments: { cursor: "reviews_cursor", limit: 25 },
+    });
+    expect(stub.listReviews).toHaveBeenCalledWith({
+      cursor: "reviews_cursor",
+      limit: 25,
+    });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(JSON.parse(content[0]!.text)).toEqual({
+      reviews: [
+        { id: "msg_in", direction: "inbound", review_status: "pending_review" },
+        { id: "msg_out", direction: "outbound", review_status: "pending_review" },
+      ],
+    });
+  });
+
+  it("list_reviews returns next_cursor only when another page exists", async () => {
+    const result = await client.callTool({ name: "list_reviews", arguments: {} });
+    expect(stub.listReviews).toHaveBeenCalledWith({});
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(JSON.parse(content[0]!.text)).toMatchObject({ next_cursor: "reviews_next" });
   });
 
   it("get_review forwards the id", async () => {
