@@ -34,6 +34,7 @@ export type DomainSendingStatus = "none" | "pending" | "verified" | "failed";
 export type DNSRecordPurpose =
   | "ownership"
   | "inbound_mx"
+  | "inbound_mx_wildcard"
   | "dkim"
   | "mail_from_mx"
   | "mail_from_spf";

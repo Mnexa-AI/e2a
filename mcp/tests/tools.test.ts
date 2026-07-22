@@ -556,6 +556,9 @@ describe("e2a MCP server", () => {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(true);
       expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);
     }
+    // Rejecting a review discards the held item — destructive, but not
+    // idempotent (a replay against a resolved hold returns 409).
+    expect(byName.get("reject_review")?.destructiveHint, "reject_review destructiveHint").toBe(true);
     // Idempotent non-destructive updates.
     for (const n of ["update_agent", "update_webhook", "update_message_labels", "verify_domain", "register_domain", "update_template"]) {
       expect(byName.get(n)?.idempotentHint, `${n} idempotentHint`).toBe(true);

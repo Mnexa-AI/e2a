@@ -72,6 +72,26 @@ test("the setup guide reaches a verified first inbox", async () => {
   assert.doesNotMatch(source, /Always call `tools\/list`/);
 });
 
+const assertAlwaysReviewGuidance = (source, file) => {
+  assert.match(source, /update_protection/, file);
+  assert.match(source, /outbound_gate_policy["`:\s]+allowlist/, file);
+  assert.match(source, /outbound_gate_allowlist["`:\s]+\[\]/, file);
+  assert.match(source, /outbound_gate_action["`:\s]+review/, file);
+  assert.match(source, /holds_on_expiry["`:\s]+reject/, file);
+  assert.match(source, /open.*review.*hold(?:s|ing)? nothing/is, file);
+  assert.match(source, /only when the user (?:asks|requests)/i, file);
+};
+
+test("agent guidance teaches the opt-in always-review protection policy", async () => {
+  for (const file of [
+    "plugins/e2a/skills/e2a/SKILL.md",
+    "plugins/e2a/docs/setup.md",
+  ]) {
+    const source = await readFile(file, "utf8");
+    assertAlwaysReviewGuidance(source, file);
+  }
+});
+
 test("tether setup does not mutate review configuration", async () => {
   const source = await readFile("plugins/e2a/skills/tether/tether.sh", "utf8");
   assert.doesNotMatch(source, /protection set|outbound-review|outbound review/i);

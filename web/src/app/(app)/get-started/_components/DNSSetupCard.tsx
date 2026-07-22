@@ -14,6 +14,7 @@ import { track } from "../../../components/onboarding/analytics";
 const PURPOSE_LABEL: Record<DNSRecordPurpose, string> = {
   ownership: "Prove domain ownership",
   inbound_mx: "Route email to e2a",
+  inbound_mx_wildcard: "Route email for all subdomains",
   dkim: "Authenticate outbound mail (DKIM)",
   mail_from_mx: "Return path for bounces (MAIL FROM)",
   mail_from_spf: "Authorize sending (SPF)",
