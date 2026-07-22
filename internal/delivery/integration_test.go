@@ -957,11 +957,9 @@ func TestDetailNotClobberedByLaterEvent(t *testing.T) {
 }
 
 // TestCrashWindowCorrectionEndToEnd drives the full §3.1 correction chain on a
-// real store: an outbound message whose SMTP accept was never recorded (no
-// provider id) is falsely failed locally; the raw SNS Delivery notification —
-// carrying the X-E2A-Message-ID header echo — is parsed, header-correlated,
-// records provider-accept evidence (repairing the provider id), and corrects
-// the stored message + recipient rollup to delivered.
+// real store: signed provider feedback corrects a locally failed outbound row
+// by first running the canonical sent finalizer and then applying delivery, all
+// in one transaction. Re-delivery must not duplicate any logical side effect.
 func TestCrashWindowCorrectionEndToEnd(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ctx := context.Background()
@@ -988,10 +986,17 @@ func TestCrashWindowCorrectionEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutboundMessage: %v", err)
 	}
-	// Locally inferred terminal failure (reconciler/final-attempt shape).
+	// Complete locally inferred terminal failure (reconciler/final-attempt
+	// shape), including suppression evidence which the sent finalizer must
+	// preserve before clearing the fallback provenance.
+	fallbackAt := time.Date(2026, 7, 21, 16, 1, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx,
 		`UPDATE messages SET delivery_status='failed', delivery_detail='send job discarded',
-		        delivery_failure_source='local' WHERE id=$1`, msg.ID); err != nil {
+		        send_job_id=12345, delivery_failure_source='local',
+		        delivery_failure_reason_code='submission.local_retries_exhausted',
+		        delivery_failure_occurred_at=$2, delivery_failure_attempt=5,
+		        delivery_failure_blocked_recipients=ARRAY['blocked@example.com']
+		  WHERE id=$1`, msg.ID, fallbackAt); err != nil {
 		t.Fatalf("force local failed: %v", err)
 	}
 
@@ -1014,27 +1019,116 @@ func TestCrashWindowCorrectionEndToEnd(t *testing.T) {
 	}
 	ev.ProviderEventID = "sns-crashwin-1"
 	ev.OccurredAt = time.Date(2026, 7, 21, 16, 2, 0, 0, time.UTC)
-	consumer := delivery.NewConsumer(store, nil)
-	if err := consumer.Process(ctx, ev); err != nil {
-		t.Fatalf("Process: %v", err)
+
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	finalizer := agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool)))
+	consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox), finalizer.FinalizeProviderAcceptedTx)
+
+	// A downstream feedback publication failure must roll back the provider
+	// evidence and every preceding canonical-sent side effect.
+	if _, err := pool.Exec(ctx, `CREATE FUNCTION test_fail_crashwin_feedback() RETURNS trigger AS $f$ BEGIN IF NEW.type='email.delivered' THEN RAISE EXCEPTION 'forced crash-window feedback failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_crashwin_feedback BEFORE INSERT ON webhook_events FOR EACH ROW EXECUTE FUNCTION test_fail_crashwin_feedback()`); err != nil {
+		t.Fatal(err)
+	}
+	dropFailure := func() {
+		_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_crashwin_feedback ON webhook_events; DROP FUNCTION IF EXISTS test_fail_crashwin_feedback()`)
+	}
+	t.Cleanup(dropFailure)
+	if err := consumer.Process(ctx, ev); err == nil {
+		t.Fatal("Process succeeded, want injected downstream failure")
+	}
+	var rollbackStatus, rollbackSource, rollbackReason, rollbackDetail string
+	var rollbackAcceptedAt *time.Time
+	var rollbackOccurredAt *time.Time
+	var rollbackAttempt *int
+	var rollbackBlocked []string
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_source,''),COALESCE(delivery_failure_reason_code,''),COALESCE(delivery_detail,''),provider_accepted_at,delivery_failure_occurred_at,delivery_failure_attempt,COALESCE(delivery_failure_blocked_recipients,'{}') FROM messages WHERE id=$1`, msg.ID).Scan(&rollbackStatus, &rollbackSource, &rollbackReason, &rollbackDetail, &rollbackAcceptedAt, &rollbackOccurredAt, &rollbackAttempt, &rollbackBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if rollbackStatus != "failed" || rollbackSource != "local" || rollbackReason != "submission.local_retries_exhausted" || rollbackDetail != "send job discarded" || rollbackAcceptedAt != nil || rollbackOccurredAt == nil || !rollbackOccurredAt.Equal(fallbackAt) || rollbackAttempt == nil || *rollbackAttempt != 5 || len(rollbackBlocked) != 1 || rollbackBlocked[0] != "blocked@example.com" {
+		t.Fatalf("partial rollback state: status=%q source=%q reason=%q detail=%q accepted=%v occurred=%v attempt=%v blocked=%v", rollbackStatus, rollbackSource, rollbackReason, rollbackDetail, rollbackAcceptedAt, rollbackOccurredAt, rollbackAttempt, rollbackBlocked)
+	}
+	for label, query := range map[string]string{
+		"events":      `SELECT count(*) FROM webhook_events WHERE message_id=$1 AND type IN ('email.sent','email.delivered')`,
+		"usage":       `SELECT count(*) FROM usage_events WHERE user_id=$1 AND direction='outbound'`,
+		"acceptance":  `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.upstream_accepted'`,
+		"suppression": `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='suppression.recipient_blocked'`,
+	} {
+		arg := any(msg.ID)
+		if label == "usage" {
+			arg = user.ID
+		}
+		var count int
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("rollback %s rows=%d want 0", label, count)
+		}
 	}
 
-	var status, detail, source, providerID string
+	dropFailure()
+	if err := consumer.Process(ctx, ev); err != nil {
+		t.Fatalf("Process retry: %v", err)
+	}
+
+	var status, detail, source, reason, providerID string
+	var acceptedAt time.Time
+	var occurredAt *time.Time
+	var attempt *int
+	var blocked []string
 	if err := pool.QueryRow(ctx,
 		`SELECT COALESCE(delivery_status,''), COALESCE(delivery_detail,''),
-		        COALESCE(delivery_failure_source,''), COALESCE(provider_message_id,'')
+		        COALESCE(delivery_failure_source,''), COALESCE(delivery_failure_reason_code,''),
+		        COALESCE(provider_message_id,''), provider_accepted_at,
+		        delivery_failure_occurred_at,delivery_failure_attempt,
+		        COALESCE(delivery_failure_blocked_recipients,'{}')
 		   FROM messages WHERE id=$1`, msg.ID,
-	).Scan(&status, &detail, &source, &providerID); err != nil {
+	).Scan(&status, &detail, &source, &reason, &providerID, &acceptedAt, &occurredAt, &attempt, &blocked); err != nil {
 		t.Fatalf("read row: %v", err)
 	}
 	if status != "delivered" {
 		t.Errorf("delivery_status=%q, want delivered (§3.1 correction)", status)
 	}
-	if source != "" || detail != "" {
-		t.Errorf("source/detail = %q/%q, want cleared", source, detail)
+	if source != "" || reason != "" || detail != "" || occurredAt != nil || attempt != nil || len(blocked) != 0 {
+		t.Errorf("fallback provenance retained: source=%q reason=%q detail=%q occurred=%v attempt=%v blocked=%v", source, reason, detail, occurredAt, attempt, blocked)
 	}
 	if providerID != "ses-crashwin-1" {
 		t.Errorf("provider_message_id=%q, want repaired from the notification", providerID)
+	}
+	if !acceptedAt.Equal(ev.OccurredAt) {
+		t.Errorf("provider_accepted_at=%s want signed observation %s", acceptedAt, ev.OccurredAt)
+	}
+
+	var acceptanceID string
+	var acceptanceAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT id,occurred_at FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.upstream_accepted'`, msg.ID).Scan(&acceptanceID, &acceptanceAt); err != nil {
+		t.Fatal(err)
+	}
+	if !acceptanceAt.Equal(ev.OccurredAt) {
+		t.Fatalf("acceptance occurred_at=%s want %s", acceptanceAt, ev.OccurredAt)
+	}
+	var suppressionAt time.Time
+	var suppressionJobID string
+	if err := pool.QueryRow(ctx, `SELECT occurred_at,correlation_ids->>'job_id' FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='suppression.recipient_blocked' AND recipient='blocked@example.com'`, msg.ID).Scan(&suppressionAt, &suppressionJobID); err != nil {
+		t.Fatal(err)
+	}
+	if !suppressionAt.Equal(fallbackAt) || suppressionJobID != "12345" {
+		t.Fatalf("preserved suppression occurred=%s job=%q want %s/12345", suppressionAt, suppressionJobID, fallbackAt)
+	}
+	var sentEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE message_id=$1 AND type='email.sent'`, msg.ID).Scan(&sentEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var sent struct {
+		Data struct {
+			LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(sentEnvelope, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent.Data.LifecycleTransitions) != 1 || sent.Data.LifecycleTransitions[0].ID != acceptanceID {
+		t.Fatalf("email.sent lifecycle=%+v want only acceptance %s", sent.Data.LifecycleTransitions, acceptanceID)
 	}
 
 	// Replay of the same notification is idempotent.
@@ -1047,5 +1141,25 @@ func TestCrashWindowCorrectionEndToEnd(t *testing.T) {
 	}
 	if status != "delivered" {
 		t.Errorf("after replay delivery_status=%q, want delivered", status)
+	}
+	for label, query := range map[string]string{
+		"email.sent":  `SELECT count(*) FROM webhook_events WHERE message_id=$1 AND type='email.sent'`,
+		"delivered":   `SELECT count(*) FROM webhook_events WHERE message_id=$1 AND type='email.delivered'`,
+		"usage":       `SELECT count(*) FROM usage_events WHERE user_id=$1 AND direction='outbound'`,
+		"acceptance":  `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.upstream_accepted'`,
+		"delivery":    `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='delivery.recipient_server_accepted'`,
+		"suppression": `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='suppression.recipient_blocked'`,
+	} {
+		arg := any(msg.ID)
+		if label == "usage" {
+			arg = user.ID
+		}
+		var count int
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("after replay %s rows=%d want 1", label, count)
+		}
 	}
 }

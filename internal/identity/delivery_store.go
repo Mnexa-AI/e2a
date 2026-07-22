@@ -131,10 +131,15 @@ func (s *Store) AppendLifecycleTx(ctx context.Context, tx pgx.Tx, input messagel
 
 // ProviderAcceptancePendingTx reports whether signed provider evidence must be
 // finalized through the canonical outbound sent path before feedback can be
-// applied. The consumer fails closed when that finalizer is unavailable.
+// applied. Pre-terminal rows and locally inferred failures are correctable;
+// authoritative provider failures are not. The consumer fails closed when
+// that finalizer is unavailable.
 func (s *Store) ProviderAcceptancePendingTx(ctx context.Context, tx pgx.Tx, messageID string) (bool, error) {
 	var pending bool
-	err := tx.QueryRow(ctx, `SELECT delivery_status IN ('accepted','sending') AND provider_accepted_at IS NOT NULL FROM messages WHERE id=$1 FOR UPDATE`, messageID).Scan(&pending)
+	err := tx.QueryRow(ctx, `SELECT provider_accepted_at IS NOT NULL AND (
+		delivery_status IN ('accepted','sending') OR
+		(delivery_status='failed' AND COALESCE(delivery_failure_source,'local')='local')
+	) FROM messages WHERE id=$1 FOR UPDATE`, messageID).Scan(&pending)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -797,7 +802,8 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 		        delivery_failure_occurred_at,delivery_failure_attempt,delivery_failure_blocked_recipients
 		   FROM messages
 		  WHERE id=$1 AND direction='outbound'
-		    AND delivery_status IN ('accepted','sending')
+		    AND (delivery_status IN ('accepted','sending') OR
+		         (delivery_status='failed' AND COALESCE(delivery_failure_source,'local')='local'))
 		    AND provider_accepted_at IS NOT NULL
 		  FOR UPDATE`, messageID,
 	).Scan(&jobID, &failureSource, &failureReason, &failureOccurredAt, &failureAttempt, &blockedRecipients)
@@ -833,7 +839,8 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 		   FROM agent_identities a
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id
-		    AND m.delivery_status IN ('accepted', 'sending')
+		    AND (m.delivery_status IN ('accepted','sending') OR
+		         (m.delivery_status='failed' AND COALESCE(m.delivery_failure_source,'local')='local'))
 		    AND m.provider_accepted_at IS NOT NULL
 		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender,
 		           m.to_recipients, m.cc, m.bcc, COALESCE(m.provider_message_id, ''),m.provider_accepted_at`,
