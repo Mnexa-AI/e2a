@@ -35,8 +35,7 @@ import {
 } from "../../../../../components/messages/AttachmentChips";
 import { MessageDirectionIcon } from "../../../../../components/messages/MessageDirectionIcon";
 import {
-  MessageLifecycleTimeline,
-  deriveLifecycleSteps,
+  MessageLifecycleData,
 } from "../../../../../components/messages/MessageLifecycleTimeline";
 import { formatRelativeAge } from "../../../../../../lib/relativeTime";
 import {
@@ -44,6 +43,7 @@ import {
   invalidateAgentUnread,
   invalidateAgents,
   invalidateMessageDetail,
+  invalidateMessageLifecycle,
   invalidatePendingList,
   messageDetailKey,
 } from "../../../../../../lib/swrKeys";
@@ -149,11 +149,6 @@ function FocusContent({
 }) {
   const router = useRouter();
 
-  // Holds are now driven by inbound/outbound policy + content scans
-  // (there's no per-agent HITL on/off flag any more), so the lifecycle
-  // panel always includes the "Held for review" step.
-  const hitlEnabled = true;
-
   // `hasUserEditedRef` flips true the first time the user types into
   // the draft-body textarea OR clicks Edit. The seeding effect (below)
   // uses it to decide whether to overwrite the textarea with the
@@ -232,15 +227,18 @@ function FocusContent({
       ? `${inboxLink}#${msg.data.conversation_id ? `conv:${msg.data.conversation_id}` : `orphan:${msg.data.id}`}`
       : inboxLink;
 
-  // Both approve and reject invalidate four SWR caches so the rest
+  // Both approve and reject invalidate five SWR caches so the rest
   // of the dashboard reflects the new state immediately:
-  //   • pendingMessagesKey  → Sidebar badge drops
-  //   • pendingMessageKey   → this focus page itself (the row's
-  //                            status moves from pending_approval
-  //                            to sent/rejected)
-  //   • agentMessagesKey*   → the inbox view drops the pending callout
-  //   • agentsKey           → /inboxes agent cards show updated
-  //                            `pending_count` per agent
+  //   • pendingMessagesKey    → Sidebar badge drops
+  //   • pendingMessageKey     → this focus page itself (the row's
+  //                              status moves from pending_approval
+  //                              to sent/rejected)
+  //   • messageLifecycleKey*  → open lifecycle panels pick up the
+  //                              review-resolution + queueing
+  //                              transitions the action just created
+  //   • agentMessagesKey*     → the inbox view drops the pending callout
+  //   • agentsKey             → /inboxes agent cards show updated
+  //                              `pending_count` per agent
   // We `await Promise.all(...)` before navigating so the inbox
   // re-render happens against fresh data, not the previous payload.
   const refreshAfterMutation = useCallback(
@@ -248,6 +246,7 @@ function FocusContent({
       await Promise.all([
         invalidatePendingList(),
         invalidateMessageDetail(msgId),
+        invalidateMessageLifecycle(email, msgId),
         invalidateAgentMessages(email),
         invalidateAgents(),
       ]);
@@ -547,7 +546,7 @@ function FocusContent({
               )}
             </>
           )}
-          <LifecycleSection msg={msg} hitlEnabled={hitlEnabled} />
+          <LifecycleSection msg={msg} email={email} />
           {isPending && msg.direction === "outbound" && (
             <ApproveHint messageId={msg.data.id} />
           )}
@@ -1036,64 +1035,13 @@ function ActionCard({
   );
 }
 
-function LifecycleSection({ msg, hitlEnabled }: { msg: LoadedMessage; hitlEnabled: boolean }) {
-  // Inbound messages don't go through the HITL lifecycle — show a small
-  // "received" summary instead of the timeline.
-  if (msg.direction === "inbound") {
-    return (
-      <section
-        style={{
-          background: "var(--bg-panel)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--r-lg)",
-          padding: "14px 18px",
-        }}
-      >
-        <Eyebrow>Lifecycle</Eyebrow>
-        <div
-          style={{
-            marginTop: 10,
-            fontFamily: "var(--f-mono)",
-            fontSize: 11,
-            color: "var(--fg-muted)",
-            lineHeight: 1.7,
-          }}
-        >
-          received {formatRelativeAge(msg.data.created_at)}
-        </div>
-      </section>
-    );
-  }
-
-  const d = msg.data;
-  const steps = deriveLifecycleSteps({
-    status: d.status,
-    draftedAt: d.created_at,
-    inboundReceivedAt: d.inbound?.created_at ?? null,
-    reviewedAt: d.reviewed_at ?? null,
-    hitlEnabled,
-  });
-  // Collapsible meta tracks the latest meaningful event. For HITL-off
-  // agents the held step doesn't exist, so we summarize sent/created
-  // directly instead of the misleading "resolved" fallback.
-  const sentAt = d.reviewed_at ?? (!hitlEnabled ? d.created_at : null);
-  const heldSummary = d.status === "pending_review"
-    ? "held"
-    : sentAt
-      ? `${hitlEnabled ? "resolved" : "sent"} ${formatRelativeAge(sentAt)}`
-      : "resolved";
-
+function LifecycleSection({ msg, email }: { msg: LoadedMessage; email: string }) {
   return (
     <Collapsible
       label="Lifecycle"
-      meta={
-        <span style={{ color: d.status === "pending_review" ? "var(--warn-strong)" : "var(--fg-subtle)" }}>
-          {heldSummary}
-        </span>
-      }
       defaultOpen
     >
-      <MessageLifecycleTimeline steps={steps} />
+      <MessageLifecycleData email={email} messageId={msg.data.id} />
     </Collapsible>
   );
 }

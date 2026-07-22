@@ -3,6 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { PendingRow } from "./PendingRow";
 import type { PendingMessageSummary } from "../../../components/types";
 
+jest.mock("../../../components/messages/MessageLifecycleTimeline", () => ({
+  MessageLifecycleData: ({ email, messageId }: { email: string; messageId: string }) => (
+    <div>lifecycle:{email}:{messageId}</div>
+  ),
+}));
+
 const AGENT = "support@acme.dev";
 const summary: PendingMessageSummary = {
   id: "msg_1",
@@ -140,6 +146,17 @@ describe("PendingRow", () => {
     expect(screen.getByRole("button", { name: "Approve & send" })).toBeInTheDocument();
     // Editor is opt-in — no Subject input until Edit draft.
     expect(screen.queryByText("Subject")).not.toBeInTheDocument();
+  });
+
+  it("loads the lifecycle lazily beside Details", async () => {
+    stage();
+    const user = userEvent.setup();
+    render(<PendingRow summary={summary} expanded onToggle={() => {}} onResolved={() => {}} />);
+    await screen.findByText(/your refund is on the way/);
+
+    expect(screen.queryByText(`lifecycle:${AGENT}:msg_1`)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /lifecycle/i }));
+    expect(screen.getByText(`lifecycle:${AGENT}:msg_1`)).toBeInTheDocument();
   });
 
   it("approve POSTs to /approve and calls onResolved", async () => {

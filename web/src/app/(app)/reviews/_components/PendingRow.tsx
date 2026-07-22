@@ -28,6 +28,7 @@ import type {
 import { Chip, Dot } from "@e2a/ui";
 import { diffApproveEdits, joinCSV } from "./edits";
 import { categoryLabel, holdReasonSummary } from "./reviewReason";
+import { MessageLifecycleData } from "../../../components/messages/MessageLifecycleTimeline";
 
 function formatQueuedAgo(iso: string): string {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -110,6 +111,7 @@ export function PendingRow({
   // revalidation can't stomp an in-progress edit.
   const hasUserEditedRef = useRef(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showLifecycle, setShowLifecycle] = useState(false);
   const [showScreeningDetails, setShowScreeningDetails] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
 
@@ -150,6 +152,7 @@ export function PendingRow({
       setEditing(false);
       setRejectOpen(false);
       setShowDetails(false);
+      setShowLifecycle(false);
       setShowScreeningDetails(false);
       setActionError("");
     }
@@ -380,14 +383,25 @@ export function PendingRow({
                         ? `from ${summary.from || "—"}`
                         : `to ${joinCSV(msg.to) || "—"}`}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowDetails((s) => !s)}
-                      className="font-mono text-[11px] shrink-0 cursor-pointer hover:underline"
-                      style={{ color: "var(--fg-subtle)" }}
-                    >
-                      Details {showDetails ? "▴" : "▾"}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowDetails((s) => !s)}
+                        className="font-mono text-[11px] cursor-pointer hover:underline"
+                        style={{ color: "var(--fg-subtle)" }}
+                      >
+                        Details {showDetails ? "▴" : "▾"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowLifecycle((shown) => !shown)}
+                        aria-expanded={showLifecycle}
+                        className="font-mono text-[11px] cursor-pointer hover:underline"
+                        style={{ color: "var(--accent-strong)" }}
+                      >
+                        {showLifecycle ? "Hide lifecycle ▴" : "Lifecycle ▾"}
+                      </button>
+                    </div>
                   </div>
                   {showDetails && (
                     <div
@@ -401,6 +415,18 @@ export function PendingRow({
                       {msg.conversation_id && (
                         <span>conversation {msg.conversation_id}</span>
                       )}
+                    </div>
+                  )}
+                  {showLifecycle && (
+                    <div
+                      className="mb-3"
+                      style={{
+                        border: "1px solid var(--border-sub)",
+                        borderRadius: "var(--r-md)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <MessageLifecycleData email={agentEmail} messageId={id} />
                     </div>
                   )}
                   <div

@@ -74,6 +74,13 @@ export const agentUnreadKey = (email: string) =>
 export const messageDetailKey = (id: string) =>
   ["message-detail", id] as const;
 
+// Per-message canonical lifecycle observations (GET /v1/agents/{address}/
+// messages/{id}/lifecycle). MessageLifecycleData pages through the endpoint
+// with useSWRInfinite, so live keys carry trailing page-index/cursor slots
+// beyond this prefix — invalidation matches the shared prefix only.
+export const messageLifecycleKey = (email: string, id: string) =>
+  ["message-lifecycle", email, id] as const;
+
 // ── Invalidation helpers ─────────────────────────────────
 
 // After any agent mutation (create/update/delete/test) the agents
@@ -98,6 +105,20 @@ export function invalidateMessageDetail(id: string) {
   return mutate(
     (key) =>
       Array.isArray(key) && key[0] === "message-detail" && key[1] === id,
+  );
+}
+
+// After approve / reject the message's lifecycle ledger gains new
+// transitions (review resolution, queueing, submission), so any open
+// lifecycle panel for the message is stale. Matches the shared prefix of
+// every paginated key for the message, across all loaded pages.
+export function invalidateMessageLifecycle(email: string, id: string) {
+  return mutate(
+    (key) =>
+      Array.isArray(key) &&
+      key[0] === "message-lifecycle" &&
+      key[1] === email &&
+      key[2] === id,
   );
 }
 

@@ -8,6 +8,7 @@ import {
   invalidateAgents,
   invalidateAllAgentMessages,
   invalidateMessageDetail,
+  invalidateMessageLifecycle,
   pendingMessagesKey,
 } from "../../../lib/swrKeys";
 import type { PendingMessageSummary } from "../../components/types";
@@ -56,17 +57,21 @@ function PendingContent() {
 
   // After approve/reject: refetch the queue, collapse to a clean list,
   // and invalidate the derived caches (sidebar badge, agent cards, the
-  // inbox views) so the resolved row drops everywhere — mirroring what
-  // the focus page used to do.
+  // inbox views, the resolved message's lifecycle panel) so the resolved
+  // row drops everywhere — mirroring what the focus page used to do.
   const handleResolved = useCallback(async () => {
+    const resolved = messages.find((m) => m.id === selectedId);
     void Promise.all([
       selectedId ? invalidateMessageDetail(selectedId) : Promise.resolve(),
+      resolved
+        ? invalidateMessageLifecycle(resolved.agent_email, resolved.id)
+        : Promise.resolve(),
       invalidateAgents(),
       invalidateAllAgentMessages(),
     ]);
     router.replace("/reviews", { scroll: false });
     await mutate(pendingMessagesKey);
-  }, [router, selectedId]);
+  }, [router, selectedId, messages]);
 
   return (
     <PageShell

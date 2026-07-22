@@ -21,7 +21,9 @@ import {
   agentUnreadKey,
   invalidateAgentUnread,
   invalidateMessageDetail,
+  invalidateMessageLifecycle,
   messageDetailKey,
+  messageLifecycleKey,
 } from "./swrKeys";
 
 describe("accountUnreadKey", () => {
@@ -108,5 +110,62 @@ describe("invalidateMessageDetail", () => {
 
     await waitFor(() => expect(fetcherA).toHaveBeenCalledTimes(2));
     expect(fetcherB).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("invalidateMessageLifecycle", () => {
+  it("revalidates every paginated key sharing the message's prefix", async () => {
+    // MessageLifecycleData pages with useSWRInfinite, so live keys carry
+    // trailing page-index/cursor slots beyond messageLifecycleKey. The
+    // predicate must match the shared prefix, not the exact tuple.
+    const pageOneFetcher = jest.fn().mockResolvedValue({ items: [], next_cursor: "c2" });
+    const pageTwoFetcher = jest.fn().mockResolvedValue({ items: [], next_cursor: null });
+    renderHook(() =>
+      useSWR([...messageLifecycleKey("agent@agents.test", "msg_lc_a"), 0, null], pageOneFetcher),
+    );
+    renderHook(() =>
+      useSWR([...messageLifecycleKey("agent@agents.test", "msg_lc_a"), 1, "c2"], pageTwoFetcher),
+    );
+    await waitFor(() => {
+      expect(pageOneFetcher).toHaveBeenCalledTimes(1);
+      expect(pageTwoFetcher).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await invalidateMessageLifecycle("agent@agents.test", "msg_lc_a");
+    });
+
+    await waitFor(() => {
+      expect(pageOneFetcher).toHaveBeenCalledTimes(2);
+      expect(pageTwoFetcher).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("leaves other messages' and other agents' panels alone", async () => {
+    const targetFetcher = jest.fn().mockResolvedValue({ items: [] });
+    const otherMessageFetcher = jest.fn().mockResolvedValue({ items: [] });
+    const otherAgentFetcher = jest.fn().mockResolvedValue({ items: [] });
+    renderHook(() =>
+      useSWR([...messageLifecycleKey("agent@agents.test", "msg_lc_b"), 0, null], targetFetcher),
+    );
+    renderHook(() =>
+      useSWR([...messageLifecycleKey("agent@agents.test", "msg_lc_c"), 0, null], otherMessageFetcher),
+    );
+    renderHook(() =>
+      useSWR([...messageLifecycleKey("other@agents.test", "msg_lc_b"), 0, null], otherAgentFetcher),
+    );
+    await waitFor(() => {
+      expect(targetFetcher).toHaveBeenCalledTimes(1);
+      expect(otherMessageFetcher).toHaveBeenCalledTimes(1);
+      expect(otherAgentFetcher).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await invalidateMessageLifecycle("agent@agents.test", "msg_lc_b");
+    });
+
+    await waitFor(() => expect(targetFetcher).toHaveBeenCalledTimes(2));
+    expect(otherMessageFetcher).toHaveBeenCalledTimes(1);
+    expect(otherAgentFetcher).toHaveBeenCalledTimes(1);
   });
 });

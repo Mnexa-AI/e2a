@@ -13,6 +13,7 @@ import { CounterpartyAvatar } from "./CounterpartyAvatar";
 import { MessageStatusChip } from "./MessageStatusChip";
 import { EmailHtmlBody } from "./EmailHtmlBody";
 import { AttachmentChips, downloadableAttachments } from "./AttachmentChips";
+import { MessageLifecycleData } from "./MessageLifecycleTimeline";
 import {
   getMessageDetailWire,
   projectMessageDetail,
@@ -78,6 +79,7 @@ export function ThreadBubble({
   const isInbound = message.direction === "inbound";
   const pending = message.review_status === "pending_review";
   const [showDetails, setShowDetails] = useState(false);
+  const [showLifecycle, setShowLifecycle] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
@@ -309,6 +311,24 @@ export function ThreadBubble({
           >
             {showDetails ? "Hide details ▴" : "Details ▾"}
           </button>
+          <button
+            type="button"
+            onClick={() => setShowLifecycle((value) => !value)}
+            aria-expanded={showLifecycle}
+            aria-label={`${showLifecycle ? "Hide" : "Show"} lifecycle`}
+            style={{
+              color: "var(--accent-strong)",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "inherit",
+              flexShrink: 0,
+            }}
+          >
+            {showLifecycle ? "Hide lifecycle ▴" : "Lifecycle ▾"}
+          </button>
         </div>
 
         {/* Details panel */}
@@ -334,6 +354,20 @@ export function ThreadBubble({
             {message.reply_to && message.reply_to.length > 0 && (
               <MetaRow label="Reply-To" value={message.reply_to.join(", ")} />
             )}
+          </div>
+        )}
+
+        {showLifecycle && (
+          <div
+            className="mb-3"
+            style={{
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-lg)",
+              overflow: "hidden",
+            }}
+          >
+            <MessageLifecycleData email={agentEmail} messageId={message.id} />
           </div>
         )}
 
