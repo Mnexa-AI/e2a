@@ -14,6 +14,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/limits"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/webhook"
@@ -53,6 +54,12 @@ type MessageGetter func(ctx context.Context, messageID, agentID string) (*identi
 // MessageLister returns a filtered page of message summaries for an agent.
 // Mirrors store.GetMessagesByAgent(filter).
 type MessageLister func(ctx context.Context, filter identity.MessageListFilter) ([]identity.Message, error)
+
+// MessageLifecycleLister returns the complete canonical lifecycle for a
+// message scoped to its owning agent. The handler applies cursor pagination
+// after this ownership-bound read so reconstructed and persisted transitions
+// share one deterministic ordering contract.
+type MessageLifecycleLister func(ctx context.Context, messageID, agentID string) ([]messagelifecycle.MessageLifecycleTransition, error)
 
 // ConversationLister mirrors store.ListConversationsByAgent(filter).
 type ConversationLister func(ctx context.Context, filter identity.ConversationListFilter) ([]identity.ConversationSummary, error)
@@ -115,11 +122,12 @@ type Deps struct {
 	// the Bearer scheme (and OAuth error params) on every 401 exactly like the
 	// legacy mux did, from the same definition (agent.API.WWWAuthenticateChallenge).
 	// Optional — nil disables the challenge header.
-	AuthChallenge func(r *http.Request) string
-	ListAgents    AgentLister
-	GetAgent      AgentGetter
-	GetMessage    MessageGetter
-	ListMessages  MessageLister
+	AuthChallenge        func(r *http.Request) string
+	ListAgents           AgentLister
+	GetAgent             AgentGetter
+	GetMessage           MessageGetter
+	ListMessages         MessageLister
+	ListMessageLifecycle MessageLifecycleLister
 	// ModifyMessageLabels applies a labels delta to a message scoped to an
 	// agent, returning the post-update set. Mirrors store.ModifyMessageLabels.
 	ModifyMessageLabels func(ctx context.Context, messageID, agentID string, add, remove []string) ([]string, error)
@@ -549,6 +557,7 @@ func (s *Server) registerOperations() {
 	s.registerInfo()
 	s.registerAgents()
 	s.registerMessages()
+	s.registerMessageLifecycle()
 	s.registerAttachments()
 	s.registerConversations()
 	s.registerAgentWrites()
