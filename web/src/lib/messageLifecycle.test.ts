@@ -1,9 +1,15 @@
 import { getMessageLifecycle, parseMessageLifecyclePage } from "./messageLifecycle";
 
+const originalFetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+
 describe("message lifecycle data helper", () => {
   afterEach(() => {
     jest.restoreAllMocks();
-    delete (global as typeof globalThis & { fetch?: typeof fetch }).fetch;
+    if (originalFetchDescriptor) {
+      Object.defineProperty(globalThis, "fetch", originalFetchDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "fetch");
+    }
   });
 
   it("fetches the encoded agent/message subresource with cursor and limit", async () => {
@@ -28,7 +34,7 @@ describe("message lifecycle data helper", () => {
       ok: true,
       json: async () => payload,
     } as Response);
-    Object.defineProperty(global, "fetch", {
+    Object.defineProperty(globalThis, "fetch", {
       configurable: true,
       writable: true,
       value: fetchMock,
@@ -39,7 +45,7 @@ describe("message lifecycle data helper", () => {
       limit: 25,
     })).resolves.toEqual(payload);
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/agents/ops%2Bbot%40example.com/messages/msg%2F1/lifecycle?cursor=cursor%2F1%2Btwo&limit=25",
+      "/v1/agents/ops%2Bbot%40example.com/messages/msg%2F1/lifecycle?cursor=cursor%2F1%2Btwo&limit=25",
       { credentials: "include" },
     );
   });

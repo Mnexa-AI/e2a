@@ -119,7 +119,7 @@ export async function getMessageLifecycle(
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
   const response = await fetch(
-    `/api/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(messageId)}/lifecycle${suffix}`,
+    `/v1/agents/${encodeURIComponent(email)}/messages/${encodeURIComponent(messageId)}/lifecycle${suffix}`,
     { credentials: "include" },
   );
   if (!response.ok) throw new Error(`Message lifecycle request failed (${response.status})`);
