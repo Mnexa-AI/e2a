@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,12 +18,54 @@ import (
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
+
+func lifecycleRows(t *testing.T, pool *pgxpool.Pool, messageID string) []messagelifecycle.MessageLifecycleTransition {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT id, message_id, direction, COALESCE(recipient,''), stage, outcome, reason_code, retryable, evidence, correlation_ids, occurred_at, reconstructed FROM message_lifecycle_transitions WHERE message_id=$1 ORDER BY occurred_at,id`, messageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []messagelifecycle.MessageLifecycleTransition
+	for rows.Next() {
+		var tr messagelifecycle.MessageLifecycleTransition
+		var evidence, correlations []byte
+		if err := rows.Scan(&tr.ID, &tr.MessageID, &tr.Direction, &tr.Recipient, &tr.Stage, &tr.Outcome, &tr.ReasonCode, &tr.Retryable, &evidence, &correlations, &tr.OccurredAt, &tr.Reconstructed); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(evidence, &tr.Evidence); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(correlations, &tr.CorrelationIDs); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, tr)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func eventLifecycle(t *testing.T, pool *pgxpool.Pool, messageID, eventType string) []messagelifecycle.MessageLifecycleTransition {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(context.Background(), `SELECT envelope->'data'->'lifecycle_transitions' FROM webhook_events WHERE message_id=$1 AND type=$2`, messageID, eventType).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var got []messagelifecycle.MessageLifecycleTransition
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
 
 // fakeOutboundEnqueuer stands in for the shared River client: it records the
 // in-tx enqueue and returns a stable job id the accept-tx stamps on the row.
@@ -361,6 +404,166 @@ func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
 	}
 }
 
+func TestSendWorker_UpstreamAcceptedLifecycleEventParity(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "submissionsuccess")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"alice@example.net"}, Subject: "submission accepted", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "provider-accepted-1", SentAs: "relay"}})
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var submission []messagelifecycle.MessageLifecycleTransition
+	for _, tr := range rows {
+		if tr.Stage == messagelifecycle.StageSubmission {
+			submission = append(submission, tr)
+		}
+	}
+	if len(submission) != 1 || submission[0].ReasonCode != messagelifecycle.ReasonSubmissionUpstreamAccepted {
+		t.Fatalf("submission lifecycle = %+v, want one upstream acceptance", submission)
+	}
+	if submission[0].CorrelationIDs["job_id"] != fmt.Sprint(jobID) || submission[0].CorrelationIDs["provider_message_id"] != "provider-accepted-1" {
+		t.Fatalf("correlations = %#v", submission[0].CorrelationIDs)
+	}
+	if len(eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent)) != 1 || eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent)[0].ID != submission[0].ID {
+		t.Fatal("email.sent must embed only the exact stored submission transition")
+	}
+	for _, tr := range rows {
+		if tr.Stage == messagelifecycle.StageDelivery {
+			t.Fatalf("provider acceptance overstated as delivery: %+v", tr)
+		}
+	}
+
+	// Same logical job/attempt is a no-op and must preserve the stored envelope.
+	var before []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE message_id=$1 AND type='email.sent'`, res.MessageID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err != nil {
+		t.Fatal(err)
+	}
+	var after []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE message_id=$1 AND type='email.sent'`, res.MessageID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("duplicate execution rewrote stored envelope")
+	}
+}
+
+func TestSendWorker_TemporaryAndProviderRejectedLifecycle(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "submissionfailures")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"bob@example.net"}, Subject: "submission failures", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+
+	retry := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New(strings.Repeat("remote diagnostic ", 300))}})
+	if err := retry.Work(ctx, workerJobWithID(res.MessageID, jobID, 1)); err == nil {
+		t.Fatal("temporary failure must retry")
+	}
+	if err := retry.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err == nil {
+		t.Fatal("second temporary failure must retry")
+	}
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var temporary []messagelifecycle.MessageLifecycleTransition
+	for _, tr := range rows {
+		if tr.ReasonCode == messagelifecycle.ReasonSubmissionTemporaryFailure {
+			temporary = append(temporary, tr)
+		}
+	}
+	if len(temporary) != 2 {
+		t.Fatalf("temporary transitions=%d want 2: %+v", len(temporary), temporary)
+	}
+	var dedupeKeys []string
+	keyRows, err := pool.Query(ctx, `SELECT dedupe_key FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.temporary_failure' ORDER BY dedupe_key`, res.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for keyRows.Next() {
+		var key string
+		if err := keyRows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		dedupeKeys = append(dedupeKeys, key)
+	}
+	keyRows.Close()
+	wantKeys := []string{fmt.Sprintf("submission:job:%d:attempt:1:submission.temporary_failure", jobID), fmt.Sprintf("submission:job:%d:attempt:2:submission.temporary_failure", jobID)}
+	if fmt.Sprint(dedupeKeys) != fmt.Sprint(wantKeys) {
+		t.Fatalf("dedupe keys=%v want %v", dedupeKeys, wantKeys)
+	}
+	if temporary[0].Evidence["failure_reason"] == strings.Repeat("remote diagnostic ", 300) {
+		t.Fatal("unbounded remote SMTP diagnostic stored")
+	}
+
+	reject := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 rejected"), Permanent: true}})
+	if err := reject.Work(ctx, workerJobWithID(res.MessageID, jobID, 3)); err == nil {
+		t.Fatal("provider rejection must cancel")
+	}
+	rows = lifecycleRows(t, pool, res.MessageID)
+	var terminal *messagelifecycle.MessageLifecycleTransition
+	for i := range rows {
+		if rows[i].ReasonCode == messagelifecycle.ReasonSubmissionProviderRejected {
+			terminal = &rows[i]
+		}
+	}
+	if terminal == nil {
+		t.Fatalf("missing provider rejection lifecycle: %+v", rows)
+	}
+	event := eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailFailed)
+	if len(event) != 1 || event[0].ID != terminal.ID {
+		t.Fatalf("email.failed lifecycle=%+v terminal=%+v", event, terminal)
+	}
+}
+
+func TestSendWorker_DuplicateAttemptLifecycleReusesLogicalTransition(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "submissionduplicate")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"dup@example.net"}, Subject: "duplicate attempt", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := store.ClaimOutboundForSend(ctx, res.MessageID, jobID); err != nil || claimed == nil {
+		t.Fatalf("claim=(%+v,%v)", claimed, err)
+	}
+	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
+	observedAt := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 2; i++ {
+		if err := adapter.DeferTerminalFailure(ctx, res.MessageID, jobID, 6, observedAt, "451 retry later"); err != nil {
+			t.Fatalf("defer %d: %v", i, err)
+		}
+	}
+	var count int
+	var key string
+	if err := pool.QueryRow(ctx, `SELECT count(*),max(dedupe_key) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.temporary_failure'`, res.MessageID).Scan(&count, &key); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("submission:job:%d:attempt:6:submission.temporary_failure", jobID)
+	if count != 1 || key != want {
+		t.Fatalf("duplicate lifecycle count=%d key=%q want 1/%q", count, key, want)
+	}
+}
+
 func TestSendWorker_TrashLinearizesWithDurableClaim(t *testing.T) {
 	api, store, outbox, _ := setupAsyncAPI(t)
 	ctx := context.Background()
@@ -676,7 +879,7 @@ func TestOutboundSendStore_MarkFailed(t *testing.T) {
 	}
 
 	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
-	if err := adapter.MarkFailed(ctx, res.MessageID, 6, "550 mailbox unavailable", delivery.FailureSourceProvider); err != nil {
+	if err := adapter.MarkFailed(ctx, res.MessageID, 999, 6, time.Now().UTC(), "550 mailbox unavailable", delivery.FailureSourceProvider, messagelifecycle.ReasonSubmissionProviderRejected); err != nil {
 		t.Fatalf("MarkFailed: %v", err)
 	}
 

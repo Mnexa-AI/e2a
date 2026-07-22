@@ -141,6 +141,9 @@ type EmailFailedData struct {
 	// Populated only where the send path genuinely knows it; omitted
 	// otherwise (absent ≠ false).
 	Retryable *bool `json:"retryable,omitempty"`
+	// LifecycleTransitions are the exact canonical rows committed with this
+	// event. Omitted on historical events created before the lifecycle ledger.
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailDeliveredData is the `data` payload of an email.delivered event — the

@@ -25,12 +25,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/riverqueue/river"
 
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 )
 
@@ -173,19 +175,22 @@ type Store interface {
 	ReleaseSend(ctx context.Context, messageID string, jobID int64) error
 	// MarkSent records the provider outcome monotonically from a pre-terminal
 	// state, including when trash won after ClaimSend.
-	MarkSent(ctx context.Context, messageID, providerMessageID, sentAs string) error
+	MarkSent(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, providerMessageID, sentAs string) error
 	// MarkFailed is the GUARDED terminal write (async-send-contract §3.1): if
 	// provider-accept evidence has reached the row it settles the message as
 	// sent (+ email.sent) instead; otherwise it sets delivery_status='failed'
 	// with the given failure provenance + detail and emits email.failed — all
 	// in one transaction. Callers therefore invoke it to "finalize a terminal
 	// state", not to unconditionally fail.
-	MarkFailed(ctx context.Context, messageID string, attempt int, detail string, source delivery.FailureSource) error
+	MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error
 	// DeferTerminalFailure records a final attempt's diagnostic + releases the
 	// I/O claim WITHOUT declaring failed: the terminal reconciler declares the
 	// outcome after the provider-evidence grace window (or settles the row as
 	// sent when evidence arrives first).
-	DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string) error
+	DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error
+	// RecordTemporaryFailure atomically records the retryable observation and
+	// releases the send claim for River's next attempt.
+	RecordTemporaryFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error
 	// SuppressedRecipients returns the effective account-wide + exact-agent
 	// subset — the last-line guard before provider I/O.
 	SuppressedRecipients(ctx context.Context, userID, agentID string, recipients []string) ([]string, error)
@@ -221,6 +226,7 @@ func (w *SendWorker) NextRetry(job *river.Job[OutboundSendArgs]) time.Time {
 // River's 60s default JobTimeout. (Contrast the maintenance/sweep workers, which
 // override it because they can run for minutes.)
 func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs]) error {
+	observedAt := jobObservationTime(job)
 	j, err := w.store.ClaimSend(ctx, job.Args.MessageID, job.ID)
 	if err != nil {
 		return err // DB error — retryable
@@ -250,7 +256,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		// earlier attempt's submit reached the provider — the crash window
 		// between SMTP accept and mark-sent. Re-submitting would duplicate the
 		// email; settle the row as sent (email.sent + metering, in the store).
-		if err := w.store.MarkSent(ctx, j.MessageID, j.ProviderMessageID, j.SentAs); err != nil {
+		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, job.Attempt, observedAt, j.ProviderMessageID, j.SentAs); err != nil {
 			return err
 		}
 		if w.ramp != nil && j.rampEligible() {
@@ -275,11 +281,11 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		})
 		if rerr != nil {
 			if isPermanentRampError(rerr) {
-				w.markFailed(ctx, j.MessageID, job.Attempt, "sending_ramp_invalid: "+rerr.Error(), delivery.FailureSourceLocal)
+				w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "sending_ramp_invalid: "+rerr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionCancelled)
 				return river.JobCancel(rerr)
 			}
 			if j.pastRetryHorizon() {
-				w.markFailed(ctx, j.MessageID, job.Attempt, "ramp_capacity_timeout: "+rerr.Error(), delivery.FailureSourceLocal)
+				w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "ramp_capacity_timeout: "+rerr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted)
 				_ = w.ramp.Release(ctx, j.MessageID)
 				return river.JobCancel(fmt.Errorf("sending ramp unavailable past %s horizon: %w", sendRetryHorizon, rerr))
 			}
@@ -291,7 +297,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		}
 		if !decision.Allowed {
 			if j.pastRetryHorizon() {
-				w.markFailed(ctx, j.MessageID, job.Attempt, "ramp_capacity_timeout", delivery.FailureSourceLocal)
+				w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "ramp_capacity_timeout", delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted)
 				if err := w.ramp.Release(ctx, j.MessageID); err != nil {
 					return fmt.Errorf("release ramp reservation after timeout: %w", err)
 				}
@@ -326,7 +332,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	}
 	if len(suppressed) > 0 {
 		supErr := fmt.Errorf("recipient_suppressed: %s%s", strings.Join(suppressed, ", "), outbound.SuppressionRemediation(j.AgentID))
-		w.markFailed(ctx, j.MessageID, job.Attempt, supErr.Error(), delivery.FailureSourceLocal)
+		w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, supErr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionCancelled)
 		if w.ramp != nil && j.rampEligible() {
 			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
 				return fmt.Errorf("release ramp reservation after suppression: %w", err)
@@ -338,7 +344,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	out := w.deliverer.Deliver(ctx, j)
 	if out.Err == nil {
 		// Success — one tx (in the store): mark sent + provider id + email.sent.
-		if err := w.store.MarkSent(ctx, j.MessageID, out.ProviderMessageID, out.SentAs); err != nil {
+		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.ProviderMessageID, out.SentAs); err != nil {
 			return err
 		}
 		if w.ramp != nil && j.rampEligible() {
@@ -353,7 +359,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// Provenance 'provider': SES itself refused this submission, so the §3.1
 	// correction never revives it.
 	if out.Permanent {
-		w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error(), delivery.FailureSourceProvider)
+		w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error(), delivery.FailureSourceProvider, messagelifecycle.ReasonSubmissionProviderRejected)
 		if w.ramp != nil && j.rampEligible() {
 			if err := w.ramp.Release(ctx, j.MessageID); err != nil {
 				return fmt.Errorf("release ramp reservation after provider rejection: %w", err)
@@ -368,7 +374,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// (provenance 'local': the provider never confirmed a rejection).
 	if out.Outage {
 		if j.pastRetryHorizon() {
-			w.markFailed(ctx, j.MessageID, job.Attempt, out.Err.Error(), delivery.FailureSourceLocal)
+			w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted)
 			if w.ramp != nil && j.rampEligible() {
 				_ = w.ramp.Release(ctx, j.MessageID)
 			}
@@ -386,14 +392,14 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// declares the outcome after the provider-evidence grace window — evidence →
 	// sent, none → failed + exactly one email.failed (deterministic event id).
 	if job.Attempt >= MaxSendAttempts {
-		if err := w.store.DeferTerminalFailure(ctx, j.MessageID, job.ID, out.Err.Error()); err != nil {
+		if err := w.store.DeferTerminalFailure(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error()); err != nil {
 			log.Printf("[outbound-send] defer terminal failure for %s: %v", j.MessageID, err)
 		}
 		return fmt.Errorf("outbound send failed (final attempt %d; outcome deferred to terminal reconciler): %w", job.Attempt, out.Err)
 	}
 	// Retryable — River reschedules per NextRetry.
-	if err := w.store.ReleaseSend(ctx, j.MessageID, job.ID); err != nil {
-		return fmt.Errorf("release outbound send claim after retryable failure: %w", err)
+	if err := w.store.RecordTemporaryFailure(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error()); err != nil {
+		return fmt.Errorf("record outbound temporary failure and release claim: %w", err)
 	}
 	return fmt.Errorf("outbound send attempt %d failed: %w", job.Attempt, out.Err)
 }
@@ -429,10 +435,10 @@ const (
 	terminalWriteBackoff = 150 * time.Millisecond
 )
 
-func (w *SendWorker) markFailed(ctx context.Context, messageID string, attempt int, detail string, source delivery.FailureSource) {
+func (w *SendWorker) markFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) {
 	var err error
 	for i := 0; i < terminalWriteRetries; i++ {
-		if err = w.store.MarkFailed(ctx, messageID, attempt, detail, source); err == nil {
+		if err = w.store.MarkFailed(ctx, messageID, jobID, attempt, occurredAt, detail, source, reason); err == nil {
 			return
 		}
 		select {
@@ -442,4 +448,22 @@ func (w *SendWorker) markFailed(ctx context.Context, messageID string, attempt i
 		}
 	}
 	log.Printf("[outbound-send] CRITICAL: terminal 'failed' write for %s failed after retries: %v", messageID, err)
+}
+
+// SubmissionDedupeKey is the stable message-local identity for one observed
+// River submission attempt and reason.
+func SubmissionDedupeKey(jobID int64, attempt int, reason messagelifecycle.ReasonCode) string {
+	return "submission:job:" + strconv.FormatInt(jobID, 10) + ":attempt:" + strconv.Itoa(attempt) + ":" + string(reason)
+}
+
+func jobObservationTime(job *river.Job[OutboundSendArgs]) time.Time {
+	if job != nil && job.JobRow != nil {
+		if job.AttemptedAt != nil && !job.AttemptedAt.IsZero() {
+			return job.AttemptedAt.UTC()
+		}
+		if !job.CreatedAt.IsZero() {
+			return job.CreatedAt.UTC()
+		}
+	}
+	return time.Now().UTC()
 }

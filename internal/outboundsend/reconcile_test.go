@@ -2,9 +2,11 @@ package outboundsend_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +16,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/jobs"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/usage"
@@ -280,6 +283,41 @@ func (f *terminalFixture) eventCount(t *testing.T, messageID, eventType string) 
 	return count
 }
 
+func (f *terminalFixture) lifecycleReason(t *testing.T, messageID string, reason messagelifecycle.ReasonCode) *messagelifecycle.MessageLifecycleTransition {
+	t.Helper()
+	var tr messagelifecycle.MessageLifecycleTransition
+	var evidence, correlations []byte
+	err := f.pool.QueryRow(context.Background(), `SELECT id,message_id,direction,stage,outcome,reason_code,retryable,evidence,correlation_ids,occurred_at,reconstructed FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=$2`, messageID, reason).Scan(&tr.ID, &tr.MessageID, &tr.Direction, &tr.Stage, &tr.Outcome, &tr.ReasonCode, &tr.Retryable, &evidence, &correlations, &tr.OccurredAt, &tr.Reconstructed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(evidence, &tr.Evidence); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(correlations, &tr.CorrelationIDs); err != nil {
+		t.Fatal(err)
+	}
+	return &tr
+}
+
+func (f *terminalFixture) assertEventCarriesOnly(t *testing.T, messageID, eventType string, want *messagelifecycle.MessageLifecycleTransition) {
+	t.Helper()
+	var raw []byte
+	if err := f.pool.QueryRow(context.Background(), `SELECT envelope->'data'->'lifecycle_transitions' FROM webhook_events WHERE message_id=$1 AND type=$2`, messageID, eventType).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var got []messagelifecycle.MessageLifecycleTransition
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || want == nil || got[0].ID != want.ID {
+		t.Fatalf("%s lifecycle=%+v want exact %+v", eventType, got, want)
+	}
+}
+
 func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
@@ -336,6 +374,22 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 		if source != "local" {
 			t.Errorf("failure source for %s = %q, want local", id, source)
 		}
+	}
+	for _, tc := range []struct {
+		id     string
+		reason messagelifecycle.ReasonCode
+	}{
+		{discardedID, messagelifecycle.ReasonSubmissionLocalRetriesExhausted},
+		{completedID, messagelifecycle.ReasonSubmissionLocalRetriesExhausted},
+		{missingID, messagelifecycle.ReasonSubmissionLocalRetriesExhausted},
+		{cancelledID, messagelifecycle.ReasonSubmissionCancelled},
+	} {
+		tr := f.lifecycleReason(t, tc.id, tc.reason)
+		if tr == nil {
+			t.Errorf("%s missing %s", tc.id, tc.reason)
+			continue
+		}
+		f.assertEventCarriesOnly(t, tc.id, webhookpub.EventEmailFailed, tr)
 	}
 	if len(gate.resolved) != 4 {
 		t.Errorf("ramp resolutions = %v, want four terminal outcomes", gate.resolved)
@@ -528,6 +582,11 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 	if got := f.sentEventCount(t, evidenceID); got != 1 {
 		t.Errorf("email.sent count = %d, want 1", got)
 	}
+	accepted := f.lifecycleReason(t, evidenceID, messagelifecycle.ReasonSubmissionUpstreamAccepted)
+	if accepted == nil {
+		t.Fatal("provider correction missing upstream acceptance lifecycle")
+	}
+	f.assertEventCarriesOnly(t, evidenceID, webhookpub.EventEmailSent, accepted)
 	if got := f.failedEventCount(t, evidenceID); got != 0 {
 		t.Errorf("email.failed count = %d, want 0 — evidence must suppress the false failure", got)
 	}
@@ -542,6 +601,62 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 	if got := f.sentEventCount(t, evidenceID); got != 1 {
 		t.Errorf("email.sent count after second pass = %d, want 1", got)
 	}
+}
+
+func TestReconcileLifecycleFailureRollsBackAndConverges(t *testing.T) {
+	testReconcileAtomicFailure(t, "lifecycle", `
+		CREATE FUNCTION test_fail_submission_lifecycle() RETURNS trigger AS $f$ BEGIN
+			IF NEW.reason_code='submission.upstream_accepted' THEN RAISE EXCEPTION 'forced lifecycle failure'; END IF; RETURN NEW;
+		END; $f$ LANGUAGE plpgsql;
+		CREATE TRIGGER test_fail_submission_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_submission_lifecycle();`,
+		`DROP TRIGGER IF EXISTS test_fail_submission_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_submission_lifecycle();`)
+}
+
+func TestReconcileOutboxFailureRollsBackAndConverges(t *testing.T) {
+	testReconcileAtomicFailure(t, "outbox", `
+		CREATE FUNCTION test_fail_submission_outbox() RETURNS trigger AS $f$ BEGIN
+			IF NEW.type='email.sent' THEN RAISE EXCEPTION 'forced outbox failure'; END IF; RETURN NEW;
+		END; $f$ LANGUAGE plpgsql;
+		CREATE TRIGGER test_fail_submission_outbox BEFORE INSERT ON webhook_events FOR EACH ROW EXECUTE FUNCTION test_fail_submission_outbox();`,
+		`DROP TRIGGER IF EXISTS test_fail_submission_outbox ON webhook_events; DROP FUNCTION IF EXISTS test_fail_submission_outbox();`)
+}
+
+func testReconcileAtomicFailure(t *testing.T, label, install, uninstall string) {
+	t.Helper()
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	adapter := agent.NewOutboundSendStore(store, webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)), usage.NewNoopUsageTracker())
+	f := newTerminalFixture(t, pool, store, adapter)
+	messageID := f.seed(t, "atomic-"+label, "accepted", "discarded", false)
+	if err := store.RecordProviderAcceptEvidence(context.Background(), messageID, "provider-"+label); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), install); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter)
+	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err == nil {
+		t.Fatal("forced transactional failure unexpectedly succeeded")
+	}
+	status, _ := f.status(t, messageID)
+	if status != "accepted" || f.sentEventCount(t, messageID) != 0 || f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionUpstreamAccepted) != nil {
+		t.Fatalf("partial commit after %s failure: status=%s sent_events=%d transition=%+v", label, status, f.sentEventCount(t, messageID), f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionUpstreamAccepted))
+	}
+	if _, err := pool.Exec(context.Background(), uninstall); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatalf("reconcile after repair: %v", err)
+	}
+	if status, _ = f.status(t, messageID); status != "sent" {
+		t.Fatalf("reconciled status=%s want sent", status)
+	}
+	tr := f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionUpstreamAccepted)
+	if tr == nil || f.sentEventCount(t, messageID) != 1 {
+		t.Fatalf("did not converge: transition=%+v events=%d", tr, f.sentEventCount(t, messageID))
+	}
+	f.assertEventCarriesOnly(t, messageID, webhookpub.EventEmailSent, tr)
 }
 
 // TestTerminalReconcileWorker_DeferredDetailPreferred pins that a final
@@ -587,15 +702,20 @@ type failingTerminalStore struct{ err error }
 func (s failingTerminalStore) ClaimSend(context.Context, string, int64) (*outboundsend.SendJob, error) {
 	return nil, nil
 }
-func (s failingTerminalStore) ReleaseSend(context.Context, string, int64) error       { return nil }
-func (s failingTerminalStore) MarkSent(context.Context, string, string, string) error { return nil }
-func (s failingTerminalStore) MarkFailed(context.Context, string, int, string, delivery.FailureSource) error {
+func (s failingTerminalStore) ReleaseSend(context.Context, string, int64) error { return nil }
+func (s failingTerminalStore) MarkSent(context.Context, string, int64, int, time.Time, string, string) error {
+	return nil
+}
+func (s failingTerminalStore) MarkFailed(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode) error {
 	return s.err
 }
 func (s failingTerminalStore) SuppressedRecipients(context.Context, string, string, []string) ([]string, error) {
 	return nil, nil
 }
-func (s failingTerminalStore) DeferTerminalFailure(context.Context, string, int64, string) error {
+func (s failingTerminalStore) DeferTerminalFailure(context.Context, string, int64, int, time.Time, string) error {
+	return nil
+}
+func (s failingTerminalStore) RecordTemporaryFailure(context.Context, string, int64, int, time.Time, string) error {
 	return nil
 }
 

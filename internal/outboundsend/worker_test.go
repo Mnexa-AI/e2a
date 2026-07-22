@@ -10,6 +10,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 )
 
@@ -48,17 +49,21 @@ func (f *fakeStore) ClaimSend(_ context.Context, _ string, _ int64) (*outboundse
 	}
 	return f.job, f.loadErr
 }
-func (f *fakeStore) MarkSent(_ context.Context, id, provider, sentAs string) error {
+func (f *fakeStore) MarkSent(_ context.Context, id string, _ int64, _ int, _ time.Time, provider, sentAs string) error {
 	f.sent = append(f.sent, sentCall{id, provider, sentAs})
 	return f.markSentErr
 }
-func (f *fakeStore) MarkFailed(_ context.Context, id string, attempt int, detail string, source delivery.FailureSource) error {
+func (f *fakeStore) MarkFailed(_ context.Context, id string, _ int64, attempt int, _ time.Time, detail string, source delivery.FailureSource, _ messagelifecycle.ReasonCode) error {
 	f.failed = append(f.failed, failedCall{id, attempt, detail, source})
 	return nil
 }
-func (f *fakeStore) DeferTerminalFailure(_ context.Context, id string, _ int64, detail string) error {
+func (f *fakeStore) DeferTerminalFailure(_ context.Context, id string, _ int64, _ int, _ time.Time, detail string) error {
 	f.deferred = append(f.deferred, failedCall{id: id, detail: detail})
 	return nil
+}
+func (f *fakeStore) RecordTemporaryFailure(_ context.Context, id string, _ int64, _ int, _ time.Time, _ string) error {
+	f.released = append(f.released, id)
+	return f.releaseErr
 }
 func (f *fakeStore) ReleaseSend(_ context.Context, id string, _ int64) error {
 	f.released = append(f.released, id)

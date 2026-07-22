@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -10,6 +11,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/sendramp"
@@ -141,7 +143,7 @@ func (a *outboundSendStore) ReleaseSend(ctx context.Context, messageID string, j
 	return a.store.ReleaseOutboundSendClaim(ctx, messageID, jobID)
 }
 
-func (a *outboundSendStore) MarkSent(ctx context.Context, messageID, providerMessageID, sentAs string) error {
+func (a *outboundSendStore) MarkSent(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, providerMessageID, sentAs string) error {
 	var info *identity.OutboundSentInfo
 	if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
 		i, err := a.store.MarkOutboundSentTx(ctx, tx, messageID, providerMessageID)
@@ -152,14 +154,14 @@ func (a *outboundSendStore) MarkSent(ctx context.Context, messageID, providerMes
 		if info == nil {
 			return nil
 		}
-		// email.sent uses the same deterministic id + best-effort semantics as the
-		// synchronous publishSent: the SES submit already happened, so a failed
-		// outbox write must NOT roll back the 'sent' write (that would re-drive the
-		// job and double-send). Deterministic id dedupes any re-drive via ON CONFLICT.
-		e := buildEmailSentEventFromRow(info, providerMessageID)
+		transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt,
+			messagelifecycle.ReasonSubmissionUpstreamAccepted, "", providerMessageID)
+		if err != nil {
+			return err
+		}
+		e := buildEmailSentEventFromRow(info, providerMessageID, transition)
 		e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailSent)
-		a.outbox.PublishBestEffortTx(ctx, tx, e)
-		return nil
+		return a.outbox.PublishTx(ctx, tx, e)
 	}); err != nil {
 		return err
 	}
@@ -196,7 +198,7 @@ func (a *outboundSendStore) meterSent(ctx context.Context, info *identity.Outbou
 // MarkOutboundFailedTx's own `provider_accepted_at IS NULL` CAS closes the race
 // where evidence lands between the two statements (the row is then left for the
 // reconciler's next pass to settle as sent).
-func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, attempt int, detail string, source delivery.FailureSource) error {
+func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
 	var resolved *identity.OutboundSentInfo
 	var resolvedProviderID string
 	if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
@@ -206,10 +208,14 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, at
 		}
 		if info != nil {
 			resolved, resolvedProviderID = info, providerID
-			e := buildEmailSentEventFromRow(info, providerID)
+			transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt,
+				messagelifecycle.ReasonSubmissionUpstreamAccepted, "", providerID)
+			if err != nil {
+				return err
+			}
+			e := buildEmailSentEventFromRow(info, providerID, transition)
 			e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailSent)
-			a.outbox.PublishBestEffortTx(ctx, tx, e)
-			return nil
+			return a.outbox.PublishTx(ctx, tx, e)
 		}
 		finfo, err := a.store.MarkOutboundFailedTx(ctx, tx, messageID, detail, source)
 		if err != nil {
@@ -218,12 +224,15 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, at
 		if finfo == nil {
 			return nil // row gone, already terminal, or evidence raced in — nothing to record
 		}
+		transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, reason, finfo.Message.DeliveryDetail, "")
+		if err != nil {
+			return err
+		}
 		// Emit with the detail actually stored on the row (a deferred final
 		// attempt's diagnostic is preferred over a generic sweep detail).
-		e := buildEmailFailedEventFromRow(finfo, finfo.Message.DeliveryDetail)
+		e := buildEmailFailedEventFromRow(finfo, finfo.Message.DeliveryDetail, transition)
 		e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailFailed)
-		a.outbox.PublishBestEffortTx(ctx, tx, e)
-		return nil
+		return a.outbox.PublishTx(ctx, tx, e)
 	}); err != nil {
 		return err
 	}
@@ -234,29 +243,76 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, at
 	return nil
 }
 
-func (a *outboundSendStore) DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string) error {
-	return a.store.DeferOutboundTerminalFailure(ctx, messageID, jobID, detail)
+func (a *outboundSendStore) DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error {
+	return a.store.WithTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE messages SET delivery_detail=$3, send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullableLifecycleDetail(detail))
+		if err != nil || tag.RowsAffected() == 0 {
+			return err
+		}
+		_, err = appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, messagelifecycle.ReasonSubmissionTemporaryFailure, detail, "")
+		return err
+	})
+}
+
+func (a *outboundSendStore) RecordTemporaryFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error {
+	return a.store.WithTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE messages SET delivery_status='accepted', send_claimed_at=NULL WHERE id=$1 AND send_job_id=$2 AND delivery_status='sending'`, messageID, jobID)
+		if err != nil || tag.RowsAffected() == 0 {
+			return err
+		}
+		_, err = appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, messagelifecycle.ReasonSubmissionTemporaryFailure, detail, "")
+		return err
+	})
+}
+
+func appendSubmissionTransition(ctx context.Context, tx pgx.Tx, messageID string, jobID int64, attempt int, occurredAt time.Time, reason messagelifecycle.ReasonCode, detail, providerID string) (messagelifecycle.MessageLifecycleTransition, error) {
+	evidence := map[string]any{}
+	if safe := boundedLifecycleDiagnostic(detail); safe != "" {
+		evidence["failure_reason"] = safe
+	}
+	if reason != messagelifecycle.ReasonSubmissionUpstreamAccepted {
+		evidence["failure_code"] = string(reason)
+	}
+	return messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		MessageID: messageID, DedupeKey: outboundsend.SubmissionDedupeKey(jobID, attempt, reason), Direction: "outbound", ReasonCode: reason,
+		Evidence: evidence, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(jobID, 10), "provider_message_id": providerID}), OccurredAt: occurredAt,
+	})
+}
+
+func boundedLifecycleDiagnostic(value string) string {
+	if len(value) <= 2*1024 {
+		return value
+	}
+	return value[:2*1024]
+}
+
+func nullableLifecycleDetail(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 // buildEmailSentEventFromRow reconstructs the email.sent event from a stored row
 // (the async worker has no live SendRequest). Emits the SAME canonical
 // eventpayload.EmailSentData struct as the synchronous buildSentEvent, so
 // subscribers see an identical envelope on both paths (golden-fixture-locked).
-func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessageID string) webhookpub.Event {
+func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessageID string, transitions ...messagelifecycle.MessageLifecycleTransition) webhookpub.Event {
 	m := info.Message
 	data := eventpayload.EmailSentData{
-		MessageID:         m.ID,
-		AgentEmail:        m.Sender,
-		Direction:         "outbound",
-		ConversationID:    m.ConversationID,
-		ProviderMessageID: providerMessageID,
-		Method:            m.Method,
-		From:              m.Sender,
-		To:                orEmpty(m.ToRecipients),
-		CC:                m.CC,
-		BCC:               m.BCC,
-		Subject:           m.Subject,
-		MessageType:       m.Type,
+		MessageID:            m.ID,
+		AgentEmail:           m.Sender,
+		Direction:            "outbound",
+		ConversationID:       m.ConversationID,
+		ProviderMessageID:    providerMessageID,
+		Method:               m.Method,
+		From:                 m.Sender,
+		To:                   orEmpty(m.ToRecipients),
+		CC:                   m.CC,
+		BCC:                  m.BCC,
+		Subject:              m.Subject,
+		MessageType:          m.Type,
+		LifecycleTransitions: transitions,
 	}
 	return webhookpub.Event{
 		Type:           webhookpub.EventEmailSent,
@@ -276,21 +332,22 @@ func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessage
 // string — the retry classification (permanent vs exhausted) is consumed inside
 // the send worker and not plumbed here. The schema keeps both fields optional;
 // populate them if/when the worker passes its classification through.
-func buildEmailFailedEventFromRow(info *identity.OutboundSentInfo, detail string) webhookpub.Event {
+func buildEmailFailedEventFromRow(info *identity.OutboundSentInfo, detail string, transitions ...messagelifecycle.MessageLifecycleTransition) webhookpub.Event {
 	m := info.Message
 	data := eventpayload.EmailFailedData{
-		MessageID:      m.ID,
-		AgentEmail:     m.Sender,
-		Direction:      "outbound",
-		ConversationID: m.ConversationID,
-		Method:         m.Method,
-		From:           m.Sender,
-		To:             orEmpty(m.ToRecipients),
-		CC:             m.CC,
-		BCC:            m.BCC,
-		Subject:        m.Subject,
-		MessageType:    m.Type,
-		Reason:         detail,
+		MessageID:            m.ID,
+		AgentEmail:           m.Sender,
+		Direction:            "outbound",
+		ConversationID:       m.ConversationID,
+		Method:               m.Method,
+		From:                 m.Sender,
+		To:                   orEmpty(m.ToRecipients),
+		CC:                   m.CC,
+		BCC:                  m.BCC,
+		Subject:              m.Subject,
+		MessageType:          m.Type,
+		Reason:               detail,
+		LifecycleTransitions: transitions,
 	}
 	return webhookpub.Event{
 		Type:           webhookpub.EventEmailFailed,
