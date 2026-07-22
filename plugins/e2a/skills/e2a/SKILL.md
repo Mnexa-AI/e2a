@@ -65,6 +65,27 @@ Before the first e2a operation in a task, inspect the current client's available
 5. **Select the inbox:** for agent scope, use the returned `agent_email`. For account scope, call `list_agents`. Honor an inbox identified by the task; use the sole result when there is one; ask the user to choose when there are several. If there are none, offer to create `name@agents.e2a.dev` after they choose the local part—no custom domain or DNS is required.
 6. Verify readiness with `list_messages`, passing the selected `email` for account scope. This read is harmless and does not mark messages read. Once it succeeds, resume the user's original e2a task.
 
+### Optional: require human review for every outbound email
+
+Only when the user asks for every outbound email to require human review,
+configure this policy. After selecting the inbox, call `update_protection` for
+that inbox with:
+
+```json
+{
+  "outbound_gate_policy": "allowlist",
+  "outbound_gate_allowlist": [],
+  "outbound_gate_action": "review",
+  "holds_on_expiry": "reject"
+}
+```
+
+The empty allowlist makes every recipient a gate non-match, `review` holds each
+non-match for a human, and `reject` prevents an unreviewed message from being
+sent when its hold expires. Do not use `open` with `review` for this outcome:
+`open` matches every recipient, so the recipient gate holds nothing. This is
+opt-in; never enable it merely because an inbox was created.
+
 ### Triage the inbox
 
 1. List unread messages with `list_messages` (defaults to `read_status: unread`).

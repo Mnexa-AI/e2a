@@ -5,6 +5,7 @@ import type {
   MessageView,
   AttachmentView,
   MessageSummaryView,
+  ReviewView,
   SendResultView,
   RejectResultView,
   UpdateMessageResultView,
@@ -48,13 +49,6 @@ import type {
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
 import type { Scope } from "./tools/tiers.js";
-import { CodedError } from "./tools/util.js";
-
-// Outbound drafts held for human review surface in the message list with
-// this status (the hold vocabulary was unified on `pending_review` across
-// both directions — see api/openapi.yaml). There is no dedicated status
-// query param for them, so the review queue filters outbound rows on this value.
-export const PENDING_REVIEW_STATUS = "pending_review";
 
 const DEFAULT_LIST_LIMIT = 1000;
 
@@ -124,12 +118,6 @@ export class McpClient {
   listAgents(params: { cursor?: string; limit?: number; deleted?: boolean } = {}): Promise<Page<AgentView>> {
     const { cursor, ...rest } = params;
     return this.sdk.agents.list(rest).page(cursor);
-  }
-
-  // listAllAgents collapses the pager to a flat array for internal aggregations
-  // (list_reviews fan-out) that need every agent, not one page.
-  listAllAgents(): Promise<AgentView[]> {
-    return this.sdk.agents.list().toArray({ limit: DEFAULT_LIST_LIMIT });
   }
 
   getAgent(address: string): Promise<AgentView> {
@@ -336,59 +324,15 @@ export class McpClient {
     );
   }
 
-  // ── Review queue (pending outbound) ─────────────────────────────
+  // ── Account review queue ─────────────────────────────────────────
 
-  // Pending drafts surface as outbound messages with status=pending_review.
-  // There is no dedicated "pending" status filter, so we list outbound and
-  // filter on the status field. Searches across every owned agent when no
-  // default address is pinned so the queue is visible without a default.
-  async listReviews(): Promise<MessageSummaryView[]> {
-    const addresses = this.agentEmail
-      ? [this.agentEmail]
-      : (await this.listAllAgents()).map((a) => a.email);
-    const out: MessageSummaryView[] = [];
-    for (const address of addresses) {
-      const rows = await this.sdk.messages
-        .list(address, { direction: "outbound" })
-        .toArray({ limit: DEFAULT_LIST_LIMIT });
-      for (const r of rows) {
-        // Held drafts carry the review-hold lifecycle in review_status
-        // (read_status is the inbox read-state, "" for outbound). MSG-1.
-        if (r.reviewStatus === PENDING_REVIEW_STATUS) out.push(r);
-      }
-    }
-    return out;
+  listReviews(params: { cursor?: string; limit?: number } = {}): Promise<Page<ReviewView>> {
+    const { cursor, ...rest } = params;
+    return this.sdk.reviews.list(rest).page(cursor);
   }
 
-  // Resolve the owning agent of a pending OUTBOUND draft by scanning the queue.
-  // get_review is a RUNTIME-tier tool (agent-visible), so it must hit
-  // the agent-reachable GET /v1/agents/{email}/messages/{id} — NOT the account-
-  // only /v1/reviews/{id}, which 403s an agent-scoped credential. For a pinned
-  // session this is one list call.
-  private async ownerOfPending(messageId: string): Promise<string> {
-    const addresses = this.agentEmail
-      ? [this.agentEmail]
-      : (await this.listAllAgents()).map((a) => a.email);
-    for (const address of addresses) {
-      const rows = await this.sdk.messages
-        .list(address, { direction: "outbound" })
-        .toArray({ limit: DEFAULT_LIST_LIMIT });
-      if (rows.some((r) => r.id === messageId)) return address;
-    }
-    // Not-found/already-resolved, NOT malformed input — carry the server's
-    // canonical `not_found` code so an agent branching on structuredContent
-    // doesn't wrongly re-validate its arguments (PR #453 review).
-    throw new CodedError(
-      "not_found",
-      `pending message ${messageId} not found on any owned agent (it may have already been approved, rejected, or expired).`,
-    );
-  }
-
-  async getReview(messageId: string): Promise<MessageView> {
-    // Runtime-tier (agent-visible): use the agent-reachable messages path, not
-    // the account-only /v1/reviews/{id}. Resolve the owning inbox first.
-    const address = await this.ownerOfPending(messageId);
-    return this.sdk.messages.get(address, messageId);
+  getReview(messageId: string): Promise<MessageView> {
+    return this.sdk.reviews.get(messageId);
   }
 
   async approveReview(

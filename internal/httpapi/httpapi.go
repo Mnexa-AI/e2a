@@ -381,6 +381,16 @@ type Deps struct {
 	// package; the real one is ws.Handler.ServeWithEmail.
 	WSHandle func(w http.ResponseWriter, r *http.Request, address string)
 
+	// MagicLinkApprove / MagicLinkReject serve the HITL magic-link endpoints
+	// at /v1/approve and /v1/reject: GET renders the token-gated confirmation
+	// page, POST executes the action. Raw HTML handlers owned by
+	// internal/agent (API.ApproveMagicLinkHandler / RejectMagicLinkHandler),
+	// injected so the chi root serves them directly — the legacy mux no
+	// longer registers these paths, and routeNotFound would answer them with
+	// the JSON 404 envelope (it never consults Legacy for /v1/*).
+	MagicLinkApprove http.Handler
+	MagicLinkReject  http.Handler
+
 	// Legacy is the existing gorilla/mux handler. The chi root falls back
 	// to it for every route not yet ported onto Huma (the strangler), so
 	// the service stays fully functional through the multi-sub-slice port.
@@ -504,6 +514,19 @@ func New(deps Deps) *Server {
 	// Managed unsubscribe is a bearer-capability route, not an authenticated
 	// /v1 management operation. GET is deliberately read-only for link scanners.
 	root.Handle("/u/{token}", http.HandlerFunc(s.handlePublicUnsubscribe))
+
+	// HITL magic-link pages (approve/reject confirmation + execution). Raw
+	// token-gated HTML handlers owned by internal/agent — NOT Huma
+	// operations. They must be registered here explicitly: routeNotFound
+	// short-circuits unmatched /v1/* with the JSON envelope and never
+	// consults Legacy, so without these registrations every approve/reject
+	// link in notification emails 404s.
+	if deps.MagicLinkApprove != nil {
+		root.Handle("/v1/approve", deps.MagicLinkApprove)
+	}
+	if deps.MagicLinkReject != nil {
+		root.Handle("/v1/reject", deps.MagicLinkReject)
+	}
 
 	root.NotFound(s.routeNotFound)
 	root.MethodNotAllowed(s.routeMethodNotAllowed)

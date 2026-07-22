@@ -70,3 +70,58 @@ func TestLegacyFallbackRemainsOutsideV1(t *testing.T) {
 		t.Fatalf("legacy handler called %d times, want 2", legacyCalls)
 	}
 }
+
+// The HITL magic-link pages are raw HTML handlers (internal/agent) injected
+// via Deps and registered directly on the chi root — without registration,
+// routeNotFound would answer them with the JSON 404 envelope and every
+// approve/reject link in notification emails would break.
+func TestMagicLinkRoutesServed(t *testing.T) {
+	calls := 0
+	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTeapot)
+	})
+	s := New(Deps{MagicLinkApprove: stub, MagicLinkReject: stub})
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/approve"},
+		{http.MethodPost, "/v1/approve"},
+		{http.MethodGet, "/v1/reject"},
+		{http.MethodPost, "/v1/reject"},
+	} {
+		rr := httptest.NewRecorder()
+		s.ServeHTTP(rr, httptest.NewRequest(tc.method, tc.path+"?t=x", nil))
+		if rr.Code != http.StatusTeapot {
+			t.Fatalf("%s %s status = %d, want injected magic-link handler (%d); body=%q",
+				tc.method, tc.path, rr.Code, http.StatusTeapot, rr.Body.String())
+		}
+	}
+	if calls != 4 {
+		t.Fatalf("magic-link handlers called %d times, want 4", calls)
+	}
+}
+
+// Without the magic-link handlers wired (Deps zero value), the /v1/approve
+// and /v1/reject paths fall back to the canonical JSON 404 — they must NOT
+// silently reach the legacy mux.
+func TestMagicLinkRoutesAbsentWithoutDeps(t *testing.T) {
+	legacyCalls := 0
+	s := New(Deps{Legacy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		legacyCalls++
+		w.WriteHeader(http.StatusTeapot)
+	})})
+
+	for _, path := range []string{"/v1/approve", "/v1/reject"} {
+		rr := httptest.NewRecorder()
+		s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("GET %s status = %d, want 404; body=%q", path, rr.Code, rr.Body.String())
+		}
+	}
+	if legacyCalls != 0 {
+		t.Fatalf("legacy handler called %d times for magic-link paths", legacyCalls)
+	}
+}

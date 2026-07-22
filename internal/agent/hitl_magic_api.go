@@ -28,6 +28,40 @@ import (
 
 // --- GET confirmation pages ---
 
+// ApproveMagicLinkHandler serves the /v1/approve magic-link endpoint as a
+// self-contained handler — GET renders the token-gated confirmation page,
+// POST executes the approval. The chi root (internal/httpapi) registers it
+// directly; the legacy gorilla/mux no longer carries these routes.
+func (a *API) ApproveMagicLinkHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			a.handleApproveMagicLinkGet(w, r)
+		case http.MethodPost:
+			a.handleApproveMagicLinkPost(w, r)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
+// RejectMagicLinkHandler is the /v1/reject counterpart of
+// ApproveMagicLinkHandler.
+func (a *API) RejectMagicLinkHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			a.handleRejectMagicLinkGet(w, r)
+		case http.MethodPost:
+			a.handleRejectMagicLinkPost(w, r)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
 func (a *API) handleApproveMagicLinkGet(w http.ResponseWriter, r *http.Request) {
 	a.renderConfirmPage(w, r, approvaltoken.ActionApprove)
 }

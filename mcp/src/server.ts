@@ -9,6 +9,7 @@ import { registerWebhookTools } from "./tools/webhooks.js";
 import { registerEventTools } from "./tools/events.js";
 import { registerTemplateTools } from "./tools/templates.js";
 import { registerApiKeyTools } from "./tools/apikeys.js";
+import { registerLegacyTools } from "./tools/legacy.js";
 import { toolNamesForScope } from "./tools/tiers.js";
 
 // package.json is the single source of truth for the reported MCP server
@@ -63,5 +64,6 @@ export function buildServer({ client, version = PACKAGE_VERSION }: BuildServerOp
   registerEventTools(server, client);
   registerTemplateTools(server, client);
   registerApiKeyTools(server, client);
+  registerLegacyTools(server, client);
   return server;
 }

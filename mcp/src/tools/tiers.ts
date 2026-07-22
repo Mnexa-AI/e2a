@@ -27,6 +27,7 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "get_message",
   "get_message_lifecycle",
   "get_attachment",
+  "get_attachment_data",
   // Soft delete + restore are both per-agent inbox hygiene: the REST handler
   // pins an agent-scoped credential to its own bound agent (resolveOwnedAgent).
   // The PERMANENT purge is account-only server-side, and the MCP tool doesn't
@@ -38,16 +39,11 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "list_conversations",
   "get_conversation",
   "send_message",
+  "send_email",
   "reply_to_message",
   "forward_message",
-  // NOTE: approve_review / reject_review are deliberately NOT here — they are
-  // admin/account-scope (below). Letting the gated agent approve its own held
-  // outbound would be self-approval and defeat the review gate; approval is an
-  // account-owner / human action (or the magic-link browser flow). An
-  // agent-scoped credential can send (which gets held) and SEE its review
-  // queue (list_reviews / get_review), but not release it.
-  "list_reviews",
-  "get_review",
+  // Review discovery and decisions are deliberately NOT here. They expose the
+  // account-wide queue and belong to the account owner / human reviewer.
 ]);
 
 /** Admin/setup tools — visible ONLY to account-scoped credentials. */
@@ -65,12 +61,23 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "update_protection",
   "delete_agent",
   "restore_agent",
+  // All review operations are account-only. Letting the gated agent inspect or
+  // resolve holds could disclose quarantined inbound content or enable
+  // self-approval of its own outbound mail.
+  "list_reviews",
+  "get_review",
+  "list_pending_messages",
+  "get_pending_message",
   // Review approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,
   // defeating the review gate). The backend enforces this too: the approve/reject
   // handlers (internal/httpapi/reviews.go) require account scope (403 for agent-scoped).
   "approve_review",
   "reject_review",
+  "approve_pending_message",
+  "reject_pending_message",
+  "approve_message",
+  "reject_message",
   "list_domains",
   "get_domain",
   "register_domain",

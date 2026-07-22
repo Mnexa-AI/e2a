@@ -188,10 +188,15 @@ func (n *Notifier) magicURL(path, token string) string {
 }
 
 func (n *Notifier) dashboardURL(messageID string) string {
+	// The dashboard's pending page is a static route that reads the message
+	// id from the ?id= query param (it redirects to /reviews?id=…). A
+	// path-style /dashboard/pending/{id} URL 404s — the static export has no
+	// per-message route.
+	query := "?id=" + url.QueryEscape(messageID)
 	if n.publicURL == "" {
-		return "/dashboard/pending/" + messageID
+		return "/dashboard/pending" + query
 	}
-	return n.publicURL + "/dashboard/pending/" + messageID
+	return n.publicURL + "/dashboard/pending" + query
 }
 
 func truncate(s string, n int) string {

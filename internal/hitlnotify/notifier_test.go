@@ -111,7 +111,7 @@ func TestNotifierSendsEmailToOwner(t *testing.T) {
 		"Important draft",              // subject
 		"/v1/approve?t=",               // magic approve link
 		"/v1/reject?t=",                // magic reject link
-		"/dashboard/pending/" + msg.ID, // dashboard link
+		"/dashboard/pending?id=" + msg.ID, // dashboard link (query-style; no per-message static route)
 	} {
 		if !strings.Contains(data, needle) {
 			t.Errorf("email body missing %q", needle)
@@ -186,7 +186,7 @@ func TestNotifierBuildsAbsoluteURLs(t *testing.T) {
 	if !strings.Contains(data, publicURL+"/v1/approve?t=") {
 		t.Errorf("approve URL should be absolute under %q, got:\n%s", publicURL, data)
 	}
-	if !strings.Contains(data, publicURL+"/dashboard/pending/") {
+	if !strings.Contains(data, publicURL+"/dashboard/pending?id=") {
 		t.Errorf("dashboard URL should be absolute under %q", publicURL)
 	}
 }

@@ -34,6 +34,24 @@ function snakeCaseKey(key: string): string {
     .toLowerCase();
 }
 
+type GeneratedAttribute = {
+  name: string;
+  baseName: string;
+  type: string;
+};
+
+function generatedAttributes(value: object): Map<string, GeneratedAttribute> | undefined {
+  const ctor = value.constructor as {
+    getAttributeTypeMap?: () => GeneratedAttribute[];
+  };
+  if (typeof ctor.getAttributeTypeMap !== "function") return undefined;
+  return new Map(ctor.getAttributeTypeMap().map((attribute) => [attribute.name, attribute]));
+}
+
+function isFreeFormMapType(type: string): boolean {
+  return /^\{\s*\[key:\s*string\]\s*:\s*(?:any|unknown);?\s*\}$/.test(type);
+}
+
 /**
  * Convert SDK response models back to the REST-style names used by MCP.
  *
@@ -44,26 +62,36 @@ function snakeCaseKey(key: string): string {
  * are preserved verbatim.
  *
  * IMPORTANT: the generated SDK's ObjectSerializer.deserialize returns CLASS
- * INSTANCES (`new typeMap[type]()`), not plain object literals, so the
- * conversion must NOT be gated on `prototype === Object.prototype` — that
- * guard silently passed every SDK model through unconverted, leaking camelCase
- * keys from ~48 of 50 tools (the pre-GA e2e sweep's Bug 2). Any non-null,
- * non-Array, non-Date object is treated as a convertible record; its own
- * enumerable properties are renamed recursively (this matches the McpOutput
- * type above, which already maps every object shape except Date/arrays).
+ * INSTANCES (`new typeMap[type]()`), not plain object literals. Their generated
+ * attribute map is the authoritative boundary metadata: `baseName` is the REST
+ * key and a `{ [key: string]: any }` attribute is an OPEN JSON map whose keys
+ * belong to the user/event payload and must remain byte-for-byte unchanged.
+ * Without that distinction, a template variable like `firstName` became
+ * `first_name` inside suggested_data and silently rendered blank when reused.
+ *
+ * Non-generated objects still use the historical recursive snake_case fallback
+ * so hand-built MCP envelopes and test doubles retain the frozen v1 shape.
  */
 export function toMcpOutput<T>(value: T): McpOutput<T> {
+  return convertMcpOutput(value, false) as McpOutput<T>;
+}
+
+function convertMcpOutput(value: unknown, preserveMapKeys: boolean): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => toMcpOutput(item)) as McpOutput<T>;
+    return value.map((item) => convertMcpOutput(item, preserveMapKeys));
   }
   if (value !== null && typeof value === "object" && !(value instanceof Date)) {
+    const attributes = preserveMapKeys ? undefined : generatedAttributes(value);
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
-      out[snakeCaseKey(key)] = toMcpOutput(item);
+      const attribute = attributes?.get(key);
+      const outputKey = preserveMapKeys ? key : attribute?.baseName ?? snakeCaseKey(key);
+      const preserveChildKeys = preserveMapKeys || (attribute !== undefined && isFreeFormMapType(attribute.type));
+      out[outputKey] = convertMcpOutput(item, preserveChildKeys);
     }
-    return out as McpOutput<T>;
+    return out;
   }
-  return value as McpOutput<T>;
+  return value;
 }
 
 // strictInputSchema wraps a zod raw shape in a strict ZodObject so the

@@ -130,6 +130,26 @@ If the call succeeds, setup is complete. The agent can now send, receive,
 reply, forward, manage attachments, subscribe to events, and configure a custom
 domain when one is actually needed.
 
+## Optional: require human review for every outbound email
+
+Only when the user asks for this protection, call `update_protection` for the
+selected inbox with:
+
+```json
+{
+  "outbound_gate_policy": "allowlist",
+  "outbound_gate_allowlist": [],
+  "outbound_gate_action": "review",
+  "holds_on_expiry": "reject"
+}
+```
+
+An empty allowlist makes every recipient a gate non-match, `review` holds every
+non-match for a human, and `reject` prevents expiry from sending an unreviewed
+message. Do not use `open` with `review`: `open` matches every recipient, so the
+recipient gate holds nothing. Inbox creation alone is not permission to enable
+this policy.
+
 ## Use the inbox safely
 
 - Reply with `reply_to_message` and the original `message_id`; a new

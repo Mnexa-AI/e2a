@@ -1,19 +1,25 @@
-// McpClient review-queue routing: the tools split across credential tiers, so
-// they MUST hit tier-correct endpoints —
-//   approve_review / reject_review  → ADMIN (account-only)  → sdk.reviews.*
-//   list_reviews / get_review          → RUNTIME (agent-visible) → sdk.messages.*
-// The account-only /v1/reviews path 403s an agent-scoped credential, so routing
-// a runtime-tier tool through it is a regression. These tests pin the routing.
+// McpClient review-queue routing: all four tools are account-only and MUST hit
+// the canonical sdk.reviews resource. Discovery must not fan out over agents or
+// scan per-inbox message histories: that path missed inbound screening holds.
 
 import { describe, it, expect, vi } from "vitest";
 import { McpClient } from "../src/client.js";
 
 function mockSdk() {
+  const reviewPage = vi.fn(async (cursor?: string) => ({
+    items: [
+      { id: "msg_in", direction: "inbound" },
+      { id: "msg_out", direction: "outbound" },
+    ],
+    next_cursor: cursor ? undefined : "reviews_next",
+  }));
   return {
+    reviewPage,
     reviews: {
+      list: vi.fn(() => ({ page: reviewPage })),
       approve: vi.fn(async () => ({ messageId: "msg_p", status: "sent" })),
       reject: vi.fn(async () => ({ messageId: "msg_p", status: "rejected" })),
-      get: vi.fn(async () => ({ id: "msg_p" })),
+      get: vi.fn(async (id: string) => ({ id })),
     },
     messages: {
       get: vi.fn(async () => ({ id: "msg_p" })),
@@ -131,28 +137,28 @@ describe("McpClient review routing (tier-correct endpoints)", () => {
     expect(sdk.reviews.reject).toHaveBeenCalledWith("msg_p", { reason: "spam" });
   });
 
-  it("getReview → agent-reachable messages.get, NOT account-only reviews.get", async () => {
-    // Regression guard (PR #284 adversarial finding): get_review is a
-    // runtime-tier tool, so it must NOT route through sdk.reviews.get — that path
-    // 403s an agent-scoped credential.
+  it("listReviews pages the canonical account queue without agent/message fan-out", async () => {
     const sdk = mockSdk();
-    const c = new McpClient(sdk as never, "bot@test.dev", "agent");
-    await c.getReview("msg_p");
-    expect(sdk.messages.get).toHaveBeenCalledWith("bot@test.dev", "msg_p");
-    expect(sdk.reviews.get).not.toHaveBeenCalled();
+    const c = new McpClient(sdk as never, "", "account");
+
+    const page = await c.listReviews({ cursor: "reviews_cursor", limit: 25 });
+
+    expect(sdk.reviews.list).toHaveBeenCalledWith({ limit: 25 });
+    expect(sdk.reviewPage).toHaveBeenCalledWith("reviews_cursor");
+    expect(page.items.map((row) => row.direction)).toEqual(["inbound", "outbound"]);
+    expect(sdk.agents.list).not.toHaveBeenCalled();
+    expect(sdk.messages.list).not.toHaveBeenCalled();
   });
 
-  it("getReview on a missing/resolved pending draft throws not_found, not invalid_request", async () => {
-    // PR #453 review: an already-approved/rejected/expired draft is a
-    // not-found condition — a CodedError with the server's canonical
-    // `not_found` code, so structuredError doesn't mislabel it as a
-    // caller-input problem.
+  it("getReview delegates directly to the canonical account review resource", async () => {
     const sdk = mockSdk();
-    const c = new McpClient(sdk as never, "bot@test.dev", "agent");
-    await expect(c.getReview("msg_gone")).rejects.toMatchObject({
-      code: "not_found",
-      message: expect.stringContaining("already been approved, rejected, or expired"),
-    });
+    const c = new McpClient(sdk as never, "", "account");
+
+    await expect(c.getReview("msg_p")).resolves.toEqual({ id: "msg_p" });
+
+    expect(sdk.reviews.get).toHaveBeenCalledWith("msg_p");
+    expect(sdk.messages.get).not.toHaveBeenCalled();
+    expect(sdk.messages.list).not.toHaveBeenCalled();
   });
 });
 

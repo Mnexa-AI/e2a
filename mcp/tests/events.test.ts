@@ -192,15 +192,15 @@ describe("MCP events tools", () => {
   });
 
   describe("tool catalog", () => {
-    it("includes the 3 events tools in the full re-curated tool set — total 52", async () => {
+    it("includes the 3 events tools in the additive v1 tool set — total 60", async () => {
       const client = await buildClient(stub);
       const { tools } = await client.listTools();
       const names = new Set(tools.map((t) => t.name));
       // The events tools add list_events/get_event/redeliver_event; the
       // full registered set (incl. the 8 beta template tools and the 3
-      // api-key tools, the 3 trash-lifecycle tools, and the message lifecycle
-      // diagnostic tool) is 52 tools.
-      expect(tools).toHaveLength(52);
+      // api-key tools, the 3 trash-lifecycle tools, the beta message-lifecycle
+      // diagnostic tool, and 8 frozen compatibility aliases) is 60 tools.
+      expect(tools).toHaveLength(60);
       expect(names.has("list_events")).toBe(true);
       expect(names.has("get_event")).toBe(true);
       expect(names.has("redeliver_event")).toBe(true);

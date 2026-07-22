@@ -657,7 +657,9 @@ func main() {
 	// owns the `/v1` prefix (OpenAPI-as-source-of-truth, standardized error
 	// envelope + cursor pagination + X-Request-Id), and falls back to the
 	// legacy gorilla/mux for the remaining non-v1 routes (OAuth, session auth,
-	// health/feedback, magic-link pages). The `/api/v1` surface is fully retired.
+	// health/feedback). The HITL magic-link pages (/v1/approve, /v1/reject)
+	// are registered directly on the chi root via the MagicLink* deps.
+	// The `/api/v1` surface is fully retired.
 	// The chi root is the process HTTP handler.
 	v1 := apiserver.New(apiserver.Params{
 		API:                       api,
