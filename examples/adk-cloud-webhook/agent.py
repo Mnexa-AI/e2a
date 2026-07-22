@@ -1,7 +1,9 @@
 """ADK agent definition.
 
 Kept deliberately minimal so the focus stays on the e2a integration in
-webhook.py. Swap in your own instruction, tools, or sub-agents as needed.
+webhook.py. The webhook projects only normalized ``InboundEmail`` fields into
+the prompt; it never passes raw MIME or the transport model to ADK. Swap in
+your own instruction, tools, or sub-agents as needed.
 """
 
 from google.adk.agents import LlmAgent

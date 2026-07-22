@@ -1,9 +1,4 @@
-"""In-process webhook event state for the single-worker tutorial app.
-
-Production deployments should replace this with a durable store keyed by the
-e2a event id. The small abstraction keeps the example's duplicate handling
-explicit without coupling it to a particular database.
-"""
+"""Bounded in-process state for at-least-once webhook delivery."""
 
 from __future__ import annotations
 
@@ -11,7 +6,6 @@ import asyncio
 import hashlib
 import re
 from collections import deque
-from email.utils import parseaddr
 from typing import Literal
 
 ClaimResult = Literal["new", "processing", "processed"]
@@ -35,22 +29,8 @@ def conversation_id_for(event_id: str, existing: str | None) -> str:
     return f"conv_{digest}"
 
 
-def sender_user_id(header_from: object, inbox: str, message_id: str) -> str:
-    """Return a stable, inbox-scoped, non-identifying ADK user id."""
-    mailbox = parseaddr(header_from)[1] if isinstance(header_from, str) else ""
-    mailbox = mailbox.strip().casefold()
-    local, separator, domain = mailbox.partition("@")
-    if not separator or not local or not domain or "@" in domain:
-        mailbox_key = f"unknown:{message_id}"
-    else:
-        mailbox_key = f"mailbox:{local}@{domain}"
-    namespace = inbox.strip().casefold()
-    digest = hashlib.sha256(f"{namespace}\0{mailbox_key}".encode()).hexdigest()
-    return f"sender_{digest[:32]}"
-
-
 class EventDeduper:
-    """Track event claims so at-least-once webhook delivery is side-effect safe."""
+    """Track event claims so duplicate deliveries are side-effect safe."""
 
     def __init__(self, *, max_processed: int = 10_000) -> None:
         if max_processed <= 0:

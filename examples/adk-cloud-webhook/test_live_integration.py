@@ -1,9 +1,10 @@
 """Opt-in live dry run for the ADK webhook example.
 
 Run this against the repository's contract server. The test uses the real
-Python SDK and HTTP handlers for agent creation, self-send loopback, message
-fetch, and reply. Only the Gemini turn is replaced with a deterministic local
-runner so the dry run is repeatable and never consumes model quota.
+Python SDK and HTTP handlers for agent creation, self-send loopback, ergonomic
+inbound hydration, and bound reply. Only the Gemini turn is replaced with a
+deterministic local runner so the dry run is repeatable and never consumes
+model quota.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ class _DeterministicRunner:
     "set E2A_DRY_RUN=1 with a live contract server to run",
 )
 class LiveWebhookIntegrationTest(unittest.TestCase):
-    def test_signed_inbound_fetches_and_replies_once(self) -> None:
+    def test_signed_inbound_hydrates_and_replies_once(self) -> None:
         from fastapi.testclient import TestClient
         import httpx
 

@@ -15,10 +15,10 @@ e2a relay
 this app
     |
     +-- construct_event (verify HMAC + decode to a typed event)
+    +-- client.inbound.from_event(event) (fetch normalized InboundEmail)
     +-- look up / create ADK session keyed by conversation_id
     +-- runner.run_async(...)
-    +-- client.messages.reply(address, message_id, {text, conversation_id},
-    |                         idempotency_key=event.id)
+    +-- email.reply({text, conversation_id}, idempotency_key=event.id)
     |
     v
 e2a relay -> SMTP -> human
@@ -38,7 +38,7 @@ e2a relay -> SMTP -> human
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
 > **Version lines:** this example pins ADK 1.x (`google-adk>=1.31,<2`) and
-> targets the current e2a 5.x SDK contract. The MCP
+> requires the ergonomic inbound facade in e2a 5.2 or newer. The MCP
 > quick-start example under [`mcp/examples/adk`](../../mcp/examples/adk/)
 > targets ADK 2.x. They intentionally track different ADK releases.
 
@@ -106,11 +106,13 @@ Email is stateless at the SMTP layer. e2a re-creates threading by
 propagating an opaque `conversation_id` through each round-trip:
 
 1. **First inbound** has `conversation_id = None` (the human just
-   started a thread). The webhook derives a stable `conv_<event-id-prefix>`
+   started a thread). The webhook derives a stable `conv_<full-event-id-suffix>`
    anchor and uses it as the ADK `session_id`. A retry derives the same value,
    so it also reuses an identical reply request body and idempotency key.
-2. The webhook calls `client.messages.reply(address, message_id,
-   {"text": text, "conversation_id": "conv_<event-id-prefix>"})`. e2a stamps
+2. The webhook hydrates an `AsyncInboundEmail` with
+   `client.inbound.from_event(event)`, then calls
+   `email.reply({"text": text, "conversation_id": "conv_<full-event-id-suffix>"},
+   idempotency_key=event.id)`. e2a stamps
    that value into `X-E2A-Conversation-Id` on the outbound message and
    remembers the binding to the message ID.
 3. **Subsequent inbound** (the human replies in their mail client) lands
@@ -126,12 +128,34 @@ e2a delivers webhooks at least once. The example claims each event ID before
 running ADK and reuses that ID as the reply's `Idempotency-Key`, so a timed-out
 delivery cannot send the same reply twice in the single-process demo. A
 duplicate that is still running receives a retryable 503; a completed duplicate
-is acknowledged without another agent turn.
+is acknowledged without another agent turn. The endpoint streams the exact
+signed request bytes through a 1 MiB limit before signature verification, so a
+chunked request cannot bypass the bound or allocate an unbounded body.
 
 See [webhook.py](webhook.py) for the implementation, including
 [HMAC signature verification](https://github.com/tokencanopy/e2a/blob/main/sdks/python/README.md#quick-start)
 which you should *always* do on a public webhook before trusting any
 field on the parsed payload.
+
+`construct_event()` is the envelope authentication boundary: it verifies the
+raw body and signature before any fetch, model call, or reply. Only after that
+succeeds does `client.inbound.from_event(event)` fetch the message and expose
+normalized fields such as `email.from_`, `email.subject`, `email.text`, and
+`email.verified`. The last field is the message's DMARC result, not webhook
+signature status. Sender-controlled address, subject, and body values remain
+untrusted model input even when the webhook signature is valid. This example
+does not place the full `MessageView` or raw MIME in the prompt or logs.
+
+ADK's `user_id` is a truncated SHA-256 identifier derived from the canonical
+sender mailbox and the receiving e2a inbox. Display-name and address-case
+variants therefore reuse the same history, the same sender remains isolated
+across different agent inboxes, and session storage does not receive the
+sender's literal address. Unparseable senders receive a message-scoped private
+identifier instead.
+
+For shorter runnable OpenAI webhook references in Python and TypeScript, plus
+compact Anthropic, LangChain, and ADK substitution snippets, see the
+[minimal agent webhook examples](../agent-framework-webhooks/README.md).
 
 ## What this example deliberately doesn't show
 
@@ -145,14 +169,14 @@ field on the parsed payload.
 - **Tools.** The agent has no tools beyond text generation. Add them to
   `agent.py` once the email loop works end-to-end.
 - **Attachments.** The verified event carries attachment metadata only. The
-  `MessageView` fetched with `client.webhooks.fetch_message(event)` carries the
-  parsed body and attachment metadata; fetch attachment bytes separately with
-  `client.messages.get_attachment(...)`. This example ignores them. ADK's
+  `AsyncInboundEmail` hydrated with `client.inbound.from_event(event)` exposes
+  parsed body and attachment wrappers; call `await attachment.get()` to fetch
+  attachment bytes only when needed. This example ignores them. ADK's
   `Content` supports inline data parts if you want to feed attachments to a
   vision model.
 - **HITL.** The agent replies immediately. If you want human approval
   before the reply goes out, enable review holds on the agent's
   protection config (`PUT /v1/agents/{email}/protection`,
   [docs](https://github.com/tokencanopy/e2a/blob/main/README.md)) and the
-  `client.messages.reply(...)` call returns `status: "pending_review"`
+  `email.reply(...)` call returns `status: "pending_review"`
   with the reply held for review.
