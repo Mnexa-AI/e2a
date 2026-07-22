@@ -74,6 +74,35 @@ it("parses the generated message lifecycle page contract", () => {
   expect(page.items[1].reasonCode).toBe("delivery.recipient_server_accepted");
 });
 
+it("keeps the managed-unsubscribe scenario self-cleaning and lifecycle-observable", () => {
+  const scenario = loadScenarios().find(
+    (candidate) => candidate.name === "agent_suppression_and_managed_unsubscribe",
+  );
+  expect(scenario).toBeDefined();
+
+  const held = scenario!.steps.find((step) => step.id === "managed_unsubscribe_send_held");
+  expect(held?.capture).toEqual({ managed_message_id: "message_id" });
+
+  const lifecycle = scenario!.steps.find((step) => step.id === "get_managed_message_lifecycle");
+  expect(lifecycle?.path).toContain("{managed_message_id}/lifecycle");
+  expect(lifecycle?.expect?.body_array_contains).toEqual({
+    items: {
+      message_id: "{managed_message_id}",
+      direction: "outbound",
+      stage: "review",
+      outcome: "pending",
+      reason_code: "review.hold_created",
+      retryable: false,
+      reconstructed: false,
+    },
+  });
+
+  expect(scenario!.steps.slice(-2).map((step) => step.id)).toEqual([
+    "delete_agent_permanently",
+    "delete_domain",
+  ]);
+});
+
 // Minimal raw-HTTP driver — the scenario runner needs a generic
 // request(method, path, body) shim, not the ergonomic client surface.
 class RawApiError extends Error {
@@ -149,6 +178,7 @@ interface Expectation {
   body_contains?: string[];
   body_excludes?: string[];
   body_match?: Record<string, unknown>;
+  body_array_contains?: Record<string, Record<string, unknown>>;
   fields_present?: string[];
   fields_absent?: string[];
   field_match?: Record<string, unknown>;
@@ -427,7 +457,9 @@ class Runner {
       expect(status, `step ${step.id}: status`).toBe(ex.status);
     }
 
-    const hasBodyChecks = Boolean(ex?.body_contains?.length || ex?.body_match || ex?.body_excludes?.length);
+    const hasBodyChecks = Boolean(
+      ex?.body_contains?.length || ex?.body_match || ex?.body_excludes?.length || ex?.body_array_contains,
+    );
     const hasCapture = Boolean(step.capture && Object.keys(step.capture).length);
     if (!hasBodyChecks && !hasCapture) return;
 
@@ -451,6 +483,18 @@ class Runner {
           `step ${step.id}: body_match ${resolvedPath} = ${JSON.stringify(actual)}, want ${JSON.stringify(resolvedExpected)}`,
         ).toBe(true);
       }
+    }
+    for (const [jsonPath, expectedFields] of Object.entries(ex?.body_array_contains ?? {})) {
+      const resolvedPath = this.resolve(jsonPath);
+      const items = jsonPathGet(json, resolvedPath);
+      expect(Array.isArray(items), `step ${step.id}: body_array_contains ${resolvedPath} is an array`).toBe(true);
+      const resolvedFields = this.resolveValue(expectedFields) as Record<string, unknown>;
+      const found = (items as unknown[]).some((item) =>
+        item !== null && typeof item === "object" && Object.entries(resolvedFields).every(
+          ([field, expected]) => valuesEqual(jsonPathGet(item as Record<string, unknown>, field), expected),
+        ),
+      );
+      expect(found, `step ${step.id}: body_array_contains ${resolvedPath} has a matching item`).toBe(true);
     }
 
     // Capture phase — AFTER assertions (Go-runner parity): extract a response

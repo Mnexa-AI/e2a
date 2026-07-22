@@ -87,10 +87,11 @@ type step struct {
 }
 
 type expectation struct {
-	Status       int                    `yaml:"status,omitempty"`
-	BodyContains []string               `yaml:"body_contains,omitempty"`
-	BodyMatch    map[string]interface{} `yaml:"body_match,omitempty"`
-	BodyExcludes []string               `yaml:"body_excludes,omitempty"`
+	Status            int                               `yaml:"status,omitempty"`
+	BodyContains      []string                          `yaml:"body_contains,omitempty"`
+	BodyMatch         map[string]interface{}            `yaml:"body_match,omitempty"`
+	BodyArrayContains map[string]map[string]interface{} `yaml:"body_array_contains,omitempty"`
+	BodyExcludes      []string                          `yaml:"body_excludes,omitempty"`
 	// WS-specific
 	FieldsPresent []string               `yaml:"fields_present,omitempty"`
 	FieldsAbsent  []string               `yaml:"fields_absent,omitempty"`
@@ -448,7 +449,7 @@ func (r *runner) execRequest(t *testing.T, s *step) {
 	}
 
 	// JSON body assertions
-	if len(s.Expect.BodyContains) == 0 && len(s.Expect.BodyMatch) == 0 && len(s.Expect.BodyExcludes) == 0 {
+	if len(s.Expect.BodyContains) == 0 && len(s.Expect.BodyMatch) == 0 && len(s.Expect.BodyArrayContains) == 0 && len(s.Expect.BodyExcludes) == 0 && len(s.Capture) == 0 {
 		return
 	}
 
@@ -478,6 +479,39 @@ func (r *runner) execRequest(t *testing.T, s *step) {
 		resolvedExpected := r.resolveValue(expected)
 		if !valuesEqual(actual, resolvedExpected) {
 			t.Fatalf("step %s: path %q = %v (%T), want %v (%T)", s.ID, resolvedPath, actual, actual, resolvedExpected, resolvedExpected)
+		}
+	}
+	for path, expectedFields := range s.Expect.BodyArrayContains {
+		resolvedPath := r.resolve(path)
+		rawItems, found := jsonPathGet(jsonBody, resolvedPath)
+		if !found {
+			t.Fatalf("step %s: array path %q not found in response: %s", s.ID, resolvedPath, rawBody)
+		}
+		items, ok := rawItems.([]interface{})
+		if !ok {
+			t.Fatalf("step %s: path %q is not an array", s.ID, resolvedPath)
+		}
+		matched := false
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			itemMatches := true
+			for field, expected := range expectedFields {
+				actual, found := jsonPathGet(item, r.resolve(field))
+				if !found || !valuesEqual(actual, r.resolveValue(expected)) {
+					itemMatches = false
+					break
+				}
+			}
+			if itemMatches {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Fatalf("step %s: path %q has no item matching %v", s.ID, resolvedPath, expectedFields)
 		}
 	}
 

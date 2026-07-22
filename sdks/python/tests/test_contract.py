@@ -50,24 +50,29 @@ def load_scenarios() -> list[dict[str, Any]]:
     return data["scenarios"]
 
 
-def json_path_get(obj: Any, path: str) -> Any:
+_MISSING = object()
+
+
+def json_path_get(obj: Any, path: str, default: Any = None) -> Any:
     """Evaluate a simple JSON path like 'agents[0].email' or 'agents.length'."""
     parts = path.split(".")
     current = obj
     for part in parts:
         if part == "length":
-            return len(current) if isinstance(current, list) else None
+            return len(current) if isinstance(current, list) else default
         m = re.match(r"^(.+)\[(\d+)\]$", part)
         if m:
             name, idx = m.group(1), int(m.group(2))
             arr = current.get(name) if isinstance(current, dict) else None
             if not isinstance(arr, list) or idx >= len(arr):
-                return None
+                return default
             current = arr[idx]
         else:
             if not isinstance(current, dict):
-                return None
-            current = current.get(part)
+                return default
+            current = current.get(part, default)
+            if current is default:
+                return default
     return current
 
 
@@ -206,7 +211,10 @@ class Runner:
         if "status" in ex:
             assert status == ex["status"], f"step {step['id']}: expected {ex['status']}, got {status}"
 
-        if not any(k in ex for k in ("body_contains", "body_excludes", "body_match")):
+        has_capture = bool(step.get("capture"))
+        if not any(
+            k in ex for k in ("body_contains", "body_excludes", "body_match", "body_array_contains")
+        ) and not has_capture:
             return
 
         if data is None:
@@ -228,6 +236,35 @@ class Runner:
                 assert values_equal(actual, resolved_expected), (
                     f"step {step['id']}: body_match {resolved_path} = {actual!r}, want {resolved_expected!r}"
                 )
+
+        for json_path, expected_fields in ex.get("body_array_contains", {}).items():
+            resolved_path = self.resolve(json_path)
+            items = json_path_get(data, resolved_path, _MISSING)
+            assert isinstance(items, list), (
+                f"step {step['id']}: body_array_contains {resolved_path} is not an array"
+            )
+            resolved_fields = self.resolve_value(expected_fields)
+            assert any(
+                isinstance(item, dict)
+                and all(
+                    values_equal(json_path_get(item, field, _MISSING), expected)
+                    for field, expected in resolved_fields.items()
+                )
+                for item in items
+            ), f"step {step['id']}: body_array_contains {resolved_path} has no matching item"
+
+        for name, src_path in (step.get("capture") or {}).items():
+            resolved_path = self.resolve(src_path)
+            value = json_path_get(data, resolved_path, _MISSING)
+            assert value is not _MISSING, (
+                f"step {step['id']}: capture path {resolved_path} not found in response"
+            )
+            if value is None:
+                self.vars[name] = "null"
+            elif isinstance(value, bool):
+                self.vars[name] = str(value).lower()
+            else:
+                self.vars[name] = str(value)
 
 
 # ── Test entry point ──────────────────────────────────────────────
@@ -295,6 +332,77 @@ def _scenario_by_name(name: str) -> dict[str, Any]:
         if sc["name"] == name:
             return sc
     raise ValueError(f"scenario {name!r} not found")
+
+
+def test_runner_captures_response_values_for_later_paths(monkeypatch):
+    scenario = {
+        "name": "capture",
+        "description": "capture parity",
+        "steps": [
+            {
+                "id": "create",
+                "action": "request",
+                "method": "POST",
+                "path": "/messages",
+                "expect": {"status": 202},
+                "capture": {"message_id": "message_id"},
+            },
+            {
+                "id": "read",
+                "action": "request",
+                "method": "GET",
+                "path": "/messages/{message_id}/lifecycle",
+                "expect": {"status": 200},
+            },
+        ],
+    }
+    paths: list[str] = []
+    responses = iter(
+        [
+            httpx.Response(202, json={"message_id": "msg_captured"}),
+            httpx.Response(200, json={"items": []}),
+        ]
+    )
+    runner = Runner("https://contract.test", "key", scenario)
+
+    def fake_raw(method: str, path: str, body: Any = None) -> httpx.Response:
+        del method, body
+        paths.append(path)
+        return next(responses)
+
+    monkeypatch.setattr(runner, "_raw", fake_raw)
+    try:
+        runner.execute_steps()
+    finally:
+        runner.close()
+
+    assert paths == ["/messages", "/messages/msg_captured/lifecycle"]
+
+
+def test_managed_unsubscribe_scenario_is_self_cleaning_and_lifecycle_observable():
+    scenario = _scenario_by_name("agent_suppression_and_managed_unsubscribe")
+    steps = {step["id"]: step for step in scenario["steps"]}
+
+    assert steps["managed_unsubscribe_send_held"]["capture"] == {
+        "managed_message_id": "message_id"
+    }
+    lifecycle = steps["get_managed_message_lifecycle"]
+    assert "{managed_message_id}/lifecycle" in lifecycle["path"]
+    assert lifecycle["expect"]["body_array_contains"] == {
+        "items": {
+            "message_id": "{managed_message_id}",
+            "direction": "outbound",
+            "stage": "review",
+            "outcome": "pending",
+            "reason_code": "review.hold_created",
+            "retryable": False,
+            "reconstructed": False,
+        }
+    }
+    assert [step["id"] for step in scenario["steps"][-2:]] == [
+        "delete_agent_permanently",
+        "delete_domain",
+    ]
 
 
 @pytest.fixture(params=_scenario_ids() if SCENARIOS_PATH.exists() else [])
