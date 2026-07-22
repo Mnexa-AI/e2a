@@ -144,7 +144,8 @@ func TestMessageLifecycleDocsPublishClosedDiagnosticContract(t *testing.T) {
 		"does not fabricate",
 		"`dedupe_key`",
 		"additive",
-		"coordinated OpenAPI, generated SDK, and handwritten client regeneration",
+		"The closed stage, outcome, and reason-code vocabularies",
+		"Any addition requires coordinated OpenAPI and generated-SDK regeneration plus handwritten client updates.",
 		"delivered means the recipient mail server accepted the message; e2a does not observe or claim inbox placement.",
 		"Screening and prompt-injection detections remain outside the lifecycle ledger.",
 	)
