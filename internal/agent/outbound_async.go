@@ -60,7 +60,7 @@ type outboundSendStore struct {
 }
 
 // NewOutboundSendStore builds the outboundsend.Store adapter for main.go.
-func NewOutboundSendStore(store *identity.Store, outbox webhookpub.Outbox, usageTracker usage.UsageTracker) outboundsend.Store {
+func NewOutboundSendStore(store *identity.Store, outbox webhookpub.Outbox, usageTracker usage.UsageTracker) *outboundSendStore {
 	return &outboundSendStore{store: store, outbox: outbox, usage: usageTracker}
 }
 
@@ -153,31 +153,49 @@ func (a *outboundSendStore) ReleaseSend(ctx context.Context, messageID string, j
 }
 
 func (a *outboundSendStore) MarkSent(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, providerMessageID, sentAs string) error {
-	var info *identity.OutboundSentInfo
 	if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
-		i, err := a.store.MarkOutboundSentTx(ctx, tx, messageID, providerMessageID)
+		info, err := a.store.MarkOutboundSentTx(ctx, tx, messageID, providerMessageID)
 		if err != nil {
 			return err
 		}
-		info = i
 		if info == nil {
 			return nil
 		}
-		if err := a.meterSentTx(ctx, tx, info); err != nil {
-			return err
-		}
-		transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt,
-			messagelifecycle.ReasonSubmissionUpstreamAccepted, "", providerMessageID)
-		if err != nil {
-			return err
-		}
-		e := buildEmailSentEventFromRow(info, providerMessageID, transition)
-		e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailSent)
-		return a.outbox.PublishTx(ctx, tx, e)
+		return a.finalizeSentTx(ctx, tx, info, jobID, attempt, occurredAt, providerMessageID)
 	}); err != nil {
 		return err
 	}
 	return nil
+}
+
+// FinalizeProviderAcceptedTx is the delivery-feedback crash-window bridge. It
+// reuses the canonical sent finalizer inside the caller's transaction so the
+// signed provider observation, email.sent, usage meter, preserved suppression
+// facts, and following feedback outcome commit or roll back together.
+func (a *outboundSendStore) FinalizeProviderAcceptedTx(ctx context.Context, tx pgx.Tx, messageID string) error {
+	jobID, err := a.store.OutboundSendJobIDTx(ctx, tx, messageID)
+	if err != nil {
+		return err
+	}
+	info, providerID, err := a.store.ResolveOutboundProviderAcceptedTx(ctx, tx, messageID)
+	if err != nil || info == nil {
+		return err
+	}
+	return a.finalizeSentTx(ctx, tx, info, jobID, 0, info.ProviderAcceptedAt, providerID)
+}
+
+func (a *outboundSendStore) finalizeSentTx(ctx context.Context, tx pgx.Tx, info *identity.OutboundSentInfo, jobID int64, attempt int, occurredAt time.Time, providerMessageID string) error {
+	if err := a.meterSentTx(ctx, tx, info); err != nil {
+		return err
+	}
+	transition, err := appendSubmissionTransition(ctx, tx, info.Message.ID, jobID, attempt, occurredAt,
+		messagelifecycle.ReasonSubmissionUpstreamAccepted, "", providerMessageID)
+	if err != nil {
+		return err
+	}
+	e := buildEmailSentEventFromRow(info, providerMessageID, transition)
+	e.ID = webhookpub.DeterministicEventID(info.Message.ID, webhookpub.EventEmailSent)
+	return a.outbox.PublishTx(ctx, tx, e)
 }
 
 // meterSentTx makes async terminal metering part of the same commit as state,
@@ -220,17 +238,7 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 			resolved, resolvedProviderID = info, providerID
 			attempt = 0
 			occurredAt = info.ProviderAcceptedAt
-			if err := a.meterSentTx(ctx, tx, info); err != nil {
-				return err
-			}
-			transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt,
-				messagelifecycle.ReasonSubmissionUpstreamAccepted, "", providerID)
-			if err != nil {
-				return err
-			}
-			e := buildEmailSentEventFromRow(info, providerID, transition)
-			e.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailSent)
-			return a.outbox.PublishTx(ctx, tx, e)
+			return a.finalizeSentTx(ctx, tx, info, jobID, attempt, occurredAt, providerID)
 		}
 		finfo, err := a.store.MarkOutboundFailedTx(ctx, tx, messageID, detail, source)
 		if err != nil {

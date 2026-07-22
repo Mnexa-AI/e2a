@@ -32,11 +32,11 @@ func (s *crossPathStore) AddSuppression(ctx context.Context, userID, address, re
 	return false, nil
 }
 func (s *crossPathStore) WithTx(ctx context.Context, fn func(pgx.Tx) error) error { return fn(nil) }
-func (s *crossPathStore) RecordProviderAcceptEvidenceTx(context.Context, pgx.Tx, string, string) error {
+func (s *crossPathStore) RecordProviderAcceptEvidenceTx(context.Context, pgx.Tx, string, string, time.Time) error {
 	return nil
 }
-func (s *crossPathStore) ReconcilePreservedTerminalFallbackTx(context.Context, pgx.Tx, string) error {
-	return nil
+func (s *crossPathStore) ProviderAcceptancePendingTx(context.Context, pgx.Tx, string) (bool, error) {
+	return false, nil
 }
 func (s *crossPathStore) RecordProviderRejectTx(context.Context, pgx.Tx, string, string, time.Time) error {
 	return nil

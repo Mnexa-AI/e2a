@@ -53,8 +53,8 @@ type Store interface {
 	// crash window. Idempotent. The worker/terminal-reconciler guards read
 	// this evidence before declaring a terminal failure.
 	WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error
-	RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string) error
-	ReconcilePreservedTerminalFallbackTx(ctx context.Context, tx pgx.Tx, messageID string) error
+	RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string, occurredAt time.Time) error
+	ProviderAcceptancePendingTx(ctx context.Context, tx pgx.Tx, messageID string) (bool, error)
 	RecordProviderRejectTx(ctx context.Context, tx pgx.Tx, messageID, detail string, occurredAt time.Time) error
 	// RecordDeliveryOutcome upserts the per-recipient status monotonically and
 	// recomputes the message rollup (worst status by precedence). Idempotent:
@@ -97,6 +97,10 @@ type FiredEvent struct {
 // webhookpub.
 type Firer func(ctx context.Context, tx pgx.Tx, e FiredEvent) error
 
+// ProviderAcceptanceFinalizer completes the canonical sent side effects in
+// the consumer's transaction when feedback closes the SMTP-accept crash gap.
+type ProviderAcceptanceFinalizer func(ctx context.Context, tx pgx.Tx, messageID string) error
+
 // Event push types for delivery outcomes (decision 9 vocabulary).
 const (
 	EventEmailDelivered  = "email.delivered"
@@ -136,13 +140,18 @@ func pushEventFor(s Status) string {
 // delivery events, and auto-suppression. It is idempotent end-to-end (safe to
 // process the same SNS notification twice — at-least-once delivery).
 type Consumer struct {
-	store Store
-	fire  Firer
+	store              Store
+	fire               Firer
+	finalizeAcceptance ProviderAcceptanceFinalizer
 }
 
 // NewConsumer builds the consumer. fire may be nil (no events).
-func NewConsumer(store Store, fire Firer) *Consumer {
-	return &Consumer{store: store, fire: fire}
+func NewConsumer(store Store, fire Firer, finalizers ...ProviderAcceptanceFinalizer) *Consumer {
+	consumer := &Consumer{store: store, fire: fire}
+	if len(finalizers) > 0 {
+		consumer.finalizeAcceptance = finalizers[0]
+	}
+	return consumer
 }
 
 // Process applies one normalized SES event. Unknown/uncorrelated messages are
@@ -188,11 +197,20 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 		// and event outbox rows share this transaction. A notification retry can
 		// therefore never expose a state/event contradiction.
 		if ev.Kind.impliesProviderAcceptance() {
-			if err := c.store.RecordProviderAcceptEvidenceTx(ctx, tx, m.MessageID, ev.SESMessageID); err != nil {
+			if err := c.store.RecordProviderAcceptEvidenceTx(ctx, tx, m.MessageID, ev.SESMessageID, ev.OccurredAt); err != nil {
 				return err
 			}
-			if err := c.store.ReconcilePreservedTerminalFallbackTx(ctx, tx, m.MessageID); err != nil {
+			pending, err := c.store.ProviderAcceptancePendingTx(ctx, tx, m.MessageID)
+			if err != nil {
 				return err
+			}
+			if pending {
+				if c.finalizeAcceptance == nil {
+					return fmt.Errorf("provider acceptance finalizer is required")
+				}
+				if err := c.finalizeAcceptance(ctx, tx, m.MessageID); err != nil {
+					return err
+				}
 			}
 		}
 

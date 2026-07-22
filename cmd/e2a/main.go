@@ -268,8 +268,9 @@ func main() {
 	if cfg.SendingRamp.Enabled {
 		log.Printf("Outbound sending ramp enabled: %d→%d recipients over %d qualified days", cfg.SendingRamp.StartDaily, cfg.SendingRamp.TargetDaily, cfg.SendingRamp.RampDays)
 	}
+	outboundSendStore := agent.NewOutboundSendStore(store, webhookOutbox, usageTracker)
 	outboundJobs := outboundsend.NewJobs(
-		agent.NewOutboundSendStore(store, webhookOutbox, usageTracker),
+		outboundSendStore,
 		agent.NewOutboundDeliverer(sender),
 		pool,
 		outboundRamp,
@@ -635,7 +636,7 @@ func main() {
 	// 4b). Fail-closed: the SNS signature is verified and the TopicArn must be
 	// in the configured allow-list (empty allow-list → every message is
 	// rejected, so this is inert until ops wires the topic).
-	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(webhookOutbox))
+	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(webhookOutbox), outboundSendStore.FinalizeProviderAcceptedTx)
 	deliveryVerifier := delivery.NewVerifier(cfg.DeliveryFeedback.SNSTopicARNs, delivery.HTTPCertFetcher)
 	// Public webhook receiver for AWS SNS (SES delivery/bounce/complaint). Named
 	// /webhooks/<provider> — it's an inbound third-party callback, not an internal

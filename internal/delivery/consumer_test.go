@@ -53,11 +53,11 @@ func (f *fakeConsumerStore) RecordProviderAcceptEvidence(ctx context.Context, me
 func (f *fakeConsumerStore) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 	return fn(nil)
 }
-func (f *fakeConsumerStore) RecordProviderAcceptEvidenceTx(ctx context.Context, _ pgx.Tx, messageID, sesMessageID string) error {
+func (f *fakeConsumerStore) RecordProviderAcceptEvidenceTx(ctx context.Context, _ pgx.Tx, messageID, sesMessageID string, _ time.Time) error {
 	return f.RecordProviderAcceptEvidence(ctx, messageID, sesMessageID)
 }
-func (f *fakeConsumerStore) ReconcilePreservedTerminalFallbackTx(context.Context, pgx.Tx, string) error {
-	return nil
+func (f *fakeConsumerStore) ProviderAcceptancePendingTx(context.Context, pgx.Tx, string) (bool, error) {
+	return false, nil
 }
 func (f *fakeConsumerStore) RecordProviderRejectTx(context.Context, pgx.Tx, string, string, time.Time) error {
 	return nil

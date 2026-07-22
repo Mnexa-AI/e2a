@@ -110,18 +110,18 @@ func (s *Store) CorrelateByE2AMessageID(ctx context.Context, e2aMessageID string
 // this evidence before declaring an accepted/sending row failed.
 func (s *Store) RecordProviderAcceptEvidence(ctx context.Context, messageID, sesMessageID string) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
-		return s.RecordProviderAcceptEvidenceTx(ctx, tx, messageID, sesMessageID)
+		return s.RecordProviderAcceptEvidenceTx(ctx, tx, messageID, sesMessageID, time.Now().UTC())
 	})
 }
 
-func (s *Store) RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string) error {
+func (s *Store) RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string, occurredAt time.Time) error {
 	_, err := tx.Exec(ctx,
 		`UPDATE messages
-		    SET provider_accepted_at = COALESCE(provider_accepted_at, now()),
+		    SET provider_accepted_at = COALESCE(provider_accepted_at, $3),
 		        provider_message_id = CASE WHEN COALESCE(provider_message_id, '') = ''
 		                                   THEN $2 ELSE provider_message_id END
 		  WHERE id = $1 AND direction = 'outbound'`,
-		messageID, sesMessageID)
+		messageID, sesMessageID, occurredAt.UTC())
 	return err
 }
 
@@ -129,14 +129,22 @@ func (s *Store) AppendLifecycleTx(ctx context.Context, tx pgx.Tx, input messagel
 	return messagelifecycle.AppendTx(ctx, tx, input)
 }
 
-// ReconcilePreservedTerminalFallbackTx consumes a complete send-worker
-// terminal fallback once authoritative post-acceptance feedback arrives. The
-// existing provider-accepted resolver restores the standard sent recipient
-// shape, persists any send-time suppression observations, and clears the
-// temporary failure provenance in this same feedback transaction.
-func (s *Store) ReconcilePreservedTerminalFallbackTx(ctx context.Context, tx pgx.Tx, messageID string) error {
-	_, _, err := s.ResolveOutboundProviderAcceptedTx(ctx, tx, messageID)
-	return err
+// ProviderAcceptancePendingTx reports whether signed provider evidence must be
+// finalized through the canonical outbound sent path before feedback can be
+// applied. The consumer fails closed when that finalizer is unavailable.
+func (s *Store) ProviderAcceptancePendingTx(ctx context.Context, tx pgx.Tx, messageID string) (bool, error) {
+	var pending bool
+	err := tx.QueryRow(ctx, `SELECT delivery_status IN ('accepted','sending') AND provider_accepted_at IS NOT NULL FROM messages WHERE id=$1 FOR UPDATE`, messageID).Scan(&pending)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return pending, err
+}
+
+func (s *Store) OutboundSendJobIDTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error) {
+	var jobID int64
+	err := tx.QueryRow(ctx, `SELECT COALESCE(send_job_id,0) FROM messages WHERE id=$1 FOR UPDATE`, messageID).Scan(&jobID)
+	return jobID, err
 }
 
 // RecordProviderRejectTx establishes the authoritative terminal provenance
@@ -146,10 +154,14 @@ func (s *Store) ReconcilePreservedTerminalFallbackTx(ctx context.Context, tx pgx
 func (s *Store) RecordProviderRejectTx(ctx context.Context, tx pgx.Tx, messageID, detail string, occurredAt time.Time) error {
 	_, err := tx.Exec(ctx,
 		`UPDATE messages
-		    SET delivery_status='failed', delivery_failure_source='provider',
-		        delivery_failure_reason_code=$2, delivery_detail=$3,
-		        delivery_failure_occurred_at=$4, delivery_failure_attempt=NULL,
-		        delivery_failure_blocked_recipients=NULL, send_claimed_at=NULL
+		    SET delivery_status=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_status ELSE 'failed' END,
+		        delivery_failure_source=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_source ELSE 'provider' END,
+		        delivery_failure_reason_code=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_reason_code ELSE $2 END,
+		        delivery_detail=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_detail ELSE $3 END,
+		        delivery_failure_occurred_at=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_occurred_at ELSE $4 END,
+		        delivery_failure_attempt=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_attempt ELSE NULL END,
+		        delivery_failure_blocked_recipients=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_blocked_recipients ELSE NULL END,
+		        send_claimed_at=NULL
 		  WHERE id=$1 AND direction='outbound'`,
 		messageID, string(messagelifecycle.ReasonSubmissionProviderRejected), nullIfEmpty(messagelifecycle.SafeDiagnostic(detail)), occurredAt.UTC())
 	return err

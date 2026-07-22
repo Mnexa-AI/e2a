@@ -5,15 +5,18 @@ package delivery_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/testutil"
+	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
 
@@ -279,7 +282,7 @@ func TestFeedbackReconcilesCompletePreservedFallbackFirst(t *testing.T) {
 	pool := testutil.TestDB(t)
 	ctx := context.Background()
 	store := identity.NewStore(pool)
-	_, messageID, agentEmail := seedOutbound(t, store, "feedback-fallback", "ses-feedback-fallback", []string{"a@example.com"})
+	userID, messageID, agentEmail := seedOutbound(t, store, "feedback-fallback", "ses-feedback-fallback", []string{"a@example.com"})
 	fallbackAt := time.Date(2026, 7, 21, 12, 55, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx, `DELETE FROM message_recipients WHERE message_id=$1`, messageID); err != nil {
 		t.Fatal(err)
@@ -288,8 +291,17 @@ func TestFeedbackReconcilesCompletePreservedFallbackFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	event := &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-feedback-fallback", ProviderEventID: "sns-feedback-fallback", OccurredAt: time.Date(2026, 7, 21, 13, 2, 0, 0, time.UTC), Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusDelivered}}}
-	if err := delivery.NewConsumer(store, nil).Process(ctx, event); err != nil {
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	finalizer := agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool)))
+	consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox), finalizer.FinalizeProviderAcceptedTx)
+	if err := consumer.Process(ctx, event); err != nil {
 		t.Fatal(err)
+	}
+	redelivery := *event
+	redelivery.ProviderEventID = event.ProviderEventID + "-later"
+	redelivery.OccurredAt = event.OccurredAt.Add(5 * time.Minute)
+	if err := consumer.Process(ctx, &redelivery); err != nil {
+		t.Fatalf("duplicate feedback: %v", err)
 	}
 	if got := deliveryStatus(t, store, messageID, agentEmail); got != "delivered" {
 		t.Fatalf("status=%q want delivered", got)
@@ -310,6 +322,145 @@ func TestFeedbackReconcilesCompletePreservedFallbackFirst(t *testing.T) {
 	}
 	if !suppressionAt.Equal(fallbackAt) {
 		t.Fatalf("preserved suppression occurred_at=%s want %s", suppressionAt, fallbackAt)
+	}
+	var acceptedAt, submissionAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT provider_accepted_at FROM messages WHERE id=$1`, messageID).Scan(&acceptedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT occurred_at FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.upstream_accepted'`, messageID).Scan(&submissionAt); err != nil {
+		t.Fatal(err)
+	}
+	if !acceptedAt.Equal(event.OccurredAt) || !submissionAt.Equal(event.OccurredAt) {
+		t.Fatalf("signed acceptance time message=%s lifecycle=%s want=%s", acceptedAt, submissionAt, event.OccurredAt)
+	}
+	for label, query := range map[string]string{
+		"email.sent": `SELECT count(*) FROM webhook_events WHERE message_id=$1 AND type='email.sent'`,
+		"usage":      `SELECT count(*) FROM usage_events WHERE user_id=$1 AND direction='outbound'`,
+		"acceptance": `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.upstream_accepted'`,
+	} {
+		var count int
+		arg := any(messageID)
+		if label == "usage" {
+			arg = userID
+		}
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("%s rows=%d want 1", label, count)
+		}
+	}
+}
+
+func TestFeedbackFallbackFinalizationRollsBackAtomically(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	userID, messageID, _ := seedOutbound(t, store, "feedback-finalize-atomic", "ses-feedback-finalize-atomic", []string{"a@example.com"})
+	fallbackAt := time.Date(2026, 7, 21, 13, 7, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `DELETE FROM message_recipients WHERE message_id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',send_job_id=9123,provider_accepted_at=NULL,delivery_failure_source='local',delivery_failure_reason_code='submission.local_retries_exhausted',delivery_detail='preserved',delivery_failure_occurred_at=$2,delivery_failure_attempt=3 WHERE id=$1`, messageID, fallbackAt); err != nil {
+		t.Fatal(err)
+	}
+	event := &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-feedback-finalize-atomic", ProviderEventID: "sns-feedback-finalize-atomic", OccurredAt: time.Date(2026, 7, 21, 13, 8, 0, 0, time.UTC), Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusDelivered}}}
+	if err := delivery.NewConsumer(store, nil).Process(ctx, event); err == nil {
+		t.Fatal("feedback consumed pending acceptance without the canonical finalizer")
+	}
+	var preflightAcceptedAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT provider_accepted_at FROM messages WHERE id=$1`, messageID).Scan(&preflightAcceptedAt); err != nil {
+		t.Fatal(err)
+	}
+	if preflightAcceptedAt != nil {
+		t.Fatalf("missing-finalizer attempt committed provider acceptance %v", preflightAcceptedAt)
+	}
+	if _, err := pool.Exec(ctx, `CREATE FUNCTION test_fail_feedback_after_sent() RETURNS trigger AS $f$ BEGIN IF NEW.type='email.delivered' THEN RAISE EXCEPTION 'forced feedback event failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_feedback_after_sent BEFORE INSERT ON webhook_events FOR EACH ROW EXECUTE FUNCTION test_fail_feedback_after_sent()`); err != nil {
+		t.Fatal(err)
+	}
+	drop := func() {
+		_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_feedback_after_sent ON webhook_events; DROP FUNCTION IF EXISTS test_fail_feedback_after_sent()`)
+	}
+	t.Cleanup(drop)
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	finalizer := agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool)))
+	consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox), finalizer.FinalizeProviderAcceptedTx)
+	if err := consumer.Process(ctx, event); err == nil {
+		t.Fatal("Process succeeded, want forced rollback")
+	}
+	var status, source string
+	var acceptedAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_source,''),provider_accepted_at FROM messages WHERE id=$1`, messageID).Scan(&status, &source, &acceptedAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != "accepted" || source != "local" || acceptedAt != nil {
+		t.Fatalf("partial finalization status=%q source=%q accepted=%v", status, source, acceptedAt)
+	}
+	for label, query := range map[string]string{
+		"events":    `SELECT count(*) FROM webhook_events WHERE user_id=$1`,
+		"usage":     `SELECT count(*) FROM usage_events WHERE user_id=$1`,
+		"lifecycle": `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code IN ('submission.upstream_accepted','delivery.recipient_server_accepted')`,
+	} {
+		arg := any(messageID)
+		if label == "events" || label == "usage" {
+			arg = userID
+		}
+		var count int
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows=%d want 0", label, count)
+		}
+	}
+	drop()
+	if err := consumer.Process(ctx, event); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+}
+
+func TestProviderDispositionOrdering(t *testing.T) {
+	tests := []struct {
+		name       string
+		firstKind  delivery.EventKind
+		first      delivery.Status
+		secondKind delivery.EventKind
+		second     delivery.Status
+		want       string
+	}{
+		{"reject then bounce", delivery.KindReject, delivery.StatusFailed, delivery.KindBounce, delivery.StatusBounced, "bounced"},
+		{"bounce then reject", delivery.KindBounce, delivery.StatusBounced, delivery.KindReject, delivery.StatusFailed, "bounced"},
+		{"reject then complaint", delivery.KindReject, delivery.StatusFailed, delivery.KindComplaint, delivery.StatusComplained, "complained"},
+		{"complaint then reject", delivery.KindComplaint, delivery.StatusComplained, delivery.KindReject, delivery.StatusFailed, "complained"},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := testutil.TestDB(t)
+			ctx := context.Background()
+			store := identity.NewStore(pool)
+			providerID := fmt.Sprintf("ses-disposition-%d", i)
+			_, messageID, agentEmail := seedOutbound(t, store, fmt.Sprintf("disposition-%d", i), providerID, []string{"a@example.com"})
+			consumer := delivery.NewConsumer(store, nil)
+			makeEvent := func(kind delivery.EventKind, status delivery.Status, suffix string, minute int) *delivery.Event {
+				return &delivery.Event{Kind: kind, SESMessageID: providerID, ProviderEventID: "sns-" + suffix, OccurredAt: time.Date(2026, 7, 21, 17, minute, 0, 0, time.UTC), BounceType: "permanent", Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: status, Detail: "provider disposition"}}}
+			}
+			if err := consumer.Process(ctx, makeEvent(tc.firstKind, tc.first, fmt.Sprintf("%d-first", i), i*2)); err != nil {
+				t.Fatal(err)
+			}
+			if err := consumer.Process(ctx, makeEvent(tc.secondKind, tc.second, fmt.Sprintf("%d-second", i), i*2+1)); err != nil {
+				t.Fatal(err)
+			}
+			if got := deliveryStatus(t, store, messageID, agentEmail); got != tc.want {
+				t.Fatalf("status=%q want %q", got, tc.want)
+			}
+			var rejectionCount int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.provider_rejected'`, messageID).Scan(&rejectionCount); err != nil {
+				t.Fatal(err)
+			}
+			if rejectionCount != 1 {
+				t.Fatalf("provider rejection rows=%d want 1", rejectionCount)
+			}
+		})
 	}
 }
 

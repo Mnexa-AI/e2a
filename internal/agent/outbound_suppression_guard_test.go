@@ -499,6 +499,8 @@ func TestAccountSuppressionFromBounceBlocksEveryAgentSend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSESNotification: %v", err)
 	}
+	bounce.ProviderEventID = "sns-account-bounce"
+	bounce.OccurredAt = time.Date(2026, 7, 21, 18, 0, 0, 0, time.UTC)
 	if err := delivery.NewConsumer(store, nil).Process(ctx, bounce); err != nil {
 		t.Fatalf("Process bounce: %v", err)
 	}
