@@ -129,6 +129,14 @@ func Lookup(reason ReasonCode) (Definition, bool) {
 	return definition, ok
 }
 
+// IsTerminalSubmissionFailure reports whether code is a catalog-owned
+// submission/failed observation suitable for the durable message failure
+// rollup. Arbitrary database text must never reach AppendTx through this path.
+func IsTerminalSubmissionFailure(code ReasonCode) bool {
+	definition, ok := Lookup(code)
+	return ok && definition.Stage == StageSubmission && definition.Outcome == OutcomeFailed
+}
+
 // AuthenticationReason maps a normalized DMARC status to its canonical reason.
 func AuthenticationReason(status string) (ReasonCode, error) {
 	switch status {

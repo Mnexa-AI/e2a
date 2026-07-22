@@ -69,6 +69,7 @@ type terminalCandidate struct {
 	finalizedAt   *time.Time
 	failureSource delivery.FailureSource
 	detail        string
+	failureReason string
 }
 
 func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[TerminalReconcileArgs]) error {
@@ -83,7 +84,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		        COALESCE(r.attempt, 0),
 		        CASE WHEN r.id IS NULL THEN 'missing' ELSE r.state::text END,
 		        r.finalized_at,
-		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_detail,'')
+		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_detail,''),COALESCE(m.delivery_failure_reason_code,'')
 		   FROM messages m
 		   LEFT JOIN river_job r ON r.id = m.send_job_id
 		  WHERE m.direction = 'outbound'
@@ -105,7 +106,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 	candidates := make([]terminalCandidate, 0)
 	for rows.Next() {
 		var candidate terminalCandidate
-		if err := rows.Scan(&candidate.messageID, &candidate.jobID, &candidate.attempt, &candidate.state, &candidate.finalizedAt, &candidate.failureSource, &candidate.detail); err != nil {
+		if err := rows.Scan(&candidate.messageID, &candidate.jobID, &candidate.attempt, &candidate.state, &candidate.finalizedAt, &candidate.failureSource, &candidate.detail, &candidate.failureReason); err != nil {
 			return err
 		}
 		candidates = append(candidates, candidate)
@@ -123,7 +124,13 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		}
 		reason := messagelifecycle.ReasonSubmissionLocalRetriesExhausted
 		source := delivery.FailureSourceLocal
-		if candidate.failureSource == delivery.FailureSourceProvider {
+		storedReason := messagelifecycle.ReasonCode(candidate.failureReason)
+		if messagelifecycle.IsTerminalSubmissionFailure(storedReason) {
+			reason = storedReason
+			if reason == messagelifecycle.ReasonSubmissionProviderRejected {
+				source = delivery.FailureSourceProvider
+			}
+		} else if candidate.failureSource == delivery.FailureSourceProvider {
 			reason = messagelifecycle.ReasonSubmissionProviderRejected
 			source = delivery.FailureSourceProvider
 		} else if candidate.state == "cancelled" {

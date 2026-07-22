@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // OutboundSendClaimStaleWindow exceeds River's one-minute worker timeout and
@@ -249,7 +250,7 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 			// carry the provider diagnostics).
 			if _, err := tx.Exec(ctx,
 				`UPDATE messages
-				    SET delivery_status = $2, delivery_failure_source = NULL, delivery_detail = NULL
+				    SET delivery_status = $2, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL
 				  WHERE id = $1`, messageID, string(next),
 			); err != nil {
 				return err
@@ -625,8 +626,11 @@ func (s *Store) DeferOutboundTerminalFailure(ctx context.Context, messageID stri
 // provenance after the richer terminal transaction failed. It deliberately
 // leaves the row preterminal and emits no event so the terminal reconciler can
 // retry the complete state+lifecycle+event transaction later.
-func (s *Store) PreserveOutboundTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource) error {
-	_, err := s.pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',delivery_detail=$3,delivery_failure_source=$4,send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullIfEmpty(detail), string(source))
+func (s *Store) PreserveOutboundTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
+	if !messagelifecycle.IsTerminalSubmissionFailure(reason) {
+		return fmt.Errorf("invalid terminal submission reason %q", reason)
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',delivery_detail=$3,delivery_failure_source=$4,delivery_failure_reason_code=$5,send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullIfEmpty(detail), string(source), string(reason))
 	return err
 }
 
@@ -641,7 +645,8 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent", ProviderMessageID: providerMessageID}
 	err := tx.QueryRow(ctx,
 		`UPDATE messages m
-		    SET delivery_status = 'sent', provider_message_id = $2, send_claimed_at = NULL
+		    SET delivery_status = 'sent', provider_message_id = $2, send_claimed_at = NULL,
+		        delivery_failure_source=NULL,delivery_failure_reason_code=NULL,delivery_detail=NULL
 		   FROM agent_identities a
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id
@@ -677,7 +682,7 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent"}
 	err := tx.QueryRow(ctx,
 		`UPDATE messages m
-		    SET delivery_status = 'sent', send_claimed_at = NULL, delivery_failure_source = NULL
+		    SET delivery_status = 'sent', send_claimed_at = NULL, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL
 		   FROM agent_identities a
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id

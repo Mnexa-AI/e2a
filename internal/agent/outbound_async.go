@@ -231,6 +231,9 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 		if finfo == nil {
 			return nil // row gone, already terminal, or evidence raced in — nothing to record
 		}
+		if _, err := tx.Exec(ctx, `UPDATE messages SET delivery_failure_reason_code=$2 WHERE id=$1`, messageID, string(reason)); err != nil {
+			return err
+		}
 		transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, reason, finfo.Message.DeliveryDetail, "")
 		if err != nil {
 			return err
@@ -249,8 +252,8 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 	return nil
 }
 
-func (a *outboundSendStore) PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource) error {
-	return a.store.PreserveOutboundTerminalFailure(ctx, messageID, jobID, messagelifecycle.SafeDiagnostic(detail), source)
+func (a *outboundSendStore) PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
+	return a.store.PreserveOutboundTerminalFailure(ctx, messageID, jobID, messagelifecycle.SafeDiagnostic(detail), source, reason)
 }
 
 func (a *outboundSendStore) DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error {

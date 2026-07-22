@@ -58,7 +58,7 @@ func (f *fakeStore) MarkFailed(_ context.Context, id string, _ int64, attempt in
 	f.failed = append(f.failed, failedCall{id, attempt, detail, source})
 	return nil
 }
-func (f *fakeStore) PreserveTerminalFailure(context.Context, string, int64, string, delivery.FailureSource) error {
+func (f *fakeStore) PreserveTerminalFailure(context.Context, string, int64, string, delivery.FailureSource, messagelifecycle.ReasonCode) error {
 	return nil
 }
 func (f *fakeStore) DeferTerminalFailure(_ context.Context, id string, _ int64, _ int, _ time.Time, detail string) error {

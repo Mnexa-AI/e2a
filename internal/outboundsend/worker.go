@@ -184,7 +184,7 @@ type Store interface {
 	// in one transaction. Callers therefore invoke it to "finalize a terminal
 	// state", not to unconditionally fail.
 	MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error
-	PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource) error
+	PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error
 	// DeferTerminalFailure records a final attempt's diagnostic + releases the
 	// I/O claim WITHOUT declaring failed: the terminal reconciler declares the
 	// outcome after the provider-evidence grace window (or settles the row as
@@ -465,7 +465,7 @@ func (w *SendWorker) markFailed(ctx context.Context, messageID string, jobID int
 		}
 	}
 	log.Printf("[outbound-send] CRITICAL: terminal 'failed' write for %s failed after retries: %v", messageID, err)
-	if fallbackErr := w.store.PreserveTerminalFailure(ctx, messageID, jobID, messagelifecycle.SafeDiagnostic(detail), source); fallbackErr != nil {
+	if fallbackErr := w.store.PreserveTerminalFailure(ctx, messageID, jobID, messagelifecycle.SafeDiagnostic(detail), source, reason); fallbackErr != nil {
 		return fmt.Errorf("terminal write failed: %w; preserve terminal provenance: %v", err, fallbackErr)
 	}
 	return nil
