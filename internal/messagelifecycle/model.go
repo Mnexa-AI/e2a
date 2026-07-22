@@ -419,3 +419,107 @@ func validatedCorrelationCopy(correlationIDs map[string]string) (map[string]stri
 	}
 	return result, nil
 }
+
+// SafeCorrelationIDs keeps independently valid optional correlations and drops
+// unknown, empty, or oversized values. Producers use it for identifiers derived
+// from remote input so an unsafe optional correlation can never reject the
+// lifecycle fact it merely annotates.
+func SafeCorrelationIDs(correlationIDs map[string]string) map[string]string {
+	result := map[string]string{}
+	for key, value := range correlationIDs {
+		validated, err := validatedCorrelationCopy(map[string]string{key: value})
+		if err != nil {
+			continue
+		}
+		for validatedKey, validatedValue := range validated {
+			result[validatedKey] = validatedValue
+		}
+	}
+	return result
+}
+
+// SafeAuthenticationEvidence returns canonical authentication evidence that is
+// safe to append even when diagnostic fields originated in untrusted SMTP/DNS
+// input. In-bounds authentication JSON is preserved exactly. Oversized optional
+// diagnostics are omitted, oversized nullable identifiers become null, and
+// excess DKIM observations are dropped from the tail deterministically until the
+// complete evidence fits the canonical aggregate limit.
+//
+// The input is intentionally any rather than emailauth.Authentication so this
+// package remains the contract-owning leaf and does not depend on an auth
+// producer package.
+func SafeAuthenticationEvidence(authentication any) (map[string]any, error) {
+	encoded, err := json.Marshal(authentication)
+	if err != nil {
+		return nil, fmt.Errorf("marshal authentication evidence: %w", err)
+	}
+	var sanitized map[string]any
+	if err := json.Unmarshal(encoded, &sanitized); err != nil {
+		return nil, fmt.Errorf("decode authentication evidence: %w", err)
+	}
+
+	spf, _ := sanitized["spf"].(map[string]any)
+	sanitizeNullableDiagnostic(spf, "domain")
+	sanitizeOptionalDiagnostic(spf, "detail")
+	dmarc, _ := sanitized["dmarc"].(map[string]any)
+	sanitizeNullableDiagnostic(dmarc, "domain")
+	sanitizeOptionalDiagnostic(dmarc, "detail")
+
+	dkim, _ := sanitized["dkim"].([]any)
+	for _, raw := range dkim {
+		item, _ := raw.(map[string]any)
+		sanitizeNullableDiagnostic(item, "domain")
+		sanitizeNullableDiagnostic(item, "selector")
+		sanitizeOptionalDiagnostic(item, "detail")
+	}
+	sanitized["dkim"] = dkim
+	evidence := map[string]any{"authentication": sanitized}
+	for {
+		encodedEvidence, marshalErr := json.Marshal(evidence)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshal sanitized authentication evidence: %w", marshalErr)
+		}
+		if len(encodedEvidence) <= maxEvidenceBytes {
+			break
+		}
+		if len(dkim) == 0 {
+			return nil, fmt.Errorf("authentication evidence cannot fit canonical limit")
+		}
+		dkim = dkim[:len(dkim)-1]
+		sanitized["dkim"] = dkim
+	}
+
+	validated, err := validatedEvidenceCopy(evidence)
+	if err != nil {
+		return nil, fmt.Errorf("validate sanitized authentication evidence: %w", err)
+	}
+	return validated, nil
+}
+
+func sanitizeNullableDiagnostic(object map[string]any, key string) {
+	if object == nil {
+		return
+	}
+	value, exists := object[key]
+	if !exists || value == nil {
+		return
+	}
+	text, ok := value.(string)
+	if !ok || len(text) > maxDiagnosticStringBytes {
+		object[key] = nil
+	}
+}
+
+func sanitizeOptionalDiagnostic(object map[string]any, key string) {
+	if object == nil {
+		return
+	}
+	value, exists := object[key]
+	if !exists {
+		return
+	}
+	text, ok := value.(string)
+	if !ok || len(text) > maxDiagnosticStringBytes {
+		delete(object, key)
+	}
+}

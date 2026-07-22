@@ -515,10 +515,9 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 			return txErr
 		}
 
-		correlations := map[string]string{}
-		if threadInfo.MessageID != "" {
-			correlations["email_message_id"] = threadInfo.MessageID
-		}
+		correlations := messagelifecycle.SafeCorrelationIDs(map[string]string{
+			"email_message_id": threadInfo.MessageID,
+		})
 		transitions := make([]messagelifecycle.MessageLifecycleTransition, 0, 3)
 		accepted, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 			MessageID: messageID, DedupeKey: "acceptance", Direction: "inbound",
@@ -534,9 +533,13 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 		if txErr != nil {
 			return txErr
 		}
+		authEvidence, txErr := messagelifecycle.SafeAuthenticationEvidence(authentication)
+		if txErr != nil {
+			return txErr
+		}
 		authenticated, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
 			MessageID: messageID, DedupeKey: "authentication:dmarc", Direction: "inbound",
-			ReasonCode: authReason, Evidence: map[string]any{"authentication": authentication},
+			ReasonCode: authReason, Evidence: authEvidence,
 			CorrelationIDs: correlations, OccurredAt: inboundMsg.CreatedAt,
 		})
 		if txErr != nil {

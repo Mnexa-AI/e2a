@@ -10,7 +10,6 @@ import (
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
-	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/usage"
@@ -27,7 +26,7 @@ func (f *fakeInboundEnq) EnqueueInboundProcessTx(_ context.Context, _ pgx.Tx, _ 
 	return int64(f.calls), nil
 }
 
-func TestInboundLifecycleSyncSMTPAcceptanceAndAuthentication(t *testing.T) {
+func TestInboundLifecycleSyncSMTPBoundsAdversarialMetadata(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()
@@ -55,36 +54,21 @@ func TestInboundLifecycleSyncSMTPAcceptanceAndAuthentication(t *testing.T) {
 	cfg := &config.Config{SMTP: config.SMTPConfig{ListenAddr: "127.0.0.1:" + port, Domain: domain}, Env: "development"}
 	server := relay.NewServer(cfg, store, usage.NewNoopUsageTracker(), ws.NewHub())
 	server.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
+	authentication := adversarialLifecycleAuthentication()
 	server.SetAuthenticationChecker(func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication {
-		return &emailauth.Authentication{SPF: emailauth.SPFResult{Status: emailauth.StatusNone}, DKIM: []emailauth.DKIMResult{}, DMARC: emailauth.DMARCResult{Status: emailauth.StatusNone, AlignedBy: []emailauth.AlignmentMechanism{}}}
+		return authentication
 	})
 	go func() { _ = server.ListenAndServe() }()
 	t.Cleanup(func() { _ = server.Close() })
 	waitForSMTP(t, cfg.SMTP.ListenAddr)
 
-	body := "From: sender@ext.test\r\nTo: " + agentEmail + "\r\nMessage-ID: <sync-lifecycle@ext.test>\r\nSubject: sync lifecycle\r\n\r\nhello"
+	body := "From: sender@ext.test\r\nTo: " + agentEmail + "\r\n" + oversizedFoldedMessageIDHeader() + "\r\nSubject: sync lifecycle\r\n\r\nhello"
 	sendSMTP(t, cfg.SMTP.ListenAddr, "sender@ext.test", agentEmail, body)
 	var messageID string
 	if err := pool.QueryRow(ctx, `SELECT id FROM messages WHERE agent_id=$1 AND subject='sync lifecycle'`, agentEmail).Scan(&messageID); err != nil {
 		t.Fatalf("load message: %v", err)
 	}
-	transitions, err := messagelifecycle.NewStore(pool).ListForMessage(ctx, messageID, agentEmail)
-	if err != nil {
-		t.Fatalf("list lifecycle: %v", err)
-	}
-	if len(transitions) != 2 {
-		t.Fatalf("sync lifecycle count = %d, want 2: %+v", len(transitions), transitions)
-	}
-	reasons := map[messagelifecycle.ReasonCode]bool{}
-	for _, transition := range transitions {
-		reasons[transition.ReasonCode] = true
-	}
-	if !reasons[messagelifecycle.ReasonAcceptanceInboundSMTP] || !reasons[messagelifecycle.ReasonAuthenticationDMARCNone] {
-		t.Fatalf("sync lifecycle reasons = %v", reasons)
-	}
-	if reasons[messagelifecycle.ReasonQueueInboundProcessing] {
-		t.Fatal("sync SMTP message unexpectedly has an async queue observation")
-	}
+	assertAdversarialInboundLifecycle(t, pool, messageID, agentEmail, 2, len(authentication.DKIM))
 }
 
 // TestInbound_AsyncAcceptAndDedup exercises the queue-first accept-tx (slice 4):

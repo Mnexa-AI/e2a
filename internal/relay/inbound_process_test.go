@@ -7,14 +7,17 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/jobs"
 	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -100,6 +103,7 @@ func TestInboundAsyncLifecycleProcessIntakeRealPath(t *testing.T) {
 		t.Fatalf("intake status=%q fk=%v; want processed + linked", intakeStatus, fk)
 	}
 
+	ensureRiverSchema(t, pool)
 	transitions, err := messagelifecycle.NewStore(pool).ListForMessage(ctx, *fk, agentEmail)
 	if err != nil {
 		t.Fatalf("list lifecycle: %v", err)
@@ -327,6 +331,10 @@ func TestInboundAsyncLifecycleAppendFailureRollsBackMessageIntakeAndEvent(t *tes
 	if err != nil || intake == nil {
 		t.Fatalf("load intake: %v", err)
 	}
+	var lifecycleBaseline int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleBaseline); err != nil {
+		t.Fatalf("lifecycle baseline: %v", err)
+	}
 	if err := server.ProcessIntake(ctx, intake); err == nil {
 		t.Fatal("ProcessIntake succeeded despite forced lifecycle append failure")
 	}
@@ -339,9 +347,8 @@ func TestInboundAsyncLifecycleAppendFailureRollsBackMessageIntakeAndEvent(t *tes
 		t.Fatalf("intake changed despite rollback: status=%q message_fk=%v", status, messageFK)
 	}
 	for name, query := range map[string]string{
-		"messages":  `SELECT count(*) FROM messages WHERE agent_id=$1`,
-		"events":    `SELECT count(*) FROM webhook_events WHERE agent_id=$1`,
-		"lifecycle": `SELECT count(*) FROM message_lifecycle_transitions t JOIN messages m ON m.id=t.message_id WHERE m.agent_id=$1`,
+		"messages": `SELECT count(*) FROM messages WHERE agent_id=$1`,
+		"events":   `SELECT count(*) FROM webhook_events WHERE agent_id=$1`,
 	} {
 		var count int
 		if err := pool.QueryRow(ctx, query, agentEmail).Scan(&count); err != nil {
@@ -350,5 +357,161 @@ func TestInboundAsyncLifecycleAppendFailureRollsBackMessageIntakeAndEvent(t *tes
 		if count != 0 {
 			t.Fatalf("%s count after rollback = %d, want 0", name, count)
 		}
+	}
+	var lifecycleAfter int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleAfter); err != nil {
+		t.Fatalf("lifecycle count after rollback: %v", err)
+	}
+	if lifecycleAfter != lifecycleBaseline {
+		t.Fatalf("lifecycle rows survived rollback: before=%d after=%d", lifecycleBaseline, lifecycleAfter)
+	}
+}
+
+func TestInboundAsyncLifecycleBoundsAdversarialMetadata(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+	const domain = "async-lifecycle-bounds.example.com"
+	const agentEmail = "bot@" + domain
+	user, err := store.CreateOrGetUser(ctx, "owner@"+domain, "O", "g-async-lifecycle-bounds")
+	if err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("domain: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE domains SET verified=true WHERE domain=$1`, domain); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if _, err := store.CreateAgent(ctx, agentEmail, domain, "", "", "", user.ID); err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+	authentication := adversarialLifecycleAuthentication()
+	server := relay.NewServer(&config.Config{SMTP: config.SMTPConfig{Domain: domain}, Env: "development"}, store, usage.NewNoopUsageTracker(), ws.NewHub())
+	server.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
+	server.SetAuthenticationChecker(func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication {
+		return authentication
+	})
+	intakeID := identity.NewInboundIntakeID()
+	raw := []byte("From: alice@sender.test\r\nTo: " + agentEmail + "\r\n" + oversizedFoldedMessageIDHeader() + "\r\nSubject: async bounded\r\n\r\nbody")
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		_, err := store.InsertInboundIntakeTx(ctx, tx, intakeID, agentEmail, "alice@sender.test", "mx.sender.test", "1.2.3.4", strings.Repeat("m", 4096), "hash-async-bounded", raw)
+		if err != nil {
+			return err
+		}
+		return store.StampInboundIntakeJobIDTx(ctx, tx, intakeID, 8800)
+	}); err != nil {
+		t.Fatalf("plant intake: %v", err)
+	}
+	intake, err := store.LoadInboundIntake(ctx, intakeID)
+	if err != nil || intake == nil {
+		t.Fatalf("load intake: %v", err)
+	}
+	if err := server.ProcessIntake(ctx, intake); err != nil {
+		t.Fatalf("ProcessIntake rejected bounded remote metadata: %v", err)
+	}
+	var status, messageID string
+	if err := pool.QueryRow(ctx, `SELECT status, message_fk FROM inbound_intake WHERE id=$1`, intakeID).Scan(&status, &messageID); err != nil {
+		t.Fatalf("read processed intake: %v", err)
+	}
+	if status != identity.IntakeStatusProcessed || messageID == "" {
+		t.Fatalf("intake status=%q message=%q, want processed + message", status, messageID)
+	}
+	assertAdversarialInboundLifecycle(t, pool, messageID, agentEmail, 3, len(authentication.DKIM))
+}
+
+func adversarialLifecycleAuthentication() *emailauth.Authentication {
+	tooLong := strings.Repeat("x", 3*1024)
+	aligned := false
+	dkim := make([]emailauth.DKIMResult, 0, 41)
+	dkim = append(dkim, emailauth.DKIMResult{Status: emailauth.StatusFail, Domain: &tooLong, Selector: &tooLong, Aligned: &aligned, Detail: tooLong})
+	for i := 0; i < 40; i++ {
+		domain := fmt.Sprintf("sender-%d.test", i)
+		selector := fmt.Sprintf("selector-%d", i)
+		dkim = append(dkim, emailauth.DKIMResult{Status: emailauth.StatusFail, Domain: &domain, Selector: &selector, Aligned: &aligned, Detail: strings.Repeat("d", 2*1024)})
+	}
+	return &emailauth.Authentication{
+		SPF:   emailauth.SPFResult{Status: emailauth.StatusFail, Domain: &tooLong, Aligned: &aligned, Detail: tooLong},
+		DKIM:  dkim,
+		DMARC: emailauth.DMARCResult{Status: emailauth.StatusTempError, Domain: &tooLong, AlignedBy: []emailauth.AlignmentMechanism{}, Detail: tooLong},
+	}
+}
+
+func oversizedFoldedMessageIDHeader() string {
+	var header strings.Builder
+	header.WriteString("Message-ID: <")
+	for i := 0; i < 6; i++ {
+		if i > 0 {
+			header.WriteString("\r\n\t")
+		}
+		header.WriteString(strings.Repeat(string(rune('a'+i)), 800))
+	}
+	header.WriteString("@sender.test>")
+	return header.String()
+}
+
+func assertAdversarialInboundLifecycle(t *testing.T, pool *pgxpool.Pool, messageID, agentEmail string, wantCount, originalDKIMCount int) {
+	t.Helper()
+	ctx := context.Background()
+	ensureRiverSchema(t, pool)
+	transitions, err := messagelifecycle.NewStore(pool).ListForMessage(ctx, messageID, agentEmail)
+	if err != nil {
+		t.Fatalf("list lifecycle: %v", err)
+	}
+	if len(transitions) != wantCount {
+		t.Fatalf("lifecycle count=%d, want %d: %+v", len(transitions), wantCount, transitions)
+	}
+	var authenticationTransition *messagelifecycle.MessageLifecycleTransition
+	for i := range transitions {
+		transition := &transitions[i]
+		if _, ok := transition.CorrelationIDs["email_message_id"]; ok {
+			t.Fatalf("unsafe Message-ID correlation survived: %+v", transition.CorrelationIDs)
+		}
+		if transition.Stage == messagelifecycle.StageAuthentication {
+			authenticationTransition = transition
+		}
+	}
+	if authenticationTransition == nil {
+		t.Fatal("authentication lifecycle transition missing")
+	}
+	if authenticationTransition.ReasonCode != messagelifecycle.ReasonAuthenticationDMARCTemporaryError {
+		t.Fatalf("authentication reason=%q, want temperror", authenticationTransition.ReasonCode)
+	}
+	evidenceJSON, err := json.Marshal(authenticationTransition.Evidence)
+	if err != nil {
+		t.Fatalf("marshal lifecycle evidence: %v", err)
+	}
+	if len(evidenceJSON) > 16*1024 {
+		t.Fatalf("lifecycle evidence size=%d, exceeds 16KiB", len(evidenceJSON))
+	}
+	authMap := authenticationTransition.Evidence["authentication"].(map[string]any)
+	if authMap["dmarc"].(map[string]any)["status"] != string(emailauth.StatusTempError) {
+		t.Fatalf("bounded evidence changed DMARC verdict: %#v", authMap["dmarc"])
+	}
+	if got := len(authMap["dkim"].([]any)); got >= originalDKIMCount {
+		t.Fatalf("bounded evidence kept all %d DKIM entries", got)
+	}
+	var eventEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE message_id=$1 AND type='email.received'`, messageID).Scan(&eventEnvelope); err != nil {
+		t.Fatalf("load email.received: %v", err)
+	}
+	var envelope struct {
+		Data eventpayload.EmailReceivedData `json:"data"`
+	}
+	if err := json.Unmarshal(eventEnvelope, &envelope); err != nil {
+		t.Fatalf("decode email.received: %v", err)
+	}
+	if !reflect.DeepEqual(envelope.Data.LifecycleTransitions, transitions) {
+		t.Fatalf("event lifecycle differs from store\nevent: %+v\nstore: %+v", envelope.Data.LifecycleTransitions, transitions)
+	}
+	if envelope.Data.Authentication == nil || len(envelope.Data.Authentication.DKIM) != originalDKIMCount {
+		t.Fatalf("main event authentication was bounded; DKIM=%d want %d", len(envelope.Data.Authentication.DKIM), originalDKIMCount)
+	}
+}
+
+func ensureRiverSchema(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if err := jobs.Migrate(context.Background(), pool); err != nil {
+		t.Fatalf("migrate River schema for lifecycle read: %v", err)
 	}
 }

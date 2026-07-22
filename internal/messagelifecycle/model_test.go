@@ -569,3 +569,100 @@ func evidenceWithSerializedSize(t *testing.T, target int) map[string]any {
 	}
 	return evidence
 }
+
+func TestSafeAuthenticationEvidencePreservesInBoundsAuthentication(t *testing.T) {
+	authentication := validAuthenticationMap()
+	got, err := SafeAuthenticationEvidence(authentication)
+	if err != nil {
+		t.Fatalf("SafeAuthenticationEvidence: %v", err)
+	}
+	want := map[string]any{"authentication": authentication}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("in-bounds authentication changed\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestSafeAuthenticationEvidenceBoundsRemoteDiagnosticsAndAggregate(t *testing.T) {
+	tooLong := strings.Repeat("x", maxDiagnosticStringBytes+1)
+	largeButIndividualSafe := strings.Repeat("d", maxDiagnosticStringBytes)
+	dkim := []any{map[string]any{
+		"status": "fail", "domain": tooLong, "selector": tooLong,
+		"aligned": nil, "detail": tooLong,
+	}}
+	for i := 0; i < 32; i++ {
+		dkim = append(dkim, map[string]any{
+			"status": "fail", "domain": "example.com", "selector": "selector",
+			"aligned": nil, "detail": largeButIndividualSafe,
+		})
+	}
+	authentication := map[string]any{
+		"spf": map[string]any{
+			"status": "fail", "domain": tooLong, "aligned": nil, "detail": tooLong,
+		},
+		"dkim": dkim,
+		"dmarc": map[string]any{
+			"status": "temperror", "domain": tooLong, "policy": nil,
+			"aligned_by": []any{}, "detail": tooLong,
+		},
+	}
+
+	first, err := SafeAuthenticationEvidence(authentication)
+	if err != nil {
+		t.Fatalf("SafeAuthenticationEvidence: %v", err)
+	}
+	second, err := SafeAuthenticationEvidence(authentication)
+	if err != nil {
+		t.Fatalf("SafeAuthenticationEvidence repeat: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("sanitization is not deterministic\nfirst:  %#v\nsecond: %#v", first, second)
+	}
+	encoded, err := json.Marshal(first)
+	if err != nil {
+		t.Fatalf("marshal sanitized evidence: %v", err)
+	}
+	if len(encoded) > maxEvidenceBytes {
+		t.Fatalf("sanitized evidence size = %d, exceeds %d", len(encoded), maxEvidenceBytes)
+	}
+	if _, err := validatedEvidenceCopy(first); err != nil {
+		t.Fatalf("sanitized evidence does not validate: %v", err)
+	}
+	sanitized := first["authentication"].(map[string]any)
+	spf := sanitized["spf"].(map[string]any)
+	if spf["domain"] != nil {
+		t.Fatalf("oversized SPF domain retained: %#v", spf["domain"])
+	}
+	if _, ok := spf["detail"]; ok {
+		t.Fatal("oversized SPF detail retained")
+	}
+	dmarc := sanitized["dmarc"].(map[string]any)
+	if dmarc["status"] != "temperror" {
+		t.Fatalf("DMARC verdict changed: %#v", dmarc["status"])
+	}
+	if dmarc["domain"] != nil {
+		t.Fatalf("oversized DMARC domain retained: %#v", dmarc["domain"])
+	}
+	sanitizedDKIM := sanitized["dkim"].([]any)
+	if len(sanitizedDKIM) >= len(dkim) {
+		t.Fatalf("aggregate bound did not drop excess DKIM entries: got %d, original %d", len(sanitizedDKIM), len(dkim))
+	}
+	firstDKIM := sanitizedDKIM[0].(map[string]any)
+	if firstDKIM["domain"] != nil || firstDKIM["selector"] != nil {
+		t.Fatalf("oversized DKIM identifiers retained: %#v", firstDKIM)
+	}
+	if _, ok := firstDKIM["detail"]; ok {
+		t.Fatal("oversized DKIM detail retained")
+	}
+}
+
+func TestSafeCorrelationIDsOmitsUnsafeValuesIndependently(t *testing.T) {
+	got := SafeCorrelationIDs(map[string]string{
+		"job_id":           "42",
+		"email_message_id": strings.Repeat("x", maxDiagnosticStringBytes+1),
+		"unknown":          "drop-me",
+	})
+	want := map[string]string{"job_id": "42"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SafeCorrelationIDs() = %#v, want %#v", got, want)
+	}
+}

@@ -250,17 +250,7 @@ func addReconstructed(add func(reconstructionCandidate), snapshot Snapshot, reas
 // Correlations are optional metadata. Validate each independently with the
 // canonical transition rules so one untrusted identifier cannot erase its fact.
 func filteredCorrelationCopy(correlationIDs map[string]string) map[string]string {
-	result := map[string]string{}
-	for key, value := range correlationIDs {
-		validated, err := validatedCorrelationCopy(map[string]string{key: value})
-		if err != nil {
-			continue
-		}
-		for validatedKey, validatedValue := range validated {
-			result[validatedKey] = validatedValue
-		}
-	}
-	return result
+	return SafeCorrelationIDs(correlationIDs)
 }
 
 func reconstructEvent(snapshot Snapshot, event EventSnapshot) []reconstructionCandidate {
