@@ -32,16 +32,19 @@ type fakeStore struct {
 	temporary []failedCall
 	released  []string
 	// suppressionUserID records the tenant the guard was scoped to.
-	suppressionUserID  string
-	suppressionAgentID string
+	suppressionUserID    string
+	suppressionAgentID   string
+	suppressionCheckedAt time.Time
 }
 
 type sentCall struct{ id, provider, sentAs string }
 type failedCall struct {
-	id      string
-	attempt int
-	detail  string
-	source  delivery.FailureSource
+	id                string
+	attempt           int
+	occurredAt        time.Time
+	detail            string
+	source            delivery.FailureSource
+	blockedRecipients []string
 }
 
 func (f *fakeStore) ClaimSend(_ context.Context, _ string, _ int64) (*outboundsend.SendJob, error) {
@@ -54,11 +57,11 @@ func (f *fakeStore) MarkSent(_ context.Context, id string, _ int64, _ int, _ tim
 	f.sent = append(f.sent, sentCall{id, provider, sentAs})
 	return f.markSentErr
 }
-func (f *fakeStore) MarkFailed(_ context.Context, id string, _ int64, attempt int, _ time.Time, detail string, source delivery.FailureSource, _ messagelifecycle.ReasonCode, _ []string) error {
-	f.failed = append(f.failed, failedCall{id, attempt, detail, source})
+func (f *fakeStore) MarkFailed(_ context.Context, id string, _ int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, _ messagelifecycle.ReasonCode, blockedRecipients []string) error {
+	f.failed = append(f.failed, failedCall{id: id, attempt: attempt, occurredAt: occurredAt, detail: detail, source: source, blockedRecipients: blockedRecipients})
 	return nil
 }
-func (f *fakeStore) PreserveTerminalFailure(context.Context, string, int64, string, delivery.FailureSource, messagelifecycle.ReasonCode) error {
+func (f *fakeStore) PreserveTerminalFailure(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) error {
 	return nil
 }
 func (f *fakeStore) DeferTerminalFailure(_ context.Context, id string, _ int64, _ int, _ time.Time, detail string) error {
@@ -77,12 +80,14 @@ func (f *fakeStore) ReleaseSend(_ context.Context, id string, _ int64) error {
 func (f *fakeStore) SuppressedRecipients(_ context.Context, userID, agentID string, _ []string) ([]string, error) {
 	f.suppressionUserID = userID
 	f.suppressionAgentID = agentID
+	f.suppressionCheckedAt = time.Now().UTC()
 	return f.suppressed, f.suppressedErr
 }
 
 type fakeDeliverer struct {
-	out   outboundsend.DeliverOutcome
-	calls int
+	out        outboundsend.DeliverOutcome
+	calls      int
+	returnedAt time.Time
 }
 
 type fakeRampGate struct {
@@ -123,6 +128,7 @@ func (e permanentRampError) Permanent() bool { return true }
 
 func (f *fakeDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) outboundsend.DeliverOutcome {
 	f.calls++
+	f.returnedAt = time.Now().UTC()
 	return f.out
 }
 
@@ -247,6 +253,23 @@ func TestSendWorker_ProviderOutageRecordsTemporaryLifecycleBeforeSnooze(t *testi
 	}
 	if len(st.temporary) != 1 || len(st.released) != 1 {
 		t.Fatalf("temporary=%+v released=%+v", st.temporary, st.released)
+	}
+}
+
+func TestSendWorker_SuppressionObservationTimeFollowsDecision(t *testing.T) {
+	st := &fakeStore{job: acceptedJob("msg_suppressed"), suppressed: []string{"blocked@example.net"}}
+	rj := job("msg_suppressed", 4)
+	oldAttempt := time.Now().Add(-time.Hour).UTC()
+	rj.AttemptedAt = &oldAttempt
+
+	if err := outboundsend.NewSendWorker(st, &fakeDeliverer{}).Work(context.Background(), rj); err == nil {
+		t.Fatal("suppressed message must cancel")
+	}
+	if len(st.failed) != 1 {
+		t.Fatalf("failed=%+v, want one terminal observation", st.failed)
+	}
+	if st.failed[0].occurredAt.Before(st.suppressionCheckedAt) {
+		t.Fatalf("occurred_at=%s predates suppression decision=%s", st.failed[0].occurredAt, st.suppressionCheckedAt)
 	}
 }
 

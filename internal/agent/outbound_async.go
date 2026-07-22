@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"time"
 
@@ -207,6 +208,7 @@ func (a *outboundSendStore) meterSentTx(ctx context.Context, tx pgx.Tx, info *id
 // reconciler's next pass to settle as sent).
 func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error {
 	detail = messagelifecycle.SafeDiagnostic(detail)
+	blockedRecipients = normalizeBlockedRecipients(blockedRecipients)
 	var resolved *identity.OutboundSentInfo
 	var resolvedProviderID string
 	if err := a.store.WithTx(ctx, func(tx pgx.Tx) error {
@@ -244,14 +246,8 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 		if err != nil {
 			return err
 		}
-		seen := map[string]bool{}
-		for _, raw := range blockedRecipients {
-			recipient := identity.NormalizeEmail(raw)
-			if recipient == "" || seen[recipient] {
-				continue
-			}
-			seen[recipient] = true
-			if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: "suppression:send:" + recipient, Direction: "outbound", Recipient: recipient, ReasonCode: messagelifecycle.ReasonSuppressionRecipientBlocked, Evidence: map[string]any{"suppression_scope": "agent", "suppression_source": "send_time"}, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(jobID, 10)}), OccurredAt: occurredAt}); err != nil {
+		for _, recipient := range blockedRecipients {
+			if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: "suppression:send:" + recipient, Direction: "outbound", Recipient: recipient, ReasonCode: messagelifecycle.ReasonSuppressionRecipientBlocked, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(jobID, 10)}), OccurredAt: occurredAt}); err != nil {
 				return err
 			}
 		}
@@ -269,8 +265,23 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 	return nil
 }
 
-func (a *outboundSendStore) PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
-	return a.store.PreserveOutboundTerminalFailure(ctx, messageID, jobID, messagelifecycle.SafeDiagnostic(detail), source, reason)
+func (a *outboundSendStore) PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error {
+	return a.store.PreserveOutboundTerminalFailure(ctx, messageID, jobID, attempt, occurredAt, messagelifecycle.SafeDiagnostic(detail), source, reason, normalizeBlockedRecipients(blockedRecipients))
+}
+
+func normalizeBlockedRecipients(recipients []string) []string {
+	seen := make(map[string]struct{}, len(recipients))
+	for _, raw := range recipients {
+		if recipient := identity.NormalizeEmail(raw); recipient != "" {
+			seen[recipient] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for recipient := range seen {
+		result = append(result, recipient)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (a *outboundSendStore) DeferTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string) error {

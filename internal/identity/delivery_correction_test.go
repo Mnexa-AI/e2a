@@ -86,6 +86,9 @@ func TestCorrection_LocalFailedCorrectedByCorrelatedDelivered(t *testing.T) {
 
 	msgID := seedOutboundRow(t, store, agentID, []string{"alice@gmail.com"}, nil, nil, "corr-local")
 	failLocally(t, store, msgID)
+	if _, err := pool.Exec(ctx, `UPDATE messages SET delivery_failure_occurred_at=now(),delivery_failure_attempt=3,delivery_failure_blocked_recipients=ARRAY['alice@gmail.com'] WHERE id=$1`, msgID); err != nil {
+		t.Fatal(err)
+	}
 
 	// The SES notification path: evidence first, then the recipient outcome
 	// (mirrors Consumer.Process ordering).
@@ -108,6 +111,13 @@ func TestCorrection_LocalFailedCorrectedByCorrelatedDelivered(t *testing.T) {
 	}
 	if providerID != "ses-repair-1" {
 		t.Errorf("provider_message_id = %q, want the evidence-repaired id", providerID)
+	}
+	var retainedFallback bool
+	if err := pool.QueryRow(ctx, `SELECT delivery_failure_occurred_at IS NOT NULL OR delivery_failure_attempt IS NOT NULL OR delivery_failure_blocked_recipients IS NOT NULL FROM messages WHERE id=$1`, msgID).Scan(&retainedFallback); err != nil {
+		t.Fatal(err)
+	}
+	if retainedFallback {
+		t.Error("delivery correction retained stale fallback provenance")
 	}
 	var rcptStatus string
 	if err := pool.QueryRow(ctx,

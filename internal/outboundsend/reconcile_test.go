@@ -555,7 +555,7 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 
 	f := newTerminalFixture(t, pool, store, adapter)
 	evidenceID := f.seed(t, "evidence", "accepted", "discarded", false)
-	if _, err := pool.Exec(context.Background(), `UPDATE messages SET delivery_failure_source='local',delivery_failure_reason_code='submission.cancelled',delivery_detail='stale' WHERE id=$1`, evidenceID); err != nil {
+	if _, err := pool.Exec(context.Background(), `UPDATE messages SET delivery_failure_source='local',delivery_failure_reason_code='submission.cancelled',delivery_detail='stale',delivery_failure_occurred_at=now(),delivery_failure_attempt=4,delivery_failure_blocked_recipients=ARRAY['stale@example.test'] WHERE id=$1`, evidenceID); err != nil {
 		t.Fatal(err)
 	}
 	f.freshenJob(t, evidenceID) // even inside the grace window, evidence settles now
@@ -594,6 +594,13 @@ func TestTerminalReconcileWorker_ProviderEvidenceSettlesAsSent(t *testing.T) {
 	}
 	if staleSource != "" || staleReason != "" || staleDetail != "" {
 		t.Fatalf("sent correction retained failure provenance source=%q reason=%q detail=%q", staleSource, staleReason, staleDetail)
+	}
+	var retainedFallback bool
+	if err := pool.QueryRow(context.Background(), `SELECT delivery_failure_occurred_at IS NOT NULL OR delivery_failure_attempt IS NOT NULL OR delivery_failure_blocked_recipients IS NOT NULL FROM messages WHERE id=$1`, evidenceID).Scan(&retainedFallback); err != nil {
+		t.Fatal(err)
+	}
+	if retainedFallback {
+		t.Fatal("sent correction retained fallback provenance")
 	}
 	var rcpts int
 	if err := pool.QueryRow(context.Background(),
@@ -826,17 +833,26 @@ func testProviderRejectionAtomicFailure(t *testing.T, label, install, uninstall 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
-	w := outboundsend.NewSendWorker(adapter, &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 explicit rejection"), Permanent: true}})
+	deliverer := &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 explicit rejection"), Permanent: true}}
+	w := outboundsend.NewSendWorker(adapter, deliverer)
 	rj := &river.Job[outboundsend.OutboundSendArgs]{JobRow: &rivertype.JobRow{ID: jobID, Attempt: 2, CreatedAt: time.Now().UTC()}, Args: outboundsend.OutboundSendArgs{MessageID: messageID}}
 	if err := w.Work(context.Background(), rj); err == nil {
 		t.Fatal("provider rejection must cancel")
 	}
 	var status, source, detail, storedReason string
-	if err := pool.QueryRow(context.Background(), `SELECT delivery_status,COALESCE(delivery_failure_source,''),COALESCE(delivery_detail,''),COALESCE(delivery_failure_reason_code,'') FROM messages WHERE id=$1`, messageID).Scan(&status, &source, &detail, &storedReason); err != nil {
+	var storedOccurredAt *time.Time
+	var storedAttempt *int
+	if err := pool.QueryRow(context.Background(), `SELECT delivery_status,COALESCE(delivery_failure_source,''),COALESCE(delivery_detail,''),COALESCE(delivery_failure_reason_code,''),delivery_failure_occurred_at,delivery_failure_attempt FROM messages WHERE id=$1`, messageID).Scan(&status, &source, &detail, &storedReason, &storedOccurredAt, &storedAttempt); err != nil {
 		t.Fatal(err)
 	}
 	if status != "accepted" || source != "provider" || detail != "550 explicit rejection" || storedReason != "submission.provider_rejected" {
 		t.Fatalf("fallback status=%q source=%q detail=%q reason=%q", status, source, detail, storedReason)
+	}
+	if storedOccurredAt == nil || storedAttempt == nil || *storedAttempt != 2 {
+		t.Fatalf("fallback occurred_at=%v attempt=%v, want exact provider observation and attempt 2", storedOccurredAt, storedAttempt)
+	}
+	if storedOccurredAt.Before(deliverer.returnedAt) {
+		t.Fatalf("fallback occurred_at=%s predates provider result=%s", *storedOccurredAt, deliverer.returnedAt)
 	}
 	if f.failedEventCount(t, messageID) != 0 || f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionProviderRejected) != nil {
 		t.Fatal("failed terminal tx published partial event/lifecycle")
@@ -850,6 +866,16 @@ func testProviderRejectionAtomicFailure(t *testing.T, label, install, uninstall 
 	tr := f.lifecycleReason(t, messageID, messagelifecycle.ReasonSubmissionProviderRejected)
 	if tr == nil {
 		t.Fatal("reconciler lost provider rejection provenance")
+	}
+	if !tr.OccurredAt.Equal(storedOccurredAt.UTC()) {
+		t.Fatalf("reconciled occurred_at=%s want preserved %s", tr.OccurredAt, storedOccurredAt.UTC())
+	}
+	var dedupeKey string
+	if err := pool.QueryRow(context.Background(), `SELECT dedupe_key FROM message_lifecycle_transitions WHERE id=$1`, tr.ID).Scan(&dedupeKey); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dedupeKey, ":attempt:2:") {
+		t.Fatalf("reconciled dedupe_key=%q want preserved attempt 2", dedupeKey)
 	}
 	f.assertEventCarriesOnly(t, messageID, webhookpub.EventEmailFailed, tr)
 	if err := outboundsend.NewTerminalReconcileWorker(pool, adapter).Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
@@ -948,7 +974,7 @@ func (s failingTerminalStore) MarkSent(context.Context, string, int64, int, time
 func (s failingTerminalStore) MarkFailed(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) error {
 	return s.err
 }
-func (s failingTerminalStore) PreserveTerminalFailure(context.Context, string, int64, string, delivery.FailureSource, messagelifecycle.ReasonCode) error {
+func (s failingTerminalStore) PreserveTerminalFailure(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) error {
 	return nil
 }
 func (s failingTerminalStore) SuppressedRecipients(context.Context, string, string, []string) ([]string, error) {

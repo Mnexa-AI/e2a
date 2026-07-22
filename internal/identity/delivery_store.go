@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -250,7 +251,8 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 			// carry the provider diagnostics).
 			if _, err := tx.Exec(ctx,
 				`UPDATE messages
-				    SET delivery_status = $2, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL
+				    SET delivery_status = $2, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL,
+				        delivery_failure_occurred_at = NULL, delivery_failure_attempt = NULL, delivery_failure_blocked_recipients = NULL
 				  WHERE id = $1`, messageID, string(next),
 			); err != nil {
 				return err
@@ -630,11 +632,32 @@ func (s *Store) DeferOutboundTerminalFailure(ctx context.Context, messageID stri
 // provenance after the richer terminal transaction failed. It deliberately
 // leaves the row preterminal and emits no event so the terminal reconciler can
 // retry the complete state+lifecycle+event transaction later.
-func (s *Store) PreserveOutboundTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
+func (s *Store) PreserveOutboundTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error {
 	if !messagelifecycle.IsTerminalSubmissionFailure(reason) {
 		return fmt.Errorf("invalid terminal submission reason %q", reason)
 	}
-	_, err := s.pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',delivery_detail=$3,delivery_failure_source=$4,delivery_failure_reason_code=$5,send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullIfEmpty(detail), string(source), string(reason))
+	if occurredAt.IsZero() {
+		return fmt.Errorf("terminal failure occurred_at is required")
+	}
+	if attempt < 0 {
+		return fmt.Errorf("terminal failure attempt must be non-negative")
+	}
+	seen := make(map[string]struct{}, len(blockedRecipients))
+	for _, raw := range blockedRecipients {
+		if recipient := NormalizeEmail(raw); recipient != "" {
+			seen[recipient] = struct{}{}
+		}
+	}
+	blockedRecipients = blockedRecipients[:0]
+	for recipient := range seen {
+		blockedRecipients = append(blockedRecipients, recipient)
+	}
+	sort.Strings(blockedRecipients)
+	var storedRecipients any
+	if len(blockedRecipients) > 0 {
+		storedRecipients = blockedRecipients
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',delivery_detail=$3,delivery_failure_source=$4,delivery_failure_reason_code=$5,delivery_failure_occurred_at=$6,delivery_failure_attempt=$7,delivery_failure_blocked_recipients=$8,send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullIfEmpty(detail), string(source), string(reason), occurredAt.UTC(), attempt, storedRecipients)
 	return err
 }
 
@@ -650,7 +673,8 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 	err := tx.QueryRow(ctx,
 		`UPDATE messages m
 		    SET delivery_status = 'sent', provider_message_id = $2, send_claimed_at = NULL,
-		        delivery_failure_source=NULL,delivery_failure_reason_code=NULL,delivery_detail=NULL
+		        delivery_failure_source=NULL,delivery_failure_reason_code=NULL,delivery_detail=NULL,
+		        delivery_failure_occurred_at=NULL,delivery_failure_attempt=NULL,delivery_failure_blocked_recipients=NULL
 		   FROM agent_identities a
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id
@@ -686,7 +710,8 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent"}
 	err := tx.QueryRow(ctx,
 		`UPDATE messages m
-		    SET delivery_status = 'sent', send_claimed_at = NULL, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL
+		    SET delivery_status = 'sent', send_claimed_at = NULL, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL,
+		        delivery_failure_occurred_at=NULL, delivery_failure_attempt=NULL, delivery_failure_blocked_recipients=NULL
 		   FROM agent_identities a
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id

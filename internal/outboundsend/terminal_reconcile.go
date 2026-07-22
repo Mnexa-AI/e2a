@@ -62,14 +62,17 @@ func NewTerminalReconcileWorker(pool *pgxpool.Pool, store Store, ramps ...RampGa
 }
 
 type terminalCandidate struct {
-	messageID     string
-	jobID         int64
-	attempt       int
-	state         string
-	finalizedAt   *time.Time
-	failureSource delivery.FailureSource
-	detail        string
-	failureReason string
+	messageID                string
+	jobID                    int64
+	attempt                  int
+	state                    string
+	finalizedAt              *time.Time
+	failureSource            delivery.FailureSource
+	detail                   string
+	failureReason            string
+	failureOccurredAt        *time.Time
+	failureAttempt           *int
+	failureBlockedRecipients []string
 }
 
 func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[TerminalReconcileArgs]) error {
@@ -84,7 +87,8 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		        COALESCE(r.attempt, 0),
 		        CASE WHEN r.id IS NULL THEN 'missing' ELSE r.state::text END,
 		        r.finalized_at,
-		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_detail,''),COALESCE(m.delivery_failure_reason_code,'')
+		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_detail,''),COALESCE(m.delivery_failure_reason_code,''),
+		        m.delivery_failure_occurred_at,m.delivery_failure_attempt,m.delivery_failure_blocked_recipients
 		   FROM messages m
 		   LEFT JOIN river_job r ON r.id = m.send_job_id
 		  WHERE m.direction = 'outbound'
@@ -106,7 +110,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 	candidates := make([]terminalCandidate, 0)
 	for rows.Next() {
 		var candidate terminalCandidate
-		if err := rows.Scan(&candidate.messageID, &candidate.jobID, &candidate.attempt, &candidate.state, &candidate.finalizedAt, &candidate.failureSource, &candidate.detail, &candidate.failureReason); err != nil {
+		if err := rows.Scan(&candidate.messageID, &candidate.jobID, &candidate.attempt, &candidate.state, &candidate.finalizedAt, &candidate.failureSource, &candidate.detail, &candidate.failureReason, &candidate.failureOccurredAt, &candidate.failureAttempt, &candidate.failureBlockedRecipients); err != nil {
 			return err
 		}
 		candidates = append(candidates, candidate)
@@ -140,12 +144,19 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		if candidate.finalizedAt != nil && !candidate.finalizedAt.IsZero() {
 			occurredAt = candidate.finalizedAt.UTC()
 		}
+		if candidate.failureOccurredAt != nil && !candidate.failureOccurredAt.IsZero() {
+			occurredAt = candidate.failureOccurredAt.UTC()
+		}
+		attempt := candidate.attempt
+		if candidate.failureAttempt != nil {
+			attempt = *candidate.failureAttempt
+		}
 		// MarkFailed is the guarded terminal write: it settles the row as sent
 		// when provider-accept evidence exists (never a false failure), else
 		// fails it with provenance 'local' so later authoritative evidence can
 		// still correct it. The stored detail of a deferred final attempt is
 		// preferred over this generic sweep detail.
-		if err := w.store.MarkFailed(ctx, candidate.messageID, candidate.jobID, candidate.attempt, occurredAt, detail, source, reason, nil); err != nil {
+		if err := w.store.MarkFailed(ctx, candidate.messageID, candidate.jobID, attempt, occurredAt, detail, source, reason, candidate.failureBlockedRecipients); err != nil {
 			if processed > 0 {
 				log.Printf("[outbound-terminal-reconcile] processed %d candidates", processed)
 			}
