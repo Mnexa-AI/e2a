@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -19,12 +20,12 @@ import (
 // delivery-feedback event to webhook_events with its envelope routing keys
 // (agent_id/conversation_id/message_id), which is exactly what the Events API
 // filters on. Kept in lockstep with main.go by construction.
-func realDeliveryFirer(pub webhookpub.Publisher) delivery.Firer {
-	return func(ctx context.Context, e delivery.FiredEvent) {
-		pub.Publish(ctx, webhookpub.Event{
+func realDeliveryFirer(outbox webhookpub.Outbox) delivery.Firer {
+	return func(ctx context.Context, tx pgx.Tx, e delivery.FiredEvent) error {
+		return outbox.PublishTx(ctx, tx, webhookpub.Event{
 			ID:             webhookpub.DeterministicEventID(e.DedupKey),
 			Type:           e.Type,
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      e.OccurredAt,
 			UserID:         e.UserID,
 			AgentID:        e.AgentID,
 			ConversationID: e.ConversationID,
@@ -79,8 +80,7 @@ func TestDeliveryFeedback_FindableByMessageID(t *testing.T) {
 	}
 
 	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
-	pub := webhookpub.NewOutboxPublisher(outbox, pool)
-	consumer := delivery.NewConsumer(store, realDeliveryFirer(pub))
+	consumer := delivery.NewConsumer(store, realDeliveryFirer(outbox))
 
 	if err := consumer.Process(ctx, &delivery.Event{
 		Kind: delivery.KindReject, SESMessageID: "ses-dfb-reject",

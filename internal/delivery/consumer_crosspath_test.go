@@ -7,7 +7,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
 
@@ -27,6 +29,21 @@ func (s *crossPathStore) RecordDeliveryOutcome(ctx context.Context, messageID, a
 }
 func (s *crossPathStore) AddSuppression(ctx context.Context, userID, address, reason, source, sourceMessageID string) (bool, error) {
 	return false, nil
+}
+func (s *crossPathStore) WithTx(ctx context.Context, fn func(pgx.Tx) error) error { return fn(nil) }
+func (s *crossPathStore) RecordProviderAcceptEvidenceTx(context.Context, pgx.Tx, string, string) error {
+	return nil
+}
+func (s *crossPathStore) RecordDeliveryOutcomeTx(context.Context, pgx.Tx, string, string, delivery.Status, string) error {
+	return nil
+}
+func (s *crossPathStore) AddSuppressionTx(context.Context, pgx.Tx, string, string, string, string, string) (string, bool, error) {
+	return "supp_cross", false, nil
+}
+func (s *crossPathStore) AppendLifecycleTx(_ context.Context, _ pgx.Tx, input messagelifecycle.AppendInput) (messagelifecycle.MessageLifecycleTransition, error) {
+	transition, err := messagelifecycle.NewTransition(input)
+	transition.ID = "mlt_cross"
+	return transition, err
 }
 
 // TestRejectEmailFailedIDCollapsesAcrossPaths pins the dedup design: the async
@@ -48,10 +65,11 @@ func TestRejectEmailFailedIDCollapsesAcrossPaths(t *testing.T) {
 		MessageID: msgID, UserID: "u_1", AgentID: "bot@x.com", To: []string{"a@x.com"},
 	}}
 	var keys []string
-	fire := func(_ context.Context, e delivery.FiredEvent) {
+	fire := func(_ context.Context, _ pgx.Tx, e delivery.FiredEvent) error {
 		if e.Type == delivery.EventEmailFailed {
 			keys = append(keys, e.DedupKey)
 		}
+		return nil
 	}
 	c := delivery.NewConsumer(store, fire)
 	for i := 0; i < 2; i++ { // duplicate SNS delivery of the same Reject

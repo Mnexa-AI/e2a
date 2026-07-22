@@ -109,7 +109,13 @@ func (s *Store) CorrelateByE2AMessageID(ctx context.Context, e2aMessageID string
 // guards (send worker, terminal reconciler, MarkOutboundFailedTx's CAS) read
 // this evidence before declaring an accepted/sending row failed.
 func (s *Store) RecordProviderAcceptEvidence(ctx context.Context, messageID, sesMessageID string) error {
-	_, err := s.pool.Exec(ctx,
+	return s.WithTx(ctx, func(tx pgx.Tx) error {
+		return s.RecordProviderAcceptEvidenceTx(ctx, tx, messageID, sesMessageID)
+	})
+}
+
+func (s *Store) RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string) error {
+	_, err := tx.Exec(ctx,
 		`UPDATE messages
 		    SET provider_accepted_at = COALESCE(provider_accepted_at, now()),
 		        provider_message_id = CASE WHEN COALESCE(provider_message_id, '') = ''
@@ -117,6 +123,10 @@ func (s *Store) RecordProviderAcceptEvidence(ctx context.Context, messageID, ses
 		  WHERE id = $1 AND direction = 'outbound'`,
 		messageID, sesMessageID)
 	return err
+}
+
+func (s *Store) AppendLifecycleTx(ctx context.Context, tx pgx.Tx, input messagelifecycle.AppendInput) (messagelifecycle.MessageLifecycleTransition, error) {
+	return messagelifecycle.AppendTx(ctx, tx, input)
 }
 
 // RecordDeliveryOutcome upserts one recipient's status monotonically (by the
@@ -133,12 +143,13 @@ func (s *Store) RecordProviderAcceptEvidence(ctx context.Context, messageID, ses
 // outside the message's own envelope is ignored on a failed row so unrelated
 // feedback can never resurrect a genuine failure.
 func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address string, status delivery.Status, detail string) error {
+	return s.WithTx(ctx, func(tx pgx.Tx) error {
+		return s.RecordDeliveryOutcomeTx(ctx, tx, messageID, address, status, detail)
+	})
+}
+
+func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status delivery.Status, detail string) error {
 	addr := NormalizeEmail(address)
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
 
 	// Lock the message row to serialize ALL events for this message (every
 	// recipient). SES fans out delivery + bounce/complaint for the same message
@@ -152,7 +163,7 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 		curStatus, curSource string
 		envTo, envCC, envBCC []string
 	)
-	err = tx.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT COALESCE(delivery_status, ''), COALESCE(delivery_failure_source, ''),
 		        COALESCE(to_recipients, '{}'), COALESCE(cc, '{}'), COALESCE(bcc, '{}')
 		   FROM messages WHERE id = $1 FOR UPDATE`,
@@ -266,7 +277,7 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 			}
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // addressInEnvelope reports whether addr (already normalized) is one of the
@@ -905,16 +916,33 @@ type Suppression struct {
 // false when it already existed, so the caller fires domain.suppression_added
 // at most once per address.
 func (s *Store) AddSuppression(ctx context.Context, userID, address, reason, source, sourceMessageID string) (bool, error) {
-	tag, err := s.pool.Exec(ctx,
+	var added bool
+	err := s.WithTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		_, added, err = s.AddSuppressionTx(ctx, tx, userID, address, reason, source, sourceMessageID)
+		return err
+	})
+	return added, err
+}
+
+func (s *Store) AddSuppressionTx(ctx context.Context, tx pgx.Tx, userID, address, reason, source, sourceMessageID string) (string, bool, error) {
+	id := "supp_" + generateID()
+	tag, err := tx.Exec(ctx,
 		`INSERT INTO suppressions (id, user_id, address, reason, source, source_message_id)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (user_id, address) DO NOTHING`,
-		"supp_"+generateID(), userID, NormalizeEmail(address), reason, source, nullIfEmpty(sourceMessageID),
+		id, userID, NormalizeEmail(address), reason, source, nullIfEmpty(sourceMessageID),
 	)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	if tag.RowsAffected() == 0 {
+		if err := tx.QueryRow(ctx, `SELECT id FROM suppressions WHERE user_id=$1 AND address=$2`, userID, NormalizeEmail(address)).Scan(&id); err != nil {
+			return "", false, err
+		}
+		return id, false, nil
+	}
+	return id, true, nil
 }
 
 // SuppressedAddresses returns the subset of addrs that are suppressed for the

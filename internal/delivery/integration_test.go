@@ -4,14 +4,273 @@ package delivery_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/testutil"
+	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
+
+func transactionalDeliveryFirer(outbox webhookpub.Outbox) delivery.Firer {
+	return func(ctx context.Context, tx pgx.Tx, event delivery.FiredEvent) error {
+		return outbox.PublishTx(ctx, tx, webhookpub.Event{
+			ID:             webhookpub.DeterministicEventID(event.DedupKey),
+			Type:           event.Type,
+			CreatedAt:      event.OccurredAt,
+			UserID:         event.UserID,
+			AgentID:        event.AgentID,
+			ConversationID: event.ConversationID,
+			MessageID:      event.MessageID,
+			Data:           event.Data,
+		})
+	}
+}
+
+func TestConsumerLifecycleMappings(t *testing.T) {
+	tests := []struct {
+		name       string
+		kind       delivery.EventKind
+		status     delivery.Status
+		bounceType string
+		suppress   bool
+		reason     messagelifecycle.ReasonCode
+		retryable  bool
+	}{
+		{"delivered", delivery.KindDelivery, delivery.StatusDelivered, "", false, messagelifecycle.ReasonDeliveryRecipientServerAccepted, false},
+		{"delay", delivery.KindDeliveryDelay, delivery.StatusDeferred, "", false, messagelifecycle.ReasonDeliveryTemporaryDelay, true},
+		{"permanent bounce", delivery.KindBounce, delivery.StatusBounced, "permanent", true, messagelifecycle.ReasonDeliveryPermanentBounce, false},
+		{"transient bounce", delivery.KindBounce, delivery.StatusBounced, "transient", false, messagelifecycle.ReasonDeliveryTransientBounce, true},
+		{"undetermined bounce", delivery.KindBounce, delivery.StatusBounced, "undetermined", false, messagelifecycle.ReasonDeliveryUndeterminedBounce, false},
+		{"complaint", delivery.KindComplaint, delivery.StatusComplained, "", true, messagelifecycle.ReasonComplaintRecipientReported, false},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := testutil.TestDB(t)
+			store := identity.NewStore(pool)
+			_, messageID, _ := seedOutbound(t, store, "lifecycle-"+string(rune('a'+i)), "ses-lifecycle-"+string(rune('a'+i)), []string{"Person@Example.COM"})
+			ev := &delivery.Event{Kind: tc.kind, SESMessageID: "ses-lifecycle-" + string(rune('a'+i)), ProviderEventID: "sns-lifecycle-" + string(rune('a'+i)), E2AMessageID: messageID, BounceType: tc.bounceType, BounceSubType: "General", Recipients: []delivery.RecipientOutcome{{Address: "person@example.com", Status: tc.status, Detail: "250 safe diagnostic", Suppress: tc.suppress}}}
+			consumer := delivery.NewConsumer(store, nil)
+			if err := consumer.Process(context.Background(), ev); err != nil {
+				t.Fatal(err)
+			}
+			if err := consumer.Process(context.Background(), ev); err != nil {
+				t.Fatalf("duplicate feedback: %v", err)
+			}
+			var recipient, reason string
+			var retryable bool
+			var evidenceRaw, correlationsRaw []byte
+			if err := pool.QueryRow(context.Background(), `SELECT recipient,reason_code,retryable,evidence,correlation_ids FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=$2`, messageID, tc.reason).Scan(&recipient, &reason, &retryable, &evidenceRaw, &correlationsRaw); err != nil {
+				t.Fatal(err)
+			}
+			if recipient != "person@example.com" || reason != string(tc.reason) || retryable != tc.retryable {
+				t.Fatalf("transition recipient=%q reason=%q retryable=%v", recipient, reason, retryable)
+			}
+			var evidence map[string]any
+			var correlations map[string]string
+			if err := json.Unmarshal(evidenceRaw, &evidence); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(correlationsRaw, &correlations); err != nil {
+				t.Fatal(err)
+			}
+			if evidence["smtp_detail"] != "250 safe diagnostic" || correlations["provider_message_id"] != ev.SESMessageID || correlations["provider_event_id"] != ev.ProviderEventID || correlations["email_message_id"] != messageID {
+				t.Fatalf("evidence=%v correlations=%v", evidence, correlations)
+			}
+			var count int
+			if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=$2`, messageID, tc.reason).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Fatalf("logical transitions=%d want 1", count)
+			}
+		})
+	}
+}
+
+func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
+	tests := []struct {
+		name              string
+		kind              delivery.EventKind
+		status            delivery.Status
+		bounceType        string
+		detail            string
+		feedbackReason    messagelifecycle.ReasonCode
+		suppressionReason messagelifecycle.ReasonCode
+		eventType         string
+	}{
+		{"hard bounce", delivery.KindBounce, delivery.StatusBounced, "permanent", "550 5.1.1 no such user", messagelifecycle.ReasonDeliveryPermanentBounce, messagelifecycle.ReasonSuppressionHardBounceApplied, delivery.EventEmailBounced},
+		{"complaint", delivery.KindComplaint, delivery.StatusComplained, "", "abuse", messagelifecycle.ReasonComplaintRecipientReported, messagelifecycle.ReasonSuppressionComplaintApplied, delivery.EventEmailComplained},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := testutil.TestDB(t)
+			ctx := context.Background()
+			store := identity.NewStore(pool)
+			providerID := "ses-causal-" + string(rune('a'+i))
+			userID, messageID, _ := seedOutbound(t, store, "causal-"+string(rune('a'+i)), providerID, []string{"Person@Example.COM"})
+			outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+			ev := &delivery.Event{
+				Kind: tc.kind, SESMessageID: providerID, ProviderEventID: "sns-causal-" + string(rune('a'+i)),
+				OccurredAt: time.Date(2026, 7, 21, 12, i, 0, 0, time.UTC), BounceType: tc.bounceType,
+				Recipients: []delivery.RecipientOutcome{{Address: " person@example.com ", Status: tc.status, Detail: tc.detail, Suppress: true}},
+			}
+			consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox))
+			if err := consumer.Process(ctx, ev); err != nil {
+				t.Fatal(err)
+			}
+			if err := consumer.Process(ctx, ev); err != nil {
+				t.Fatalf("duplicate feedback: %v", err)
+			}
+
+			var suppressions int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM suppressions WHERE user_id=$1 AND address='person@example.com' AND source_message_id=$2`, userID, messageID).Scan(&suppressions); err != nil {
+				t.Fatal(err)
+			}
+			if suppressions != 1 {
+				t.Fatalf("suppressions=%d want 1", suppressions)
+			}
+			var lifecycleCount int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=ANY($2)`, messageID, []string{string(tc.feedbackReason), string(tc.suppressionReason)}).Scan(&lifecycleCount); err != nil {
+				t.Fatal(err)
+			}
+			if lifecycleCount != 2 {
+				t.Fatalf("causal lifecycle transitions=%d want 2", lifecycleCount)
+			}
+
+			var eventEnvelope, suppressionEnvelope []byte
+			if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE user_id=$1 AND message_id=$2 AND type=$3`, userID, messageID, tc.eventType).Scan(&eventEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE user_id=$1 AND type=$2`, userID, delivery.EventSuppressionAdded).Scan(&suppressionEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			for label, envelope := range map[string][]byte{"feedback": eventEnvelope, "suppression": suppressionEnvelope} {
+				var decoded struct {
+					Data struct {
+						LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(envelope, &decoded); err != nil {
+					t.Fatalf("decode %s event: %v", label, err)
+				}
+				if len(decoded.Data.LifecycleTransitions) == 0 {
+					t.Fatalf("%s event omitted canonical lifecycle: %s", label, envelope)
+				}
+				for _, transition := range decoded.Data.LifecycleTransitions {
+					var persisted int
+					if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE id=$1 AND message_id=$2`, transition.ID, messageID).Scan(&persisted); err != nil {
+						t.Fatal(err)
+					}
+					if persisted != 1 {
+						t.Fatalf("%s event transition %q was not persisted", label, transition.ID)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestConsumerDuplicateAndOutOfOrderFeedbackConverges(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	_, messageID, agentEmail := seedOutbound(t, store, "out-of-order", "ses-out-of-order", []string{"a@example.com"})
+	consumer := delivery.NewConsumer(store, nil)
+	bounce := &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-out-of-order", ProviderEventID: "sns-bounce", OccurredAt: time.Date(2026, 7, 21, 12, 2, 0, 0, time.UTC), BounceType: "permanent", Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusBounced, Detail: "550", Suppress: true}}}
+	lateDelivery := &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-out-of-order", ProviderEventID: "sns-delivery", OccurredAt: time.Date(2026, 7, 21, 12, 1, 0, 0, time.UTC), Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusDelivered, Detail: "250 accepted"}}}
+	for _, event := range []*delivery.Event{bounce, bounce, lateDelivery, lateDelivery} {
+		if err := consumer.Process(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := deliveryStatus(t, store, messageID, agentEmail); got != "bounced" {
+		t.Fatalf("rollup=%q want bounced", got)
+	}
+	for _, reason := range []messagelifecycle.ReasonCode{messagelifecycle.ReasonDeliveryPermanentBounce, messagelifecycle.ReasonSuppressionHardBounceApplied, messagelifecycle.ReasonDeliveryRecipientServerAccepted} {
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=$2`, messageID, reason).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("reason %s count=%d want 1", reason, count)
+		}
+	}
+}
+
+func TestFeedbackAtomicRollbackOnEventInsertFailure(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	userID, messageID, agentEmail := seedOutbound(t, store, "feedback-atomic", "ses-feedback-atomic", []string{"a@example.com"})
+	if _, err := pool.Exec(ctx, `UPDATE messages SET provider_accepted_at=NULL WHERE id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := pool.Exec(ctx, `
+		CREATE FUNCTION test_fail_feedback_event() RETURNS trigger AS $f$
+		BEGIN
+			IF NEW.type='email.bounced' THEN RAISE EXCEPTION 'forced feedback event failure'; END IF;
+			RETURN NEW;
+		END;
+		$f$ LANGUAGE plpgsql;
+		CREATE TRIGGER test_fail_feedback_event BEFORE INSERT ON webhook_events
+		FOR EACH ROW EXECUTE FUNCTION test_fail_feedback_event();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropFailure := func() {
+		_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_feedback_event ON webhook_events; DROP FUNCTION IF EXISTS test_fail_feedback_event()`)
+	}
+	t.Cleanup(dropFailure)
+
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox))
+	ev := &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-feedback-atomic", ProviderEventID: "sns-feedback-atomic", BounceType: "permanent", Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusBounced, Detail: "550", Suppress: true}}}
+	if err := consumer.Process(ctx, ev); err == nil {
+		t.Fatal("Process succeeded, want forced event insertion failure")
+	}
+	if got := deliveryStatus(t, store, messageID, agentEmail); got != "sent" {
+		t.Fatalf("message status committed despite event failure: %q", got)
+	}
+	var recipientStatus string
+	var acceptedAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT r.status,m.provider_accepted_at FROM message_recipients r JOIN messages m ON m.id=r.message_id WHERE r.message_id=$1 AND r.address='a@example.com'`, messageID).Scan(&recipientStatus, &acceptedAt); err != nil {
+		t.Fatal(err)
+	}
+	if recipientStatus != "sent" || acceptedAt != nil {
+		t.Fatalf("recipient/provider evidence committed: status=%q accepted_at=%v", recipientStatus, acceptedAt)
+	}
+	for label, query := range map[string]string{
+		"lifecycle":   `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code IN ('delivery.permanent_bounce','suppression.hard_bounce_applied')`,
+		"suppression": `SELECT count(*) FROM suppressions WHERE user_id=$1`,
+		"event":       `SELECT count(*) FROM webhook_events WHERE user_id=$1`,
+	} {
+		arg := any(userID)
+		if label == "lifecycle" {
+			arg = messageID
+		}
+		var count int
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows=%d want 0 after rollback", label, count)
+		}
+	}
+
+	dropFailure()
+	if err := consumer.Process(ctx, ev); err != nil {
+		t.Fatalf("retry after removing failure: %v", err)
+	}
+	if got := deliveryStatus(t, store, messageID, agentEmail); got != "bounced" {
+		t.Fatalf("retry status=%q want bounced", got)
+	}
+}
 
 // seedOutbound creates a user + verified domain + agent + one outbound message
 // with the given SES provider id, marked sent to `to`. Returns userID,
@@ -215,8 +474,9 @@ func TestDeliveryPipeline_RejectFailsMessageOnceWithoutSuppression(t *testing.T)
 		data                                  any
 	}
 	var events []fired
-	consumer := delivery.NewConsumer(store, func(_ context.Context, e delivery.FiredEvent) {
+	consumer := delivery.NewConsumer(store, func(_ context.Context, _ pgx.Tx, e delivery.FiredEvent) error {
 		events = append(events, fired{e.Type, e.DedupKey, e.MessageID, e.ConversationID, e.Data})
+		return nil
 	})
 
 	rejectEv := &delivery.Event{
@@ -264,6 +524,9 @@ func TestDeliveryPipeline_RejectFailsMessageOnceWithoutSuppression(t *testing.T)
 	if len(data.To) != 2 || data.To[0] != "a@x.com" || data.To[1] != "b@x.com" {
 		t.Fatalf("payload to=%v, want both recipients from the correlated row", data.To)
 	}
+	if len(data.LifecycleTransitions) != 1 || data.LifecycleTransitions[0].ReasonCode != messagelifecycle.ReasonSubmissionProviderRejected {
+		t.Fatalf("email.failed lifecycle=%+v, want one provider rejection", data.LifecycleTransitions)
+	}
 
 	// A Reject must never suppress the recipient addresses.
 	supp, err := store.SuppressedAddresses(ctx, userID, []string{"a@x.com", "b@x.com"})
@@ -284,6 +547,13 @@ func TestDeliveryPipeline_RejectFailsMessageOnceWithoutSuppression(t *testing.T)
 	}
 	if len(events) != 2 || events[1].typ != "email.failed" || events[1].dedup != events[0].dedup {
 		t.Fatalf("duplicate delivery must refire with an identical dedup key: %+v", events)
+	}
+	var rejectionTransitions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.provider_rejected'`, msgID).Scan(&rejectionTransitions); err != nil {
+		t.Fatal(err)
+	}
+	if rejectionTransitions != 1 {
+		t.Fatalf("provider rejection transitions=%d want 1", rejectionTransitions)
 	}
 }
 

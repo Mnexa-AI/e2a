@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // fakeConsumerStore is an in-memory delivery.Store.
@@ -45,6 +47,24 @@ func (f *fakeConsumerStore) RecordProviderAcceptEvidence(ctx context.Context, me
 	f.evidence = append(f.evidence, [2]string{messageID, sesMessageID})
 	return nil
 }
+func (f *fakeConsumerStore) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	return fn(nil)
+}
+func (f *fakeConsumerStore) RecordProviderAcceptEvidenceTx(ctx context.Context, _ pgx.Tx, messageID, sesMessageID string) error {
+	return f.RecordProviderAcceptEvidence(ctx, messageID, sesMessageID)
+}
+func (f *fakeConsumerStore) RecordDeliveryOutcomeTx(ctx context.Context, _ pgx.Tx, messageID, address string, st Status, detail string) error {
+	return f.RecordDeliveryOutcome(ctx, messageID, address, st, detail)
+}
+func (f *fakeConsumerStore) AddSuppressionTx(ctx context.Context, _ pgx.Tx, userID, address, reason, source, srcMsg string) (string, bool, error) {
+	added, err := f.AddSuppression(ctx, userID, address, reason, source, srcMsg)
+	return "supp_fake", added, err
+}
+func (f *fakeConsumerStore) AppendLifecycleTx(_ context.Context, _ pgx.Tx, input messagelifecycle.AppendInput) (messagelifecycle.MessageLifecycleTransition, error) {
+	transition, err := messagelifecycle.NewTransition(input)
+	transition.ID = "mlt_fake"
+	return transition, err
+}
 func (f *fakeConsumerStore) RecordDeliveryOutcome(ctx context.Context, messageID, address string, st Status, detail string) error {
 	f.outcomes = append(f.outcomes, [3]string{messageID, address, string(st)})
 	return nil
@@ -69,8 +89,9 @@ type firedEvent struct {
 
 func recordingFirer() (Firer, *[]firedEvent) {
 	var events []firedEvent
-	f := func(ctx context.Context, e FiredEvent) {
+	f := func(ctx context.Context, _ pgx.Tx, e FiredEvent) error {
 		events = append(events, firedEvent{e.UserID, e.AgentID, e.ConversationID, e.MessageID, e.Type, e.Data, e.DedupKey})
+		return nil
 	}
 	return f, &events
 }

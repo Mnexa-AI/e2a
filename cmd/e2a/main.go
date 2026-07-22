@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/tokencanopy/e2a/internal/agent"
@@ -56,12 +57,12 @@ import (
 // the owning user's subscribers (decision 9 / Slice 4b). The event id is
 // derived deterministically from dedupKey so duplicate SNS notifications
 // produce the same id — receivers dedup on it (at-least-once delivery).
-func deliveryEventFirer(pub webhookpub.Publisher) delivery.Firer {
-	return func(ctx context.Context, e delivery.FiredEvent) {
-		pub.Publish(ctx, webhookpub.Event{
+func deliveryEventFirer(outbox webhookpub.Outbox) delivery.Firer {
+	return func(ctx context.Context, tx pgx.Tx, e delivery.FiredEvent) error {
+		return outbox.PublishTx(ctx, tx, webhookpub.Event{
 			ID:             webhookpub.DeterministicEventID(e.DedupKey),
 			Type:           e.Type,
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      e.OccurredAt,
 			UserID:         e.UserID,
 			AgentID:        e.AgentID,
 			ConversationID: e.ConversationID,
@@ -634,7 +635,7 @@ func main() {
 	// 4b). Fail-closed: the SNS signature is verified and the TopicArn must be
 	// in the configured allow-list (empty allow-list → every message is
 	// rejected, so this is inert until ops wires the topic).
-	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(outboxPublisher))
+	deliveryConsumer := delivery.NewConsumer(store, deliveryEventFirer(webhookOutbox))
 	deliveryVerifier := delivery.NewVerifier(cfg.DeliveryFeedback.SNSTopicARNs, delivery.HTTPCertFetcher)
 	// Public webhook receiver for AWS SNS (SES delivery/bounce/complaint). Named
 	// /webhooks/<provider> — it's an inbound third-party callback, not an internal
