@@ -1,9 +1,10 @@
 //go:build integration
 
-package messagelifecycle
+package messagelifecycle_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -17,9 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/jobs"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/migrations"
 )
+
+var reconstructBaseTime = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 
 func TestMessageLifecycleMigrationCatalogMatchesCanonicalCatalog(t *testing.T) {
 	ctx := context.Background()
@@ -34,10 +38,10 @@ func TestMessageLifecycleMigrationCatalogMatchesCanonicalCatalog(t *testing.T) {
 	}
 	defer rows.Close()
 
-	got := make(map[ReasonCode]Definition)
+	got := make(map[messagelifecycle.ReasonCode]messagelifecycle.Definition)
 	for rows.Next() {
-		var code ReasonCode
-		var definition Definition
+		var code messagelifecycle.ReasonCode
+		var definition messagelifecycle.Definition
 		if err := rows.Scan(&code, &definition.Stage, &definition.Outcome, &definition.Retryable); err != nil {
 			t.Fatal(err)
 		}
@@ -46,7 +50,7 @@ func TestMessageLifecycleMigrationCatalogMatchesCanonicalCatalog(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if want := Catalog(); !reflect.DeepEqual(got, want) {
+	if want := messagelifecycle.Catalog(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("database catalog mismatch\ngot:  %#v\nwant: %#v", got, want)
 	}
 }
@@ -205,7 +209,7 @@ func TestAppendTxStoresCanonicalTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := AppendTx(ctx, tx, input)
+	got, err := messagelifecycle.AppendTx(ctx, tx, input)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
@@ -249,42 +253,42 @@ func TestAppendTxIdenticalReplayReturnsOriginal(t *testing.T) {
 func TestAppendTxReplayNormalizesEquivalentRepresentations(t *testing.T) {
 	tests := []struct {
 		name     string
-		original func(*AppendInput)
-		replayed func(*AppendInput)
+		original func(*messagelifecycle.AppendInput)
+		replayed func(*messagelifecycle.AppendInput)
 	}{
 		{
 			name: "JSON key order",
-			original: func(in *AppendInput) {
+			original: func(in *messagelifecycle.AppendInput) {
 				in.Evidence = map[string]any{"smtp_detail": "accepted", "failure_code": "none"}
 			},
-			replayed: func(in *AppendInput) {
+			replayed: func(in *messagelifecycle.AppendInput) {
 				in.Evidence = map[string]any{"failure_code": "none", "smtp_detail": "accepted"}
 			},
 		},
 		{
 			name: "nil and empty maps",
-			original: func(in *AppendInput) {
+			original: func(in *messagelifecycle.AppendInput) {
 				in.Evidence = nil
 				in.CorrelationIDs = nil
 			},
-			replayed: func(in *AppendInput) {
+			replayed: func(in *messagelifecycle.AppendInput) {
 				in.Evidence = map[string]any{}
 				in.CorrelationIDs = map[string]string{}
 			},
 		},
 		{
 			name: "empty correlation filtering",
-			original: func(in *AppendInput) {
+			original: func(in *messagelifecycle.AppendInput) {
 				in.CorrelationIDs = map[string]string{"event_id": ""}
 			},
-			replayed: func(in *AppendInput) { in.CorrelationIDs = nil },
+			replayed: func(in *messagelifecycle.AppendInput) { in.CorrelationIDs = nil },
 		},
 		{
 			name: "timezone and sub-microsecond timestamp",
-			original: func(in *AppendInput) {
+			original: func(in *messagelifecycle.AppendInput) {
 				in.OccurredAt = time.Date(2026, 7, 21, 12, 0, 0, 123456100, time.FixedZone("PDT", -7*60*60))
 			},
-			replayed: func(in *AppendInput) {
+			replayed: func(in *messagelifecycle.AppendInput) {
 				in.OccurredAt = time.Date(2026, 7, 21, 19, 0, 0, 123456999, time.UTC)
 			},
 		},
@@ -311,14 +315,16 @@ func TestAppendTxDedupeConflictForSemanticDifferences(t *testing.T) {
 	baseTime := time.Date(2026, 7, 21, 12, 0, 0, 123000000, time.FixedZone("PDT", -7*60*60))
 	tests := []struct {
 		name   string
-		modify func(*AppendInput)
+		modify func(*messagelifecycle.AppendInput)
 	}{
-		{"reason", func(in *AppendInput) { in.ReasonCode = ReasonDeliveryTemporaryDelay }},
-		{"direction", func(in *AppendInput) { in.Direction = "inbound" }},
-		{"recipient", func(in *AppendInput) { in.Recipient = "other@example.com" }},
-		{"evidence", func(in *AppendInput) { in.Evidence = map[string]any{"smtp_detail": "251 forwarded"} }},
-		{"correlation", func(in *AppendInput) { in.CorrelationIDs = map[string]string{"event_id": "evt_other"} }},
-		{"occurred_at", func(in *AppendInput) { in.OccurredAt = in.OccurredAt.Add(time.Second) }},
+		{"reason", func(in *messagelifecycle.AppendInput) {
+			in.ReasonCode = messagelifecycle.ReasonDeliveryTemporaryDelay
+		}},
+		{"direction", func(in *messagelifecycle.AppendInput) { in.Direction = "inbound" }},
+		{"recipient", func(in *messagelifecycle.AppendInput) { in.Recipient = "other@example.com" }},
+		{"evidence", func(in *messagelifecycle.AppendInput) { in.Evidence = map[string]any{"smtp_detail": "251 forwarded"} }},
+		{"correlation", func(in *messagelifecycle.AppendInput) { in.CorrelationIDs = map[string]string{"event_id": "evt_other"} }},
+		{"occurred_at", func(in *messagelifecycle.AppendInput) { in.OccurredAt = in.OccurredAt.Add(time.Second) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -337,8 +343,8 @@ func TestAppendTxDedupeConflictForSemanticDifferences(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = AppendTx(ctx, tx, conflicting)
-			if !errors.Is(err, ErrDedupeConflict) {
+			_, err = messagelifecycle.AppendTx(ctx, tx, conflicting)
+			if !errors.Is(err, messagelifecycle.ErrDedupeConflict) {
 				_ = tx.Rollback(ctx)
 				t.Fatalf("AppendTx error = %v, want ErrDedupeConflict", err)
 			}
@@ -372,7 +378,7 @@ func TestAppendTxRollbackLeavesNoTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AppendTx(ctx, tx, lifecycleInput("msg_rollback", "rollback")); err != nil {
+	if _, err := messagelifecycle.AppendTx(ctx, tx, lifecycleInput("msg_rollback", "rollback")); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}
@@ -397,18 +403,25 @@ func TestLifecycleOrderedListBreaksEqualTimestampsByID(t *testing.T) {
 	}
 	sort.Strings(wantIDs)
 
-	tx, err := pool.Begin(ctx)
+	rows, err := pool.Query(ctx, `
+		SELECT id FROM message_lifecycle_transitions
+		WHERE message_id = $1
+		ORDER BY occurred_at ASC, id ASC
+	`, "msg_order")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := listTransitionsTx(ctx, tx, "msg_order")
-	_ = tx.Rollback(ctx)
-	if err != nil {
-		t.Fatal(err)
+	defer rows.Close()
+	var gotIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		gotIDs = append(gotIDs, id)
 	}
-	gotIDs := make([]string, len(got))
-	for i := range got {
-		gotIDs[i] = got[i].ID
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
 		t.Fatalf("ordered IDs = %v, want %v", gotIDs, wantIDs)
@@ -437,7 +450,7 @@ func TestAppendTxConcurrentDuplicateConverges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	winner, err := AppendTx(ctx, winnerTx, input)
+	winner, err := messagelifecycle.AppendTx(ctx, winnerTx, input)
 	if err != nil {
 		_ = winnerTx.Rollback(ctx)
 		t.Fatal(err)
@@ -446,7 +459,7 @@ func TestAppendTxConcurrentDuplicateConverges(t *testing.T) {
 	testCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	type result struct {
-		transition MessageLifecycleTransition
+		transition messagelifecycle.MessageLifecycleTransition
 		err        error
 	}
 	started := make(chan struct{})
@@ -458,7 +471,7 @@ func TestAppendTxConcurrentDuplicateConverges(t *testing.T) {
 			return
 		}
 		close(started)
-		transition, err := AppendTx(testCtx, loserTx, input)
+		transition, err := messagelifecycle.AppendTx(testCtx, loserTx, input)
 		if err == nil {
 			err = loserTx.Commit(testCtx)
 		} else {
@@ -499,7 +512,7 @@ func TestListForMessageOwnedForeignAndMissing(t *testing.T) {
 	store := lifecycleStore(t, pool)
 
 	got, err := store.ListForMessage(ctx, "msg_list_scope", "agt_msg_list_scope")
-	if err != nil || len(got) != 1 || got[0].ReasonCode != ReasonAcceptanceOutboundAPI {
+	if err != nil || len(got) != 1 || got[0].ReasonCode != messagelifecycle.ReasonAcceptanceOutboundAPI {
 		t.Fatalf("owned list = %#v, %v", got, err)
 	}
 	for _, tc := range []struct{ messageID, agentID string }{
@@ -507,7 +520,7 @@ func TestListForMessageOwnedForeignAndMissing(t *testing.T) {
 		{"msg_missing", "agt_msg_list_scope"},
 	} {
 		got, err := store.ListForMessage(ctx, tc.messageID, tc.agentID)
-		if !errors.Is(err, ErrMessageNotFound) || got != nil {
+		if !errors.Is(err, messagelifecycle.ErrMessageNotFound) || got != nil {
 			t.Fatalf("ListForMessage(%q,%q) = %#v, %v; want hidden not found", tc.messageID, tc.agentID, got, err)
 		}
 	}
@@ -529,8 +542,8 @@ func TestListForMessageHistoricalInboundAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReasons(t, got, ReasonAcceptanceInboundSMTP, ReasonAuthenticationDMARCPass)
-	if findReason(got, ReasonAuthenticationDMARCPass).Evidence["authentication"] == nil {
+	assertReasons(t, got, messagelifecycle.ReasonAcceptanceInboundSMTP, messagelifecycle.ReasonAuthenticationDMARCPass)
+	if findReason(got, messagelifecycle.ReasonAuthenticationDMARCPass).Evidence["authentication"] == nil {
 		t.Fatal("historical authentication evidence missing")
 	}
 }
@@ -568,8 +581,8 @@ func TestListForMessageHistoricalOutboundRecipientEventAndSuppression(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReasons(t, got, ReasonAcceptanceOutboundAPI, ReasonDeliveryRecipientServerAccepted, ReasonSuppressionHardBounceApplied)
-	delivery := findReason(got, ReasonDeliveryRecipientServerAccepted)
+	assertReasons(t, got, messagelifecycle.ReasonAcceptanceOutboundAPI, messagelifecycle.ReasonDeliveryRecipientServerAccepted, messagelifecycle.ReasonSuppressionHardBounceApplied)
+	delivery := findReason(got, messagelifecycle.ReasonDeliveryRecipientServerAccepted)
 	if delivery.CorrelationIDs["event_id"] != "evt_list" || delivery.Evidence["smtp_detail"] != "event detail" {
 		t.Fatalf("delivery did not prefer retained event: %#v", delivery)
 	}
@@ -589,9 +602,9 @@ func TestListForMessageDeterministicPersistedPrecedenceOrderingAndNoWrites(t *te
 	`, "msg_list_merge", when); err != nil {
 		t.Fatal(err)
 	}
-	persisted := appendAndCommit(t, pool, AppendInput{
+	persisted := appendAndCommit(t, pool, messagelifecycle.AppendInput{
 		MessageID: "msg_list_merge", DedupeKey: "persisted-delivery", Direction: "outbound",
-		Recipient: "a@example.com", ReasonCode: ReasonDeliveryRecipientServerAccepted,
+		Recipient: "a@example.com", ReasonCode: messagelifecycle.ReasonDeliveryRecipientServerAccepted,
 		OccurredAt: when, Evidence: map[string]any{"smtp_detail": "persisted"},
 	})
 
@@ -611,10 +624,10 @@ func TestListForMessageDeterministicPersistedPrecedenceOrderingAndNoWrites(t *te
 	if after := lifecycleCount(t, pool, "msg_list_merge"); after != before {
 		t.Fatalf("ListForMessage wrote transitions: before=%d after=%d", before, after)
 	}
-	if len(first) != 2 || findReason(first, ReasonAcceptanceOutboundAPI) == nil {
+	if len(first) != 2 || findReason(first, messagelifecycle.ReasonAcceptanceOutboundAPI) == nil {
 		t.Fatalf("missing reconstructed earlier acceptance: %#v", first)
 	}
-	delivery := findReason(first, ReasonDeliveryRecipientServerAccepted)
+	delivery := findReason(first, messagelifecycle.ReasonDeliveryRecipientServerAccepted)
 	if delivery == nil || delivery.ID != persisted.ID || delivery.Reconstructed || delivery.Evidence["smtp_detail"] != "persisted" {
 		t.Fatalf("persisted transition did not win: %#v", delivery)
 	}
@@ -719,7 +732,7 @@ func TestListForMessageRejectsCrossTenantHistoricalPoisonRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ReasonCode != ReasonAcceptanceOutboundAPI {
+	if len(got) != 1 || got[0].ReasonCode != messagelifecycle.ReasonAcceptanceOutboundAPI {
 		t.Fatalf("cross-tenant historical rows leaked: %#v", got)
 	}
 }
@@ -743,7 +756,7 @@ func TestListForMessageUsesRepeatableReadOnlyTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(tracedPool.Close)
-	if _, err := NewStore(tracedPool).ListForMessage(ctx, "msg_repeatable", "agt_msg_repeatable"); err != nil {
+	if _, err := messagelifecycle.NewStore(tracedPool).ListForMessage(ctx, "msg_repeatable", "agt_msg_repeatable"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -782,21 +795,52 @@ func (t *lifecycleQueryTracer) snapshot() []string {
 	return append([]string(nil), t.queries...)
 }
 
-func lifecycleStore(t *testing.T, pool *pgxpool.Pool) *Store {
+func authenticationJSON(status string) json.RawMessage {
+	return json.RawMessage(`{"spf":{"status":"none","domain":null,"aligned":null},"dkim":[],"dmarc":{"status":"` + status + `","domain":null,"policy":null,"aligned_by":[]}}`)
+}
+
+func eventSnapshot(id, eventType string, at time.Time, data map[string]any) messagelifecycle.EventSnapshot {
+	envelope, _ := json.Marshal(map[string]any{"type": eventType, "id": id, "created_at": at, "data": data})
+	return messagelifecycle.EventSnapshot{ID: id, Type: eventType, Envelope: envelope, CreatedAt: at.Add(time.Hour)}
+}
+
+func assertReasons(t *testing.T, got []messagelifecycle.MessageLifecycleTransition, want ...messagelifecycle.ReasonCode) {
+	t.Helper()
+	reasons := make([]messagelifecycle.ReasonCode, len(got))
+	for i := range got {
+		reasons[i] = got[i].ReasonCode
+	}
+	sort.Slice(reasons, func(i, j int) bool { return reasons[i] < reasons[j] })
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	if !reflect.DeepEqual(reasons, want) {
+		t.Fatalf("reasons = %v, want %v", reasons, want)
+	}
+}
+
+func findReason(items []messagelifecycle.MessageLifecycleTransition, reason messagelifecycle.ReasonCode) *messagelifecycle.MessageLifecycleTransition {
+	for i := range items {
+		if items[i].ReasonCode == reason {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func lifecycleStore(t *testing.T, pool *pgxpool.Pool) *messagelifecycle.Store {
 	t.Helper()
 	if err := jobs.Migrate(context.Background(), pool); err != nil {
 		t.Fatal(err)
 	}
-	return NewStore(pool)
+	return messagelifecycle.NewStore(pool)
 }
 
-func lifecycleInput(messageID, dedupeKey string) AppendInput {
-	return AppendInput{
+func lifecycleInput(messageID, dedupeKey string) messagelifecycle.AppendInput {
+	return messagelifecycle.AppendInput{
 		MessageID:      messageID,
 		DedupeKey:      dedupeKey,
 		Direction:      "outbound",
 		Recipient:      "person@example.com",
-		ReasonCode:     ReasonDeliveryRecipientServerAccepted,
+		ReasonCode:     messagelifecycle.ReasonDeliveryRecipientServerAccepted,
 		Evidence:       map[string]any{"smtp_detail": "250 2.0.0 accepted"},
 		CorrelationIDs: map[string]string{"event_id": "evt_123"},
 		OccurredAt:     time.Date(2026, 7, 21, 12, 0, 0, 123000000, time.FixedZone("PDT", -7*60*60)),
@@ -840,14 +884,14 @@ func insertLifecycleMessage(t *testing.T, pool interface {
 
 func appendAndCommit(t *testing.T, pool interface {
 	Begin(context.Context) (pgx.Tx, error)
-}, input AppendInput) MessageLifecycleTransition {
+}, input messagelifecycle.AppendInput) messagelifecycle.MessageLifecycleTransition {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	transition, err := AppendTx(ctx, tx, input)
+	transition, err := messagelifecycle.AppendTx(ctx, tx, input)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
@@ -872,23 +916,46 @@ func lifecycleCount(t *testing.T, pool interface {
 }
 
 func loadOnlyTransition(t *testing.T, pool interface {
-	Begin(context.Context) (pgx.Tx, error)
-}, messageID string) MessageLifecycleTransition {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, messageID string) messagelifecycle.MessageLifecycleTransition {
 	t.Helper()
-	ctx := context.Background()
-	tx, err := pool.Begin(ctx)
+	var count int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM message_lifecycle_transitions WHERE message_id = $1
+	`, messageID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("transition count = %d, want 1", count)
+	}
+	var transition messagelifecycle.MessageLifecycleTransition
+	var recipient *string
+	var evidence, correlations []byte
+	err := pool.QueryRow(context.Background(), `
+		SELECT id, message_id, direction, recipient, stage, outcome, reason_code,
+		       retryable, evidence, correlation_ids, occurred_at, reconstructed
+		FROM message_lifecycle_transitions
+		WHERE message_id = $1
+	`, messageID).Scan(
+		&transition.ID, &transition.MessageID, &transition.Direction, &recipient,
+		&transition.Stage, &transition.Outcome, &transition.ReasonCode,
+		&transition.Retryable, &evidence, &correlations, &transition.OccurredAt,
+		&transition.Reconstructed,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err := listTransitionsTx(ctx, tx, messageID)
-	_ = tx.Rollback(ctx)
-	if err != nil {
+	if recipient != nil {
+		transition.Recipient = *recipient
+	}
+	if err := json.Unmarshal(evidence, &transition.Evidence); err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 {
-		t.Fatalf("transition count = %d, want 1", len(items))
+	if err := json.Unmarshal(correlations, &transition.CorrelationIDs); err != nil {
+		t.Fatal(err)
 	}
-	return items[0]
+	transition.OccurredAt = transition.OccurredAt.UTC()
+	return transition
 }
 
 func lifecycleCatalogRows(t *testing.T, pool interface {
