@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/mail"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/inboundpolicy"
 	"github.com/tokencanopy/e2a/internal/limits"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/piguard"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
@@ -317,11 +319,14 @@ func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 // cannot recompute EnvelopeFrom/RemoteIP after the session closes).
 type inboundInput struct {
 	Body         []byte
-	EnvelopeFrom string // SMTP MAIL FROM
-	HELODomain   string // SMTP HELO/EHLO identity (null-reverse-path SPF)
-	RemoteIP     net.IP // connecting IP (SPF); the worker parses the stored text form
-	Recipient    string // RCPT TO
-	TraceID      string // log correlation (session id / intake id)
+	EnvelopeFrom string    // SMTP MAIL FROM
+	HELODomain   string    // SMTP HELO/EHLO identity (null-reverse-path SPF)
+	RemoteIP     net.IP    // connecting IP (SPF); the worker parses the stored text form
+	Recipient    string    // RCPT TO
+	TraceID      string    // log correlation (session id / intake id)
+	IntakeID     string    // durable async intake id; empty on synchronous SMTP
+	IntakeJobID  int64     // River inbound_process job id; zero on synchronous SMTP
+	IntakeAt     time.Time // durable queue acceptance time
 }
 
 // postPersistHook runs INSIDE processInbound's persist transaction, after the
@@ -395,23 +400,9 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// nothing is "pending delivery" — every received message starts unread.
 	deliveryStatus := "unread"
 
-	// Build the email.received event up front so its deterministic ID
-	// is computed BEFORE the trigger tx opens. An MTA-retried delivery
-	// produces the same (messageID, eventType) inputs → the same
-	// "evt_<hash>" id → outbox INSERT no-ops on the second attempt via
-	// ON CONFLICT (id) DO NOTHING. Idempotency by construction; see
-	// design §5.1.
-	event := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, buildEmailReceivedPayload(
-		messageID, conversationID, headerFrom, envelopeFrom, rcpt, threadInfo.Subject, threadInfo, authentication, agent,
-		time.Now().UTC(), eventpayload.AttachmentMetadata(body),
-	))
-	event.AgentID = agent.ID
-	event.ConversationID = conversationID
-	event.MessageID = messageID
-	// labels are unset on inbound (the labels feature applies
-	// post-receive); leave Event.Labels empty so label-filtered
-	// subscribers correctly skip (H5 null/empty semantics).
-	event.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReceived)
+	// Built inside the persistence transaction after lifecycle appends so every
+	// push channel carries the exact committed canonical transition objects.
+	var event webhookpub.Event
 
 	// email.flagged (decision 10): fired in addition to email.received when the
 	// ingestion policy didn't match, so operators get a signal that this message
@@ -504,77 +495,120 @@ func (srv *Server) processInbound(ctx context.Context, in inboundInput, hook pos
 	// toRecipients/cc come from the parsed To:/Cc: headers and are the
 	// same across every fan-out delivery for this inbound message.
 	//
-	// Two paths:
-	//   (1) Transactional outbox path (slice 3, default-off via the
-	//       Outbox's FeatureFlag in v1): wraps the messages INSERT and
-	//       webhook_events INSERT in one tx so the at-least-once
-	//       publish-loss window is closed. Per §5.1, a COMMIT failure
-	//       means the message wasn't recorded and we return — the
-	//       SMTP MTA retries with the same Message-ID and the
-	//       deterministic event ID makes the retry idempotent.
-	//   (2) Legacy path: messages INSERT outside any tx; the
-	//       in-process publisher.Publish goroutine fires post-commit.
-	//       Preserves pre-design behavior so deployments that haven't
-	//       wired the outbox don't regress.
+	// Message, canonical lifecycle, optional outbox rows, and async intake
+	// completion share one transaction. A failure at any boundary leaves none of
+	// them committed; synchronous SMTP returns 451 and async River safely retries.
+	// When no outbox is wired, the same transaction still commits the message and
+	// lifecycle ledger, preserving the test/self-host compatibility seam.
 	var inboundMsg *identity.Message
-	if srv.outbox != nil {
-		err = srv.store.WithTx(ctx, func(tx pgx.Tx) error {
-			var txErr error
-			inboundMsg, txErr = srv.store.CreateInboundMessageAuthenticatedInTx(
-				ctx, tx, messageID, agent.ID, identity.InboundAuth{HeaderFrom: headerFrom, EnvelopeFrom: envelopeFrom, Authentication: authentication}, rcpt,
-				threadInfo.MessageID, threadInfo.Subject, conversationID,
-				deliveryStatus, body,
-				policyDecision.Flagged, policyDecision.Reason,
-				threadInfo.To, threadInfo.CC, threadInfo.ReplyTo,
-				screenRes.Denorm,
-			)
-			if txErr != nil {
-				return txErr
-			}
-			// Held messages (review/block) are persisted but NOT delivered — suppress
-			// the email.received push (the agent only ever sees released messages).
-			if !screenRes.Hold {
-				if txErr = srv.outbox.PublishTx(ctx, tx, event); txErr != nil {
-					return txErr
-				}
-			}
-			if flaggedEvent != nil {
-				if txErr = srv.outbox.PublishTx(ctx, tx, *flaggedEvent); txErr != nil {
-					return txErr
-				}
-			}
-			if blockedEvent != nil {
-				if txErr = srv.outbox.PublishTx(ctx, tx, *blockedEvent); txErr != nil {
-					return txErr
-				}
-			}
-			if pendingReviewEvent != nil {
-				if txErr = srv.outbox.PublishTx(ctx, tx, *pendingReviewEvent); txErr != nil {
-					return txErr
-				}
-			}
-			// Async worker: flip the intake to 'processed' ATOMICALLY with the message
-			// + events, so a crash re-drive finds 'processed' and no-ops (the worker's
-			// idempotency gate). nil on the synchronous path.
-			if hook != nil {
-				if txErr = hook(ctx, tx, messageID); txErr != nil {
-					return txErr
-				}
-			}
-			return nil
-		})
-	} else {
-		// No-outbox legacy path (sync only — the async worker always runs with the
-		// outbox wired). hook is not supported here; async requires srv.outbox.
-		inboundMsg, err = srv.store.CreateInboundMessageAuthenticated(
-			ctx, messageID, agent.ID, identity.InboundAuth{HeaderFrom: headerFrom, EnvelopeFrom: envelopeFrom, Authentication: authentication}, rcpt,
+	err = srv.store.WithTx(ctx, func(tx pgx.Tx) error {
+		var txErr error
+		inboundMsg, txErr = srv.store.CreateInboundMessageAuthenticatedInTx(
+			ctx, tx, messageID, agent.ID, identity.InboundAuth{HeaderFrom: headerFrom, EnvelopeFrom: envelopeFrom, Authentication: authentication}, rcpt,
 			threadInfo.MessageID, threadInfo.Subject, conversationID,
 			deliveryStatus, body,
 			policyDecision.Flagged, policyDecision.Reason,
 			threadInfo.To, threadInfo.CC, threadInfo.ReplyTo,
 			screenRes.Denorm,
 		)
-	}
+		if txErr != nil {
+			return txErr
+		}
+
+		correlations := map[string]string{}
+		if threadInfo.MessageID != "" {
+			correlations["email_message_id"] = threadInfo.MessageID
+		}
+		transitions := make([]messagelifecycle.MessageLifecycleTransition, 0, 3)
+		accepted, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+			MessageID: messageID, DedupeKey: "acceptance", Direction: "inbound",
+			ReasonCode:     messagelifecycle.ReasonAcceptanceInboundSMTP,
+			CorrelationIDs: correlations, OccurredAt: inboundMsg.CreatedAt,
+		})
+		if txErr != nil {
+			return txErr
+		}
+		transitions = append(transitions, accepted)
+
+		authReason, txErr := messagelifecycle.AuthenticationReason(string(authentication.DMARC.Status))
+		if txErr != nil {
+			return txErr
+		}
+		authenticated, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+			MessageID: messageID, DedupeKey: "authentication:dmarc", Direction: "inbound",
+			ReasonCode: authReason, Evidence: map[string]any{"authentication": authentication},
+			CorrelationIDs: correlations, OccurredAt: inboundMsg.CreatedAt,
+		})
+		if txErr != nil {
+			return txErr
+		}
+		transitions = append(transitions, authenticated)
+
+		if in.IntakeID != "" {
+			queuedAt := in.IntakeAt
+			if queuedAt.IsZero() {
+				queuedAt = inboundMsg.CreatedAt
+			}
+			queueCorrelations := map[string]string{}
+			if in.IntakeJobID != 0 {
+				queueCorrelations["job_id"] = strconv.FormatInt(in.IntakeJobID, 10)
+			}
+			queued, appendErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+				MessageID: messageID, DedupeKey: "queue:inbound_processing", Direction: "inbound",
+				ReasonCode:     messagelifecycle.ReasonQueueInboundProcessing,
+				CorrelationIDs: queueCorrelations, OccurredAt: queuedAt,
+			})
+			if appendErr != nil {
+				return appendErr
+			}
+			transitions = append(transitions, queued)
+		}
+
+		payload := buildEmailReceivedPayload(
+			messageID, conversationID, headerFrom, envelopeFrom, rcpt, threadInfo.Subject, threadInfo, authentication, agent,
+			inboundMsg.CreatedAt, eventpayload.AttachmentMetadata(body),
+		)
+		payload.LifecycleTransitions = messagelifecycle.MergeTransitions(transitions, nil)
+		event = webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, payload)
+		event.AgentID = agent.ID
+		event.ConversationID = conversationID
+		event.MessageID = messageID
+		// Deterministic event identity makes a producer retry reuse the stored
+		// envelope; redelivery never rebuilds lifecycle observations.
+		event.ID = webhookpub.DeterministicEventID(messageID, webhookpub.EventEmailReceived)
+
+		// Held messages (review/block) are persisted but NOT delivered — suppress
+		// the email.received push (the agent only ever sees released messages).
+		if srv.outbox != nil && !screenRes.Hold {
+			if txErr = srv.outbox.PublishTx(ctx, tx, event); txErr != nil {
+				return txErr
+			}
+		}
+		if srv.outbox != nil && flaggedEvent != nil {
+			if txErr = srv.outbox.PublishTx(ctx, tx, *flaggedEvent); txErr != nil {
+				return txErr
+			}
+		}
+		if srv.outbox != nil && blockedEvent != nil {
+			if txErr = srv.outbox.PublishTx(ctx, tx, *blockedEvent); txErr != nil {
+				return txErr
+			}
+		}
+		if srv.outbox != nil && pendingReviewEvent != nil {
+			if txErr = srv.outbox.PublishTx(ctx, tx, *pendingReviewEvent); txErr != nil {
+				return txErr
+			}
+		}
+		// Async worker: flip the intake to 'processed' ATOMICALLY with the message
+		// + events, so a crash re-drive finds 'processed' and no-ops (the worker's
+		// idempotency gate). nil on the synchronous path.
+		if hook != nil {
+			if txErr = hook(ctx, tx, messageID); txErr != nil {
+				return txErr
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		if errors.Is(err, identity.ErrIntakeAlreadyProcessed) {
 			// Benign at-least-once re-drive: a prior attempt already processed this

@@ -86,6 +86,9 @@ func (srv *Server) ProcessIntake(ctx context.Context, it *identity.InboundIntake
 		RemoteIP:     net.ParseIP(it.RemoteIP),
 		Recipient:    it.Recipient,
 		TraceID:      it.ID,
+		IntakeID:     it.ID,
+		IntakeJobID:  it.ProcessJobID,
+		IntakeAt:     it.CreatedAt,
 	}
 	hook := func(ctx context.Context, tx pgx.Tx, messageID string) error {
 		return srv.store.MarkInboundIntakeProcessedTx(ctx, tx, it.ID, messageID)

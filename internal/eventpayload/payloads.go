@@ -21,9 +21,9 @@
 // map[string]any at their trigger sites — their payloads are open/unstable
 // and must NOT be typed here until they are declared stable.
 //
-// This package stays a light leaf (time + internal/mailparse only) so the
-// stdlib-oriented internal/delivery package can import it without dragging in
-// webhookpub's storage dependencies.
+// This package stays lightweight (mail parsing plus the lifecycle wire model)
+// so delivery producers can import it without dragging in webhookpub's storage
+// dependencies.
 package eventpayload
 
 import (
@@ -31,6 +31,7 @@ import (
 
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/mailparse"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // AttachmentMetaView is the CANONICAL wire shape for one attachment's
@@ -86,6 +87,9 @@ type EmailReceivedData struct {
 	// Attachments is per-attachment METADATA (never bytes) parsed from the
 	// raw message. Omitted when the message has none.
 	Attachments []AttachmentMetaView `json:"attachments,omitempty" nullable:"false"`
+	// LifecycleTransitions are the exact canonical rows committed with this
+	// event. Omitted on historical events created before the lifecycle ledger.
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailSentData is the `data` payload of an email.sent event — an outbound

@@ -40,6 +40,7 @@ type InboundIntake struct {
 	Raw          []byte
 	MessageID    string // sender's RFC 5322 Message-ID
 	ContentHash  string
+	ProcessJobID int64 // River job correlation; zero only for legacy/test rows
 	Status       string
 	CreatedAt    time.Time
 }
@@ -78,10 +79,10 @@ func (s *Store) StampInboundIntakeJobIDTx(ctx context.Context, tx pgx.Tx, intake
 func (s *Store) LoadInboundIntake(ctx context.Context, intakeID string) (*InboundIntake, error) {
 	var it InboundIntake
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, recipient, envelope_from, helo_domain, remote_ip, raw_message, message_id, content_hash, status, created_at
+		`SELECT id, recipient, envelope_from, helo_domain, remote_ip, raw_message, message_id, content_hash, COALESCE(process_job_id, 0), status, created_at
 		   FROM inbound_intake WHERE id = $1`,
 		intakeID,
-	).Scan(&it.ID, &it.Recipient, &it.EnvelopeFrom, &it.HELODomain, &it.RemoteIP, &it.Raw, &it.MessageID, &it.ContentHash, &it.Status, &it.CreatedAt)
+	).Scan(&it.ID, &it.Recipient, &it.EnvelopeFrom, &it.HELODomain, &it.RemoteIP, &it.Raw, &it.MessageID, &it.ContentHash, &it.ProcessJobID, &it.Status, &it.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
