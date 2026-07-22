@@ -17,7 +17,7 @@ This file is the **operate-well manual** — the mental model and gotchas. It as
 - **Connect / pick a client / first inbox** → https://e2a.dev/setup.md
 - **Auth (OAuth 2.1 DCR + PKCE, API keys, scopes)** → https://e2a.dev/auth.md
 - **Webhook + SDK code (TypeScript / Python, signature verification)** → https://e2a.dev/sdk.md
-- **Exact, current tool signatures** → call `tools/list` (authoritative), or the OpenAPI contract at https://e2a.dev/openapi.yaml
+- **Exact, current tool signatures** → call `tools/list` (authoritative), or the OpenAPI contract at https://e2a.dev/v1/openapi.yaml
 
 The mental model below holds regardless of surface. Tool descriptions teach the precise per-tool contract; this file teaches the model the descriptions assume.
 
@@ -176,7 +176,7 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 
 - SDK + webhook code (TypeScript / Python): https://e2a.dev/sdk.md
 - Auth (API keys, scopes, OAuth): https://e2a.dev/auth.md
-- REST contract: https://e2a.dev/openapi.yaml
+- REST contract: https://e2a.dev/v1/openapi.yaml
 
 ## Gotchas
 
@@ -199,6 +199,6 @@ The full, current integration code — SDK install, send / reply / parse, webhoo
 - Auth (OAuth 2.1 DCR + PKCE, API keys, scopes): https://e2a.dev/auth.md
 - Webhook + SDK code: https://e2a.dev/sdk.md
 - Exact tool signatures: call `tools/list` (authoritative).
-- OpenAPI contract: https://e2a.dev/openapi.yaml
+- OpenAPI contract: https://e2a.dev/v1/openapi.yaml
 - The MCP surface is **50 tools** (14 runtime/inbox + 36 admin/setup) spanning agents, messages, attachments, domains, events, webhooks, API keys, and templates (beta). The set you see depends on your credential's scope: an agent-scoped credential sees the 14 runtime tools; an account-scoped credential sees all 50. Tool descriptions teach behavior; this skill teaches the mental model. (`create_api_key` mints **agent-scoped** keys only — account-scoped keys come from the dashboard or raw API.)
 - Plugin homepage / docs index: https://e2a.dev (machine-readable index: https://e2a.dev/llms.txt)

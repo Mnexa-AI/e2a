@@ -9,7 +9,7 @@ MCP. Two SDKs, same surface.
 
 Prefer a typed client; if you're calling the REST API raw, see
 [Raw REST](#raw-rest-without-an-sdk) below. The exhaustive contract is
-https://e2a.dev/openapi.yaml, and the auth model (API key vs OAuth) is in
+https://e2a.dev/v1/openapi.yaml, and the auth model (API key vs OAuth) is in
 https://e2a.dev/auth.md.
 
 ## Install
@@ -176,6 +176,6 @@ Conventions:
 
 The endpoint map, exact request/response bodies, enums, and error codes are all
 in the OpenAPI 3.1 contract — generated from the live handlers and checked for
-drift in CI: **https://e2a.dev/openapi.yaml**. The core resources are `agents`
+drift in CI: **https://e2a.dev/v1/openapi.yaml**. The core resources are `agents`
 (inboxes), `messages` (send/reply/forward/get/list/attachments), `domains`,
 `webhooks`, `events`, and `account`.
