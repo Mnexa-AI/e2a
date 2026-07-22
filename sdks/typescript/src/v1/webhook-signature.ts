@@ -13,6 +13,7 @@
 
 import { createHmac, timingSafeEqual } from "crypto";
 import { E2AWebhookSignatureError } from "./errors.js";
+import type { MessageLifecycleTransition as GeneratedMessageLifecycleTransition } from "./generated/models/MessageLifecycleTransition.js";
 
 export interface VerifySignatureOptions {
   /** Raw HTTP request body bytes. */
@@ -133,13 +134,35 @@ export interface Authentication {
   dmarc: DMARCResult;
 }
 
+/** Snake-case wire representation carried by event envelopes. Field types,
+ * including all closed vocabularies, derive from the generated REST model so
+ * webhook/WebSocket consumers cannot drift into a second lifecycle taxonomy. */
+export type EventMessageLifecycleTransition = {
+  id: GeneratedMessageLifecycleTransition["id"];
+  message_id: GeneratedMessageLifecycleTransition["messageId"];
+  direction: GeneratedMessageLifecycleTransition["direction"];
+  recipient?: GeneratedMessageLifecycleTransition["recipient"];
+  stage: GeneratedMessageLifecycleTransition["stage"];
+  outcome: GeneratedMessageLifecycleTransition["outcome"];
+  reason_code: GeneratedMessageLifecycleTransition["reasonCode"];
+  retryable: GeneratedMessageLifecycleTransition["retryable"];
+  evidence: GeneratedMessageLifecycleTransition["evidence"];
+  correlation_ids: GeneratedMessageLifecycleTransition["correlationIds"];
+  occurred_at: string;
+  reconstructed: GeneratedMessageLifecycleTransition["reconstructed"];
+};
+
+interface LifecycleTransitionCarrier {
+  lifecycle_transitions?: EventMessageLifecycleTransition[];
+}
+
 /** Typed payload of an `email.received` event. The event is a metadata-only
  *  notification — it does NOT carry the message body. `message_id` + `delivered_to`
  *  are the fetch keys; pass the event to {@link E2AClient.webhooks.fetchMessage}
  *  (or call `client.messages.get(delivered_to, message_id)`) to retrieve the full
  *  message (body + attachment bytes). A non-null `verified_domain` means
  *  DMARC passed for that RFC 5322 From domain. */
-export interface EmailReceivedData {
+export interface EmailReceivedData extends LifecycleTransitionCarrier {
   message_id: string;
   /** The receiving agent's email — its id and address (an agent's id IS its email). */
   agent_email: string;
@@ -168,7 +191,7 @@ export interface EmailReceivedData {
 
 /** Typed payload of an `email.sent` event — an outbound send reached its sent
  *  state through provider acceptance or atomic local loopback delivery. */
-export interface EmailSentData {
+export interface EmailSentData extends LifecycleTransitionCarrier {
   message_id: string;
   agent_email: string;
   /** Always "outbound" on this event. */
@@ -191,7 +214,7 @@ export interface EmailSentData {
 
 /** Typed payload of an `email.failed` event — an outbound send terminally
  *  failed (retries exhausted / permanent reject). */
-export interface EmailFailedData {
+export interface EmailFailedData extends LifecycleTransitionCarrier {
   message_id: string;
   agent_email: string;
   /** Always "outbound" on this event. */
@@ -218,7 +241,7 @@ export interface EmailFailedData {
 /** Typed payload of an `email.delivered` event — the recipient's server
  *  accepted an outbound message, per recipient. The event TYPE is the
  *  outcome; there is no `status` field. */
-export interface EmailDeliveredData {
+export interface EmailDeliveredData extends LifecycleTransitionCarrier {
   message_id: string;
   agent_email: string;
   /** Always "outbound" on this event. */
@@ -232,7 +255,7 @@ export interface EmailDeliveredData {
 
 /** Typed payload of an `email.bounced` event — EmailDeliveredData's fields
  *  plus the SES bounce classification. */
-export interface EmailBouncedData {
+export interface EmailBouncedData extends LifecycleTransitionCarrier {
   message_id: string;
   agent_email: string;
   /** Always "outbound" on this event. */
@@ -252,7 +275,7 @@ export interface EmailBouncedData {
 /** Typed payload of an `email.complained` event — a recipient marked an
  *  outbound message as spam. `smtp_detail` carries the complaint feedback
  *  type when present. */
-export interface EmailComplainedData {
+export interface EmailComplainedData extends LifecycleTransitionCarrier {
   message_id: string;
   agent_email: string;
   /** Always "outbound" on this event. */
@@ -281,7 +304,7 @@ export interface DomainSendingFailedData {
 /** Typed payload of a `domain.suppression_added` event — an address was
  *  auto-suppressed after a hard bounce or complaint. Account-scoped despite
  *  the `domain.` prefix. */
-export interface DomainSuppressionAddedData {
+export interface DomainSuppressionAddedData extends LifecycleTransitionCarrier {
   address: string;
   /** Open set; tolerate unknown values. Known values: bounce, complaint. */
   source: string;

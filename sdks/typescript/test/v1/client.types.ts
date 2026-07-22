@@ -3,6 +3,8 @@ import type { ErrorBody } from "../../src/v1/generated/models/ErrorBody.js";
 import type {
   Authentication,
   EmailReceivedData,
+  DomainSuppressionAddedData,
+  EventMessageLifecycleTransition,
   ListMessagesParams,
   MessageLifecycleTransition,
   PageMessageLifecycleTransition,
@@ -13,6 +15,7 @@ import {
   MessageLifecycleTransitionOutcomeEnum,
   MessageLifecycleTransitionReasonCodeEnum,
   MessageLifecycleTransitionStageEnum,
+  isEmailReceived,
 } from "../../src/v1/index.js";
 import type { EmailSentData, WebhookEvent } from "../../src/v1/webhook-signature.js";
 import type { WSEvent } from "../../src/v1/ws.js";
@@ -68,6 +71,45 @@ const wireAuthentication: Authentication = {
 };
 const receivedAuthentication: EmailReceivedData["authentication"] = wireAuthentication;
 void receivedAuthentication;
+
+const wireLifecycleTransition: EventMessageLifecycleTransition = {
+  id: "mlt_1",
+  message_id: "msg_1",
+  direction: MessageLifecycleTransitionDirectionEnum.Inbound,
+  recipient: null,
+  stage: MessageLifecycleTransitionStageEnum.Accepted,
+  outcome: MessageLifecycleTransitionOutcomeEnum.Accepted,
+  reason_code: MessageLifecycleTransitionReasonCodeEnum.AcceptanceInboundSmtp,
+  retryable: false,
+  evidence: { source: "smtp", future: { nested: true } },
+  correlation_ids: { email_message_id: "<msg@example.com>", future_id: "future" },
+  occurred_at: "2026-07-22T00:00:00Z",
+  reconstructed: true,
+};
+
+const receivedLifecycle: EmailReceivedData["lifecycle_transitions"] = [wireLifecycleTransition];
+const suppressionLifecycle: DomainSuppressionAddedData["lifecycle_transitions"] = [wireLifecycleTransition];
+void receivedLifecycle;
+void suppressionLifecycle;
+
+if (isEmailReceived(wsEnvelope)) {
+  const wsLifecycle: EventMessageLifecycleTransition[] | undefined =
+    wsEnvelope.data.lifecycle_transitions;
+  void wsLifecycle;
+}
+
+// @ts-expect-error event lifecycle direction derives the closed generated enum.
+const unknownWireDirection: EventMessageLifecycleTransition["direction"] = "sideways";
+// @ts-expect-error event lifecycle stage derives the closed generated enum.
+const unknownWireStage: EventMessageLifecycleTransition["stage"] = "future_stage";
+// @ts-expect-error event lifecycle outcome derives the closed generated enum.
+const unknownWireOutcome: EventMessageLifecycleTransition["outcome"] = "future_outcome";
+// @ts-expect-error event lifecycle reason derives the closed generated enum.
+const unknownWireReason: EventMessageLifecycleTransition["reason_code"] = "provider.free_form";
+void unknownWireDirection;
+void unknownWireStage;
+void unknownWireOutcome;
+void unknownWireReason;
 
 // @ts-expect-error RFC 7208 has no SPF "policy" result.
 const retiredSPFPolicy: SPFResult["status"] = "policy";

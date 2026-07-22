@@ -38,6 +38,9 @@ describe("WSEvent envelope", () => {
     expect(event.data.message_id).toMatch(/^msg_/);
     expect(event.data.delivered_to).toBe("support@agents.example.com");
     expect(event.data.direction).toBe("inbound");
+    expect(event.data.lifecycle_transitions?.[0].reason_code).toBe("acceptance.inbound_smtp");
+    expect(event.data.lifecycle_transitions?.[0].evidence).toEqual({});
+    expect(event.data.lifecycle_transitions?.[0].reconstructed).toBe(false);
   });
 
   it("tolerates unknown event types (forward-compat)", () => {
@@ -50,6 +53,37 @@ describe("WSEvent envelope", () => {
     };
     expect(isEmailReceived(event)).toBe(false);
     expect(event.type).toBe("email.some_future_kind");
+  });
+
+  it("preserves nullable and reconstructed lifecycle wire evidence", () => {
+    const event: WSEvent = JSON.parse(JSON.stringify({
+      type: "email.received",
+      id: "evt_reconstructed",
+      schema_version: "1",
+      created_at: "2026-07-22T00:00:00Z",
+      data: {
+        lifecycle_transitions: [{
+          id: "mlt_recon_1",
+          message_id: "msg_1",
+          direction: "inbound",
+          recipient: null,
+          stage: "accepted",
+          outcome: "accepted",
+          reason_code: "acceptance.inbound_smtp",
+          retryable: false,
+          evidence: { source: "message", future: { nested: true } },
+          correlation_ids: { future_id: "future_1" },
+          occurred_at: "2026-07-22T00:00:00Z",
+          reconstructed: true,
+        }],
+      },
+    }));
+    if (!isEmailReceived(event)) throw new Error("guard should narrow email.received");
+    const transition = event.data.lifecycle_transitions?.[0];
+    expect(transition?.recipient).toBeNull();
+    expect(transition?.evidence.future).toEqual({ nested: true });
+    expect(transition?.correlation_ids.future_id).toBe("future_1");
+    expect(transition?.reconstructed).toBe(true);
   });
 });
 

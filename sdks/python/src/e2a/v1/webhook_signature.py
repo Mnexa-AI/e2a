@@ -25,6 +25,7 @@ from typing import Any, List, Literal, Mapping, Optional, Sequence, Union
 from typing_extensions import NotRequired, TypedDict, TypeGuard
 
 from .errors import E2AWebhookSignatureError
+from .generated.models import MessageLifecycleTransition
 
 __all__ = [
     "verify_webhook_signature",
@@ -36,6 +37,7 @@ __all__ = [
     "DKIMResult",
     "DMARCResult",
     "Authentication",
+    "MessageLifecycleTransition",
     "EmailReceivedData",
     "EmailSentData",
     "EmailFailedData",
@@ -201,6 +203,7 @@ EmailReceivedData = TypedDict(
         "subject": str,
         "received_at": str,
         "attachments": NotRequired[List[AttachmentMetaView]],
+        "lifecycle_transitions": NotRequired[List[MessageLifecycleTransition]],
     },
 )
 EmailReceivedData.__doc__ = (
@@ -226,6 +229,7 @@ EmailSentData = TypedDict(
         "bcc": NotRequired[List[str]],
         "subject": str,
         "message_type": str,  # open set; known values: send, reply, forward
+        "lifecycle_transitions": NotRequired[List[MessageLifecycleTransition]],
     },
 )
 EmailSentData.__doc__ = (
@@ -251,6 +255,7 @@ EmailFailedData = TypedDict(
         "reason_code": NotRequired[str],
         # Present only when the send path genuinely knows; absent != False.
         "retryable": NotRequired[bool],
+        "lifecycle_transitions": NotRequired[List[MessageLifecycleTransition]],
     },
 )
 EmailFailedData.__doc__ = (
@@ -269,6 +274,7 @@ class EmailDeliveredData(TypedDict):
     delivered_to: str  # the one recipient this outcome is about
     subject: NotRequired[str]
     smtp_detail: NotRequired[str]
+    lifecycle_transitions: NotRequired[List[MessageLifecycleTransition]]
 
 
 class EmailBouncedData(TypedDict):
@@ -283,6 +289,7 @@ class EmailBouncedData(TypedDict):
     smtp_detail: NotRequired[str]
     bounce_type: str  # "permanent" | "transient" | "undetermined"
     bounce_sub_type: NotRequired[str]
+    lifecycle_transitions: NotRequired[List[MessageLifecycleTransition]]
 
 
 class EmailComplainedData(TypedDict):
@@ -295,6 +302,7 @@ class EmailComplainedData(TypedDict):
     delivered_to: str
     subject: NotRequired[str]
     smtp_detail: NotRequired[str]
+    lifecycle_transitions: NotRequired[List[MessageLifecycleTransition]]
 
 
 class DomainSendingVerifiedData(TypedDict):
@@ -321,6 +329,7 @@ class DomainSuppressionAddedData(TypedDict):
     source: str  # open set; known values: bounce, complaint
     reason: NotRequired[str]
     message_id: NotRequired[str]
+    lifecycle_transitions: NotRequired[List[MessageLifecycleTransition]]
 
 
 @dataclass(frozen=True)
@@ -375,12 +384,32 @@ def construct_event(
     ):
         raise _sig_error("webhook_body_invalid", "webhook event is missing required envelope fields")
 
+    data = parsed["data"]
+    if (
+        parsed["type"]
+        in {
+            "email.received",
+            "email.sent",
+            "email.failed",
+            "email.delivered",
+            "email.bounced",
+            "email.complained",
+            "domain.suppression_added",
+        }
+        and "lifecycle_transitions" in data
+    ):
+        data = dict(data)
+        data["lifecycle_transitions"] = [
+            MessageLifecycleTransition.model_validate(row)
+            for row in data["lifecycle_transitions"]
+        ]
+
     return WebhookEvent(
         type=parsed["type"],
         id=parsed["id"],
         schema_version=parsed["schema_version"],
         created_at=parsed["created_at"],
-        data=parsed["data"],
+        data=data,
         raw=parsed,
     )
 
