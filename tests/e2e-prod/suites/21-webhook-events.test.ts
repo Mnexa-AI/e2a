@@ -4,10 +4,10 @@ import { ApiClient } from "../harness/client.ts";
 import { uniqueSlug, uniqueSubject, holdAllOutbound } from "../harness/fixtures.ts";
 import { writeReport, info } from "../harness/report.ts";
 
-// Black-box conformance for REAL webhook-event EMISSION against LIVE staging.
-// This is the P2 gap the prod e2e suite structurally cannot cover: staging runs
-// with the events log ON, prod runs it OFF (list_events → events_log_disabled on
-// prod). So this suite ONLY makes sense against staging.
+// Black-box conformance for REAL webhook-event EMISSION against a LIVE target.
+// The suite runs wherever the target exposes the event-log capability. A single
+// GET /v1/events probe detects deployments configured without that capability;
+// connectivity failures are not treated as capability skips.
 //
 // Emission is proved for every event type across THREE correlated signals:
 //   1. listEvents (GET /v1/events, filtered type + agent_email + since) — THIS
@@ -16,7 +16,7 @@ import { writeReport, info } from "../harness/report.ts";
 //      EVENT-scoped proof THIS event fanned out to >=1 subscriber.
 //   3. listWebhookDeliveries (GET /v1/webhooks/{id}/deliveries) — WEBHOOK-scoped
 //      proof that OUR fresh webhook's HTTP delivery leg was ATTEMPTED. We assert
-//      attempts>=1, NOT delivery success: staging has no real webhook sink, so the
+//      attempts>=1, NOT delivery success: this suite has no real webhook sink, so the
 //      dummy target (example.com) 405s the POST. A 405 (or any last_status_code)
 //      still proves the delivery leg ran; requiring a 2xx would test the sink, not
 //      e2a. (2) and (3) are complementary — (2) is event-scoped but counts every
@@ -38,13 +38,13 @@ import { writeReport, info } from "../harness/report.ts";
 //   email.review_requested  — hold-all-outbound BEFORE send → 202 pending_review.
 //   email.review_rejected — reject a held message (clean; no send).
 //   email.review_approved — approve a held message addressed to the simulator
-//                           (approve→send succeeds; a non-simulator recipient
-//                           500s on staging's SES sandbox).
+//                           (approve→send succeeds; a non-simulator recipient can
+//                           fail when the target uses an SES sandbox).
 //   email.blocked         — outbound gate policy=allowlist action=block + a
 //                           non-allowlisted recipient → the send is REFUSED
 //                           (403 blocked_by_policy) and email.blocked fires.
 //
-// Event types SKIPPED with reasons (not HTTP-triggerable on staging here):
+// Event types SKIPPED with reasons (not HTTP-triggerable by this suite):
 //   email.received  — needs a real inbound SMTP delivery; that is the prober's
 //                     dedicated round-trip, not an API-driven trigger.
 //   email.delivered/bounced/complained — async SES delivery-feedback, arrives via
@@ -63,15 +63,14 @@ import { writeReport, info } from "../harness/report.ts";
 const SUITE = "21-webhook-events";
 const client = new ApiClient();
 
-// Staging-only: prod runs the events log OFF (list/get/redeliver → 501
-// events_log_disabled), so against a non-staging target we skip the whole suite
-// cleanly rather than hard-fail every test — mirroring siblings 15/22. Probe once
-// at module load (top-level await; the runner waits for module eval to finish).
+// Capability probe: deployments may disable the event log and report
+// events_log_disabled. Skip the suite only for that explicit 501 response. Probe
+// once at module load (top-level await; the runner waits for module eval to finish).
 let skip: string | false = false;
 try {
   const eventsProbe = await client.get("/v1/events", { query: { limit: 1 } });
   if (eventsProbe.status === 501) {
-    skip = "events log disabled on this target (prod); this suite is staging-only";
+    skip = "event-log capability disabled on this target (events_log_disabled)";
   }
 } catch {
   // Probe couldn't reach the target — do NOT skip. Let the tests run and surface
@@ -264,7 +263,7 @@ function assertEventShape(e: EventView, expect: { type: string; agentId: string;
   assert.equal(e.agent_email, expect.agentId, "event.agent_email is the triggering inbox");
   if (expect.messageId) {
     // Correlate to the triggering message: top-level message_id (populated on
-    // staging) OR data.message_id (always present in the payload).
+    // the live target) OR data.message_id (always present in the payload).
     const dataMsg = e.data.message_id;
     assert.ok(
       e.message_id === expect.messageId || dataMsg === expect.messageId,
@@ -399,8 +398,8 @@ test("emit: email.review_approved — approving a hold (to the simulator) emits 
   let resolved = false;
   try {
     const send = await client.post<SendResult>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
-      // Addressed to the simulator so approve→send actually succeeds on staging's
-      // SES sandbox (a non-simulator/blackhole recipient 500s the send leg).
+      // Addressed to the simulator so approve→send succeeds when the target uses
+      // an SES sandbox (a non-simulator/blackhole recipient can fail the send leg).
       body: { to: [SIMULATOR], subject: uniqueSubject("emit approve"), text: "will be approved + sent" },
     });
     assert.equal(send.status, 202, `held send expected 202, got ${send.status}: ${send.raw.slice(0, 200)}`);
@@ -632,16 +631,16 @@ test("events: unauthenticated listEvents / getEvent → 401", async () => {
 
 // ---- Documented skips: events whose trigger is out of this suite's reach ----
 // These are NOT coverage gaps to be quietly ignored — each names WHY it can't be
-// driven from an API-only battery on staging, and where the coverage actually
+// driven from this API-only battery, and where the coverage actually
 // lives (or the concrete work that would unlock it), so a future reader doesn't
 // mistake a deliberate boundary for an oversight.
 //
 // email.received — COVERED ELSEWHERE, deliberately not duplicated. It requires a
 //   real inbound SMTP delivery, which the prober's dedicated round-trip
-//   (inbound SMTP → webhook → HMAC) exercises every cycle against this same
-//   staging stack. Re-triggering it here would need an MX-backed mailbox this
+//   (inbound SMTP → webhook → HMAC) exercises every cycle. Re-triggering it here
+//   would need an MX-backed mailbox this
 //   API-only suite has no way to inject into; the prober is the right home.
-test("emit: email.received — covered by the prober's inbound SMTP round-trip (not duplicated here)", { skip: "email.received needs a real inbound SMTP delivery; it is covered by the prober's dedicated round-trip against this same staging stack, not re-triggered from this API-only suite" }, () => {});
+test("emit: email.received — covered by the prober's inbound SMTP round-trip (not duplicated here)", { skip: "email.received needs a real inbound SMTP delivery; it is covered by the dedicated prober round-trip, not re-triggered from this API-only suite" }, () => {});
 // email.delivered/bounced/complained — NOT DETERMINISTIC in a synchronous gate.
 //   These are SES delivery-feedback events that arrive asynchronously via
 //   SES→SNS→/webhooks/ses on an unbounded timeline; even the simulator's
