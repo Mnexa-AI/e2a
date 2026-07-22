@@ -6,6 +6,7 @@
 // pin the projection to the v1 field names so that can't recur.
 
 import {
+  listAgents,
   listAgentMessages,
   listPendingMessages,
   getInboxUnread,
@@ -34,6 +35,49 @@ function okJson(obj: unknown) {
 function notFound() {
   return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("nf") });
 }
+
+describe("listAgents", () => {
+  it("follows the next cursor and combines agent pages in order", async () => {
+    const first = {
+      domain: "agents.test",
+      email: "first@agents.test",
+      name: "First",
+      domain_verified: true,
+      created_at: "2026-07-22T00:00:00Z",
+    };
+    const second = {
+      ...first,
+      email: "second@agents.test",
+      name: "Second",
+    };
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/v1/agents") {
+        return okJson({ items: [first], next_cursor: "next page" });
+      }
+      if (url === "/v1/agents?cursor=next%20page") {
+        return okJson({ items: [second], next_cursor: null });
+      }
+      return notFound();
+    });
+
+    await expect(listAgents()).resolves.toEqual([first, second]);
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([
+      "/v1/agents",
+      "/v1/agents?cursor=next%20page",
+    ]);
+  });
+
+  it("rejects instead of returning a partial list when the page cap is exhausted", async () => {
+    mockFetch.mockImplementation(() =>
+      okJson({ items: [], next_cursor: `cursor-${mockFetch.mock.calls.length}` }),
+    );
+
+    await expect(listAgents()).rejects.toThrow(
+      "Failed to load all agents: pagination exceeded 20 pages",
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(20);
+  });
+});
 
 describe("message projection (v1 contract)", () => {
   it("maps v1 review_status/delivery_status onto the app fields", async () => {

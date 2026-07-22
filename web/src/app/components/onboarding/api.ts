@@ -88,10 +88,28 @@ export async function deleteDomain(domain: string): Promise<void> {
 // GET /v1/agents → PageAgentView. AgentView carries exactly the slim
 // identity fields the dashboard list needs (id/domain/email/name/
 // domain_verified/created_at), so the wire rows map straight onto
-// DashboardAgent. (Per-agent config moved to the protection sub-resource.)
+// DashboardAgent. Follow next_cursor so account-wide consumers see every
+// inbox, with the same defensive page cap used by the templates surface.
+// (Per-agent config moved to the protection sub-resource.)
 export async function listAgents(): Promise<DashboardAgent[]> {
-  const data = await request<{ items?: DashboardAgent[] | null }>("/v1/agents");
-  return data.items ?? [];
+  const agents: DashboardAgent[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 20; page++) {
+    const url: string = cursor
+      ? "/v1/agents?cursor=" + encodeURIComponent(cursor)
+      : "/v1/agents";
+    const data: {
+      items?: DashboardAgent[] | null;
+      next_cursor?: string | null;
+    } = await request(url);
+    agents.push(...(data.items ?? []));
+    cursor = data.next_cursor ?? null;
+    if (!cursor) break;
+  }
+  if (cursor) {
+    throw new Error("Failed to load all agents: pagination exceeded 20 pages");
+  }
+  return agents;
 }
 
 // POST /v1/agents registers by full email only — a shared-domain agent is

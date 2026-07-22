@@ -16,7 +16,46 @@
 
 import { renderHook, waitFor, act } from "@testing-library/react";
 import useSWR from "swr";
-import { invalidateMessageDetail, messageDetailKey } from "./swrKeys";
+import {
+  accountUnreadKey,
+  agentUnreadKey,
+  invalidateAgentUnread,
+  invalidateMessageDetail,
+  messageDetailKey,
+} from "./swrKeys";
+
+describe("accountUnreadKey", () => {
+  it("uses the canonical account-wide cache key", () => {
+    expect(accountUnreadKey).toBe("account-unread");
+  });
+});
+
+describe("invalidateAgentUnread", () => {
+  it("revalidates the specified agent and account total without touching another agent", async () => {
+    const targetFetcher = jest.fn().mockResolvedValue({ count: 1, more: false });
+    const otherFetcher = jest.fn().mockResolvedValue({ count: 2, more: false });
+    const accountFetcher = jest.fn().mockResolvedValue({ count: 3, more: false });
+
+    renderHook(() => useSWR(agentUnreadKey("target@agents.test"), targetFetcher));
+    renderHook(() => useSWR(agentUnreadKey("other@agents.test"), otherFetcher));
+    renderHook(() => useSWR(accountUnreadKey, accountFetcher));
+    await waitFor(() => {
+      expect(targetFetcher).toHaveBeenCalledTimes(1);
+      expect(otherFetcher).toHaveBeenCalledTimes(1);
+      expect(accountFetcher).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await invalidateAgentUnread("target@agents.test");
+    });
+
+    await waitFor(() => {
+      expect(targetFetcher).toHaveBeenCalledTimes(2);
+      expect(accountFetcher).toHaveBeenCalledTimes(2);
+    });
+    expect(otherFetcher).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("messageDetailKey", () => {
   it("keys a message by id ALONE — no owning-inbox component", () => {
