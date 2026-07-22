@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -53,10 +54,12 @@ type Store interface {
 	// this evidence before declaring a terminal failure.
 	WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error
 	RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string) error
+	ReconcilePreservedTerminalFallbackTx(ctx context.Context, tx pgx.Tx, messageID string) error
+	RecordProviderRejectTx(ctx context.Context, tx pgx.Tx, messageID, detail string, occurredAt time.Time) error
 	// RecordDeliveryOutcome upserts the per-recipient status monotonically and
 	// recomputes the message rollup (worst status by precedence). Idempotent:
 	// a duplicate/older event is a no-op.
-	RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status Status, detail string) error
+	RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status Status, detail string) (applied bool, err error)
 	// AddSuppression idempotently inserts a (user, address) suppression.
 	// added=false when it already existed (so the event fires at most once).
 	AddSuppressionTx(ctx context.Context, tx pgx.Tx, userID, address, reason, source, sourceMessageID string) (suppressionID string, added bool, err error)
@@ -150,6 +153,12 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 	if ev == nil {
 		return nil
 	}
+	if strings.TrimSpace(ev.ProviderEventID) == "" {
+		return fmt.Errorf("provider event id is required")
+	}
+	if ev.OccurredAt.IsZero() {
+		return fmt.Errorf("provider event timestamp is required")
+	}
 	m, found, err := c.store.CorrelateBySESMessageID(ctx, ev.SESMessageID)
 	if err != nil {
 		return err
@@ -174,15 +183,15 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 		return nil
 	}
 
-	if ev.OccurredAt.IsZero() {
-		ev.OccurredAt = time.Now().UTC()
-	}
 	return c.store.WithTx(ctx, func(tx pgx.Tx) error {
 		// Evidence, recipient rollup, canonical lifecycle, causal suppression,
 		// and event outbox rows share this transaction. A notification retry can
 		// therefore never expose a state/event contradiction.
 		if ev.Kind.impliesProviderAcceptance() {
 			if err := c.store.RecordProviderAcceptEvidenceTx(ctx, tx, m.MessageID, ev.SESMessageID); err != nil {
+				return err
+			}
+			if err := c.store.ReconcilePreservedTerminalFallbackTx(ctx, tx, m.MessageID); err != nil {
 				return err
 			}
 		}
@@ -193,19 +202,23 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 			if r.Address == "" || !r.Status.Valid() {
 				continue
 			}
-			if err := c.store.RecordDeliveryOutcomeTx(ctx, tx, m.MessageID, r.Address, r.Status, r.Detail); err != nil {
+			applied, err := c.store.RecordDeliveryOutcomeTx(ctx, tx, m.MessageID, r.Address, r.Status, r.Detail)
+			if err != nil {
 				return err
+			}
+			if !applied {
+				continue
 			}
 			recorded++
 			reason := feedbackReason(ev, r)
-			var transitions []messagelifecycle.MessageLifecycleTransition
+			var feedbackTransitions []messagelifecycle.MessageLifecycleTransition
 			var suppressionEvent *FiredEvent
 			if reason != "" {
 				transition, err := c.store.AppendLifecycleTx(ctx, tx, messagelifecycle.AppendInput{MessageID: m.MessageID, DedupeKey: feedbackDedupeKey(ev, r.Address, reason), Direction: "outbound", Recipient: r.Address, ReasonCode: reason, Evidence: feedbackEvidence(ev, r), CorrelationIDs: feedbackCorrelations(ev), OccurredAt: ev.OccurredAt})
 				if err != nil {
 					return err
 				}
-				transitions = append(transitions, transition)
+				feedbackTransitions = append(feedbackTransitions, transition)
 			}
 
 			if r.Suppress {
@@ -220,11 +233,10 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 					return err
 				}
 				if added {
-					suppressionTransition, err := c.store.AppendLifecycleTx(ctx, tx, messagelifecycle.AppendInput{MessageID: m.MessageID, DedupeKey: fmt.Sprintf("suppression:feedback:%s:%s:%s", suppressionID, m.MessageID, r.Address), Direction: "outbound", Recipient: r.Address, ReasonCode: suppressionReason, CorrelationIDs: feedbackCorrelations(ev), OccurredAt: ev.OccurredAt})
+					suppressionTransition, err := c.store.AppendLifecycleTx(ctx, tx, messagelifecycle.AppendInput{MessageID: m.MessageID, DedupeKey: fmt.Sprintf("suppression:feedback:%s:%s:%s", suppressionID, m.MessageID, r.Address), Direction: "outbound", Recipient: r.Address, ReasonCode: suppressionReason, Evidence: map[string]any{"suppression_scope": "account", "suppression_source": source}, CorrelationIDs: feedbackCorrelations(ev), OccurredAt: ev.OccurredAt})
 					if err != nil {
 						return err
 					}
-					transitions = append(transitions, suppressionTransition)
 					if c.fire != nil {
 						event := FiredEvent{UserID: m.UserID, Type: EventSuppressionAdded, Data: eventpayload.DomainSuppressionAddedData{Address: r.Address, Source: source, Reason: r.Detail, MessageID: m.MessageID, LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{suppressionTransition}}, DedupKey: EventSuppressionAdded + "|" + m.UserID + "|" + r.Address, OccurredAt: ev.OccurredAt}
 						suppressionEvent = &event
@@ -233,7 +245,7 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 			}
 
 			if evType := pushEventFor(r.Status); evType != "" && c.fire != nil {
-				if err := c.fire(ctx, tx, FiredEvent{UserID: m.UserID, AgentID: m.AgentID, ConversationID: m.ConversationID, MessageID: m.MessageID, Type: evType, Data: deliveryEventData(evType, m, ev, r, transitions), DedupKey: feedbackDedupeKey(ev, r.Address, reason), OccurredAt: ev.OccurredAt}); err != nil {
+				if err := c.fire(ctx, tx, FiredEvent{UserID: m.UserID, AgentID: m.AgentID, ConversationID: m.ConversationID, MessageID: m.MessageID, Type: evType, Data: deliveryEventData(evType, m, ev, r, feedbackTransitions), DedupKey: feedbackDedupeKey(ev, r.Address, reason), OccurredAt: ev.OccurredAt}); err != nil {
 					return err
 				}
 			}
@@ -245,6 +257,9 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 		}
 
 		if ev.Kind == KindReject && recorded > 0 {
+			if err := c.store.RecordProviderRejectTx(ctx, tx, m.MessageID, rejectReason(ev), ev.OccurredAt); err != nil {
+				return err
+			}
 			transition, err := c.store.AppendLifecycleTx(ctx, tx, messagelifecycle.AppendInput{MessageID: m.MessageID, DedupeKey: feedbackDedupeKey(ev, "", messagelifecycle.ReasonSubmissionProviderRejected), Direction: "outbound", ReasonCode: messagelifecycle.ReasonSubmissionProviderRejected, Evidence: map[string]any{"failure_reason": messagelifecycle.SafeDiagnostic(rejectReason(ev)), "failure_code": string(messagelifecycle.ReasonSubmissionProviderRejected)}, CorrelationIDs: feedbackCorrelations(ev), OccurredAt: ev.OccurredAt})
 			if err != nil {
 				return err
@@ -275,11 +290,7 @@ func feedbackReason(ev *Event, r RecipientOutcome) messagelifecycle.ReasonCode {
 }
 
 func feedbackDedupeKey(ev *Event, recipient string, reason messagelifecycle.ReasonCode) string {
-	providerEventID := ev.ProviderEventID
-	if providerEventID == "" {
-		providerEventID = ev.SESMessageID
-	}
-	return "provider-feedback:" + providerEventID + ":" + recipient + ":" + string(reason)
+	return "provider-feedback:" + ev.ProviderEventID + ":" + recipient + ":" + string(reason)
 }
 
 func feedbackCorrelations(ev *Event) map[string]string {
@@ -356,11 +367,11 @@ func deliveryEventData(evType string, m *CorrelatedMessage, ev *Event, r Recipie
 // failedEventData builds the canonical eventpayload.EmailFailedData for an SES
 // Reject — byte-identical in shape to the async send worker's emission
 // (golden-fixture-locked): every field the correlated message carries is
-// populated; ReasonCode and Retryable stay unset because the SES Reject
-// notification carries only the human-readable reject.reason, matching the
-// worker path's convention (absent ≠ false).
+// populated; ReasonCode and Retryable carry the canonical provider-rejection
+// classification so every consumer receives the same terminal diagnosis.
 
 func failedEventData(m *CorrelatedMessage, reason string, transitions ...messagelifecycle.MessageLifecycleTransition) eventpayload.EmailFailedData {
+	retryable := false
 	return eventpayload.EmailFailedData{
 		MessageID:            m.MessageID,
 		AgentEmail:           m.AgentID,
@@ -374,6 +385,8 @@ func failedEventData(m *CorrelatedMessage, reason string, transitions ...message
 		Subject:              m.Subject,
 		MessageType:          m.MessageType,
 		Reason:               reason,
+		ReasonCode:           string(messagelifecycle.ReasonSubmissionProviderRejected),
+		Retryable:            &retryable,
 		LifecycleTransitions: transitions,
 	}
 }

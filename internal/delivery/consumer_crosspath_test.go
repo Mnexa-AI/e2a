@@ -6,6 +6,7 @@ package delivery_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/delivery"
@@ -34,8 +35,14 @@ func (s *crossPathStore) WithTx(ctx context.Context, fn func(pgx.Tx) error) erro
 func (s *crossPathStore) RecordProviderAcceptEvidenceTx(context.Context, pgx.Tx, string, string) error {
 	return nil
 }
-func (s *crossPathStore) RecordDeliveryOutcomeTx(context.Context, pgx.Tx, string, string, delivery.Status, string) error {
+func (s *crossPathStore) ReconcilePreservedTerminalFallbackTx(context.Context, pgx.Tx, string) error {
 	return nil
+}
+func (s *crossPathStore) RecordProviderRejectTx(context.Context, pgx.Tx, string, string, time.Time) error {
+	return nil
+}
+func (s *crossPathStore) RecordDeliveryOutcomeTx(context.Context, pgx.Tx, string, string, delivery.Status, string) (bool, error) {
+	return true, nil
 }
 func (s *crossPathStore) AddSuppressionTx(context.Context, pgx.Tx, string, string, string, string, string) (string, bool, error) {
 	return "supp_cross", false, nil
@@ -74,7 +81,7 @@ func TestRejectEmailFailedIDCollapsesAcrossPaths(t *testing.T) {
 	c := delivery.NewConsumer(store, fire)
 	for i := 0; i < 2; i++ { // duplicate SNS delivery of the same Reject
 		if err := c.Process(context.Background(), &delivery.Event{
-			Kind: delivery.KindReject, SESMessageID: "ses-crosspath",
+			Kind: delivery.KindReject, SESMessageID: "ses-crosspath", ProviderEventID: "sns-crosspath", OccurredAt: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC),
 			Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusFailed, Detail: "Bad content"}},
 		}); err != nil {
 			t.Fatal(err)

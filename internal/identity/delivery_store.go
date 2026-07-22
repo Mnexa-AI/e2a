@@ -129,6 +129,32 @@ func (s *Store) AppendLifecycleTx(ctx context.Context, tx pgx.Tx, input messagel
 	return messagelifecycle.AppendTx(ctx, tx, input)
 }
 
+// ReconcilePreservedTerminalFallbackTx consumes a complete send-worker
+// terminal fallback once authoritative post-acceptance feedback arrives. The
+// existing provider-accepted resolver restores the standard sent recipient
+// shape, persists any send-time suppression observations, and clears the
+// temporary failure provenance in this same feedback transaction.
+func (s *Store) ReconcilePreservedTerminalFallbackTx(ctx context.Context, tx pgx.Tx, messageID string) error {
+	_, _, err := s.ResolveOutboundProviderAcceptedTx(ctx, tx, messageID)
+	return err
+}
+
+// RecordProviderRejectTx establishes the authoritative terminal provenance
+// for an SES Reject, including when a local inferred failure was already
+// present. A later acceptance/delivery observation therefore cannot revive
+// this message through the local-failure correction path.
+func (s *Store) RecordProviderRejectTx(ctx context.Context, tx pgx.Tx, messageID, detail string, occurredAt time.Time) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE messages
+		    SET delivery_status='failed', delivery_failure_source='provider',
+		        delivery_failure_reason_code=$2, delivery_detail=$3,
+		        delivery_failure_occurred_at=$4, delivery_failure_attempt=NULL,
+		        delivery_failure_blocked_recipients=NULL, send_claimed_at=NULL
+		  WHERE id=$1 AND direction='outbound'`,
+		messageID, string(messagelifecycle.ReasonSubmissionProviderRejected), nullIfEmpty(messagelifecycle.SafeDiagnostic(detail)), occurredAt.UTC())
+	return err
+}
+
 // RecordDeliveryOutcome upserts one recipient's status monotonically (by the
 // delivery precedence) and recomputes the message's rollup delivery_status as
 // the worst status across its recipients. Runs in a tx with FOR UPDATE so
@@ -140,15 +166,16 @@ func (s *Store) AppendLifecycleTx(ctx context.Context, tx pgx.Tx, input messagel
 // a recomputed rollup that proves provider acceptance CORRECTS the row — the
 // falsely-declared terminal failure from a final-attempt crash. A
 // provider-confirmed `failed` is never revived, and feedback for an address
-// outside the message's own envelope is ignored on a failed row so unrelated
-// feedback can never resurrect a genuine failure.
+// outside the message's own envelope is always ignored so a foreign recipient
+// can never create state or lifecycle for this message.
 func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address string, status delivery.Status, detail string) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
-		return s.RecordDeliveryOutcomeTx(ctx, tx, messageID, address, status, detail)
+		_, err := s.RecordDeliveryOutcomeTx(ctx, tx, messageID, address, status, detail)
+		return err
 	})
 }
 
-func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status delivery.Status, detail string) error {
+func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status delivery.Status, detail string) (bool, error) {
 	addr := NormalizeEmail(address)
 
 	// Lock the message row to serialize ALL events for this message (every
@@ -170,19 +197,18 @@ func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageI
 		messageID,
 	).Scan(&curStatus, &curSource, &envTo, &envCC, &envBCC)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // message deleted between correlation and now
+		return false, nil // message deleted between correlation and now
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	cur := delivery.Status(curStatus)
 
-	// Envelope-membership guard on failed rows: only feedback for this
-	// message's own recipients may touch a failed message — an address the
-	// send never targeted must not create the recipient row whose rollup
-	// would revive the failure.
-	if cur == delivery.StatusFailed && !addressInEnvelope(addr, envTo, envCC, envBCC) {
-		return nil
+	// Only feedback for an address in this message's immutable envelope is an
+	// applicable observation. Provider payload corruption or a foreign address
+	// must not create recipient state, lifecycle, suppression, or events.
+	if !addressInEnvelope(addr, envTo, envCC, envBCC) {
+		return false, nil
 	}
 
 	var curRecipient string
@@ -200,10 +226,10 @@ func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageI
 			 VALUES ($1, $2, $3, $4, $5)`,
 			"rcpt_"+generateID(), messageID, addr, string(status), nullIfEmpty(detail),
 		); err != nil {
-			return err
+			return false, err
 		}
 	case err != nil:
-		return err
+		return false, err
 	default:
 		merged := delivery.Merge(delivery.Status(curRecipient), status)
 		// Only write when the status actually advances — a duplicate/lower-rank
@@ -216,7 +242,7 @@ func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageI
 				  WHERE message_id = $1 AND address = $2`,
 				messageID, addr, string(merged), nullIfEmpty(detail),
 			); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
@@ -226,14 +252,14 @@ func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageI
 	// place (delivery.Merge).
 	rows, err := tx.Query(ctx, `SELECT status FROM message_recipients WHERE message_id = $1`, messageID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var rollup delivery.Status
 	for rows.Next() {
 		var st string
 		if err := rows.Scan(&st); err != nil {
 			rows.Close()
-			return err
+			return false, err
 		}
 		rollup = delivery.Merge(rollup, delivery.Status(st))
 	}
@@ -254,7 +280,7 @@ func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageI
 				        delivery_failure_source = COALESCE(delivery_failure_source, 'provider')
 				  WHERE id = $1`, messageID,
 			); err != nil {
-				return err
+				return false, err
 			}
 		case cur == delivery.StatusFailed:
 			// §3.1 correction: authoritatively correlated provider evidence
@@ -267,17 +293,17 @@ func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageI
 				        delivery_failure_occurred_at = NULL, delivery_failure_attempt = NULL, delivery_failure_blocked_recipients = NULL
 				  WHERE id = $1`, messageID, string(next),
 			); err != nil {
-				return err
+				return false, err
 			}
 		default:
 			if _, err := tx.Exec(ctx,
 				`UPDATE messages SET delivery_status = $2 WHERE id = $1`, messageID, string(next),
 			); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // addressInEnvelope reports whether addr (already normalized) is one of the

@@ -54,7 +54,7 @@ func TestConsumerLifecycleMappings(t *testing.T) {
 			pool := testutil.TestDB(t)
 			store := identity.NewStore(pool)
 			_, messageID, _ := seedOutbound(t, store, "lifecycle-"+string(rune('a'+i)), "ses-lifecycle-"+string(rune('a'+i)), []string{"Person@Example.COM"})
-			ev := &delivery.Event{Kind: tc.kind, SESMessageID: "ses-lifecycle-" + string(rune('a'+i)), ProviderEventID: "sns-lifecycle-" + string(rune('a'+i)), E2AMessageID: messageID, BounceType: tc.bounceType, BounceSubType: "General", Recipients: []delivery.RecipientOutcome{{Address: "person@example.com", Status: tc.status, Detail: "250 safe diagnostic", Suppress: tc.suppress}}}
+			ev := &delivery.Event{Kind: tc.kind, SESMessageID: "ses-lifecycle-" + string(rune('a'+i)), ProviderEventID: "sns-lifecycle-" + string(rune('a'+i)), OccurredAt: time.Date(2026, 7, 21, 11, i, 0, 0, time.UTC), E2AMessageID: messageID, BounceType: tc.bounceType, BounceSubType: "General", Recipients: []delivery.RecipientOutcome{{Address: "person@example.com", Status: tc.status, Detail: "250 safe diagnostic", Suppress: tc.suppress}}}
 			consumer := delivery.NewConsumer(store, nil)
 			if err := consumer.Process(context.Background(), ev); err != nil {
 				t.Fatal(err)
@@ -162,6 +162,13 @@ func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
 				if len(decoded.Data.LifecycleTransitions) == 0 {
 					t.Fatalf("%s event omitted canonical lifecycle: %s", label, envelope)
 				}
+				wantReason := tc.feedbackReason
+				if label == "suppression" {
+					wantReason = tc.suppressionReason
+				}
+				if len(decoded.Data.LifecycleTransitions) != 1 || decoded.Data.LifecycleTransitions[0].ReasonCode != wantReason {
+					t.Fatalf("%s event lifecycle=%+v want only %s", label, decoded.Data.LifecycleTransitions, wantReason)
+				}
 				for _, transition := range decoded.Data.LifecycleTransitions {
 					var persisted int
 					if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE id=$1 AND message_id=$2`, transition.ID, messageID).Scan(&persisted); err != nil {
@@ -172,7 +179,137 @@ func TestConsumerCausalSuppressionLifecycleAndEventParity(t *testing.T) {
 					}
 				}
 			}
+			var suppressionEvidenceRaw []byte
+			if err := pool.QueryRow(ctx, `SELECT evidence FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=$2`, messageID, tc.suppressionReason).Scan(&suppressionEvidenceRaw); err != nil {
+				t.Fatal(err)
+			}
+			var suppressionEvidence map[string]any
+			if err := json.Unmarshal(suppressionEvidenceRaw, &suppressionEvidence); err != nil {
+				t.Fatal(err)
+			}
+			wantSource := "bounce"
+			if tc.kind == delivery.KindComplaint {
+				wantSource = "complaint"
+			}
+			if suppressionEvidence["suppression_scope"] != "account" || suppressionEvidence["suppression_source"] != wantSource {
+				t.Fatalf("suppression evidence=%v", suppressionEvidence)
+			}
 		})
+	}
+}
+
+func TestFeedbackIgnoresRecipientsOutsideMessageEnvelope(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		kind       delivery.EventKind
+		status     delivery.Status
+		bounceType string
+	}{
+		{"bounce", delivery.KindBounce, delivery.StatusBounced, "permanent"},
+		{"complaint", delivery.KindComplaint, delivery.StatusComplained, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := testutil.TestDB(t)
+			ctx := context.Background()
+			store := identity.NewStore(pool)
+			userID, messageID, agentEmail := seedOutbound(t, store, "unrelated-"+tc.name, "ses-unrelated-"+tc.name, []string{"actual@example.com"})
+			outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+			event := &delivery.Event{Kind: tc.kind, SESMessageID: "ses-unrelated-" + tc.name, ProviderEventID: "sns-unrelated-" + tc.name, OccurredAt: time.Date(2026, 7, 21, 13, 0, 0, 0, time.UTC), BounceType: tc.bounceType, Recipients: []delivery.RecipientOutcome{{Address: "unrelated@example.com", Status: tc.status, Detail: "diagnostic", Suppress: true}}}
+			if err := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox)).Process(ctx, event); err != nil {
+				t.Fatal(err)
+			}
+			if got := deliveryStatus(t, store, messageID, agentEmail); got != "sent" {
+				t.Fatalf("message status=%q want sent", got)
+			}
+			for label, query := range map[string]string{
+				"recipient":   `SELECT count(*) FROM message_recipients WHERE message_id=$1 AND address='unrelated@example.com'`,
+				"lifecycle":   `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND recipient='unrelated@example.com'`,
+				"suppression": `SELECT count(*) FROM suppressions WHERE user_id=$1`,
+				"event":       `SELECT count(*) FROM webhook_events WHERE user_id=$1`,
+			} {
+				arg := any(messageID)
+				if label == "suppression" || label == "event" {
+					arg = userID
+				}
+				var count int
+				if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				if count != 0 {
+					t.Fatalf("%s rows=%d want 0", label, count)
+				}
+			}
+		})
+	}
+}
+
+func TestFeedbackRequiresProviderEventIdentityAndObservedTime(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*delivery.Event)
+	}{
+		{"missing provider event id", func(event *delivery.Event) { event.ProviderEventID = "" }},
+		{"missing observed time", func(event *delivery.Event) { event.OccurredAt = time.Time{} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := testutil.TestDB(t)
+			ctx := context.Background()
+			store := identity.NewStore(pool)
+			_, messageID, agentEmail := seedOutbound(t, store, "invalid-identity-"+tc.name, "ses-invalid-identity-"+tc.name, []string{"a@example.com"})
+			event := &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-invalid-identity-" + tc.name, ProviderEventID: "sns-valid", OccurredAt: time.Date(2026, 7, 21, 13, 1, 0, 0, time.UTC), BounceType: "permanent", Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusBounced, Suppress: true}}}
+			tc.mutate(event)
+			if err := delivery.NewConsumer(store, nil).Process(ctx, event); err == nil {
+				t.Fatal("Process succeeded, want fail-closed identity/time error")
+			}
+			if got := deliveryStatus(t, store, messageID, agentEmail); got != "sent" {
+				t.Fatalf("message mutated to %q", got)
+			}
+			var lifecycleCount int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND stage IN ('delivery','suppression','complaint')`, messageID).Scan(&lifecycleCount); err != nil {
+				t.Fatal(err)
+			}
+			if lifecycleCount != 0 {
+				t.Fatalf("lifecycle rows=%d want 0", lifecycleCount)
+			}
+		})
+	}
+}
+
+func TestFeedbackReconcilesCompletePreservedFallbackFirst(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	_, messageID, agentEmail := seedOutbound(t, store, "feedback-fallback", "ses-feedback-fallback", []string{"a@example.com"})
+	fallbackAt := time.Date(2026, 7, 21, 12, 55, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `DELETE FROM message_recipients WHERE message_id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',send_job_id=8123,provider_accepted_at=NULL,delivery_failure_source='local',delivery_failure_reason_code='submission.local_retries_exhausted',delivery_detail='preserved terminal failure',delivery_failure_occurred_at=$2,delivery_failure_attempt=4,delivery_failure_blocked_recipients=ARRAY['blocked@example.com'] WHERE id=$1`, messageID, fallbackAt); err != nil {
+		t.Fatal(err)
+	}
+	event := &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-feedback-fallback", ProviderEventID: "sns-feedback-fallback", OccurredAt: time.Date(2026, 7, 21, 13, 2, 0, 0, time.UTC), Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusDelivered}}}
+	if err := delivery.NewConsumer(store, nil).Process(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if got := deliveryStatus(t, store, messageID, agentEmail); got != "delivered" {
+		t.Fatalf("status=%q want delivered", got)
+	}
+	var source, reason, detail string
+	var occurredAt *time.Time
+	var attempt *int
+	var blocked []string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(delivery_failure_source,''),COALESCE(delivery_failure_reason_code,''),COALESCE(delivery_detail,''),delivery_failure_occurred_at,delivery_failure_attempt,COALESCE(delivery_failure_blocked_recipients,'{}') FROM messages WHERE id=$1`, messageID).Scan(&source, &reason, &detail, &occurredAt, &attempt, &blocked); err != nil {
+		t.Fatal(err)
+	}
+	if source != "" || reason != "" || detail != "" || occurredAt != nil || attempt != nil || len(blocked) != 0 {
+		t.Fatalf("fallback provenance retained: source=%q reason=%q detail=%q occurred=%v attempt=%v blocked=%v", source, reason, detail, occurredAt, attempt, blocked)
+	}
+	var suppressionAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT occurred_at FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='suppression.recipient_blocked' AND recipient='blocked@example.com'`, messageID).Scan(&suppressionAt); err != nil {
+		t.Fatal(err)
+	}
+	if !suppressionAt.Equal(fallbackAt) {
+		t.Fatalf("preserved suppression occurred_at=%s want %s", suppressionAt, fallbackAt)
 	}
 }
 
@@ -230,7 +367,7 @@ func TestFeedbackAtomicRollbackOnEventInsertFailure(t *testing.T) {
 
 	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
 	consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox))
-	ev := &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-feedback-atomic", ProviderEventID: "sns-feedback-atomic", BounceType: "permanent", Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusBounced, Detail: "550", Suppress: true}}}
+	ev := &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-feedback-atomic", ProviderEventID: "sns-feedback-atomic", OccurredAt: time.Date(2026, 7, 21, 13, 6, 0, 0, time.UTC), BounceType: "permanent", Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusBounced, Detail: "550", Suppress: true}}}
 	if err := consumer.Process(ctx, ev); err == nil {
 		t.Fatal("Process succeeded, want forced event insertion failure")
 	}
@@ -328,7 +465,7 @@ func TestDeliveryPipeline_DeliveredThenBounceSuppresses(t *testing.T) {
 
 	// Delivery → delivered.
 	if err := consumer.Process(ctx, &delivery.Event{
-		Kind: delivery.KindDelivery, SESMessageID: "ses-msg-1",
+		Kind: delivery.KindDelivery, SESMessageID: "ses-msg-1", ProviderEventID: "sns-msg-1-delivery", OccurredAt: time.Date(2026, 7, 21, 14, 0, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDelivered}},
 	}); err != nil {
 		t.Fatal(err)
@@ -339,7 +476,7 @@ func TestDeliveryPipeline_DeliveredThenBounceSuppresses(t *testing.T) {
 
 	// A later, lower-rank deferred must NOT regress a delivered rollup (monotonic).
 	_ = consumer.Process(ctx, &delivery.Event{
-		Kind: delivery.KindDeliveryDelay, SESMessageID: "ses-msg-1",
+		Kind: delivery.KindDeliveryDelay, SESMessageID: "ses-msg-1", ProviderEventID: "sns-msg-1-delay", OccurredAt: time.Date(2026, 7, 21, 14, 1, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDeferred}},
 	})
 	if got := deliveryStatus(t, store, msgID, agentEmail); got != "delivered" {
@@ -348,7 +485,7 @@ func TestDeliveryPipeline_DeliveredThenBounceSuppresses(t *testing.T) {
 
 	// A hard bounce wins over delivered AND suppresses the address.
 	if err := consumer.Process(ctx, &delivery.Event{
-		Kind: delivery.KindBounce, SESMessageID: "ses-msg-1",
+		Kind: delivery.KindBounce, SESMessageID: "ses-msg-1", ProviderEventID: "sns-msg-1-bounce", OccurredAt: time.Date(2026, 7, 21, 14, 2, 0, 0, time.UTC), BounceType: "permanent",
 		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusBounced, Detail: "550", Suppress: true}},
 	}); err != nil {
 		t.Fatal(err)
@@ -374,9 +511,9 @@ func TestDeliveryPipeline_PerRecipientRollup(t *testing.T) {
 	consumer := delivery.NewConsumer(store, nil)
 
 	// good delivers, bad bounces → rollup is the worst (bounced).
-	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-msg-2",
+	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-msg-2", ProviderEventID: "sns-msg-2-delivery", OccurredAt: time.Date(2026, 7, 21, 14, 3, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{{Address: "good@x.com", Status: delivery.StatusDelivered}}})
-	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-msg-2",
+	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-msg-2", ProviderEventID: "sns-msg-2-bounce", OccurredAt: time.Date(2026, 7, 21, 14, 4, 0, 0, time.UTC), BounceType: "permanent",
 		Recipients: []delivery.RecipientOutcome{{Address: "bad@x.com", Status: delivery.StatusBounced, Suppress: true}}})
 
 	if got := deliveryStatus(t, store, msgID, agentEmail); got != "bounced" {
@@ -443,7 +580,7 @@ func TestCorrelationMatchesBracketedSESID(t *testing.T) {
 
 	// And the full pipeline must transition delivery_status via the bare id.
 	if err := delivery.NewConsumer(store, nil).Process(ctx, &delivery.Event{
-		Kind: delivery.KindDelivery, SESMessageID: "010f0193abc-000000",
+		Kind: delivery.KindDelivery, SESMessageID: "010f0193abc-000000", ProviderEventID: "sns-bracketed", OccurredAt: time.Date(2026, 7, 21, 14, 5, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDelivered}},
 	}); err != nil {
 		t.Fatal(err)
@@ -480,7 +617,7 @@ func TestDeliveryPipeline_RejectFailsMessageOnceWithoutSuppression(t *testing.T)
 	})
 
 	rejectEv := &delivery.Event{
-		Kind: delivery.KindReject, SESMessageID: "ses-reject-1",
+		Kind: delivery.KindReject, SESMessageID: "ses-reject-1", ProviderEventID: "sns-reject-1", OccurredAt: time.Date(2026, 7, 21, 13, 3, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{
 			{Address: "a@x.com", Status: delivery.StatusFailed, Detail: "Bad content"},
 			{Address: "b@x.com", Status: delivery.StatusFailed, Detail: "Bad content"},
@@ -524,6 +661,9 @@ func TestDeliveryPipeline_RejectFailsMessageOnceWithoutSuppression(t *testing.T)
 	if len(data.To) != 2 || data.To[0] != "a@x.com" || data.To[1] != "b@x.com" {
 		t.Fatalf("payload to=%v, want both recipients from the correlated row", data.To)
 	}
+	if data.ReasonCode != string(messagelifecycle.ReasonSubmissionProviderRejected) || data.Retryable == nil || *data.Retryable {
+		t.Fatalf("payload reason_code=%q retryable=%v", data.ReasonCode, data.Retryable)
+	}
 	if len(data.LifecycleTransitions) != 1 || data.LifecycleTransitions[0].ReasonCode != messagelifecycle.ReasonSubmissionProviderRejected {
 		t.Fatalf("email.failed lifecycle=%+v, want one provider rejection", data.LifecycleTransitions)
 	}
@@ -555,6 +695,47 @@ func TestDeliveryPipeline_RejectFailsMessageOnceWithoutSuppression(t *testing.T)
 	if rejectionTransitions != 1 {
 		t.Fatalf("provider rejection transitions=%d want 1", rejectionTransitions)
 	}
+	var source, reasonCode, detail string
+	var rejectionAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(delivery_failure_source,''),COALESCE(delivery_failure_reason_code,''),COALESCE(delivery_detail,''),delivery_failure_occurred_at FROM messages WHERE id=$1`, msgID).Scan(&source, &reasonCode, &detail, &rejectionAt); err != nil {
+		t.Fatal(err)
+	}
+	if source != "provider" || reasonCode != string(messagelifecycle.ReasonSubmissionProviderRejected) || detail != "Bad content" || rejectionAt == nil || !rejectionAt.Equal(rejectEv.OccurredAt) {
+		t.Fatalf("provider provenance source=%q reason=%q detail=%q occurred=%v", source, reasonCode, detail, rejectionAt)
+	}
+}
+
+func TestRejectOverridesLocalFailureAndLaterDeliveryCannotRevive(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	_, messageID, agentEmail := seedOutbound(t, store, "reject-local", "ses-reject-local", []string{"a@example.com"})
+	if _, err := pool.Exec(ctx, `UPDATE messages SET delivery_status='failed',delivery_failure_source='local',delivery_failure_reason_code='submission.local_retries_exhausted',delivery_detail='locally inferred' WHERE id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE message_recipients SET status='failed',detail='locally inferred' WHERE message_id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	reject := &delivery.Event{Kind: delivery.KindReject, SESMessageID: "ses-reject-local", ProviderEventID: "sns-reject-local", OccurredAt: time.Date(2026, 7, 21, 13, 4, 0, 0, time.UTC), Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusFailed, Detail: "Bad content"}}}
+	consumer := delivery.NewConsumer(store, nil)
+	if err := consumer.Process(ctx, reject); err != nil {
+		t.Fatal(err)
+	}
+	var status, source, reason, detail string
+	var rejectionAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_source,''),COALESCE(delivery_failure_reason_code,''),COALESCE(delivery_detail,''),delivery_failure_occurred_at FROM messages WHERE id=$1`, messageID).Scan(&status, &source, &reason, &detail, &rejectionAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || source != "provider" || reason != string(messagelifecycle.ReasonSubmissionProviderRejected) || detail != "Bad content" || rejectionAt == nil || !rejectionAt.Equal(reject.OccurredAt) {
+		t.Fatalf("after Reject status=%q source=%q reason=%q detail=%q occurred=%v", status, source, reason, detail, rejectionAt)
+	}
+	lateDelivery := &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-reject-local", ProviderEventID: "sns-reject-local-late-delivery", OccurredAt: time.Date(2026, 7, 21, 13, 5, 0, 0, time.UTC), Recipients: []delivery.RecipientOutcome{{Address: "a@example.com", Status: delivery.StatusDelivered}}}
+	if err := consumer.Process(ctx, lateDelivery); err != nil {
+		t.Fatal(err)
+	}
+	if got := deliveryStatus(t, store, messageID, agentEmail); got != "failed" {
+		t.Fatalf("late delivery revived provider rejection to %q", got)
+	}
 }
 
 // TestConcurrentRollupMonotonic pins the review race fix: concurrent SES events
@@ -580,11 +761,11 @@ func TestConcurrentRollupMonotonic(t *testing.T) {
 		}
 		done := make(chan error, 2)
 		go func() {
-			done <- consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: providerID,
+			done <- consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: providerID, ProviderEventID: providerID + "-delivery", OccurredAt: time.Date(2026, 7, 21, 15, i, 0, 0, time.UTC),
 				Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDelivered}}})
 		}()
 		go func() {
-			done <- consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: providerID,
+			done <- consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: providerID, ProviderEventID: providerID + "-bounce", OccurredAt: time.Date(2026, 7, 21, 15, i, 1, 0, time.UTC), BounceType: "permanent",
 				Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusBounced, Detail: "550"}}})
 		}()
 		if err := <-done; err != nil {
@@ -609,10 +790,10 @@ func TestDetailNotClobberedByLaterEvent(t *testing.T) {
 	_, msgID, _ := seedOutbound(t, store, "detail", "ses-detail", []string{"a@x.com"})
 	consumer := delivery.NewConsumer(store, nil)
 
-	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-detail",
+	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-detail", ProviderEventID: "sns-detail-bounce", OccurredAt: time.Date(2026, 7, 21, 16, 0, 0, 0, time.UTC), BounceType: "permanent",
 		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusBounced, Detail: "550 mailbox full"}}})
 	// A late delivered (lower rank) with its own detail must not clobber.
-	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-detail",
+	_ = consumer.Process(ctx, &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-detail", ProviderEventID: "sns-detail-delivery", OccurredAt: time.Date(2026, 7, 21, 16, 1, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusDelivered, Detail: "ok"}}})
 
 	var detail string
@@ -680,6 +861,8 @@ func TestCrashWindowCorrectionEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSESNotification: %v", err)
 	}
+	ev.ProviderEventID = "sns-crashwin-1"
+	ev.OccurredAt = time.Date(2026, 7, 21, 16, 2, 0, 0, time.UTC)
 	consumer := delivery.NewConsumer(store, nil)
 	if err := consumer.Process(ctx, ev); err != nil {
 		t.Fatalf("Process: %v", err)

@@ -83,13 +83,13 @@ func TestDeliveryFeedback_FindableByMessageID(t *testing.T) {
 	consumer := delivery.NewConsumer(store, realDeliveryFirer(outbox))
 
 	if err := consumer.Process(ctx, &delivery.Event{
-		Kind: delivery.KindReject, SESMessageID: "ses-dfb-reject",
+		Kind: delivery.KindReject, SESMessageID: "ses-dfb-reject", ProviderEventID: "sns-dfb-reject", OccurredAt: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{{Address: "a@x.com", Status: delivery.StatusFailed, Detail: "Bad content"}},
 	}); err != nil {
 		t.Fatalf("Process(reject): %v", err)
 	}
 	if err := consumer.Process(ctx, &delivery.Event{
-		Kind: delivery.KindDelivery, SESMessageID: "ses-dfb-delivered",
+		Kind: delivery.KindDelivery, SESMessageID: "ses-dfb-delivered", ProviderEventID: "sns-dfb-delivered", OccurredAt: time.Date(2026, 7, 21, 12, 1, 0, 0, time.UTC),
 		Recipients: []delivery.RecipientOutcome{{Address: "b@x.com", Status: delivery.StatusDelivered}},
 	}); err != nil {
 		t.Fatalf("Process(delivered): %v", err)

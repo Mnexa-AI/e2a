@@ -3,12 +3,15 @@ package delivery
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
+
+var testFeedbackOccurredAt = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 
 // fakeConsumerStore is an in-memory delivery.Store.
 type fakeConsumerStore struct {
@@ -53,8 +56,15 @@ func (f *fakeConsumerStore) WithTx(ctx context.Context, fn func(tx pgx.Tx) error
 func (f *fakeConsumerStore) RecordProviderAcceptEvidenceTx(ctx context.Context, _ pgx.Tx, messageID, sesMessageID string) error {
 	return f.RecordProviderAcceptEvidence(ctx, messageID, sesMessageID)
 }
-func (f *fakeConsumerStore) RecordDeliveryOutcomeTx(ctx context.Context, _ pgx.Tx, messageID, address string, st Status, detail string) error {
-	return f.RecordDeliveryOutcome(ctx, messageID, address, st, detail)
+func (f *fakeConsumerStore) ReconcilePreservedTerminalFallbackTx(context.Context, pgx.Tx, string) error {
+	return nil
+}
+func (f *fakeConsumerStore) RecordProviderRejectTx(context.Context, pgx.Tx, string, string, time.Time) error {
+	return nil
+}
+func (f *fakeConsumerStore) RecordDeliveryOutcomeTx(ctx context.Context, _ pgx.Tx, messageID, address string, st Status, detail string) (bool, error) {
+	err := f.RecordDeliveryOutcome(ctx, messageID, address, st, detail)
+	return err == nil, err
 }
 func (f *fakeConsumerStore) AddSuppressionTx(ctx context.Context, _ pgx.Tx, userID, address, reason, source, srcMsg string) (string, bool, error) {
 	added, err := f.AddSuppression(ctx, userID, address, reason, source, srcMsg)
@@ -101,7 +111,7 @@ func TestConsumerProcess(t *testing.T) {
 		store := newFakeConsumerStore()
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		err := c.Process(context.Background(), &Event{
+		err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindDelivery, SESMessageID: "unknown",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusDelivered}},
 		})
@@ -118,7 +128,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.corr["ses-1"] = &CorrelatedMessage{MessageID: "msg_1", UserID: "u_1", AgentID: "bot@x.com", Subject: "hi"}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		err := c.Process(context.Background(), &Event{
+		err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindDelivery, SESMessageID: "ses-1",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusDelivered}},
 		})
@@ -157,7 +167,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.corr["ses-2"] = &CorrelatedMessage{MessageID: "msg_2", UserID: "u_2", AgentID: "bot@x.com"}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		_ = c.Process(context.Background(), &Event{
+		_ = c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindBounce, SESMessageID: "ses-2",
 			BounceType: "permanent", BounceSubType: "General",
 			Recipients: []RecipientOutcome{{Address: "b@x.com", Status: StatusBounced, Detail: "550", Suppress: true}},
@@ -188,7 +198,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.corr["ses-2b"] = &CorrelatedMessage{MessageID: "msg_2b", UserID: "u_2", AgentID: "bot@x.com"}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		_ = c.Process(context.Background(), &Event{
+		_ = c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindBounce, SESMessageID: "ses-2b",
 			Recipients: []RecipientOutcome{{Address: "b@x.com", Status: StatusBounced}},
 		})
@@ -203,7 +213,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.corr["ses-3"] = &CorrelatedMessage{MessageID: "msg_3", UserID: "u_3", AgentID: "bot@x.com"}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		_ = c.Process(context.Background(), &Event{
+		_ = c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindComplaint, SESMessageID: "ses-3",
 			Recipients: []RecipientOutcome{{Address: "c@x.com", Status: StatusComplained, Suppress: true}},
 		})
@@ -226,7 +236,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.alreadySupp["u_4|d@x.com"] = true // already on the list
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		_ = c.Process(context.Background(), &Event{
+		_ = c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindComplaint, SESMessageID: "ses-4",
 			Recipients: []RecipientOutcome{{Address: "d@x.com", Status: StatusComplained, Suppress: true}},
 		})
@@ -246,7 +256,7 @@ func TestConsumerProcess(t *testing.T) {
 		}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		err := c.Process(context.Background(), &Event{
+		err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "ses-5",
 			Recipients: []RecipientOutcome{
 				{Address: "a@x.com", Status: StatusFailed, Detail: "Bad content"},
@@ -299,8 +309,8 @@ func TestConsumerProcess(t *testing.T) {
 		if data.Reason != "Bad content" {
 			t.Fatalf("reason=%q, want the SES reject reason", data.Reason)
 		}
-		if data.ReasonCode != "" || data.Retryable != nil {
-			t.Fatalf("reason_code/retryable must stay unset (same shape as the send-worker emission): %+v", data)
+		if data.ReasonCode != string(messagelifecycle.ReasonSubmissionProviderRejected) || data.Retryable == nil || *data.Retryable {
+			t.Fatalf("reason_code/retryable must carry the canonical provider rejection: %+v", data)
 		}
 	})
 
@@ -309,7 +319,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.corr["ses-6"] = &CorrelatedMessage{MessageID: "msg_6", UserID: "u_6", AgentID: "bot@x.com"}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		_ = c.Process(context.Background(), &Event{
+		_ = c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "ses-6",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusFailed, Detail: "Bad content"}},
 		})
@@ -328,7 +338,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.corr["ses-7"] = &CorrelatedMessage{MessageID: "msg_7", UserID: "u_7", AgentID: "bot@x.com"}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		ev := &Event{
+		ev := &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "ses-7",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusFailed, Detail: "Bad content"}},
 		}
@@ -351,7 +361,7 @@ func TestConsumerProcess(t *testing.T) {
 		store.corr["ses-8"] = &CorrelatedMessage{MessageID: "msg_8", UserID: "u_8", AgentID: "bot@x.com", To: nil}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		_ = c.Process(context.Background(), &Event{
+		_ = c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "ses-8",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusFailed}},
 		})
@@ -368,7 +378,7 @@ func TestConsumerProcess(t *testing.T) {
 		store := newFakeConsumerStore()
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		err := c.Process(context.Background(), &Event{
+		err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "unknown-reject",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusFailed, Detail: "Bad content"}},
 		})
@@ -391,7 +401,7 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 		store.corrByE2A["msg_abc123"] = &CorrelatedMessage{MessageID: "msg_abc123", UserID: "u_1", AgentID: "bot@x.com", Subject: "hi"}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		err := c.Process(context.Background(), &Event{
+		err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindDelivery, SESMessageID: "ses-never-captured", E2AMessageID: "msg_abc123",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusDelivered}},
 		})
@@ -413,7 +423,7 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 		store := newFakeConsumerStore()
 		store.corr["ses-1"] = &CorrelatedMessage{MessageID: "msg_1", UserID: "u_1", AgentID: "bot@x.com"}
 		c := NewConsumer(store, nil)
-		if err := c.Process(context.Background(), &Event{
+		if err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindDelivery, SESMessageID: "ses-1",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusDelivered}},
 		}); err != nil {
@@ -431,7 +441,7 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 		store := newFakeConsumerStore()
 		store.corrByE2A["msg_send1"] = &CorrelatedMessage{MessageID: "msg_send1", UserID: "u_1", AgentID: "bot@x.com"}
 		c := NewConsumer(store, nil)
-		if err := c.Process(context.Background(), &Event{
+		if err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindSend, SESMessageID: "ses-s1", E2AMessageID: "msg_send1",
 		}); err != nil {
 			t.Fatal(err)
@@ -448,7 +458,7 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 		store := newFakeConsumerStore()
 		store.corr["ses-rej"] = &CorrelatedMessage{MessageID: "msg_rej", UserID: "u_1", AgentID: "bot@x.com"}
 		c := NewConsumer(store, nil)
-		if err := c.Process(context.Background(), &Event{
+		if err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "ses-rej",
 			Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusFailed}},
 		}); err != nil {
@@ -466,7 +476,7 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 		store := newFakeConsumerStore()
 		c := NewConsumer(store, nil)
 		for _, bad := range []string{"", "msg_", "not_an_id", "msg_../../etc", "msg_a b"} {
-			if err := c.Process(context.Background(), &Event{
+			if err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 				Kind: KindDelivery, SESMessageID: "unknown", E2AMessageID: bad,
 				Recipients: []RecipientOutcome{{Address: "a@x.com", Status: StatusDelivered}},
 			}); err != nil {
@@ -508,7 +518,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 	}
 
 	t.Run("email.delivered", func(t *testing.T) {
-		events := fireGolden(&Event{
+		events := fireGolden(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindDelivery, SESMessageID: "ses-golden",
 			Recipients: []RecipientOutcome{{Address: "alice@customer.example.com", Status: StatusDelivered}},
 		})
@@ -516,7 +526,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 	})
 
 	t.Run("email.bounced + domain.suppression_added", func(t *testing.T) {
-		events := fireGolden(&Event{
+		events := fireGolden(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindBounce, SESMessageID: "ses-golden",
 			BounceType: "permanent", BounceSubType: "General",
 			Recipients: []RecipientOutcome{{
@@ -532,7 +542,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 	})
 
 	t.Run("email.complained", func(t *testing.T) {
-		events := fireGolden(&Event{
+		events := fireGolden(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindComplaint, SESMessageID: "ses-golden",
 			Recipients: []RecipientOutcome{{Address: "carol@customer.example.com", Status: StatusComplained, Detail: "abuse"}},
 		})
@@ -557,7 +567,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 	}
 
 	t.Run("email.delivered minimal", func(t *testing.T) {
-		events := fireMinimal(&Event{
+		events := fireMinimal(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindDelivery, SESMessageID: "ses-golden-min",
 			Recipients: []RecipientOutcome{{Address: "alice@customer.example.com", Status: StatusDelivered}},
 		})
@@ -565,7 +575,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 	})
 
 	t.Run("email.bounced minimal", func(t *testing.T) {
-		events := fireMinimal(&Event{
+		events := fireMinimal(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindBounce, SESMessageID: "ses-golden-min",
 			BounceType: "permanent",
 			Recipients: []RecipientOutcome{{Address: "bob@customer.example.com", Status: StatusBounced}},
@@ -574,7 +584,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 	})
 
 	t.Run("email.complained minimal", func(t *testing.T) {
-		events := fireMinimal(&Event{
+		events := fireMinimal(&Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindComplaint, SESMessageID: "ses-golden-min",
 			Recipients: []RecipientOutcome{{Address: "carol@customer.example.com", Status: StatusComplained}},
 		})
@@ -602,7 +612,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 		}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		if err := c.Process(context.Background(), &Event{
+		if err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "ses-golden-reject",
 			Recipients: []RecipientOutcome{{
 				Address: "alice@customer.example.com", Status: StatusFailed,
@@ -631,7 +641,7 @@ func TestConsumerGoldenPayloads(t *testing.T) {
 		}
 		fire, events := recordingFirer()
 		c := NewConsumer(store, fire)
-		if err := c.Process(context.Background(), &Event{
+		if err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindReject, SESMessageID: "ses-golden-reject-min",
 			Recipients: []RecipientOutcome{{
 				Address: "alice@customer.example.com", Status: StatusFailed,
