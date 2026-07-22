@@ -11,12 +11,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrDedupeConflict means a producer reused a message-local dedupe key for a
 // semantically different lifecycle observation.
 var ErrDedupeConflict = errors.New("message lifecycle dedupe conflict")
+
+// ErrDirectionMismatch means a producer attempted to append a lifecycle fact
+// whose direction contradicts the owning message.
+var ErrDirectionMismatch = errors.New("message lifecycle direction does not match message")
 
 // ErrMessageNotFound intentionally covers both absent and foreign messages.
 var ErrMessageNotFound = errors.New("message lifecycle message not found")
@@ -152,6 +157,12 @@ func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) (
 		return nil, fmt.Errorf("load persisted message lifecycle: %w", err)
 	}
 	result := MergeTransitions(persisted, Reconstruct(snapshot))
+	// Dedupe keys are internal producer identities used only while reconciling
+	// canonical and retained observations; they are not part of the public
+	// lifecycle representation.
+	for i := range result {
+		result[i].DedupeKey = ""
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit message lifecycle read: %w", err)
 	}
@@ -159,7 +170,7 @@ func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) (
 }
 
 const transitionColumns = `
-	id, message_id, direction, recipient, stage, outcome, reason_code,
+	id, message_id, dedupe_key, direction, recipient, stage, outcome, reason_code,
 	retryable, evidence, correlation_ids, occurred_at, reconstructed
 `
 
@@ -170,6 +181,18 @@ func AppendTx(ctx context.Context, tx pgx.Tx, input AppendInput) (MessageLifecyc
 	if err != nil {
 		return MessageLifecycleTransition{}, err
 	}
+	var messageDirection string
+	err = tx.QueryRow(ctx, `SELECT direction FROM messages WHERE id = $1`, candidate.MessageID).Scan(&messageDirection)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return MessageLifecycleTransition{}, fmt.Errorf("load lifecycle message direction: %w", err)
+	}
+	if err == nil && candidate.Direction != messageDirection {
+		return MessageLifecycleTransition{}, fmt.Errorf(
+			"%w: message_id %q is %s, transition is %s",
+			ErrDirectionMismatch, candidate.MessageID, messageDirection, candidate.Direction,
+		)
+	}
+	candidate.DedupeKey = input.DedupeKey
 
 	id, err := newTransitionID()
 	if err != nil {
@@ -203,6 +226,9 @@ func AppendTx(ctx context.Context, tx pgx.Tx, input AppendInput) (MessageLifecyc
 		return inserted, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		if isDirectionConstraintError(err) {
+			return MessageLifecycleTransition{}, fmt.Errorf("%w: message_id %q", ErrDirectionMismatch, candidate.MessageID)
+		}
 		return MessageLifecycleTransition{}, fmt.Errorf("insert message lifecycle transition: %w", err)
 	}
 
@@ -249,6 +275,7 @@ func scanTransition(row rowScanner) (MessageLifecycleTransition, error) {
 	if err := row.Scan(
 		&transition.ID,
 		&transition.MessageID,
+		&transition.DedupeKey,
 		&transition.Direction,
 		&recipient,
 		&transition.Stage,
@@ -279,6 +306,11 @@ func scanTransition(row rowScanner) (MessageLifecycleTransition, error) {
 	}
 	transition.OccurredAt = transition.OccurredAt.UTC()
 	return transition, nil
+}
+
+func isDirectionConstraintError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.ConstraintName == "message_lifecycle_direction_matches_message"
 }
 
 func semanticDifference(existing, candidate MessageLifecycleTransition) string {

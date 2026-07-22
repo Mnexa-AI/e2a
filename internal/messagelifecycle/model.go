@@ -63,6 +63,7 @@ var allowedCorrelationKeys = map[string]bool{
 type MessageLifecycleTransition struct {
 	ID             string            `json:"id"`
 	MessageID      string            `json:"message_id"`
+	DedupeKey      string            `json:"-"`
 	Direction      string            `json:"direction" enum:"inbound,outbound"`
 	Recipient      string            `json:"recipient,omitempty" nullable:"true"`
 	Stage          Stage             `json:"stage" enum:"accepted,authentication,review,suppression,queued,submission,delivery,complaint"`

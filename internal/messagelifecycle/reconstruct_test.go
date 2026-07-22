@@ -261,6 +261,163 @@ func TestReconstructEventPreferredOverState(t *testing.T) {
 	}
 }
 
+func TestReconstructRetainsDistinctLegacyEventObservationsAndDedupesExactSource(t *testing.T) {
+	s := baseSnapshot("outbound", "smtp")
+	oldAt := reconstructBaseTime.Add(time.Minute)
+	newAt := reconstructBaseTime.Add(2 * time.Minute)
+	old := eventSnapshot("evt_old", "email.delivered", oldAt, map[string]any{
+		"message_id": s.MessageID, "delivered_to": "a@example.com", "provider_event_id": "provider_old",
+	})
+	newer := eventSnapshot("evt_new", "email.delivered", newAt, map[string]any{
+		"message_id": s.MessageID, "delivered_to": "a@example.com", "provider_event_id": "provider_new",
+	})
+	s.Events = []EventSnapshot{newer, old, old}
+
+	var delivered []MessageLifecycleTransition
+	for _, item := range Reconstruct(s) {
+		if item.ReasonCode == ReasonDeliveryRecipientServerAccepted {
+			delivered = append(delivered, item)
+		}
+	}
+	if len(delivered) != 2 {
+		t.Fatalf("delivered observations = %#v, want distinct old/new and one exact old source", delivered)
+	}
+	if delivered[0].CorrelationIDs["event_id"] != "evt_old" || delivered[1].CorrelationIDs["event_id"] != "evt_new" {
+		t.Fatalf("delivery ordering/source identity = %#v", delivered)
+	}
+}
+
+func TestMergeTransitionsSuppressesOnlyMatchingReconstructedSource(t *testing.T) {
+	s := baseSnapshot("outbound", "smtp")
+	oldAt := reconstructBaseTime.Add(time.Minute)
+	newAt := reconstructBaseTime.Add(2 * time.Minute)
+	s.Events = []EventSnapshot{
+		eventSnapshot("evt_old", "email.delivered", oldAt, map[string]any{"message_id": s.MessageID, "delivered_to": "a@example.com"}),
+		eventSnapshot("evt_new", "email.delivered", newAt, map[string]any{"message_id": s.MessageID, "delivered_to": "a@example.com"}),
+	}
+	reconstructed := Reconstruct(s)
+	persisted := persistedTransition("mlt_persisted_new", ReasonDeliveryRecipientServerAccepted, "a@example.com", newAt)
+	persisted.CorrelationIDs["event_id"] = "evt_new"
+
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, reconstructed)
+	var delivered []MessageLifecycleTransition
+	for _, item := range got {
+		if item.ReasonCode == ReasonDeliveryRecipientServerAccepted {
+			delivered = append(delivered, item)
+		}
+	}
+	if len(delivered) != 2 || delivered[0].CorrelationIDs["event_id"] != "evt_old" || delivered[1].ID != persisted.ID {
+		t.Fatalf("source-aware merge = %#v", got)
+	}
+	for i := 1; i < len(got); i++ {
+		if transitionLess(got[i], got[i-1]) {
+			t.Fatalf("merge ordering changed: %#v", got)
+		}
+	}
+}
+
+func TestMergeTransitionsMatchesPersistedProviderDedupeIdentity(t *testing.T) {
+	s := baseSnapshot("outbound", "smtp")
+	oldAt := reconstructBaseTime.Add(time.Minute)
+	newAt := reconstructBaseTime.Add(2 * time.Minute)
+	s.Events = []EventSnapshot{
+		eventSnapshot("evt_old", "email.delivered", oldAt, map[string]any{"message_id": s.MessageID, "delivered_to": "a@example.com", "provider_event_id": "provider_old"}),
+		eventSnapshot("evt_new", "email.delivered", newAt, map[string]any{"message_id": s.MessageID, "delivered_to": "a@example.com", "provider_event_id": "provider_new"}),
+	}
+	persisted := persistedTransition("mlt_persisted_new", ReasonDeliveryRecipientServerAccepted, "a@example.com", newAt)
+	persisted.DedupeKey = "provider-feedback:provider_new:a@example.com:delivered"
+	persisted.CorrelationIDs["event_id"] = "evt_canonical_publication"
+
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, Reconstruct(s))
+	var delivered []MessageLifecycleTransition
+	for _, item := range got {
+		if item.ReasonCode == ReasonDeliveryRecipientServerAccepted {
+			delivered = append(delivered, item)
+		}
+	}
+	if len(delivered) != 2 || delivered[0].CorrelationIDs["provider_event_id"] != "provider_old" || delivered[1].ID != persisted.ID {
+		t.Fatalf("provider-source merge = %#v", got)
+	}
+}
+
+func TestMergeTransitionsMatchesSubmissionMessageIdentityAliases(t *testing.T) {
+	occurredAt := reconstructBaseTime.Add(time.Minute)
+	reconstructed := persistedTransition("mlt_recon", ReasonSubmissionLocalLoopbackAccepted, "", occurredAt.Add(time.Second))
+	reconstructed.Stage = StageSubmission
+	reconstructed.Reconstructed = true
+	reconstructed.CorrelationIDs["event_id"] = "evt_submission"
+	reconstructed.CorrelationIDs["provider_message_id"] = "<message@example.com>"
+	persisted := persistedTransition("mlt_persisted", ReasonSubmissionLocalLoopbackAccepted, "", occurredAt)
+	persisted.Stage = StageSubmission
+	persisted.CorrelationIDs["email_message_id"] = "<message@example.com>"
+
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, []MessageLifecycleTransition{reconstructed})
+	if len(got) != 1 || got[0].ID != persisted.ID {
+		t.Fatalf("submission identity alias merge = %#v", got)
+	}
+}
+
+func TestMergeTransitionsMatchesAcceptanceMessageIdentity(t *testing.T) {
+	occurredAt := reconstructBaseTime.Add(time.Minute)
+	reconstructed := persistedTransition("mlt_recon", ReasonAcceptanceLocalLoopback, "", occurredAt.Add(time.Second))
+	reconstructed.Stage = StageAccepted
+	reconstructed.Reconstructed = true
+	reconstructed.CorrelationIDs["event_id"] = "evt_acceptance"
+	reconstructed.CorrelationIDs["email_message_id"] = "<message@example.com>"
+	persisted := persistedTransition("mlt_persisted", ReasonAcceptanceLocalLoopback, "", occurredAt)
+	persisted.Stage = StageAccepted
+	persisted.CorrelationIDs["email_message_id"] = "<message@example.com>"
+
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, []MessageLifecycleTransition{reconstructed})
+	if len(got) != 1 || got[0].ID != persisted.ID {
+		t.Fatalf("acceptance identity merge = %#v", got)
+	}
+}
+
+func TestMergeTransitionsMatchesMessageLocalReviewResolution(t *testing.T) {
+	persisted := persistedTransition("mlt_persisted", ReasonReviewApproved, "", reconstructBaseTime)
+	persisted.Stage = StageReview
+	reconstructed := persistedTransition("mlt_recon", ReasonReviewApproved, "", reconstructBaseTime.Add(time.Second))
+	reconstructed.Stage = StageReview
+	reconstructed.Reconstructed = true
+	reconstructed.CorrelationIDs["event_id"] = "evt_review"
+
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, []MessageLifecycleTransition{reconstructed})
+	if len(got) != 1 || got[0].ID != persisted.ID {
+		t.Fatalf("message-local review merge = %#v", got)
+	}
+}
+
+func TestMergeTransitionsFallsBackToTimestampWhenPersistedHasNoSourceIdentity(t *testing.T) {
+	occurredAt := reconstructBaseTime.Add(time.Minute)
+	reconstructed := persistedTransition("mlt_recon", ReasonAcceptanceOutboundAPI, "", occurredAt)
+	reconstructed.Stage = StageAccepted
+	reconstructed.Reconstructed = true
+	reconstructed.CorrelationIDs["provider_message_id"] = "<message@example.com>"
+	persisted := persistedTransition("mlt_persisted", ReasonAcceptanceOutboundAPI, "", occurredAt)
+	persisted.Stage = StageAccepted
+
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, []MessageLifecycleTransition{reconstructed})
+	if len(got) != 1 || got[0].ID != persisted.ID {
+		t.Fatalf("source-less persisted timestamp merge = %#v", got)
+	}
+}
+
+func TestMergeTransitionsUsesTimestampFallbackForLegacyObservations(t *testing.T) {
+	oldAt := reconstructBaseTime.Add(time.Minute)
+	newAt := reconstructBaseTime.Add(2 * time.Minute)
+	old := persistedTransition("mlt_recon_old", ReasonDeliveryRecipientServerAccepted, "a@example.com", oldAt)
+	old.Reconstructed = true
+	newer := persistedTransition("mlt_recon_new", ReasonDeliveryRecipientServerAccepted, "a@example.com", newAt)
+	newer.Reconstructed = true
+	persisted := persistedTransition("mlt_persisted_new", ReasonDeliveryRecipientServerAccepted, "a@example.com", newAt)
+
+	got := MergeTransitions([]MessageLifecycleTransition{persisted}, []MessageLifecycleTransition{newer, old})
+	if len(got) != 2 || got[0].ID != old.ID || got[1].ID != persisted.ID {
+		t.Fatalf("timestamp-fallback merge = %#v", got)
+	}
+}
+
 func TestReconstructExpiredReviewEventUsesDurableResolutionAndEventTimestamp(t *testing.T) {
 	reviewedAt := reconstructBaseTime.Add(3 * time.Minute)
 	eventAt := reconstructBaseTime.Add(time.Minute)

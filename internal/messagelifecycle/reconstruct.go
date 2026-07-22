@@ -67,10 +67,25 @@ type reconstructionCandidate struct {
 // Reconstruct derives only facts proven by the supplied durable snapshot.
 func Reconstruct(snapshot Snapshot) []MessageLifecycleTransition {
 	candidates := make(map[string]reconstructionCandidate)
+	eventSemantics := make(map[string]bool)
 	add := func(candidate reconstructionCandidate) {
-		key := semanticKey(candidate.transition.ReasonCode, candidate.transition.Recipient)
+		semantic := semanticKey(candidate.transition.ReasonCode, candidate.transition.Recipient)
+		if candidate.event {
+			// Retained events are the more specific representation of a rollup
+			// state fact. Drop only state fallbacks for this semantic; distinct
+			// retained source events remain separate observations.
+			for key, existing := range candidates {
+				if !existing.event && semanticKey(existing.transition.ReasonCode, existing.transition.Recipient) == semantic {
+					delete(candidates, key)
+				}
+			}
+			eventSemantics[semantic] = true
+		} else if eventSemantics[semantic] {
+			return
+		}
+		key := observationKey(candidate.transition)
 		existing, ok := candidates[key]
-		if !ok || (!existing.event && candidate.event) || (existing.event == candidate.event && transitionLess(candidate.transition, existing.transition)) {
+		if !ok || transitionLess(candidate.transition, existing.transition) {
 			candidates[key] = candidate
 		}
 	}
@@ -201,19 +216,33 @@ func Reconstruct(snapshot Snapshot) []MessageLifecycleTransition {
 	return result
 }
 
-// MergeTransitions retains every persisted observation and adds at most one
-// reconstructed fallback for each semantic (reason_code, recipient) fact.
+// MergeTransitions retains every persisted observation and suppresses only a
+// reconstructed candidate with the same source observation identity.
 func MergeTransitions(persisted, reconstructed []MessageLifecycleTransition) []MessageLifecycleTransition {
-	owned := make(map[string]bool, len(persisted))
+	ownedSources := make(map[string]bool, len(persisted))
+	ownedSourceLessTimestamps := make(map[string]bool, len(persisted))
+	ownedAllTimestamps := make(map[string]bool, len(persisted))
+	ownedSemantics := make(map[string]bool, len(persisted))
 	result := make([]MessageLifecycleTransition, 0, len(persisted)+len(reconstructed))
 	for _, item := range persisted {
-		owned[semanticKey(item.ReasonCode, item.Recipient)] = true
+		ownedSemantics[semanticKey(item.ReasonCode, item.Recipient)] = true
+		timestampKey := timestampObservationKey(item)
+		ownedAllTimestamps[timestampKey] = true
+		if sourceKey, ok := sourceObservationKey(item); ok {
+			ownedSources[sourceKey] = true
+		} else {
+			ownedSourceLessTimestamps[timestampKey] = true
+		}
 		result = append(result, cloneTransition(item))
 	}
 	seenFallback := map[string]bool{}
 	for _, item := range reconstructed {
-		key := semanticKey(item.ReasonCode, item.Recipient)
-		if owned[key] || seenFallback[key] {
+		key := observationKey(item)
+		sourceKey, hasSource := sourceObservationKey(item)
+		timestampKey := timestampObservationKey(item)
+		matchesPersisted := (isStateFallback(item) && ownedSemantics[semanticKey(item.ReasonCode, item.Recipient)]) ||
+			(hasSource && ownedSources[sourceKey]) || ownedSourceLessTimestamps[timestampKey] || (!hasSource && ownedAllTimestamps[timestampKey])
+		if matchesPersisted || seenFallback[key] {
 			continue
 		}
 		seenFallback[key] = true
@@ -224,6 +253,11 @@ func MergeTransitions(persisted, reconstructed []MessageLifecycleTransition) []M
 		return []MessageLifecycleTransition{}
 	}
 	return result
+}
+
+func isStateFallback(item MessageLifecycleTransition) bool {
+	source, _ := item.Evidence["source"].(string)
+	return source != "" && source != "webhook_events.envelope"
 }
 
 func addReconstructed(add func(reconstructionCandidate), snapshot Snapshot, reason ReasonCode, recipient string, occurredAt time.Time, source, sourceKind, sourceID string, evidence map[string]any, correlations map[string]string, event bool) {
@@ -488,6 +522,54 @@ func approvedReviewStatus(status string) bool {
 }
 func semanticKey(reason ReasonCode, recipient string) string {
 	return string(reason) + "\x00" + recipient
+}
+
+// observationKey identifies one logical source observation. Provider event IDs
+// are the strongest cross-path identity, followed by retained event IDs. Legacy
+// rows without either use their observed timestamp; differing timestamps are
+// distinct facts rather than retries of one fact.
+func observationKey(item MessageLifecycleTransition) string {
+	if key, ok := sourceObservationKey(item); ok {
+		return key
+	}
+	return timestampObservationKey(item)
+}
+
+func sourceObservationKey(item MessageLifecycleTransition) (string, bool) {
+	semantic := semanticKey(item.ReasonCode, item.Recipient)
+	// Review state is message-local and its producer dedupe contract allows one
+	// logical transition per reason. The owning message ID therefore joins a
+	// canonical row to a retained beta review event even when that event did not
+	// carry the transition ID.
+	if item.Stage == StageReview && item.MessageID != "" {
+		return semantic + "\x00message_id\x00" + item.MessageID, true
+	}
+	if value := item.CorrelationIDs["provider_event_id"]; value != "" {
+		return semantic + "\x00provider_event_id\x00" + value, true
+	}
+	// Acceptance and submission producers historically used both names for the
+	// same RFC 5322 message identity. Restrict the alias to pre-delivery stages
+	// so one provider message can still have multiple feedback observations.
+	if item.Stage == StageAccepted || item.Stage == StageSubmission {
+		for _, correlation := range []string{"provider_message_id", "email_message_id"} {
+			if value := item.CorrelationIDs[correlation]; value != "" {
+				return semantic + "\x00message_id\x00" + value, true
+			}
+		}
+	}
+	if strings.HasPrefix(item.DedupeKey, "provider-feedback:") {
+		if sourceID, _, ok := strings.Cut(strings.TrimPrefix(item.DedupeKey, "provider-feedback:"), ":"); ok && sourceID != "" {
+			return semantic + "\x00provider_event_id\x00" + sourceID, true
+		}
+	}
+	if value := item.CorrelationIDs["event_id"]; value != "" {
+		return semantic + "\x00event_id\x00" + value, true
+	}
+	return "", false
+}
+
+func timestampObservationKey(item MessageLifecycleTransition) string {
+	return semanticKey(item.ReasonCode, item.Recipient) + "\x00occurred_at\x00" + item.OccurredAt.UTC().Format(time.RFC3339Nano)
 }
 
 func transitionLess(left, right MessageLifecycleTransition) bool {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/jobs"
@@ -199,6 +200,140 @@ func TestMessageLifecycleMigrationRejectsContradictoryTuple(t *testing.T) {
 	}
 }
 
+func TestMessageLifecycleDirectionMigrationIsIdempotentAndExistingRowSafe(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_direction_migration", "outbound")
+	sql, err := migrations.FS.ReadFile("078_message_lifecycle_direction.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DROP TRIGGER IF EXISTS message_lifecycle_direction_matches_message ON message_lifecycle_transitions`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO message_lifecycle_transitions
+			(id, message_id, dedupe_key, direction, stage, outcome, reason_code, retryable, occurred_at)
+		VALUES ('mlt_existing_mismatch', 'msg_direction_migration', 'existing', 'inbound',
+		        'accepted', 'accepted', 'acceptance.inbound_smtp', false, now())
+	`); err != nil {
+		t.Fatalf("seed historical mismatch with trigger absent: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := tx.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("direction migration replay %d scanned/rejected existing rows: %v", i+1, err)
+		}
+	}
+	var triggerCount int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM pg_trigger
+		WHERE tgrelid = 'message_lifecycle_transitions'::regclass
+		  AND tgname = 'message_lifecycle_direction_matches_message'
+		  AND NOT tgisinternal
+	`).Scan(&triggerCount); err != nil {
+		t.Fatal(err)
+	}
+	if triggerCount != 1 {
+		t.Fatalf("direction trigger count = %d, want 1", triggerCount)
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO message_lifecycle_transitions
+			(id, message_id, dedupe_key, direction, stage, outcome, reason_code, retryable, occurred_at)
+		VALUES ('mlt_new_mismatch', 'msg_direction_migration', 'new', 'inbound',
+		        'accepted', 'accepted', 'acceptance.inbound_smtp', false, now())
+	`)
+	assertDirectionConstraintError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE message_lifecycle_transitions SET direction='inbound' WHERE id='mlt_direction_ok'`)
+	assertDirectionConstraintError(t, err)
+}
+
+func TestMessageLifecycleDirectSQLDirectionInvariant(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_direction_sql", "outbound")
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO message_lifecycle_transitions
+			(id, message_id, dedupe_key, direction, stage, outcome, reason_code, retryable, occurred_at)
+		VALUES ('mlt_direction_ok', 'msg_direction_sql', 'ok', 'outbound',
+		        'accepted', 'accepted', 'acceptance.outbound_api', false, now())
+	`); err != nil {
+		t.Fatalf("matching direction rejected: %v", err)
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO message_lifecycle_transitions
+			(id, message_id, dedupe_key, direction, stage, outcome, reason_code, retryable, occurred_at)
+		VALUES ('mlt_direction_bad', 'msg_direction_sql', 'bad', 'inbound',
+		        'accepted', 'accepted', 'acceptance.inbound_smtp', false, now())
+	`)
+	assertDirectionConstraintError(t, err)
+}
+
+func assertDirectionConstraintError(t *testing.T, err error) {
+	t.Helper()
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "message_lifecycle_direction_matches_message" {
+		t.Fatalf("direction constraint error = %#v", err)
+	}
+}
+
+func TestAppendTxDirectionMismatchIsTypedAndProducerTransactionRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	const messageID = "msg_direction_store"
+	insertLifecycleMessage(t, pool, messageID, "outbound")
+	var initialStatus string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(status, '') FROM messages WHERE id=$1`, messageID).Scan(&initialStatus); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `UPDATE messages SET status='pending_review' WHERE id=$1`, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO webhook_events (id, user_id, type, envelope, message_id, created_at)
+		VALUES ('evt_direction_partial', $1, 'email.sent', '{}', $2, now())
+	`, "usr_"+messageID, messageID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		MessageID: messageID, DedupeKey: "wrong-direction", Direction: "inbound",
+		ReasonCode: messagelifecycle.ReasonAcceptanceInboundSMTP, OccurredAt: time.Now().UTC(),
+	})
+	if !errors.Is(err, messagelifecycle.ErrDirectionMismatch) {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("AppendTx mismatch error = %v", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(status, '') FROM messages WHERE id=$1`, messageID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != initialStatus || lifecycleCount(t, pool, messageID) != 0 {
+		t.Fatalf("partial state survived rollback: status=%q lifecycle=%d", status, lifecycleCount(t, pool, messageID))
+	}
+	var eventCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM webhook_events WHERE id='evt_direction_partial'`).Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 0 {
+		t.Fatalf("partial event survived rollback: %d", eventCount)
+	}
+}
+
 func TestAppendTxStoresCanonicalTransition(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.TestDB(t)
@@ -316,15 +451,16 @@ func TestAppendTxDedupeConflictForSemanticDifferences(t *testing.T) {
 	tests := []struct {
 		name   string
 		modify func(*messagelifecycle.AppendInput)
+		want   error
 	}{
 		{"reason", func(in *messagelifecycle.AppendInput) {
 			in.ReasonCode = messagelifecycle.ReasonDeliveryTemporaryDelay
-		}},
-		{"direction", func(in *messagelifecycle.AppendInput) { in.Direction = "inbound" }},
-		{"recipient", func(in *messagelifecycle.AppendInput) { in.Recipient = "other@example.com" }},
-		{"evidence", func(in *messagelifecycle.AppendInput) { in.Evidence = map[string]any{"smtp_detail": "251 forwarded"} }},
-		{"correlation", func(in *messagelifecycle.AppendInput) { in.CorrelationIDs = map[string]string{"event_id": "evt_other"} }},
-		{"occurred_at", func(in *messagelifecycle.AppendInput) { in.OccurredAt = in.OccurredAt.Add(time.Second) }},
+		}, messagelifecycle.ErrDedupeConflict},
+		{"direction", func(in *messagelifecycle.AppendInput) { in.Direction = "inbound" }, messagelifecycle.ErrDirectionMismatch},
+		{"recipient", func(in *messagelifecycle.AppendInput) { in.Recipient = "other@example.com" }, messagelifecycle.ErrDedupeConflict},
+		{"evidence", func(in *messagelifecycle.AppendInput) { in.Evidence = map[string]any{"smtp_detail": "251 forwarded"} }, messagelifecycle.ErrDedupeConflict},
+		{"correlation", func(in *messagelifecycle.AppendInput) { in.CorrelationIDs = map[string]string{"event_id": "evt_other"} }, messagelifecycle.ErrDedupeConflict},
+		{"occurred_at", func(in *messagelifecycle.AppendInput) { in.OccurredAt = in.OccurredAt.Add(time.Second) }, messagelifecycle.ErrDedupeConflict},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -344,9 +480,9 @@ func TestAppendTxDedupeConflictForSemanticDifferences(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = messagelifecycle.AppendTx(ctx, tx, conflicting)
-			if !errors.Is(err, messagelifecycle.ErrDedupeConflict) {
+			if !errors.Is(err, tt.want) {
 				_ = tx.Rollback(ctx)
-				t.Fatalf("AppendTx error = %v, want ErrDedupeConflict", err)
+				t.Fatalf("AppendTx error = %v, want %v", err, tt.want)
 			}
 			for _, sensitive := range []string{
 				sensitiveDedupeKey, "250 2.0.0 accepted", "251 forwarded", "evt_123", "evt_other",
@@ -932,12 +1068,12 @@ func loadOnlyTransition(t *testing.T, pool interface {
 	var recipient *string
 	var evidence, correlations []byte
 	err := pool.QueryRow(context.Background(), `
-		SELECT id, message_id, direction, recipient, stage, outcome, reason_code,
+		SELECT id, message_id, dedupe_key, direction, recipient, stage, outcome, reason_code,
 		       retryable, evidence, correlation_ids, occurred_at, reconstructed
 		FROM message_lifecycle_transitions
 		WHERE message_id = $1
 	`, messageID).Scan(
-		&transition.ID, &transition.MessageID, &transition.Direction, &recipient,
+		&transition.ID, &transition.MessageID, &transition.DedupeKey, &transition.Direction, &recipient,
 		&transition.Stage, &transition.Outcome, &transition.ReasonCode,
 		&transition.Retryable, &evidence, &correlations, &transition.OccurredAt,
 		&transition.Reconstructed,
