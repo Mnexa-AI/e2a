@@ -502,7 +502,7 @@ class TsSdkStrategy:
     (js/monitor-helper.mjs) — this Python service shells out rather than
     embedding a JS runtime. Never workspace source: the helper imports
     `@e2a/sdk/v1` resolved from node_modules, populated at image build time by
-    `npm install @e2a/sdk@5.2.0` (see Dockerfile), same discipline as
+    `npm install @e2a/sdk@5.3.0` (see Dockerfile), same discipline as
     requirements.txt for the Python SDK.
 
     Send-status handling lives in the helper itself, not here: it now checks
