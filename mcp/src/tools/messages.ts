@@ -478,7 +478,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Get a message",
       annotations: { readOnlyHint: true },
       description:
-        "Use after `list_messages` to read one inbound message in full — body (text + html), header_from, envelope_from, verified_domain, SPF/DKIM/DMARC authentication evidence, conversation id, and attachment metadata. A non-null verified_domain means DMARC passed for that RFC 5322 From domain; it does not authenticate the mailbox local part, a person, or message content. Pass the message's `id` from the list response. Attachment bytes are NOT included (would blow context for any non-trivial PDF); the response lists each attachment's filename, content_type, and 0-based `index` plus size_bytes. To get the actual bytes of one attachment (inspect, forward, hand off), call `get_attachment` with that index. The raw MIME blob is also omitted for the same reason.",
+        "Use after `list_messages` to read one inbound or outbound message in full. Returns text + HTML, direction, labels, delivery/review lifecycle, suspicious-message flags and protection findings, header_from, envelope_from, verified_domain, SPF/DKIM/DMARC evidence, conversation id, and attachment metadata. `truncated:true` means the inbound parser clipped the decoded body. A non-null verified_domain means DMARC passed for the RFC 5322 From domain; it does not authenticate the mailbox local part, a person, or message content. Attachment bytes and raw MIME are intentionally omitted to protect context; call `get_attachment` with an attachment's 0-based index to fetch one file by reference.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         email: z.string().optional(),
@@ -497,6 +497,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         return {
           id: email.id,
           conversation_id: email.conversationId,
+          direction: email.direction,
           header_from: email.headerFrom,
           envelope_from: email.envelopeFrom,
           verified_domain: email.verifiedDomain,
@@ -507,10 +508,21 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           reply_to: email.replyTo,
           subject: email.subject,
           read_status: email.readStatus,
+          labels: email.labels,
+          flagged: email.flagged,
+          flag_reason: email.flagReason,
+          protection: email.protection,
+          truncated: email.parsed?.truncated,
           // Inbound messages carry the decoded text in `parsed`; only outbound
           // held drafts populate `body` (mirror the CLI's read fallback).
           text: email.parsed?.text ?? email.body?.text,
-          html: email.body?.html,
+          html: email.parsed?.html ?? email.body?.html,
+          delivery_status: email.deliveryStatus,
+          delivery_detail: email.deliveryDetail,
+          review_status: email.reviewStatus,
+          sent_as: email.sentAs,
+          size_bytes: email.sizeBytes,
+          deleted_at: email.deletedAt,
           received_at: email.createdAt,
           attachments: (email.attachments ?? []).map((a) => ({
             index: a.index,
