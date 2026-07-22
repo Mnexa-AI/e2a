@@ -145,7 +145,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		// fails it with provenance 'local' so later authoritative evidence can
 		// still correct it. The stored detail of a deferred final attempt is
 		// preferred over this generic sweep detail.
-		if err := w.store.MarkFailed(ctx, candidate.messageID, candidate.jobID, candidate.attempt, occurredAt, detail, source, reason); err != nil {
+		if err := w.store.MarkFailed(ctx, candidate.messageID, candidate.jobID, candidate.attempt, occurredAt, detail, source, reason, nil); err != nil {
 			if processed > 0 {
 				log.Printf("[outbound-terminal-reconcile] processed %d candidates", processed)
 			}

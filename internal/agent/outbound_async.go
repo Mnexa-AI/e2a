@@ -112,6 +112,12 @@ func (g *outboundRampGate) Resolve(ctx context.Context, messageID string) error 
 }
 
 func (a *outboundSendStore) ClaimSend(ctx context.Context, messageID string, jobID int64) (*outboundsend.SendJob, error) {
+	if a.usage == nil {
+		return nil, fmt.Errorf("outbound usage tracker is required")
+	}
+	if _, ok := a.usage.(usage.TransactionalUsageTracker); !ok {
+		return nil, fmt.Errorf("outbound usage tracker lacks transaction support")
+	}
 	p, err := a.store.ClaimOutboundForSend(ctx, messageID, jobID)
 	if err != nil || p == nil {
 		return nil, err
@@ -199,7 +205,7 @@ func (a *outboundSendStore) meterSentTx(ctx context.Context, tx pgx.Tx, info *id
 // MarkOutboundFailedTx's own `provider_accepted_at IS NULL` CAS closes the race
 // where evidence lands between the two statements (the row is then left for the
 // reconciler's next pass to settle as sent).
-func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
+func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error {
 	detail = messagelifecycle.SafeDiagnostic(detail)
 	var resolved *identity.OutboundSentInfo
 	var resolvedProviderID string
@@ -237,6 +243,17 @@ func (a *outboundSendStore) MarkFailed(ctx context.Context, messageID string, jo
 		transition, err := appendSubmissionTransition(ctx, tx, messageID, jobID, attempt, occurredAt, reason, finfo.Message.DeliveryDetail, "")
 		if err != nil {
 			return err
+		}
+		seen := map[string]bool{}
+		for _, raw := range blockedRecipients {
+			recipient := identity.NormalizeEmail(raw)
+			if recipient == "" || seen[recipient] {
+				continue
+			}
+			seen[recipient] = true
+			if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: "suppression:send:" + recipient, Direction: "outbound", Recipient: recipient, ReasonCode: messagelifecycle.ReasonSuppressionRecipientBlocked, Evidence: map[string]any{"suppression_scope": "agent", "suppression_source": "send_time"}, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(jobID, 10)}), OccurredAt: occurredAt}); err != nil {
+				return err
+			}
 		}
 		// Emit with the detail actually stored on the row (a deferred final
 		// attempt's diagnostic is preferred over a generic sweep detail).
@@ -347,11 +364,6 @@ func buildEmailSentEventFromRow(info *identity.OutboundSentInfo, providerMessage
 
 // buildEmailFailedEventFromRow builds the email.failed event for a terminal
 // outbound send failure.
-//
-// ReasonCode and Retryable stay unset: MarkFailed only receives the diagnostic
-// string — the retry classification (permanent vs exhausted) is consumed inside
-// the send worker and not plumbed here. The schema keeps both fields optional;
-// populate them if/when the worker passes its classification through.
 func buildEmailFailedEventFromRow(info *identity.OutboundSentInfo, detail string, transitions ...messagelifecycle.MessageLifecycleTransition) webhookpub.Event {
 	m := info.Message
 	data := eventpayload.EmailFailedData{
@@ -368,6 +380,11 @@ func buildEmailFailedEventFromRow(info *identity.OutboundSentInfo, detail string
 		MessageType:          m.Type,
 		Reason:               detail,
 		LifecycleTransitions: transitions,
+	}
+	if len(transitions) > 0 {
+		data.ReasonCode = string(transitions[0].ReasonCode)
+		retryable := transitions[0].Retryable
+		data.Retryable = &retryable
 	}
 	return webhookpub.Event{
 		Type:           webhookpub.EventEmailFailed,

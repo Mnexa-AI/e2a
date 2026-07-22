@@ -547,10 +547,14 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 			    SET delivery_status = 'failed',
 			        delivery_detail = 'send canceled because the message or agent is in trash',
 			        delivery_failure_source = 'local',
+			        delivery_failure_reason_code = 'submission.cancelled',
 			        send_claimed_at = NULL
 			  WHERE id = $1`,
 			messageID,
 		); err != nil {
+			return nil, err
+		}
+		if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: fmt.Sprintf("submission:job:%d:attempt:0:%s", jobID, messagelifecycle.ReasonSubmissionCancelled), Direction: "outbound", ReasonCode: messagelifecycle.ReasonSubmissionCancelled, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": fmt.Sprint(jobID)}), OccurredAt: time.Now().UTC()}); err != nil {
 			return nil, err
 		}
 		if err := tx.Commit(ctx); err != nil {

@@ -54,7 +54,7 @@ func (f *fakeStore) MarkSent(_ context.Context, id string, _ int64, _ int, _ tim
 	f.sent = append(f.sent, sentCall{id, provider, sentAs})
 	return f.markSentErr
 }
-func (f *fakeStore) MarkFailed(_ context.Context, id string, _ int64, attempt int, _ time.Time, detail string, source delivery.FailureSource, _ messagelifecycle.ReasonCode) error {
+func (f *fakeStore) MarkFailed(_ context.Context, id string, _ int64, attempt int, _ time.Time, detail string, source delivery.FailureSource, _ messagelifecycle.ReasonCode, _ []string) error {
 	f.failed = append(f.failed, failedCall{id, attempt, detail, source})
 	return nil
 }

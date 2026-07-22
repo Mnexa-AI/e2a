@@ -112,6 +112,22 @@ func (d *countingAsyncDeliverer) Deliver(context.Context, *outboundsend.SendJob)
 	return outboundsend.DeliverOutcome{ProviderMessageID: "unexpected"}
 }
 
+type timedAsyncDeliverer struct {
+	out        outboundsend.DeliverOutcome
+	returnedAt time.Time
+}
+
+func (d *timedAsyncDeliverer) Deliver(context.Context, *outboundsend.SendJob) outboundsend.DeliverOutcome {
+	d.returnedAt = time.Now().UTC()
+	return d.out
+}
+
+type legacyOnlyUsageTracker struct{}
+
+func (legacyOnlyUsageTracker) RecordAndCheck(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+
 type blockingAsyncDeliverer struct {
 	entered chan struct{}
 	release chan struct{}
@@ -477,6 +493,31 @@ func TestSendWorker_UpstreamAcceptedLifecycleEventParity(t *testing.T) {
 	}
 }
 
+func TestSendWorker_RejectsLegacyUsageTrackerBeforeClaimOrProviderIO(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "legacyusage")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"legacy@example.net"}, Subject: "legacy usage", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	d := &countingAsyncDeliverer{}
+	w := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, legacyOnlyUsageTracker{}), d)
+	if err := w.Work(ctx, workerJob(res.MessageID, 1)); err == nil {
+		t.Fatal("legacy usage tracker should fail configuration")
+	}
+	if d.calls != 0 {
+		t.Fatalf("provider calls=%d", d.calls)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT delivery_status FROM messages WHERE id=$1`, res.MessageID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "accepted" {
+		t.Fatalf("message status=%q want accepted", status)
+	}
+}
+
 func TestSendWorker_TemporaryAndProviderRejectedLifecycle(t *testing.T) {
 	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
 	ctx := context.Background()
@@ -528,8 +569,12 @@ func TestSendWorker_TemporaryAndProviderRejectedLifecycle(t *testing.T) {
 		t.Fatal("unbounded remote SMTP diagnostic stored")
 	}
 
-	reject := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 rejected"), Permanent: true}})
-	if err := reject.Work(ctx, workerJobWithID(res.MessageID, jobID, 3)); err == nil {
+	timedReject := &timedAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 rejected"), Permanent: true}}
+	reject := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), timedReject)
+	rejectJob := workerJobWithID(res.MessageID, jobID, 3)
+	ancient := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	rejectJob.AttemptedAt = &ancient
+	if err := reject.Work(ctx, rejectJob); err == nil {
 		t.Fatal("provider rejection must cancel")
 	}
 	rows = lifecycleRows(t, pool, res.MessageID)
@@ -542,9 +587,20 @@ func TestSendWorker_TemporaryAndProviderRejectedLifecycle(t *testing.T) {
 	if terminal == nil {
 		t.Fatalf("missing provider rejection lifecycle: %+v", rows)
 	}
+	if terminal.OccurredAt.Before(timedReject.returnedAt) {
+		t.Fatalf("provider rejection occurred_at=%s before outcome returned=%s", terminal.OccurredAt, timedReject.returnedAt)
+	}
 	event := eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailFailed)
 	if len(event) != 1 || event[0].ID != terminal.ID {
 		t.Fatalf("email.failed lifecycle=%+v terminal=%+v", event, terminal)
+	}
+	var reasonCode string
+	var retryable bool
+	if err := pool.QueryRow(ctx, `SELECT envelope->'data'->>'reason_code',(envelope->'data'->>'retryable')::boolean FROM webhook_events WHERE message_id=$1 AND type='email.failed'`, res.MessageID).Scan(&reasonCode, &retryable); err != nil {
+		t.Fatal(err)
+	}
+	if reasonCode != string(terminal.ReasonCode) || retryable != terminal.Retryable {
+		t.Fatalf("email.failed classification=%q/%v transition=%q/%v", reasonCode, retryable, terminal.ReasonCode, terminal.Retryable)
 	}
 }
 
@@ -821,7 +877,7 @@ func TestSendWorker_TrashLinearizesWithDurableClaim(t *testing.T) {
 }
 
 func TestSendWorker_TrashBeforeClaimCancelsWithoutSubmit(t *testing.T) {
-	api, store, outbox, _ := setupAsyncAPI(t)
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "asynctrashfirst")
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
@@ -864,6 +920,66 @@ func TestSendWorker_TrashBeforeClaimCancelsWithoutSubmit(t *testing.T) {
 	}
 	if deliveryStatus != "failed" || detail == "" {
 		t.Fatalf("canceled row = status %q detail %q, want failed with detail", deliveryStatus, detail)
+	}
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var cancelled int
+	for _, tr := range rows {
+		if tr.ReasonCode == messagelifecycle.ReasonSubmissionCancelled {
+			cancelled++
+		}
+	}
+	if cancelled != 1 {
+		t.Fatalf("trash-before-claim cancellation lifecycle=%d", cancelled)
+	}
+	var reason string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(delivery_failure_reason_code,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&reason); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "submission.cancelled" {
+		t.Fatalf("trash reason=%q", reason)
+	}
+}
+
+func TestSendWorker_TrashCancellationLifecycleFailureRollsBackState(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "trashlifecyclerb")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"never@example.net"}, Subject: "trash lifecycle rollback", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	if err := store.SoftDeleteMessage(ctx, res.MessageID, ag.ID); err != nil {
+		t.Fatal(err)
+	}
+	install := `CREATE FUNCTION test_fail_trash_cancel_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.cancelled' THEN RAISE EXCEPTION 'forced trash lifecycle failure'; END IF; RETURN NEW; END;$f$ LANGUAGE plpgsql;CREATE TRIGGER test_fail_trash_cancel_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_trash_cancel_lifecycle();`
+	uninstall := `DROP TRIGGER IF EXISTS test_fail_trash_cancel_lifecycle ON message_lifecycle_transitions;DROP FUNCTION IF EXISTS test_fail_trash_cancel_lifecycle();`
+	if _, err := pool.Exec(ctx, install); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
+	d := &countingAsyncDeliverer{}
+	w := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), d)
+	if err := w.Work(ctx, workerJob(res.MessageID, 1)); err == nil {
+		t.Fatal("forced lifecycle failure succeeded")
+	}
+	var status, reason string
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_reason_code,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&status, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if status != "accepted" || reason != "" || d.calls != 0 {
+		t.Fatalf("partial trash cancellation status=%q reason=%q calls=%d", status, reason, d.calls)
+	}
+	if _, err := pool.Exec(ctx, uninstall); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Work(ctx, workerJob(res.MessageID, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_reason_code,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&status, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || reason != "submission.cancelled" {
+		t.Fatalf("recovered trash cancellation status=%q reason=%q", status, reason)
 	}
 }
 
@@ -971,7 +1087,7 @@ func TestOutboundSendStore_MarkFailed(t *testing.T) {
 	}
 
 	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
-	if err := adapter.MarkFailed(ctx, res.MessageID, 999, 6, time.Now().UTC(), "550 mailbox unavailable", delivery.FailureSourceProvider, messagelifecycle.ReasonSubmissionProviderRejected); err != nil {
+	if err := adapter.MarkFailed(ctx, res.MessageID, 999, 6, time.Now().UTC(), "550 mailbox unavailable", delivery.FailureSourceProvider, messagelifecycle.ReasonSubmissionProviderRejected, nil); err != nil {
 		t.Fatalf("MarkFailed: %v", err)
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/sendramp"
@@ -96,13 +97,13 @@ func TestDeliverOutbound_AgentSuppressionBlocksSendReplyAndForward(t *testing.T)
 }
 
 func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) {
-	api, store, outbox, _ := setupAsyncAPI(t)
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "suppafterqueue")
 
 	// Accept + queue while the recipient is clean.
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
-		To: []string{"victim@external.test"}, Subject: "queued then suppressed", Body: "x",
+		To: []string{"victim@external.test", "Victim@External.TEST", "victim@external.test"}, Subject: "queued then suppressed", Body: "x",
 	}, "send", "", nil, nil)
 	if oerr != nil {
 		t.Fatalf("DeliverOutbound: %+v", oerr)
@@ -151,6 +152,26 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 	}
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 0 {
 		t.Errorf("email.sent events = %d, want 0", n)
+	}
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var blocked, cancelled int
+	for _, tr := range rows {
+		if tr.ReasonCode == messagelifecycle.ReasonSuppressionRecipientBlocked {
+			blocked++
+			if tr.Recipient != "victim@external.test" {
+				t.Fatalf("blocked recipient=%q", tr.Recipient)
+			}
+		}
+		if tr.ReasonCode == messagelifecycle.ReasonSubmissionCancelled {
+			cancelled++
+		}
+	}
+	if blocked != 1 || cancelled != 1 {
+		t.Fatalf("send-time suppression lifecycle blocked=%d cancelled=%d", blocked, cancelled)
+	}
+	event := eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailFailed)
+	if len(event) != 1 || event[0].ReasonCode != messagelifecycle.ReasonSubmissionCancelled {
+		t.Fatalf("email.failed lifecycle=%+v", event)
 	}
 
 	// A sibling agent under the same account remains allowed for the same

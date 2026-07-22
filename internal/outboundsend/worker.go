@@ -183,7 +183,7 @@ type Store interface {
 	// with the given failure provenance + detail and emits email.failed — all
 	// in one transaction. Callers therefore invoke it to "finalize a terminal
 	// state", not to unconditionally fail.
-	MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error
+	MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error
 	PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error
 	// DeferTerminalFailure records a final attempt's diagnostic + releases the
 	// I/O claim WITHOUT declaring failed: the terminal reconciler declares the
@@ -286,13 +286,13 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		})
 		if rerr != nil {
 			if isPermanentRampError(rerr) {
-				if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "sending_ramp_invalid: "+rerr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionCancelled); err != nil {
+				if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "sending_ramp_invalid: "+rerr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionCancelled, nil); err != nil {
 					return err
 				}
 				return river.JobCancel(rerr)
 			}
 			if j.pastRetryHorizon() {
-				if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "ramp_capacity_timeout: "+rerr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted); err != nil {
+				if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "ramp_capacity_timeout: "+rerr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted, nil); err != nil {
 					return err
 				}
 				_ = w.ramp.Release(ctx, j.MessageID)
@@ -306,7 +306,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		}
 		if !decision.Allowed {
 			if j.pastRetryHorizon() {
-				if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "ramp_capacity_timeout", delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted); err != nil {
+				if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, "ramp_capacity_timeout", delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted, nil); err != nil {
 					return err
 				}
 				if err := w.ramp.Release(ctx, j.MessageID); err != nil {
@@ -343,7 +343,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	}
 	if len(suppressed) > 0 {
 		supErr := fmt.Errorf("recipient_suppressed: %s%s", strings.Join(suppressed, ", "), outbound.SuppressionRemediation(j.AgentID))
-		if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, supErr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionCancelled); err != nil {
+		if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, supErr.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionCancelled, suppressed); err != nil {
 			return err
 		}
 		if w.ramp != nil && j.rampEligible() {
@@ -355,6 +355,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	}
 
 	out := w.deliverer.Deliver(ctx, j)
+	observedAt = time.Now().UTC()
 	if out.Err == nil {
 		// Success — one tx (in the store): mark sent + provider id + email.sent.
 		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.ProviderMessageID, out.SentAs); err != nil {
@@ -372,7 +373,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// Provenance 'provider': SES itself refused this submission, so the §3.1
 	// correction never revives it.
 	if out.Permanent {
-		if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error(), delivery.FailureSourceProvider, messagelifecycle.ReasonSubmissionProviderRejected); err != nil {
+		if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error(), delivery.FailureSourceProvider, messagelifecycle.ReasonSubmissionProviderRejected, nil); err != nil {
 			return err
 		}
 		if w.ramp != nil && j.rampEligible() {
@@ -389,7 +390,7 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	// (provenance 'local': the provider never confirmed a rejection).
 	if out.Outage {
 		if j.pastRetryHorizon() {
-			if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted); err != nil {
+			if err := w.markFailed(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error(), delivery.FailureSourceLocal, messagelifecycle.ReasonSubmissionLocalRetriesExhausted, nil); err != nil {
 				return err
 			}
 			if w.ramp != nil && j.rampEligible() {
@@ -452,10 +453,10 @@ const (
 	terminalWriteBackoff = 150 * time.Millisecond
 )
 
-func (w *SendWorker) markFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode) error {
+func (w *SendWorker) markFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error {
 	var err error
 	for i := 0; i < terminalWriteRetries; i++ {
-		if err = w.store.MarkFailed(ctx, messageID, jobID, attempt, occurredAt, detail, source, reason); err == nil {
+		if err = w.store.MarkFailed(ctx, messageID, jobID, attempt, occurredAt, detail, source, reason, blockedRecipients); err == nil {
 			return nil
 		}
 		select {
