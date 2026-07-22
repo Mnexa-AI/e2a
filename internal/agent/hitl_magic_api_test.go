@@ -51,6 +51,10 @@ func setupMagicLinkAPI(t *testing.T) (
 	api.SetApprovalSigner(signer)
 	router := mux.NewRouter()
 	api.RegisterRoutes(router)
+	// Magic-link routes are no longer part of RegisterRoutes — the chi root
+	// owns them in production; mount them directly here.
+	router.Handle("/v1/approve", api.ApproveMagicLinkHandler())
+	router.Handle("/v1/reject", api.RejectMagicLinkHandler())
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 	return server, store, signer, smtpDone
@@ -643,6 +647,9 @@ func TestMagicLinkDisabledWhenSignerMissing(t *testing.T) {
 	api := agent.NewAPI(store, sender, smtpRelay, nil, usage.NewNoopUsageTracker(), "e2a.dev", "test.e2a.dev", "agents.e2a.dev", "", false)
 	router := mux.NewRouter()
 	api.RegisterRoutes(router)
+	// Magic-link routes are no longer part of RegisterRoutes — mount directly.
+	router.Handle("/v1/approve", api.ApproveMagicLinkHandler())
+	router.Handle("/v1/reject", api.RejectMagicLinkHandler())
 	server := httptest.NewServer(router)
 	defer server.Close()
 
