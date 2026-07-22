@@ -596,17 +596,12 @@ func (a *API) RegisterRoutes(r *mux.Router) {
 	// request body; deliberately not advertised in OpenAPI.
 	r.HandleFunc("/api/internal/limits/invalidate", a.handleInvalidateLimits).Methods("POST")
 
-	// HITL magic-link pages. Human-facing token-gated HTML (not the JSON
-	// API), opened from the approval email. GET renders a confirmation
-	// page with a POST form; POST executes the action. Splitting this way
-	// keeps email-client URL scanners (Gmail, Outlook Safe Links,
-	// corporate mail gateways) from triggering side effects just by
-	// previewing the link. Served under /v1 via the chi root's fallback to
-	// this mux (these are raw HTML routes, not Huma operations).
-	r.HandleFunc("/v1/approve", a.handleApproveMagicLinkGet).Methods("GET")
-	r.HandleFunc("/v1/approve", a.handleApproveMagicLinkPost).Methods("POST")
-	r.HandleFunc("/v1/reject", a.handleRejectMagicLinkGet).Methods("GET")
-	r.HandleFunc("/v1/reject", a.handleRejectMagicLinkPost).Methods("POST")
+	// HITL magic-link pages (/v1/approve, /v1/reject) are NOT registered on
+	// this mux: the chi root (internal/httpapi) owns every /v1/* path and
+	// serves them directly via API.ApproveMagicLinkHandler /
+	// API.RejectMagicLinkHandler. Registering them here would be dead code —
+	// the chi root's not-found handler never falls back to this mux for
+	// /v1/* paths.
 
 	// --- Non-versioned operational endpoints ---
 	r.HandleFunc("/api/health", a.handleHealth).Methods("GET", "HEAD")
