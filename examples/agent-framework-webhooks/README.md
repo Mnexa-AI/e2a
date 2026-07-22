@@ -61,7 +61,7 @@ agent-framework-webhooks
 
 ## Run the TypeScript example
 
-Node 18 or newer is required.
+Node 20.19 or newer is required; on Node 22, use 22.12 or newer.
 
 ```bash
 npm ci
@@ -125,10 +125,18 @@ plain-text body, `verified`, and `flagged` values, all treated as untrusted
 input. Raw MIME, the full message view, and attachments are excluded from
 prompts and logs.
 
+The alternatives below are substitutions, not dependencies installed by the
+runnable projects. For each one, install that provider's SDK, replace the
+OpenAI agent implementation, and change the application's startup validation
+from `OPENAI_API_KEY` to the provider credentials or configuration it needs.
+The verified webhook handler stays unchanged.
+
 ## Anthropic
 
-Keep the verified webhook handler unchanged and replace the OpenAI agent body
-with a Messages call. Join only returned text blocks. See the official
+Install `anthropic` (Python) or `@anthropic-ai/sdk` (TypeScript), configure
+`ANTHROPIC_API_KEY`, and replace the OpenAI agent implementation with a
+Messages client created once at application startup. Join only returned text
+blocks, and close the client once during application shutdown. See the official
 [Python SDK](https://platform.claude.com/docs/en/api/client-sdks#python) and
 [TypeScript SDK](https://platform.claude.com/docs/en/api/client-sdks#typescript)
 documentation.
@@ -136,19 +144,28 @@ documentation.
 ```python
 from anthropic import AsyncAnthropic
 
-message = await AsyncAnthropic().messages.create(
+# Application startup: reuse this client for every delivery.
+anthropic = AsyncAnthropic()
+
+message = await anthropic.messages.create(
     model="claude-opus-4-8",
     max_tokens=1024,
     system=REPLY_INSTRUCTIONS,
     messages=[{"role": "user", "content": email_prompt(email)}],
 )
 reply = "\n".join(block.text for block in message.content if block.type == "text")
+
+# Application shutdown:
+await anthropic.close()
 ```
 
 ## LangChain
 
-Create one agent at application startup, invoke it with the same normalized
-prompt, and return the final assistant message text. See the official
+Install `langchain` (Python) or `langchain` (TypeScript), configure the
+credential required by the selected model provider, and replace the OpenAI
+agent implementation. Create one agent at application startup, invoke it with
+the same normalized prompt, and return the final assistant message text. See
+the official
 [Python agent documentation](https://docs.langchain.com/oss/python/langchain/agents)
 and [JavaScript agent documentation](https://docs.langchain.com/oss/javascript/langchain/agents).
 
@@ -165,9 +182,12 @@ blocks before calling `email.reply(...)`.
 
 ## Google ADK
 
-Use the effective e2a conversation ID as ADK's `sessionId` and an opaque,
-inbox-scoped sender identity as `userId`. Then run the safe prompt through the
-session and take text only from the final response event:
+Install `google-adk` (Python) or `@google/adk` (TypeScript), replace the OpenAI
+agent implementation, and validate the Gemini API key or Vertex AI
+configuration at startup. Use the effective e2a conversation ID as ADK's
+`sessionId` and an opaque, inbox-scoped sender identity as `userId`. Then run
+the safe prompt through the session and take text only from the final response
+event:
 
 ```python
 async for agent_event in runner.run_async(
