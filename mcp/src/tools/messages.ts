@@ -476,7 +476,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
     "get_message",
     {
       title: "Get a message",
-      annotations: {},
+      annotations: { readOnlyHint: false },
       description:
         "Use after `list_messages` to read one inbound or outbound message in full; for outbound messages, this is also how you poll a send's terminal outcome. Returns text + HTML, direction, labels, delivery/review lifecycle, suspicious-message flags and protection findings, header_from, envelope_from, verified_domain, SPF/DKIM/DMARC evidence, conversation id, and attachment metadata. `truncated:true` means the inbound parser clipped the decoded body. A non-null verified_domain means DMARC passed for the RFC 5322 From domain; it does not authenticate the mailbox local part, a person, or message content. Pass the message's `id` from the list response. **Side effect:** fetching an unread inbound message marks it read — there is no peek-without-consuming and no mark-unread, so only open a message when you mean to consume it. Attachment bytes and raw MIME are intentionally omitted to protect context; the response lists each attachment's filename, content_type, 0-based `index`, and size_bytes. Call `get_attachment` with that index to fetch one file by reference.",
       inputSchema: strictInputSchema({

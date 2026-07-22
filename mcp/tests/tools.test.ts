@@ -577,7 +577,7 @@ describe("e2a MCP server", () => {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(false);
       expect(byName.get(n)?.readOnlyHint ?? false, `${n} not read-only`).toBe(false);
     }
-    expect(byName.get("get_message")?.readOnlyHint ?? false, "get_message not read-only").toBe(false);
+    expect(byName.get("get_message")?.readOnlyHint, "get_message not read-only").toBe(false);
   });
 
   it("send_message forwards args to client.send", async () => {
