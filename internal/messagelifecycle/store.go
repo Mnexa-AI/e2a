@@ -11,11 +11,150 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrDedupeConflict means a producer reused a message-local dedupe key for a
 // semantically different lifecycle observation.
 var ErrDedupeConflict = errors.New("message lifecycle dedupe conflict")
+
+// ErrMessageNotFound intentionally covers both absent and foreign messages.
+var ErrMessageNotFound = errors.New("message lifecycle message not found")
+
+// Store reads canonical and conservatively reconstructed message lifecycle facts.
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{pool: pool}
+}
+
+// ListForMessage returns the lifecycle for one message owned by agentID.
+// Reconstruction is read-only and is never persisted by this method.
+func (s *Store) ListForMessage(ctx context.Context, messageID, agentID string) ([]MessageLifecycleTransition, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, fmt.Errorf("begin message lifecycle read: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var snapshot Snapshot
+	var authentication []byte
+	err = tx.QueryRow(ctx, `
+		SELECT m.id, m.agent_id, m.direction, COALESCE(m.method, ''),
+		       m.created_at, m.authentication, COALESCE(m.status, ''),
+		       m.approval_expires_at, m.reviewed_at, m.send_job_id,
+		       r.created_at, m.provider_accepted_at,
+		       COALESCE(m.provider_message_id, ''),
+		       COALESCE(m.email_message_id, ''),
+		       COALESCE(m.delivery_status, ''),
+		       COALESCE(m.delivery_failure_source, '')
+		FROM messages m
+		LEFT JOIN river_job r ON r.id = m.send_job_id
+		WHERE m.id = $1 AND m.agent_id = $2
+	`, messageID, agentID).Scan(
+		&snapshot.MessageID, &snapshot.AgentID, &snapshot.Direction, &snapshot.Method,
+		&snapshot.CreatedAt, &authentication, &snapshot.Status,
+		&snapshot.ApprovalExpiresAt, &snapshot.ReviewedAt, &snapshot.SendJobID,
+		&snapshot.JobCreatedAt, &snapshot.ProviderAcceptedAt,
+		&snapshot.ProviderMessageID, &snapshot.EmailMessageID,
+		&snapshot.DeliveryStatus, &snapshot.DeliveryFailureSource,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrMessageNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load message lifecycle snapshot: %w", err)
+	}
+	if authentication != nil {
+		snapshot.Authentication = append(json.RawMessage(nil), authentication...)
+	}
+
+	recipientRows, err := tx.Query(ctx, `
+		SELECT id, address, status, COALESCE(detail, ''), updated_at
+		FROM message_recipients
+		WHERE message_id = $1
+		ORDER BY updated_at ASC, id ASC
+	`, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("load message lifecycle recipients: %w", err)
+	}
+	for recipientRows.Next() {
+		var recipient RecipientSnapshot
+		if err := recipientRows.Scan(&recipient.ID, &recipient.Address, &recipient.Status, &recipient.Detail, &recipient.UpdatedAt); err != nil {
+			recipientRows.Close()
+			return nil, fmt.Errorf("scan message lifecycle recipient: %w", err)
+		}
+		snapshot.Recipients = append(snapshot.Recipients, recipient)
+	}
+	err = recipientRows.Err()
+	recipientRows.Close()
+	if err != nil {
+		return nil, fmt.Errorf("iterate message lifecycle recipients: %w", err)
+	}
+
+	suppressionRows, err := tx.Query(ctx, `
+		SELECT id, address, source, source_message_id, created_at
+		FROM suppressions
+		WHERE source_message_id = $1
+		ORDER BY created_at ASC, id ASC
+	`, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("load message lifecycle suppressions: %w", err)
+	}
+	for suppressionRows.Next() {
+		var suppression SuppressionSnapshot
+		if err := suppressionRows.Scan(&suppression.ID, &suppression.Address, &suppression.Source, &suppression.SourceMessageID, &suppression.CreatedAt); err != nil {
+			suppressionRows.Close()
+			return nil, fmt.Errorf("scan message lifecycle suppression: %w", err)
+		}
+		snapshot.Suppressions = append(snapshot.Suppressions, suppression)
+	}
+	err = suppressionRows.Err()
+	suppressionRows.Close()
+	if err != nil {
+		return nil, fmt.Errorf("iterate message lifecycle suppressions: %w", err)
+	}
+
+	eventRows, err := tx.Query(ctx, `
+		SELECT id, type, envelope, created_at
+		FROM webhook_events
+		WHERE message_id = $1
+		  AND type = ANY($2::text[])
+		ORDER BY created_at ASC, id ASC
+	`, messageID, []string{
+		"email.received", "email.sent", "email.failed", "email.delivered",
+		"email.bounced", "email.complained", "email.review_requested",
+		"email.review_approved", "email.review_rejected", "domain.suppression_added",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("load message lifecycle events: %w", err)
+	}
+	for eventRows.Next() {
+		var event EventSnapshot
+		if err := eventRows.Scan(&event.ID, &event.Type, &event.Envelope, &event.CreatedAt); err != nil {
+			eventRows.Close()
+			return nil, fmt.Errorf("scan message lifecycle event: %w", err)
+		}
+		snapshot.Events = append(snapshot.Events, event)
+	}
+	err = eventRows.Err()
+	eventRows.Close()
+	if err != nil {
+		return nil, fmt.Errorf("iterate message lifecycle events: %w", err)
+	}
+
+	persisted, err := listTransitionsTx(ctx, tx, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("load persisted message lifecycle: %w", err)
+	}
+	result := MergeTransitions(persisted, Reconstruct(snapshot))
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit message lifecycle read: %w", err)
+	}
+	return result, nil
+}
 
 const transitionColumns = `
 	id, message_id, direction, recipient, stage, outcome, reason_code,

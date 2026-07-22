@@ -489,6 +489,139 @@ func TestAppendTxConcurrentDuplicateConverges(t *testing.T) {
 	}
 }
 
+func TestListForMessageOwnedForeignAndMissing(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_list_scope", "outbound")
+	store := NewStore(pool)
+
+	got, err := store.ListForMessage(ctx, "msg_list_scope", "agt_msg_list_scope")
+	if err != nil || len(got) != 1 || got[0].ReasonCode != ReasonAcceptanceOutboundAPI {
+		t.Fatalf("owned list = %#v, %v", got, err)
+	}
+	for _, tc := range []struct{ messageID, agentID string }{
+		{"msg_list_scope", "agt_foreign"},
+		{"msg_missing", "agt_msg_list_scope"},
+	} {
+		got, err := store.ListForMessage(ctx, tc.messageID, tc.agentID)
+		if !errors.Is(err, ErrMessageNotFound) || got != nil {
+			t.Fatalf("ListForMessage(%q,%q) = %#v, %v; want hidden not found", tc.messageID, tc.agentID, got, err)
+		}
+	}
+}
+
+func TestListForMessageHistoricalInboundAuthentication(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_list_auth", "inbound")
+	if _, err := pool.Exec(ctx, `
+		UPDATE messages
+		SET method='smtp', authentication=$2, created_at=$3
+		WHERE id=$1
+	`, "msg_list_auth", authenticationJSON("pass"), reconstructBaseTime); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := NewStore(pool).ListForMessage(ctx, "msg_list_auth", "agt_msg_list_auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReasons(t, got, ReasonAcceptanceInboundSMTP, ReasonAuthenticationDMARCPass)
+	if findReason(got, ReasonAuthenticationDMARCPass).Evidence["authentication"] == nil {
+		t.Fatal("historical authentication evidence missing")
+	}
+}
+
+func TestListForMessageHistoricalOutboundRecipientEventAndSuppression(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_list_outbound", "outbound")
+	if _, err := pool.Exec(ctx, `UPDATE messages SET method='smtp', created_at=$2 WHERE id=$1`, "msg_list_outbound", reconstructBaseTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO message_recipients (id, message_id, address, status, detail, updated_at)
+		VALUES ('rcp_list', $1, 'delivered@example.com', 'delivered', 'state detail', $2)
+	`, "msg_list_outbound", reconstructBaseTime.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO suppressions (id, user_id, address, source, source_message_id, created_at)
+		VALUES ('sup_list', $1, 'bounce@example.com', 'bounce', $2, $3)
+	`, "usr_msg_list_outbound", "msg_list_outbound", reconstructBaseTime.Add(4*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	event := eventSnapshot("evt_list", "email.delivered", reconstructBaseTime.Add(time.Minute), map[string]any{
+		"message_id": "msg_list_outbound", "delivered_to": "delivered@example.com", "smtp_detail": "event detail",
+	})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO webhook_events (id, user_id, type, envelope, message_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, event.ID, "usr_msg_list_outbound", event.Type, event.Envelope, "msg_list_outbound", event.CreatedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := NewStore(pool).ListForMessage(ctx, "msg_list_outbound", "agt_msg_list_outbound")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReasons(t, got, ReasonAcceptanceOutboundAPI, ReasonDeliveryRecipientServerAccepted, ReasonSuppressionHardBounceApplied)
+	delivery := findReason(got, ReasonDeliveryRecipientServerAccepted)
+	if delivery.CorrelationIDs["event_id"] != "evt_list" || delivery.Evidence["smtp_detail"] != "event detail" {
+		t.Fatalf("delivery did not prefer retained event: %#v", delivery)
+	}
+}
+
+func TestListForMessageDeterministicPersistedPrecedenceOrderingAndNoWrites(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	insertLifecycleMessage(t, pool, "msg_list_merge", "outbound")
+	when := reconstructBaseTime
+	if _, err := pool.Exec(ctx, `UPDATE messages SET method='smtp', created_at=$2 WHERE id=$1`, "msg_list_merge", when); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO message_recipients (id, message_id, address, status, updated_at)
+		VALUES ('rcp_merge', $1, 'a@example.com', 'delivered', $2)
+	`, "msg_list_merge", when); err != nil {
+		t.Fatal(err)
+	}
+	persisted := appendAndCommit(t, pool, AppendInput{
+		MessageID: "msg_list_merge", DedupeKey: "persisted-delivery", Direction: "outbound",
+		Recipient: "a@example.com", ReasonCode: ReasonDeliveryRecipientServerAccepted,
+		OccurredAt: when, Evidence: map[string]any{"smtp_detail": "persisted"},
+	})
+
+	store := NewStore(pool)
+	before := lifecycleCount(t, pool, "msg_list_merge")
+	first, err := store.ListForMessage(ctx, "msg_list_merge", "agt_msg_list_merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.ListForMessage(ctx, "msg_list_merge", "agt_msg_list_merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("repeat reads differ\nfirst: %#v\nsecond:%#v", first, second)
+	}
+	if after := lifecycleCount(t, pool, "msg_list_merge"); after != before {
+		t.Fatalf("ListForMessage wrote transitions: before=%d after=%d", before, after)
+	}
+	if len(first) != 2 || findReason(first, ReasonAcceptanceOutboundAPI) == nil {
+		t.Fatalf("missing reconstructed earlier acceptance: %#v", first)
+	}
+	delivery := findReason(first, ReasonDeliveryRecipientServerAccepted)
+	if delivery == nil || delivery.ID != persisted.ID || delivery.Reconstructed || delivery.Evidence["smtp_detail"] != "persisted" {
+		t.Fatalf("persisted transition did not win: %#v", delivery)
+	}
+	for i := 1; i < len(first); i++ {
+		if first[i].OccurredAt.Before(first[i-1].OccurredAt) || (first[i].OccurredAt.Equal(first[i-1].OccurredAt) && first[i].ID < first[i-1].ID) {
+			t.Fatalf("not ordered by (occurred_at,id): %#v", first)
+		}
+	}
+}
+
 func lifecycleInput(messageID, dedupeKey string) AppendInput {
 	return AppendInput{
 		MessageID:      messageID,
