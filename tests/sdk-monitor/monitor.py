@@ -102,6 +102,14 @@ PORT = int(os.environ.get("PORT", "8080"))
 # Every interface this service exercises, in the fixed order /tick fires them.
 IFACES = ("api", "python_sdk", "mcp", "ts_sdk", "cli")
 
+# The raw-HTTP interfaces (api, mcp) call urllib directly; its default
+# User-Agent (Python-urllib/x.y) is blocked by Cloudflare bot rules
+# (HTTP 403 / error 1010) on Cloudflare-fronted hosts such as prod
+# api.e2a.dev. Present a real, identifiable UA so the monitor's traffic
+# isn't treated as an anonymous scraper. The python_sdk/ts_sdk/cli
+# interfaces set their own client UAs and are unaffected.
+USER_AGENT = "e2a-sdk-monitor/1.0"
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 NODE_HELPER = os.path.join(APP_DIR, "js", "monitor-helper.mjs")
 CLI_BIN = os.path.join(APP_DIR, "node_modules", "@e2a", "cli", "dist", "bin", "e2a.js")
@@ -206,6 +214,7 @@ class ApiStrategy:
         req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST")
         req.add_header("Authorization", f"Bearer {self._api_key}")
         req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", USER_AGENT)
         if idempotency_key:
             req.add_header("Idempotency-Key", idempotency_key)
         try:
@@ -334,6 +343,7 @@ class McpStrategy:
         req = urllib.request.Request(self._url, data=payload, method="POST")
         req.add_header("Authorization", f"Bearer {self._api_key}")
         req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", USER_AGENT)
         # Streamable-HTTP requires the client to accept both framings.
         req.add_header("Accept", "application/json, text/event-stream")
         try:
