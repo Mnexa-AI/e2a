@@ -192,6 +192,31 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 	})
 }
 
+// HasApplicableRecipientTx locks the message and checks candidate provider
+// recipients against its persisted immutable envelope. This preflight keeps a
+// foreign-only notification from establishing provider-accept evidence before
+// RecordDeliveryOutcomeTx gets a chance to apply its per-recipient gate.
+func (s *Store) HasApplicableRecipientTx(ctx context.Context, tx pgx.Tx, messageID string, addresses []string) (bool, error) {
+	var envTo, envCC, envBCC []string
+	err := tx.QueryRow(ctx,
+		`SELECT COALESCE(to_recipients, '{}'), COALESCE(cc, '{}'), COALESCE(bcc, '{}')
+		   FROM messages WHERE id=$1 FOR UPDATE`,
+		messageID,
+	).Scan(&envTo, &envCC, &envBCC)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, address := range addresses {
+		if addressInEnvelope(NormalizeEmail(address), envTo, envCC, envBCC) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status delivery.Status, detail string) (bool, error) {
 	addr := NormalizeEmail(address)
 

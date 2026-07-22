@@ -53,6 +53,10 @@ type Store interface {
 	// crash window. Idempotent. The worker/terminal-reconciler guards read
 	// this evidence before declaring a terminal failure.
 	WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error
+	// HasApplicableRecipientTx locks and checks the persisted immutable
+	// envelope. Recipient-bearing feedback must pass this preflight before it
+	// can establish provider acceptance or trigger canonical sent finalization.
+	HasApplicableRecipientTx(ctx context.Context, tx pgx.Tx, messageID string, addresses []string) (bool, error)
 	RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string, occurredAt time.Time) error
 	ProviderAcceptancePendingTx(ctx context.Context, tx pgx.Tx, messageID string) (bool, error)
 	RecordProviderRejectTx(ctx context.Context, tx pgx.Tx, messageID, detail string, occurredAt time.Time) error
@@ -196,6 +200,21 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 		// Evidence, recipient rollup, canonical lifecycle, causal suppression,
 		// and event outbox rows share this transaction. A notification retry can
 		// therefore never expose a state/event contradiction.
+		if ev.Kind.requiresApplicableRecipient() {
+			addresses := make([]string, 0, len(ev.Recipients))
+			for _, recipient := range ev.Recipients {
+				if address := norm(recipient.Address); address != "" {
+					addresses = append(addresses, address)
+				}
+			}
+			applicable, err := c.store.HasApplicableRecipientTx(ctx, tx, m.MessageID, addresses)
+			if err != nil {
+				return err
+			}
+			if !applicable {
+				return nil
+			}
+		}
 		if ev.Kind.impliesProviderAcceptance() {
 			if err := c.store.RecordProviderAcceptEvidenceTx(ctx, tx, m.MessageID, ev.SESMessageID, ev.OccurredAt); err != nil {
 				return err
@@ -290,6 +309,14 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 		}
 		return nil
 	})
+}
+
+func (k EventKind) requiresApplicableRecipient() bool {
+	switch k {
+	case KindDelivery, KindDeliveryDelay, KindBounce, KindComplaint, KindReject:
+		return true
+	}
+	return false
 }
 
 func feedbackReason(ev *Event, r RecipientOutcome) messagelifecycle.ReasonCode {

@@ -208,8 +208,11 @@ func TestFeedbackIgnoresRecipientsOutsideMessageEnvelope(t *testing.T) {
 		status     delivery.Status
 		bounceType string
 	}{
+		{"delivery", delivery.KindDelivery, delivery.StatusDelivered, ""},
+		{"delay", delivery.KindDeliveryDelay, delivery.StatusDeferred, ""},
 		{"bounce", delivery.KindBounce, delivery.StatusBounced, "permanent"},
 		{"complaint", delivery.KindComplaint, delivery.StatusComplained, ""},
+		{"reject", delivery.KindReject, delivery.StatusFailed, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pool := testutil.TestDB(t)
@@ -243,6 +246,139 @@ func TestFeedbackIgnoresRecipientsOutsideMessageEnvelope(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestForeignOnlyFeedbackCannotFinalizeLocallyFailedMessage(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, err := store.CreateOrGetUser(ctx, "owner-foreign-failed@example.com", "Owner", "g-foreign-failed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	domain := "foreign-failed.example.com"
+	if _, err := store.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.VerifyDomain(ctx, domain, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	agentEmail := "bot@" + domain
+	if _, err := store.CreateAgent(ctx, agentEmail, domain, "", "", "", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := store.CreateOutboundMessage(ctx, agentEmail, []string{"actual@example.com"}, nil, nil, "Subj", "send", "smtp", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackAt := time.Date(2026, 7, 21, 12, 58, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `UPDATE messages SET delivery_status='failed',send_job_id=321,delivery_detail='local terminal fallback',delivery_failure_source='local',delivery_failure_reason_code='submission.local_retries_exhausted',delivery_failure_occurred_at=$2,delivery_failure_attempt=4,delivery_failure_blocked_recipients=ARRAY['blocked@example.com'] WHERE id=$1`, msg.ID, fallbackAt); err != nil {
+		t.Fatal(err)
+	}
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	finalizer := agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool)))
+	consumer := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox), finalizer.FinalizeProviderAcceptedTx)
+	queries := map[string]string{
+		"foreign recipient": `SELECT count(*) FROM message_recipients WHERE message_id=$1 AND address='foreign@example.com'`,
+		"lifecycle":         `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1`,
+		"events":            `SELECT count(*) FROM webhook_events WHERE message_id=$1`,
+		"suppressions":      `SELECT count(*) FROM suppressions WHERE user_id=$1`,
+		"usage":             `SELECT count(*) FROM usage_events WHERE user_id=$1`,
+	}
+	baselines := make(map[string]int, len(queries))
+	for label, query := range queries {
+		arg := any(msg.ID)
+		if label == "suppressions" || label == "usage" {
+			arg = user.ID
+		}
+		var count int
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		baselines[label] = count
+	}
+	event := &delivery.Event{Kind: delivery.KindDelivery, SESMessageID: "ses-foreign-failed", E2AMessageID: msg.ID, ProviderEventID: "sns-foreign-failed", OccurredAt: time.Date(2026, 7, 21, 13, 0, 0, 0, time.UTC), Recipients: []delivery.RecipientOutcome{{Address: "FOREIGN@example.com", Status: delivery.StatusDelivered}}}
+	if err := consumer.Process(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+
+	var status, source, reason, detail, providerID string
+	var acceptedAt *time.Time
+	var occurredAt *time.Time
+	var attempt *int
+	var blocked []string
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_source,''),COALESCE(delivery_failure_reason_code,''),COALESCE(delivery_detail,''),COALESCE(provider_message_id,''),provider_accepted_at,delivery_failure_occurred_at,delivery_failure_attempt,COALESCE(delivery_failure_blocked_recipients,'{}') FROM messages WHERE id=$1`, msg.ID).Scan(&status, &source, &reason, &detail, &providerID, &acceptedAt, &occurredAt, &attempt, &blocked); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || source != "local" || reason != "submission.local_retries_exhausted" || detail != "local terminal fallback" || providerID != "" || acceptedAt != nil || occurredAt == nil || !occurredAt.Equal(fallbackAt) || attempt == nil || *attempt != 4 || len(blocked) != 1 || blocked[0] != "blocked@example.com" {
+		t.Fatalf("foreign feedback mutated failed row: status=%q source=%q reason=%q detail=%q provider=%q accepted=%v occurred=%v attempt=%v blocked=%v", status, source, reason, detail, providerID, acceptedAt, occurredAt, attempt, blocked)
+	}
+	for label, query := range queries {
+		arg := any(msg.ID)
+		if label == "suppressions" || label == "usage" {
+			arg = user.ID
+		}
+		var count int
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != baselines[label] {
+			t.Fatalf("%s rows changed from %d to %d", label, baselines[label], count)
+		}
+	}
+}
+
+func TestMixedFeedbackProcessesOnlyEnvelopeRecipients(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	userID, messageID, agentEmail := seedOutbound(t, store, "mixed-recipients", "ses-mixed-recipients", []string{"actual@example.com"})
+	outbox := webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true))
+	event := &delivery.Event{Kind: delivery.KindBounce, SESMessageID: "ses-mixed-recipients", ProviderEventID: "sns-mixed-recipients", OccurredAt: time.Date(2026, 7, 21, 13, 1, 0, 0, time.UTC), BounceType: "permanent", Recipients: []delivery.RecipientOutcome{{Address: "ACTUAL@example.com", Status: delivery.StatusBounced, Detail: "550 actual", Suppress: true}, {Address: "foreign@example.com", Status: delivery.StatusBounced, Detail: "550 foreign", Suppress: true}}}
+	if err := delivery.NewConsumer(store, transactionalDeliveryFirer(outbox)).Process(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if got := deliveryStatus(t, store, messageID, agentEmail); got != "bounced" {
+		t.Fatalf("message status=%q want bounced", got)
+	}
+	var actualStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM message_recipients WHERE message_id=$1 AND address='actual@example.com'`, messageID).Scan(&actualStatus); err != nil {
+		t.Fatal(err)
+	}
+	if actualStatus != "bounced" {
+		t.Fatalf("actual recipient status=%q want bounced", actualStatus)
+	}
+	for label, query := range map[string]string{
+		"foreign recipient":   `SELECT count(*) FROM message_recipients WHERE message_id=$1 AND address='foreign@example.com'`,
+		"foreign lifecycle":   `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND recipient='foreign@example.com'`,
+		"foreign suppression": `SELECT count(*) FROM suppressions WHERE user_id=$1 AND address='foreign@example.com'`,
+		"foreign event":       `SELECT count(*) FROM webhook_events WHERE message_id=$1 AND envelope->'data'->>'delivered_to'='foreign@example.com'`,
+		"actual lifecycle":    `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND recipient='actual@example.com'`,
+		"actual suppression":  `SELECT count(*) FROM suppressions WHERE user_id=$1 AND address='actual@example.com'`,
+		"actual bounce event": `SELECT count(*) FROM webhook_events WHERE message_id=$1 AND type='email.bounced' AND envelope->'data'->>'delivered_to'='actual@example.com'`,
+	} {
+		arg := any(messageID)
+		want := 0
+		if label == "foreign suppression" || label == "actual suppression" {
+			arg = userID
+		}
+		if label == "actual lifecycle" {
+			want = 2
+		}
+		if label == "actual suppression" {
+			want = 1
+		}
+		if label == "actual bounce event" {
+			want = 1
+		}
+		var count int
+		if err := pool.QueryRow(ctx, query, arg).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Fatalf("%s rows=%d want %d", label, count, want)
+		}
 	}
 }
 

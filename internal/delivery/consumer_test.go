@@ -29,10 +29,13 @@ type fakeConsumerStore struct {
 	suppressErr error
 	addSuppErr  error
 	alreadySupp map[string]bool // (user|address) already suppressed → added=false
+	pending     bool
+	applicable  bool
+	preflights  int
 }
 
 func newFakeConsumerStore() *fakeConsumerStore {
-	return &fakeConsumerStore{corr: map[string]*CorrelatedMessage{}, corrByE2A: map[string]*CorrelatedMessage{}, suppressed: map[string]bool{}, alreadySupp: map[string]bool{}}
+	return &fakeConsumerStore{corr: map[string]*CorrelatedMessage{}, corrByE2A: map[string]*CorrelatedMessage{}, suppressed: map[string]bool{}, alreadySupp: map[string]bool{}, applicable: true}
 }
 
 func (f *fakeConsumerStore) CorrelateBySESMessageID(ctx context.Context, id string) (*CorrelatedMessage, bool, error) {
@@ -53,11 +56,15 @@ func (f *fakeConsumerStore) RecordProviderAcceptEvidence(ctx context.Context, me
 func (f *fakeConsumerStore) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 	return fn(nil)
 }
+func (f *fakeConsumerStore) HasApplicableRecipientTx(context.Context, pgx.Tx, string, []string) (bool, error) {
+	f.preflights++
+	return f.applicable, nil
+}
 func (f *fakeConsumerStore) RecordProviderAcceptEvidenceTx(ctx context.Context, _ pgx.Tx, messageID, sesMessageID string, _ time.Time) error {
 	return f.RecordProviderAcceptEvidence(ctx, messageID, sesMessageID)
 }
 func (f *fakeConsumerStore) ProviderAcceptancePendingTx(context.Context, pgx.Tx, string) (bool, error) {
-	return false, nil
+	return f.pending, nil
 }
 func (f *fakeConsumerStore) RecordProviderRejectTx(context.Context, pgx.Tx, string, string, time.Time) error {
 	return nil
@@ -439,8 +446,13 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 
 	t.Run("Send event with no recipients still records evidence", func(t *testing.T) {
 		store := newFakeConsumerStore()
+		store.pending = true
 		store.corrByE2A["msg_send1"] = &CorrelatedMessage{MessageID: "msg_send1", UserID: "u_1", AgentID: "bot@x.com"}
-		c := NewConsumer(store, nil)
+		finalized := 0
+		c := NewConsumer(store, nil, func(context.Context, pgx.Tx, string) error {
+			finalized++
+			return nil
+		})
 		if err := c.Process(context.Background(), &Event{ProviderEventID: "sns-test", OccurredAt: testFeedbackOccurredAt,
 			Kind: KindSend, SESMessageID: "ses-s1", E2AMessageID: "msg_send1",
 		}); err != nil {
@@ -451,6 +463,12 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 		}
 		if len(store.outcomes) != 0 {
 			t.Errorf("a Send has no recipient outcomes, got %v", store.outcomes)
+		}
+		if finalized != 1 {
+			t.Errorf("Send canonical acceptance finalizations=%d want 1", finalized)
+		}
+		if store.preflights != 0 {
+			t.Errorf("Send recipient preflights=%d want 0", store.preflights)
 		}
 	})
 
@@ -490,6 +508,25 @@ func TestConsumerCorrelationAndEvidence(t *testing.T) {
 			t.Error("uncorrelated feedback must record nothing")
 		}
 	})
+}
+
+func TestRecipientApplicabilityContract(t *testing.T) {
+	for _, tc := range []struct {
+		kind EventKind
+		want bool
+	}{
+		{KindDelivery, true},
+		{KindDeliveryDelay, true},
+		{KindBounce, true},
+		{KindComplaint, true},
+		{KindReject, true},
+		{KindSend, false},
+		{KindOther, false},
+	} {
+		if got := tc.kind.requiresApplicableRecipient(); got != tc.want {
+			t.Errorf("%s requiresApplicableRecipient=%v want %v", tc.kind, got, tc.want)
+		}
+	}
 }
 
 // TestConsumerGoldenPayloads is this package's side of the cross-channel
