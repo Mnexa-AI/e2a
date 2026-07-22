@@ -191,4 +191,4 @@ The user revokes API keys in the e2a dashboard. OAuth access tokens are revoked 
 
 - WorkOS [auth.md protocol](https://workos.com/auth-md) — the open spec this document follows
 - [github.com/workos/auth.md](https://github.com/workos/auth.md) — reference implementation
-- e2a [OpenAPI contract](https://e2a.dev/openapi.yaml) — full reference for the endpoints above
+- e2a [OpenAPI contract](https://e2a.dev/v1/openapi.yaml) — full reference for the endpoints above

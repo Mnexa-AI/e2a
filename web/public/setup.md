@@ -93,7 +93,7 @@ Registration flow in [auth.md](https://e2a.dev/auth.md).
 
 If your client does not use MCP, follow [sdk.md](https://e2a.dev/sdk.md) for
 TypeScript, Python, and raw REST examples. The complete API contract is
-[openapi.yaml](https://e2a.dev/openapi.yaml).
+[openapi.yaml](https://e2a.dev/v1/openapi.yaml).
 
 ## 2. Verify the connection
 
