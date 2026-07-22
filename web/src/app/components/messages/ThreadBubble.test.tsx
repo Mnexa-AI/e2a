@@ -3,9 +3,10 @@
 // parsed.text is shown as escaped text. Pins the fallback order so a regression
 // can't silently drop back to rendering raw MIME.
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThreadBubble } from "./ThreadBubble";
 import { getMessageDetailWire } from "../onboarding/api";
+import { getMessageLifecycle } from "../../../lib/messageLifecycle";
 import {
   invalidateAgentMessages,
   invalidateAgentUnread,
@@ -24,6 +25,10 @@ jest.mock("../../../lib/swrKeys", () => ({
   invalidateAgentMessages: jest.fn(),
   invalidateAgentUnread: jest.fn(),
 }));
+jest.mock("../../../lib/messageLifecycle", () => ({
+  ...jest.requireActual("../../../lib/messageLifecycle"),
+  getMessageLifecycle: jest.fn(),
+}));
 const mockGet = getMessageDetailWire as jest.MockedFunction<
   typeof getMessageDetailWire
 >;
@@ -31,6 +36,9 @@ const mockInvalidateMessages =
   invalidateAgentMessages as jest.MockedFunction<typeof invalidateAgentMessages>;
 const mockInvalidateUnread =
   invalidateAgentUnread as jest.MockedFunction<typeof invalidateAgentUnread>;
+const mockGetLifecycle = getMessageLifecycle as jest.MockedFunction<
+  typeof getMessageLifecycle
+>;
 
 // Each test uses a distinct id: useSWR keys the body cache by id and
 // that cache is process-global, so reusing an id would leak one test's body
@@ -63,6 +71,50 @@ afterEach(() => {
   mockGet.mockReset();
   mockInvalidateMessages.mockReset();
   mockInvalidateUnread.mockReset();
+  mockGetLifecycle.mockReset();
+});
+
+describe("ThreadBubble canonical lifecycle", () => {
+  it("loads and expands the beta lifecycle for the selected message", async () => {
+    outbound("sent body");
+    mockGetLifecycle.mockResolvedValue({
+      items: [{
+        id: "mlt_thread_sent",
+        message_id: "msg_lifecycle_thread",
+        direction: "outbound",
+        recipient: "james@x.com",
+        stage: "submission",
+        outcome: "accepted",
+        reason_code: "submission.upstream_accepted",
+        retryable: false,
+        evidence: {},
+        correlation_ids: {},
+        occurred_at: "2026-07-22T12:00:00Z",
+        reconstructed: false,
+      }],
+      next_cursor: null,
+    });
+    const m: MessageSummary = {
+      ...msg("msg_lifecycle_thread"),
+      direction: "outbound",
+      from: "support@acme.dev",
+      recipient: "james@x.com",
+      status: "sent",
+    };
+
+    render(<ThreadBubble message={m} counterparty={CP} agentEmail="support@acme.dev" />);
+
+    const toggle = screen.getByRole("button", { name: /lifecycle.*beta/i });
+    expect(mockGetLifecycle).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+
+    expect(await screen.findByText("Accepted by upstream provider")).toBeInTheDocument();
+    expect(mockGetLifecycle).toHaveBeenCalledWith(
+      "support@acme.dev",
+      "msg_lifecycle_thread",
+      { limit: 100 },
+    );
+  });
 });
 
 describe("ThreadBubble body precedence", () => {

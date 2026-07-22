@@ -128,9 +128,14 @@ function isDetailGet(url: string): boolean {
   return (
     url.includes("/v1/agents/") &&
     url.includes("/messages/") &&
+    !url.endsWith("/lifecycle?limit=100") &&
     !url.endsWith("/approve") &&
     !url.endsWith("/reject")
   );
+}
+
+function isLifecycleGet(url: string): boolean {
+  return url.endsWith("/lifecycle?limit=100");
 }
 
 function jsonText(body: unknown, status = 200) {
@@ -192,6 +197,51 @@ describe("AgentMessageFocusPage", () => {
     expect(screen.getByRole("heading", { name: /Re: Q3 contract renewal/ })).toBeInTheDocument();
     expect(screen.getByTestId("action-card")).toBeInTheDocument();
     expect(screen.getByText(/Awaiting your approval/)).toBeInTheDocument();
+  });
+
+  it("renders the canonical beta lifecycle for a pending review", async () => {
+    setSearchParams({ email: AGENT_EMAIL, id: "msg_pending", direction: "outbound", pending: "1" });
+    mockFetch.mockImplementation((url: string) => {
+      if (isLifecycleGet(url)) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            items: [{
+              id: "mlt_pending",
+              message_id: "msg_pending",
+              direction: "outbound",
+              recipient: "maya@stripe.com",
+              stage: "review",
+              outcome: "pending",
+              reason_code: "review.hold_created",
+              retryable: false,
+              evidence: {},
+              correlation_ids: {},
+              occurred_at: minutesAgo(12),
+              reconstructed: false,
+            }],
+            next_cursor: null,
+          }),
+        });
+      }
+      if (isDetailGet(url)) return jsonText(OUTBOUND_PENDING);
+      return jsonText({}, 404);
+    });
+
+    render(<AgentMessageFocusPage />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/v1/agents/support%40acme.io/messages/msg_pending/lifecycle?limit=100",
+        { credentials: "include" },
+      );
+    });
+    expect(screen.getByRole("button", { name: /Lifecycle/i })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(await screen.findByText(/review\.hold_created/)).toBeInTheDocument();
+    expect(screen.getAllByText("Pending review")).toHaveLength(2);
+    expect(screen.getByText("Beta")).toBeInTheDocument();
   });
 
   it("renders the headers section open when ?headers=1", async () => {
@@ -559,8 +609,8 @@ describe("AgentMessageFocusPage", () => {
   // post-fix shape on a fetch path that pre-fix code would also have
   // passed), we render WITHOUT the test-utils/swr fresh-Map wrapper,
   // use the module-level SWR cache, pre-seed messageDetailKey(id)
-  // before mounting, and assert mockFetch was never called for the
-  // outbound endpoint. A pre-fix implementation (onSuccess-only seed)
+  // before mounting, and assert the detail endpoint was never called.
+  // The independent lifecycle subresource may still load. A pre-fix implementation (onSuccess-only seed)
   // would observe data via the cache but never fire onSuccess, so
   // the textarea would be empty and the assertion would fail.
   it("seeds the textarea from pre-populated SWR cache without firing a fetch (true cache-hit regression)", async () => {
@@ -585,11 +635,18 @@ describe("AgentMessageFocusPage", () => {
       [{ id: "ag_1", email: "support@acme.io", hitl_enabled: true }],
       { revalidate: false },
     );
-    // Fetch must NOT be called: any call indicates the page hit the
-    // network rather than the cache, defeating the bug reproduction.
-    mockFetch.mockImplementation(() => {
+    // The independent lifecycle may fetch, but the message-detail endpoint
+    // must not: that would defeat the cache-hit reproduction.
+    mockFetch.mockImplementation((url: string) => {
+      if (isLifecycleGet(url)) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ items: [], next_cursor: null }),
+        });
+      }
       throw new Error(
-        "fetch was called — cache hit did not happen, test reproduces nothing",
+        "message detail fetch was called — cache hit did not happen",
       );
     });
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
@@ -604,8 +661,8 @@ describe("AgentMessageFocusPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("action-card")).toBeInTheDocument();
     });
-    // Assert no outbound fetch happened.
-    expect(mockFetch).not.toHaveBeenCalled();
+    // Assert no message-detail fetch happened.
+    expect(mockFetch.mock.calls.filter(([url]) => isDetailGet(String(url)))).toHaveLength(0);
 
     // The H3 fix's invariant: textarea is seeded from cache-resolved
     // data, even though onSuccess never fired.
