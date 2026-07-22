@@ -66,10 +66,7 @@ test("mcp-ext: create_agent tool registers a new agent via MCP", async () => {
 
 test("mcp-ext: send_message tool happy path with HITL agent queues message", async () => {
   const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  if (!list.tools.find((t) => t.name === "send_message")) {
-    info(SUITE, "send-message-absent", "no send_message tool — skipping happy-path");
-    return;
-  }
+  assert.ok(list.tools.some((t) => t.name === "send_message"), "canonical send_message tool is required");
   const email = await ensureHitlAgent();
   // Pass the canonical `email` selector because this test creates a fresh
   // agent and must send from it rather than the server's configured default.
@@ -79,17 +76,15 @@ test("mcp-ext: send_message tool happy path with HITL agent queues message", asy
     subject: uniqueSubject("mcp send"),
     text: "from MCP",
   });
-  if (r.isError) {
-    fail(SUITE, "send-message-error", `send_message isError on valid input: ${extractText(r).slice(0, 200)}`);
-    return;
-  }
+  assert.equal(r.isError, undefined, `send_message isError on valid input: ${extractText(r).slice(0, 200)}`);
   const parsed = JSON.parse(extractText(r)) as { message_id?: string; status?: string };
   assert.ok(parsed.message_id?.startsWith("msg_"), `expected msg_ prefix, got "${parsed.message_id}"`);
-  if (parsed.status !== "pending_review") {
-    info(SUITE, "mcp-send-not-pending", `expected pending_review for review-gated agent, got "${parsed.status}"`);
-  }
+  assert.equal(parsed.status, "pending_review", "review-gated send_message stays held and does not send externally");
   // Clean up via API.
-  await apiClient.post(`/v1/reviews/${parsed.message_id}/reject`, { body: { reason: "e2e mcp send cleanup" } });
+  const cleanupReview = await apiClient.post(`/v1/reviews/${parsed.message_id}/reject`, {
+    body: { reason: "e2e mcp send cleanup" },
+  });
+  assert.equal(cleanupReview.status, 200, `cleanup rejection failed: ${cleanupReview.status}`);
 });
 
 test("mcp-ext: list_reviews and get_review round-trip", async () => {
@@ -143,56 +138,45 @@ test("mcp-ext: list_reviews and get_review round-trip", async () => {
 
 test("mcp-ext: reject_review via MCP transitions the message", async () => {
   const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  if (!list.tools.find((t) => t.name === "reject_review")) {
-    info(SUITE, "reject-review-absent", "no reject_review — skipping");
-    return;
-  }
+  assert.ok(list.tools.some((t) => t.name === "reject_review"), "canonical reject_review tool is required");
   const email = await ensureHitlAgent();
-  const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+  const s = await apiClient.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
     body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp reject"), text: "x" },
   });
-  if (s.status !== 202 || !s.body?.message_id) {
-    info(SUITE, "reject-setup-failed", `send returned ${s.status}`);
-    return;
-  }
-  const id = s.body.message_id;
+  assert.equal(s.status, 202, `reject setup send expected 202: ${s.raw.slice(0, 200)}`);
+  assert.equal(s.body?.status, "pending_review", "reject setup must remain held");
+  assert.ok(s.body?.message_id, "reject setup returns message_id");
+  const id = s.body!.message_id;
   const r = await callTool(mcp, "reject_review", { message_id: id, reason: "e2e mcp reject" });
-  if (r.isError) {
-    fail(SUITE, "reject-review-error", `reject_review isError: ${extractText(r).slice(0, 200)}`);
-    return;
-  }
+  assert.equal(r.isError, undefined, `reject_review isError: ${extractText(r).slice(0, 200)}`);
+  const rejected = JSON.parse(extractText(r)) as { status?: string };
+  assert.equal(rejected.status, "review_rejected", "reject_review transitions the hold to review_rejected");
   // Re-reject — should now fail (already rejected, 409 from API; MCP should surface as error).
   const r2 = await callTool(mcp, "reject_review", { message_id: id, reason: "should fail" });
-  if (!r2.isError) {
-    info(SUITE, "double-reject-not-error", "re-reject of already-rejected message did not surface as error");
-  }
+  assert.equal(r2.isError, true, "re-reject of an already rejected message must surface a terminal-state error");
 });
 
 test("mcp-ext: approve_review via MCP sends the message", async () => {
   const list = await mcp.call<{ tools: Array<{ name: string }> }>("tools/list");
-  if (!list.tools.find((t) => t.name === "approve_review")) {
-    info(SUITE, "approve-review-absent", "no approve_review — skipping");
-    return;
-  }
+  assert.ok(list.tools.some((t) => t.name === "approve_review"), "canonical approve_review tool is required");
   const email = await ensureHitlAgent();
-  const s = await apiClient.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+  const s = await apiClient.post<{ message_id: string; status: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
     body: { to: [SINK_EMAIL], subject: uniqueSubject("mcp approve"), text: "x" },
   });
-  if (s.status !== 202 || !s.body?.message_id) {
-    info(SUITE, "approve-setup-failed", `send returned ${s.status}`);
-    return;
-  }
-  const id = s.body.message_id;
+  assert.equal(s.status, 202, `approve setup send expected 202: ${s.raw.slice(0, 200)}`);
+  assert.equal(s.body?.status, "pending_review", "approve setup must remain held until explicit approval");
+  assert.ok(s.body?.message_id, "approve setup returns message_id");
+  const id = s.body!.message_id;
   const r = await callTool(mcp, "approve_review", { message_id: id });
-  if (r.isError) {
-    fail(SUITE, "approve-review-error", `approve_review isError: ${extractText(r).slice(0, 200)}`);
-    return;
-  }
+  assert.equal(r.isError, undefined, `approve_review isError: ${extractText(r).slice(0, 200)}`);
+  const approved = JSON.parse(extractText(r)) as { status?: string };
+  assert.ok(
+    approved.status === "accepted" || approved.status === "sent",
+    `approve_review must transition to accepted/sent, got "${approved.status}"`,
+  );
   // Re-approve — should fail with 409 (already sent).
   const r2 = await callTool(mcp, "approve_review", { message_id: id });
-  if (!r2.isError) {
-    info(SUITE, "double-approve-not-error", "re-approve of sent message did not surface as error");
-  }
+  assert.equal(r2.isError, true, "re-approve of a sent message must surface a terminal-state error");
 });
 
 test("mcp-ext: get_message returns shape and only own messages", async () => {
