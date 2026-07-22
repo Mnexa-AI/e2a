@@ -74,9 +74,9 @@ and import the token bridge instead.
 4. Re-export it from `src/index.ts`.
 5. `npm run build` and you're done.
 
-Good next extraction candidates from the app: `PageShell` and `Topbar` (these
-lean on responsive Tailwind utilities — easiest once this package adopts
-Tailwind), and `Sidebar` (depends on Next.js routing + auth/pending-count
-context — decouple those first). `ThemeToggle` was extracted as a *controlled*
+Good next extraction candidates from the app: `PageShell` (leans on
+responsive Tailwind utilities — easiest once this package adopts Tailwind),
+and `Sidebar` (depends on Next.js routing + auth/pending-count context —
+decouple those first). `ThemeToggle` was extracted as a *controlled*
 component (it took its state from a React context in the app); wire its
 `value`/`onChange` to your own theme state.
