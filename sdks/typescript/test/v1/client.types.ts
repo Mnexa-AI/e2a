@@ -4,7 +4,15 @@ import type {
   Authentication,
   EmailReceivedData,
   ListMessagesParams,
+  MessageLifecycleTransition,
+  PageMessageLifecycleTransition,
   SPFResult,
+} from "../../src/v1/index.js";
+import {
+  MessageLifecycleTransitionDirectionEnum,
+  MessageLifecycleTransitionOutcomeEnum,
+  MessageLifecycleTransitionReasonCodeEnum,
+  MessageLifecycleTransitionStageEnum,
 } from "../../src/v1/index.js";
 import type { EmailSentData, WebhookEvent } from "../../src/v1/webhook-signature.js";
 import type { WSEvent } from "../../src/v1/ws.js";
@@ -90,6 +98,42 @@ managedClient.agents.createSuppression("sender@example.com", {
   reason: "recipient opted out",
 });
 managedClient.agents.deleteSuppression("sender@example.com", "recipient@example.net");
+
+const lifecyclePage: Promise<PageMessageLifecycleTransition> =
+  managedClient.messages.getLifecycle("sender@example.com", "msg_1", {
+    cursor: "cur_1",
+    limit: 25,
+  });
+void lifecyclePage;
+
+const lifecycleTransition: MessageLifecycleTransition = {
+  correlationIds: { request_id: "req_1", future_id: "future_1" },
+  direction: MessageLifecycleTransitionDirectionEnum.Outbound,
+  evidence: { source: "api", nested: { future: true } },
+  id: "mlt_1",
+  messageId: "msg_1",
+  occurredAt: new Date("2026-07-22T00:00:00Z"),
+  outcome: MessageLifecycleTransitionOutcomeEnum.Accepted,
+  reasonCode: MessageLifecycleTransitionReasonCodeEnum.AcceptanceOutboundApi,
+  recipient: null,
+  reconstructed: false,
+  retryable: false,
+  stage: MessageLifecycleTransitionStageEnum.Accepted,
+};
+void lifecycleTransition;
+
+// @ts-expect-error lifecycle direction is a closed, versioned vocabulary.
+const unknownLifecycleDirection: MessageLifecycleTransition["direction"] = "sideways";
+// @ts-expect-error lifecycle stage is a closed, versioned vocabulary.
+const unknownLifecycleStage: MessageLifecycleTransition["stage"] = "future_stage";
+// @ts-expect-error lifecycle outcome is a closed, versioned vocabulary.
+const unknownLifecycleOutcome: MessageLifecycleTransition["outcome"] = "future_outcome";
+// @ts-expect-error lifecycle reason code is a closed, versioned vocabulary.
+const unknownLifecycleReason: MessageLifecycleTransition["reasonCode"] = "provider.free_form";
+void unknownLifecycleDirection;
+void unknownLifecycleStage;
+void unknownLifecycleOutcome;
+void unknownLifecycleReason;
 
 // @ts-expect-error all five core envelope fields are required.
 const incompleteEventEnvelope: WebhookEvent = { type: "email.received", data: {} };

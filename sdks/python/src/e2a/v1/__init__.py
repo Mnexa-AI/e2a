@@ -102,6 +102,8 @@ __all__ = [
     "E2AClient",
     "SyncAutoPager",
     "SyncStream",
+    "MessageLifecycleTransition",
+    "PageMessageLifecycleTransition",
     # Errors
     "E2AError",
     "E2AAuthError",

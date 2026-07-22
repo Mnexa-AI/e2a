@@ -28,7 +28,11 @@ from e2a.v1.errors import E2AError, E2ALimitExceededError, E2ANotFoundError
 from e2a.v1.pagination import Page
 from e2a.v1.sync_client import SyncAutoPager, SyncStream
 from e2a.v1.inbound import InboundEmail
-from e2a.v1.generated.models import AgentView, TemplateSummaryView
+from e2a.v1.generated.models import (
+    AgentView,
+    PageMessageLifecycleTransition,
+    TemplateSummaryView,
+)
 
 from .test_v1_client import _valid  # the real-model wire-JSON fixture builder
 from .test_v1_inbound import event_from_wire, load
@@ -111,6 +115,7 @@ def test_parity_every_async_method_reachable_sync():
             "webhooks", "inbound", "account", "reviews", "templates", "info", "listen",
             "agents.get", "agents.list", "agents.create", "agents.delete", "agents.restore",
             "messages.delete", "messages.restore",
+            "messages.get_lifecycle",
             "messages.send", "messages.reply", "webhooks.fetch_message",
             "inbound.from_event",
             "account.suppressions", "account.suppressions.list",
@@ -237,6 +242,41 @@ def test_messages_delete_blocks_and_returns_receipt(httpx_mock):
     assert "/v1/agents/bot%40test.dev/messages/msg_1" in str(req.url)
     assert req.url.params["permanent"] == "true"
     assert "confirm=DELETE" in str(req.url)
+
+
+def test_messages_get_lifecycle_sync_facade_forwards_identical_arguments(httpx_mock):
+    httpx_mock.add_response(
+        json={
+            "items": [
+                {
+                    "id": "mlt_recon_1",
+                    "message_id": "msg_1",
+                    "direction": "inbound",
+                    "stage": "accepted",
+                    "outcome": "accepted",
+                    "reason_code": "acceptance.inbound_smtp",
+                    "retryable": False,
+                    "evidence": {"source": "message"},
+                    "correlation_ids": {},
+                    "occurred_at": "2026-07-22T00:00:00Z",
+                    "reconstructed": True,
+                }
+            ],
+            "next_cursor": None,
+        }
+    )
+
+    with _client() as c:
+        page = c.messages.get_lifecycle(
+            "bot@test.dev", "msg_1", cursor="cur_1", limit=1
+        )
+
+    assert isinstance(page, PageMessageLifecycleTransition)
+    assert page.items[0].reconstructed is True
+    request = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/lifecycle" in str(request.url)
+    assert request.url.params["cursor"] == "cur_1"
+    assert request.url.params["limit"] == "1"
 
 
 def test_templates_list_multi_page_walk_and_page_resume(httpx_mock):

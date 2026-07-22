@@ -21,10 +21,58 @@ import { resolve as pathResolve } from "node:path";
 import { parse as yamlParse } from "yaml";
 import { WSListener } from "../../src/v1/ws.js";
 import { Seeder, seedEnabled, sweepLeaks } from "./seed.js";
+import { ObjectSerializer } from "../../src/v1/generated/models/ObjectSerializer.js";
+import type { PageMessageLifecycleTransition } from "../../src/v1/index.js";
 
 // When the isolated CF zone + SMTP port are configured, store-dependent scenarios
 // are SEEDED over the API (verified domains + real inbound) instead of skipped.
 const SEED = seedEnabled();
+
+it("parses the generated message lifecycle page contract", () => {
+  const page = ObjectSerializer.deserialize(
+    {
+      items: [
+        {
+          id: "mlt_1",
+          message_id: "msg_1",
+          direction: "outbound",
+          recipient: null,
+          stage: "accepted",
+          outcome: "accepted",
+          reason_code: "acceptance.outbound_api",
+          retryable: false,
+          evidence: { source: "api", nested: { future: true } },
+          correlation_ids: { request_id: "req_1", future_id: "future_1" },
+          occurred_at: "2026-07-22T00:00:00Z",
+          reconstructed: false,
+        },
+        {
+          id: "mlt_recon_2",
+          message_id: "msg_1",
+          direction: "outbound",
+          stage: "delivery",
+          outcome: "delivered",
+          reason_code: "delivery.recipient_server_accepted",
+          retryable: false,
+          evidence: {},
+          correlation_ids: {},
+          occurred_at: "2026-07-22T01:00:00Z",
+          reconstructed: true,
+        },
+      ],
+      next_cursor: null,
+    },
+    "PageMessageLifecycleTransition",
+    "",
+  ) as PageMessageLifecycleTransition;
+
+  expect(page.items[0].recipient).toBeNull();
+  expect(page.items[0].evidence.nested).toEqual({ future: true });
+  expect(page.items[0].correlationIds.future_id).toBe("future_1");
+  expect(page.items[1].recipient).toBeUndefined();
+  expect(page.items[1].reconstructed).toBe(true);
+  expect(page.items[1].reasonCode).toBe("delivery.recipient_server_accepted");
+});
 
 // Minimal raw-HTTP driver — the scenario runner needs a generic
 // request(method, path, body) shim, not the ergonomic client surface.

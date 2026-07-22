@@ -57,6 +57,7 @@ from .generated.models import (
     AccountView,
     AttachmentView,
     MessageSummaryView,
+    PageMessageLifecycleTransition,
     MessageView,
     RedeliverEventRequest,
     RedeliverView,
@@ -477,6 +478,24 @@ class MessagesResource:
 
     async def get(self, email: str, message_id: str) -> MessageView:
         return await self._c._read(lambda h: self._api.get_message(email, message_id, _headers=h))
+
+    async def get_lifecycle(
+        self,
+        email: str,
+        message_id: str,
+        *,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> PageMessageLifecycleTransition:
+        return await self._c._read(
+            lambda h: self._api.get_message_lifecycle(
+                email,
+                message_id,
+                cursor=cursor,
+                limit=limit,
+                _headers=h,
+            )
+        )
 
     async def delete(
         self, email: str, message_id: str, *, permanent: bool = False

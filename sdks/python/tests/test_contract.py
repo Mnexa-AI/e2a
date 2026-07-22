@@ -26,6 +26,8 @@ import httpx
 import pytest
 import yaml
 
+from e2a.v1.generated.models import PageMessageLifecycleTransition
+
 # NOTE: the runner drives the server over raw HTTP (a thin scenario interpreter,
 # not the ergonomic client). scenario `path`s are repointed from /api/v1 to /v1
 # as part of the cross-language scenarios.yaml migration (tracked separately);
@@ -231,10 +233,55 @@ class Runner:
 # ── Test entry point ──────────────────────────────────────────────
 
 
-pytestmark = pytest.mark.skipif(
+requires_contract_server = pytest.mark.skipif(
     not BASE_URL or not API_KEY,
     reason="E2A_TEST_BASE_URL and E2A_TEST_API_KEY required for contract tests",
 )
+
+
+def test_generated_message_lifecycle_page_parses_canonical_contract():
+    page = PageMessageLifecycleTransition.from_dict(
+        {
+            "items": [
+                {
+                    "id": "mlt_1",
+                    "message_id": "msg_1",
+                    "direction": "outbound",
+                    "recipient": None,
+                    "stage": "accepted",
+                    "outcome": "accepted",
+                    "reason_code": "acceptance.outbound_api",
+                    "retryable": False,
+                    "evidence": {"source": "api", "nested": {"future": True}},
+                    "correlation_ids": {"request_id": "req_1", "future_id": "future_1"},
+                    "occurred_at": "2026-07-22T00:00:00Z",
+                    "reconstructed": False,
+                },
+                {
+                    "id": "mlt_recon_2",
+                    "message_id": "msg_1",
+                    "direction": "outbound",
+                    "stage": "delivery",
+                    "outcome": "delivered",
+                    "reason_code": "delivery.recipient_server_accepted",
+                    "retryable": False,
+                    "evidence": {},
+                    "correlation_ids": {},
+                    "occurred_at": "2026-07-22T01:00:00Z",
+                    "reconstructed": True,
+                },
+            ],
+            "next_cursor": None,
+        }
+    )
+
+    assert page is not None
+    assert page.items[0].recipient is None
+    assert page.items[0].evidence["nested"] == {"future": True}
+    assert page.items[0].correlation_ids["future_id"] == "future_1"
+    assert page.items[1].recipient is None
+    assert page.items[1].reconstructed is True
+    assert page.items[1].reason_code == "delivery.recipient_server_accepted"
 
 
 def _scenario_ids():
@@ -255,6 +302,7 @@ def scenario(request):
     return _scenario_by_name(request.param)
 
 
+@requires_contract_server
 def test_contract_scenario(scenario):
     if scenario_needs_store(scenario):
         pytest.skip(f"scenario {scenario['name']}: requires store access (inject_message/verify_domain)")

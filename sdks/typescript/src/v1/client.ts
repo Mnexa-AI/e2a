@@ -29,6 +29,7 @@ import type {
   ProtectionConfigView,
   ProtectionConfigRequest,
   MessageView,
+  PageMessageLifecycleTransition,
   AttachmentView,
   MessageSummaryView,
   SendEmailRequest,
@@ -346,6 +347,15 @@ class MessagesResource {
   }
   get(email: string, id: string): Promise<MessageView> {
     return call(() => this.api.getMessage(email, id));
+  }
+  getLifecycle(
+    email: string,
+    messageId: string,
+    params: { cursor?: string; limit?: number } = {},
+  ): Promise<PageMessageLifecycleTransition> {
+    return call(() =>
+      this.api.getMessageLifecycle(email, messageId, params.cursor, params.limit),
+    );
   }
   /**
    * Move a message to the trash. Reversible via `restore()` until the trash
