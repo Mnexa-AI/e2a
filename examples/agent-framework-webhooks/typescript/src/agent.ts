@@ -1,8 +1,8 @@
 import type { InboundEmail } from "@e2a/sdk/v1";
 import { Agent, run } from "@openai/agents";
 
-import type { ReplyAgent } from "../contracts.js";
-import { REPLY_INSTRUCTIONS, emailPrompt } from "../prompt.js";
+import type { ReplyAgent } from "./contracts.js";
+import { REPLY_INSTRUCTIONS, emailPrompt } from "./prompt.js";
 
 export interface OpenAIResult {
   finalOutput?: unknown;
@@ -19,7 +19,7 @@ export class OpenAIReplyAgent implements ReplyAgent {
   }
 }
 
-/** Build the production adapter from the official `@openai/agents` exports. */
+/** Build the production agent from the official OpenAI Agents SDK. */
 export function createOpenAIReplyAgent(
   env: Record<string, string | undefined> = process.env,
 ): OpenAIReplyAgent {

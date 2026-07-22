@@ -12,11 +12,21 @@ import {
   type SendResultView,
 } from "@e2a/sdk/v1";
 
-import { FakeReplyAgent } from "./adapters/fake.js";
+import type { ReplyAgent } from "./contracts.js";
 import { EventDeduper } from "./delivery-state.js";
 import { handleDelivery } from "./handler.js";
+import { emailPrompt } from "./prompt.js";
 
 const SECRET = "whsec_agent_framework_dry_run";
+
+class FakeReplyAgent implements ReplyAgent {
+  constructor(private readonly response: string) {}
+
+  async reply(email: Parameters<ReplyAgent["reply"]>[0]): Promise<string> {
+    emailPrompt(email);
+    return this.response;
+  }
+}
 
 export interface DryRunEvidence {
   firstStatus: string;

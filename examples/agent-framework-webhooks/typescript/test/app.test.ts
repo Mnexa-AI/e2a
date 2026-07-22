@@ -9,8 +9,6 @@ import {
   MAX_WEBHOOK_BODY_BYTES,
   closeApp,
   createApp,
-  selectAgent,
-  validateProviderConfig,
 } from "../src/app.js";
 import { EventDeduper } from "../src/delivery-state.js";
 
@@ -88,7 +86,7 @@ describe("createApp", () => {
   });
 
   it("returns 503 readiness when startup configuration is invalid", async () => {
-    const app = createApp({ env: {}, framework: "openai" });
+    const app = createApp({ env: {} });
     await request(app).get("/health").expect(503, {
       status: "unavailable",
       detail: "E2A_WEBHOOK_SECRET is required",
@@ -96,15 +94,12 @@ describe("createApp", () => {
     await request(app).post("/webhook").set("content-type", "application/json").send("{}").expect(503);
   });
 
-  it("does not expose unexpected startup error contents", async () => {
-    const app = createApp({
-      env: { E2A_API_KEY: "test", E2A_WEBHOOK_SECRET: SECRET },
-      framework: "fake",
-      agentFactories: { fake: () => { throw new Error("provider leaked sk-secret-value"); } },
+  it("requires the OpenAI credential for production readiness", async () => {
+    const app = createApp({ env: { E2A_API_KEY: "test", E2A_WEBHOOK_SECRET: SECRET } });
+    await request(app).get("/health").expect(503, {
+      status: "unavailable",
+      detail: "OPENAI_API_KEY is required",
     });
-    const response = await request(app).get("/health").expect(503);
-    expect(response.body).toEqual({ status: "unavailable", detail: "runtime initialization failed" });
-    expect(JSON.stringify(response.body)).not.toContain("sk-secret-value");
   });
 
   it("maps signature failures to 401 before downstream work", async () => {
@@ -160,24 +155,5 @@ describe("createApp", () => {
     await closeApp(app);
     await closeApp(app);
     expect(c.agent.close).toHaveBeenCalledOnce();
-  });
-});
-
-describe("framework configuration", () => {
-  it("selects exact supported names", () => {
-    const fake = { reply: async () => "fake" };
-    expect(selectAgent("fake", { fake: () => fake })).toBe(fake);
-    expect(() => selectAgent("OpenAI", { fake: () => fake })).toThrow("AGENT_FRAMEWORK");
-  });
-
-  it("requires provider credentials while allowing fake and complete ADK Vertex config", () => {
-    expect(() => validateProviderConfig("fake", {})).not.toThrow();
-    expect(() => validateProviderConfig("openai", {})).toThrow("OPENAI_API_KEY");
-    expect(() => validateProviderConfig("anthropic", {})).toThrow("ANTHROPIC_API_KEY");
-    expect(() => validateProviderConfig("langchain", { OPENAI_API_KEY: "key" })).not.toThrow();
-    expect(() => validateProviderConfig("langchain", { LANGCHAIN_MODEL: "anthropic:model" })).toThrow("openai:");
-    expect(() => validateProviderConfig("adk", {
-      GOOGLE_GENAI_USE_VERTEXAI: "true", GOOGLE_CLOUD_PROJECT: "p", GOOGLE_CLOUD_LOCATION: "us",
-    })).not.toThrow();
   });
 });

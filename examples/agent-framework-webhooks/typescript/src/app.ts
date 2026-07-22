@@ -5,22 +5,13 @@ import { pathToFileURL } from "node:url";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { E2AClient, E2AWebhookSignatureError } from "@e2a/sdk/v1";
 
-import {
-  createADKReplyAgent,
-  createAnthropicReplyAgent,
-  createLangChainReplyAgent,
-  createOpenAIReplyAgent,
-  FakeReplyAgent,
-} from "./adapters/index.js";
+import { createOpenAIReplyAgent } from "./agent.js";
 import type { InboundResource, ReplyAgent } from "./contracts.js";
 import { EventDeduper } from "./delivery-state.js";
 import { DeliveryInProgress, handleDelivery } from "./handler.js";
 
-export const SUPPORTED_FRAMEWORKS = ["openai", "anthropic", "langchain", "adk", "fake"] as const;
 export const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
-export type Framework = (typeof SUPPORTED_FRAMEWORKS)[number];
 type Environment = Record<string, string | undefined>;
-type AgentFactories = Partial<Record<Framework, () => ReplyAgent>>;
 
 class ConfigurationError extends Error {}
 
@@ -30,60 +21,14 @@ function required(name: string, env: Environment): string {
   return value;
 }
 
-function isFramework(value: string): value is Framework {
-  return (SUPPORTED_FRAMEWORKS as readonly string[]).includes(value);
-}
-
-export function validateProviderConfig(framework: Framework, env: Environment): void {
-  if (framework === "fake") return;
-  if (framework === "openai") return void required("OPENAI_API_KEY", env);
-  if (framework === "anthropic") return void required("ANTHROPIC_API_KEY", env);
-  if (framework === "langchain") {
-    const model = env.LANGCHAIN_MODEL ?? "openai:gpt-5.4";
-    if (!model.startsWith("openai:")) {
-      throw new ConfigurationError("LANGCHAIN_MODEL must use the installed openai: provider prefix");
-    }
-    return void required("OPENAI_API_KEY", env);
-  }
-  if (env.GEMINI_API_KEY || env.GOOGLE_API_KEY) return;
-  if (env.GOOGLE_GENAI_USE_VERTEXAI?.toLowerCase() === "true") {
-    required("GOOGLE_CLOUD_PROJECT", env);
-    required("GOOGLE_CLOUD_LOCATION", env);
-    return;
-  }
-  throw new ConfigurationError("ADK requires GEMINI_API_KEY or GOOGLE_API_KEY, or complete Vertex config");
-}
-
-function defaultFactories(env: Environment): Record<Framework, () => ReplyAgent> {
-  return {
-    openai: () => createOpenAIReplyAgent(env),
-    anthropic: () => createAnthropicReplyAgent(env),
-    langchain: () => createLangChainReplyAgent(env),
-    adk: () => createADKReplyAgent(env),
-    fake: () => new FakeReplyAgent("Deterministic fake reply"),
-  };
-}
-
-export function selectAgent(
-  framework: string,
-  factories: AgentFactories = defaultFactories(process.env),
-): ReplyAgent {
-  if (!isFramework(framework) || !factories[framework]) {
-    throw new ConfigurationError(`AGENT_FRAMEWORK must be one of: ${SUPPORTED_FRAMEWORKS.join(", ")}`);
-  }
-  return factories[framework]();
-}
-
 interface AppOptions {
   env?: Environment;
-  framework?: string;
   apiKey?: string;
   webhookSecret?: string;
   baseUrl?: string;
   inbound?: InboundResource;
   agent?: ReplyAgent;
   deduper?: EventDeduper;
-  agentFactories?: AgentFactories;
 }
 
 interface Runtime {
@@ -119,20 +64,16 @@ function limitedRawBody(request: Request, response: Response, next: NextFunction
 
 function initialize(options: AppOptions): Runtime {
   const env = options.env ?? process.env;
-  const selected = options.framework ?? env.AGENT_FRAMEWORK ?? "fake";
-  if (!isFramework(selected)) {
-    throw new ConfigurationError(`AGENT_FRAMEWORK must be one of: ${SUPPORTED_FRAMEWORKS.join(", ")}`);
-  }
   const secret = options.webhookSecret ?? required("E2A_WEBHOOK_SECRET", env);
   if (options.inbound && options.agent) {
     return { secret, inbound: options.inbound, agent: options.agent, deduper: options.deduper ?? new EventDeduper(), closed: false };
   }
-  validateProviderConfig(selected, env);
+  required("OPENAI_API_KEY", env);
   const client = new E2AClient({
     apiKey: options.apiKey ?? required("E2A_API_KEY", env),
     ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
   });
-  const agent = selectAgent(selected, options.agentFactories ?? defaultFactories(env));
+  const agent = createOpenAIReplyAgent(env);
   return { secret, inbound: client.inbound, agent, deduper: options.deduper ?? new EventDeduper(), closed: false };
 }
 

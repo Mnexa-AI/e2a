@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24.13.0"
+    "node": ">=18"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -14,16 +14,10 @@
     "dry-run": "tsx src/dry-run.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.67.0",
     "@e2a/sdk": "file:../../../sdks/typescript",
-    "@google/adk": "^0.3.0",
-    "@langchain/core": "^1.0.0",
-    "@langchain/openai": "^1.0.0",
     "@openai/agents": "^0.3.0",
     "dotenv": "^17.0.0",
-    "express": "^5.0.0",
-    "langchain": "^1.0.0",
-    "zod": "^4.0.0"
+    "express": "^5.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
