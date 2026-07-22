@@ -398,7 +398,7 @@ func (w *Worker) autoApproveLoopback(ctx context.Context, agent *identity.AgentI
 		w.autoReject(ctx, c.MessageID, fmt.Sprintf("auto-approve send failed: %v", err))
 		return
 	}
-	w.pushLoopbackReceived(agent.ID, receivedEvent)
+	w.pushLoopbackReceived(ctx, agent.ID, receivedEvent.MessageID)
 	// External sends are metered by the outbound worker after provider success.
 	// Loopback is terminal here and persisted both a Sent and an Inbox copy, so
 	// account for both directions after the transaction commits.
@@ -490,14 +490,15 @@ func loopbackDisplayFrom(req outbound.SendRequest, agentEmail string) string {
 
 func stringPointer(value string) *string { return &value }
 
-func (w *Worker) pushLoopbackReceived(agentID string, event webhookpub.Event) {
-	if w.wsHub == nil || event.ID == "" || !w.wsHub.IsConnected(agentID) {
+func (w *Worker) pushLoopbackReceived(ctx context.Context, agentID, messageID string) {
+	if w.wsHub == nil || messageID == "" || !w.wsHub.IsConnected(agentID) {
 		return
 	}
-	payload, err := json.Marshal(event.AsEnvelope())
-	if err == nil {
-		w.wsHub.Send(agentID, payload)
+	payload, err := w.store.GetEventEnvelope(ctx, messageID, webhookpub.EventEmailReceived)
+	if err != nil || len(payload) == 0 {
+		return
 	}
+	w.wsHub.Send(agentID, payload)
 }
 
 func (w *Worker) autoReject(ctx context.Context, messageID, reason string) {

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -139,7 +138,7 @@ func (a *API) performSelfSend(
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailSent)
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailReceived)
 	}
-	a.pushLoopbackReceived(agent.ID, receivedEvent)
+	a.pushLoopbackReceived(ctx, agent.ID, receivedEvent.MessageID)
 	return outboundMsg, nil
 }
 
@@ -227,7 +226,7 @@ func (a *API) approveSelfSend(
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailSent)
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailReceived)
 	}
-	a.pushLoopbackReceived(agent.ID, receivedEvent)
+	a.pushLoopbackReceived(ctx, agent.ID, receivedEvent.MessageID)
 	return sent, nil
 }
 
@@ -285,12 +284,13 @@ func loopbackDisplayFrom(req outbound.SendRequest, agentEmail string) string {
 	return agentEmail
 }
 
-func (a *API) pushLoopbackReceived(agentID string, event webhookpub.Event) {
-	if a.wsHub == nil || event.ID == "" || !a.wsHub.IsConnected(agentID) {
+func (a *API) pushLoopbackReceived(ctx context.Context, agentID, messageID string) {
+	if a.wsHub == nil || messageID == "" || !a.wsHub.IsConnected(agentID) {
 		return
 	}
-	payload, err := json.Marshal(event.AsEnvelope())
-	if err == nil {
-		a.wsHub.Send(agentID, payload)
+	payload, err := a.store.GetEventEnvelope(ctx, messageID, webhookpub.EventEmailReceived)
+	if err != nil || len(payload) == 0 {
+		return
 	}
+	a.wsHub.Send(agentID, payload)
 }

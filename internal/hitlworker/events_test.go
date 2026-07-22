@@ -3,6 +3,7 @@ package hitlworker_test
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -26,12 +27,20 @@ func assertTTLReviewEventLifecycleMatchesRow(t *testing.T, pool interface {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	var persistedID string
-	if err := pool.QueryRow(context.Background(), `SELECT id FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=$2`, messageID, wantReason).Scan(&persistedID); err != nil {
+	var persistedRaw []byte
+	if err := pool.QueryRow(context.Background(), `SELECT jsonb_build_array(to_jsonb(t) - 'dedupe_key') FROM message_lifecycle_transitions t WHERE message_id=$1 AND reason_code=$2`, messageID, wantReason).Scan(&persistedRaw); err != nil {
 		t.Fatalf("read persisted lifecycle: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != persistedID || got[0].ReasonCode != wantReason {
-		t.Fatalf("%s lifecycle = %+v, want exact persisted transition %s", eventType, got, persistedID)
+	var persisted []messagelifecycle.MessageLifecycleTransition
+	if err := json.Unmarshal(persistedRaw, &persisted); err != nil {
+		t.Fatalf("decode persisted lifecycle: %v", err)
+	}
+	if len(got) == 1 && len(persisted) == 1 {
+		got[0].OccurredAt = got[0].OccurredAt.UTC()
+		persisted[0].OccurredAt = persisted[0].OccurredAt.UTC()
+	}
+	if len(got) != 1 || len(persisted) != 1 || got[0].ReasonCode != wantReason || !reflect.DeepEqual(got[0], persisted[0]) {
+		t.Fatalf("%s lifecycle = %+v, persisted = %+v, want exact %s transition", eventType, got, persisted, wantReason)
 	}
 }
 

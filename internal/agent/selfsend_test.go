@@ -225,6 +225,9 @@ func TestSelfSend_HappyPath(t *testing.T) {
 	).Scan(&durableEnvelope); err != nil {
 		t.Fatalf("read durable received envelope: %v", err)
 	}
+	if !bytes.Equal(hub.payload, durableEnvelope) {
+		t.Errorf("live WebSocket frame must reuse exact committed envelope bytes\nlive=%s\ndurable=%s", hub.payload, durableEnvelope)
+	}
 	var durable, live map[string]any
 	if err := json.Unmarshal(durableEnvelope, &durable); err != nil {
 		t.Fatal(err)
@@ -271,6 +274,8 @@ func TestSelfSend_IdempotencyCompletionFailureRollsBackDeliveryLifecycle(t *test
 	api, store, pool := setupCoreAPI(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "idemrollback")
+	hub := &captureHub{}
+	api.SetWebSocketHub(hub)
 	var lifecycleBaseline, eventBaseline int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleBaseline); err != nil {
 		t.Fatal(err)
@@ -317,6 +322,27 @@ func TestSelfSend_IdempotencyCompletionFailureRollsBackDeliveryLifecycle(t *test
 	}
 	if messages != 0 || events != eventBaseline || lifecycleAfter != lifecycleBaseline {
 		t.Fatalf("partial loopback commit: messages=%d events=%d lifecycle before=%d after=%d", messages, events, lifecycleBaseline, lifecycleAfter)
+	}
+	if len(hub.payload) != 0 {
+		t.Fatalf("rolled-back loopback sent a live WebSocket frame: %s", hub.payload)
+	}
+}
+
+func TestSelfSend_LiveWebSocketSkipsMissingStoredEnvelope(t *testing.T) {
+	api, store, pool := setupCoreAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "missingliveenvelope")
+	hub := &captureHub{}
+	api.SetWebSocketHub(hub)
+	api.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(false)))
+
+	if _, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{ag.EmailAddress()}, Subject: "no durable live frame", Body: "body",
+	}, "send", "", nil, nil); oerr != nil {
+		t.Fatalf("DeliverOutbound: %v", oerr)
+	}
+	if len(hub.payload) != 0 {
+		t.Fatalf("missing durable envelope sent reconstructed WebSocket frame: %s", hub.payload)
 	}
 }
 

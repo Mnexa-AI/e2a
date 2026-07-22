@@ -1,6 +1,7 @@
 package hitlworker_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -287,6 +288,20 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 	if outcomeEvents != 2 {
 		t.Errorf("self-send outcome events=%d want 2", outcomeEvents)
 	}
+	var inboundID string
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM messages WHERE agent_id=$1 AND direction='inbound' AND subject='self auto-approve'`,
+		agent.ID,
+	).Scan(&inboundID); err != nil {
+		t.Fatal(err)
+	}
+	durableEnvelope, err := store.GetEventEnvelope(ctx, inboundID, webhookpub.EventEmailReceived)
+	if err != nil {
+		t.Fatalf("load durable received envelope: %v", err)
+	}
+	if !bytes.Equal(hub.payload, durableEnvelope) {
+		t.Errorf("TTL loopback WebSocket frame must reuse exact committed envelope bytes\nlive=%s\ndurable=%s", hub.payload, durableEnvelope)
+	}
 	var live struct {
 		Type string `json:"type"`
 		Data struct {
@@ -319,6 +334,28 @@ func TestWorkerAutoApproveSelfSendDeliversViaLoopback(t *testing.T) {
 	}
 	if inboundUsageCount != 1 {
 		t.Errorf("inbound usage events after self-send auto-approve = %d, want 1", inboundUsageCount)
+	}
+}
+
+func TestWorkerAutoApproveSelfSendSkipsMissingStoredEnvelope(t *testing.T) {
+	w, store, pool, _ := setupWorker(t)
+	ctx := context.Background()
+	agent := prepareAgent(t, store, "missing-live-envelope", identity.HITLExpirationApprove)
+	hub := &workerCaptureHub{}
+	w.SetWebSocketHub(hub)
+	w.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(false)))
+	msg, err := store.CreatePendingOutboundMessage(ctx, agent.ID,
+		[]string{agent.EmailAddress()}, nil, nil,
+		"missing live envelope", "body", "", nil,
+		"send", "", "", "", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backdateExpiry(t, pool, msg.ID)
+
+	w.RunOnce(ctx)
+	if len(hub.payload) != 0 {
+		t.Fatalf("missing durable envelope sent reconstructed WebSocket frame: %s", hub.payload)
 	}
 }
 

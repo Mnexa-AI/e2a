@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
@@ -38,7 +39,11 @@ func assertReviewEventLifecycleMatchesRow(t *testing.T, pool *pgxpool.Pool, mess
 	if err := json.Unmarshal(rowRaw, &rowTransitions); err != nil {
 		t.Fatalf("decode persisted lifecycle: %v", err)
 	}
-	if len(eventTransitions) != 1 || len(rowTransitions) != 1 || eventTransitions[0].ID != rowTransitions[0].ID || eventTransitions[0].ReasonCode != wantReason {
+	if len(eventTransitions) == 1 && len(rowTransitions) == 1 {
+		eventTransitions[0].OccurredAt = eventTransitions[0].OccurredAt.UTC()
+		rowTransitions[0].OccurredAt = rowTransitions[0].OccurredAt.UTC()
+	}
+	if len(eventTransitions) != 1 || len(rowTransitions) != 1 || eventTransitions[0].ReasonCode != wantReason || !reflect.DeepEqual(eventTransitions[0], rowTransitions[0]) {
 		t.Fatalf("event lifecycle = %+v, persisted = %+v, want exact %s transition", eventTransitions, rowTransitions, wantReason)
 	}
 }
