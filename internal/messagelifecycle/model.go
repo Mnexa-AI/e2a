@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/tokencanopy/e2a/internal/emailauth"
 )
 
 const (
@@ -192,69 +190,195 @@ func validatedEvidenceCopy(evidence map[string]any) (map[string]any, error) {
 }
 
 func validateAuthentication(encoded []byte) error {
-	var root map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &root); err != nil || root == nil {
-		return fmt.Errorf("must be a structured object")
-	}
-	allowedRoot := map[string]bool{"spf": true, "dkim": true, "dmarc": true}
-	for key := range root {
-		if !allowedRoot[key] {
-			return fmt.Errorf("key %q is not allowed", key)
-		}
-	}
-	for _, key := range []string{"spf", "dkim", "dmarc"} {
-		if _, ok := root[key]; !ok {
-			return fmt.Errorf("key %q is required", key)
-		}
+	root, err := validateAuthenticationObject(encoded, "authentication",
+		[]string{"spf", "dkim", "dmarc"},
+		[]string{"spf", "dkim", "dmarc"},
+	)
+	if err != nil {
+		return err
 	}
 
-	if err := validateAuthenticationObject(root["spf"], "spf", map[string]bool{
-		"status": true, "domain": true, "aligned": true, "detail": true,
-	}); err != nil {
+	spf, err := validateAuthenticationObject(root["spf"], "spf",
+		[]string{"status", "domain", "aligned", "detail"},
+		[]string{"status", "domain", "aligned"},
+	)
+	if err != nil {
+		return err
+	}
+	if err := validateEnumString(spf["status"], "spf status", "pass", "fail", "none", "neutral", "softfail", "temperror", "permerror"); err != nil {
+		return err
+	}
+	if err := validateNullableString(spf["domain"], "spf domain"); err != nil {
+		return err
+	}
+	if err := validateNullableBool(spf["aligned"], "spf aligned"); err != nil {
+		return err
+	}
+	if err := validateOptionalString(spf, "detail", "spf detail"); err != nil {
 		return err
 	}
 
 	var dkimItems []json.RawMessage
-	if bytes.Equal(bytes.TrimSpace(root["dkim"]), []byte("null")) {
+	if isJSONNull(root["dkim"]) {
 		return fmt.Errorf("dkim must be an array")
 	}
 	if err := json.Unmarshal(root["dkim"], &dkimItems); err != nil {
 		return fmt.Errorf("dkim must be an array")
 	}
 	for index, item := range dkimItems {
-		if err := validateAuthenticationObject(item, fmt.Sprintf("dkim[%d]", index), map[string]bool{
-			"status": true, "domain": true, "selector": true, "aligned": true, "detail": true,
-		}); err != nil {
+		name := fmt.Sprintf("dkim[%d]", index)
+		dkim, err := validateAuthenticationObject(item, name,
+			[]string{"status", "domain", "selector", "aligned", "detail"},
+			[]string{"status", "domain", "selector", "aligned"},
+		)
+		if err != nil {
+			return err
+		}
+		if err := validateEnumString(dkim["status"], name+" status", "pass", "fail", "none", "neutral", "policy", "temperror", "permerror"); err != nil {
+			return err
+		}
+		if err := validateNullableString(dkim["domain"], name+" domain"); err != nil {
+			return err
+		}
+		if err := validateNullableString(dkim["selector"], name+" selector"); err != nil {
+			return err
+		}
+		if err := validateNullableBool(dkim["aligned"], name+" aligned"); err != nil {
+			return err
+		}
+		if err := validateOptionalString(dkim, "detail", name+" detail"); err != nil {
 			return err
 		}
 	}
 
-	if err := validateAuthenticationObject(root["dmarc"], "dmarc", map[string]bool{
-		"status": true, "domain": true, "policy": true, "aligned_by": true, "detail": true,
-	}); err != nil {
+	dmarc, err := validateAuthenticationObject(root["dmarc"], "dmarc",
+		[]string{"status", "domain", "policy", "aligned_by", "detail"},
+		[]string{"status", "domain", "policy", "aligned_by"},
+	)
+	if err != nil {
 		return err
 	}
-
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	var authentication emailauth.Authentication
-	if err := decoder.Decode(&authentication); err != nil {
-		return fmt.Errorf("invalid structure: %w", err)
+	if err := validateEnumString(dmarc["status"], "dmarc status", "pass", "fail", "none", "temperror", "permerror"); err != nil {
+		return err
+	}
+	if err := validateNullableString(dmarc["domain"], "dmarc domain"); err != nil {
+		return err
+	}
+	if !isJSONNull(dmarc["policy"]) {
+		if err := validateEnumString(dmarc["policy"], "dmarc policy", "none", "quarantine", "reject"); err != nil {
+			return err
+		}
+	}
+	if err := validateAlignedBy(dmarc["aligned_by"]); err != nil {
+		return err
+	}
+	if err := validateOptionalString(dmarc, "detail", "dmarc detail"); err != nil {
+		return err
 	}
 	return nil
 }
 
-func validateAuthenticationObject(encoded json.RawMessage, name string, allowed map[string]bool) error {
+func validateAuthenticationObject(encoded json.RawMessage, name string, allowedKeys, requiredKeys []string) (map[string]json.RawMessage, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &object); err != nil || object == nil {
-		return fmt.Errorf("%s must be an object", name)
+		return nil, fmt.Errorf("%s must be an object", name)
+	}
+	allowed := make(map[string]bool, len(allowedKeys))
+	for _, key := range allowedKeys {
+		allowed[key] = true
 	}
 	for key := range object {
 		if !allowed[key] {
-			return fmt.Errorf("%s key %q is not allowed", name, key)
+			return nil, fmt.Errorf("%s key %q is not allowed", name, key)
 		}
 	}
+	for _, key := range requiredKeys {
+		if _, ok := object[key]; !ok {
+			return nil, fmt.Errorf("%s key %q is required", name, key)
+		}
+	}
+	return object, nil
+}
+
+func validateEnumString(encoded json.RawMessage, name string, allowed ...string) error {
+	value, err := requiredJSONString(encoded, name)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range allowed {
+		if value == candidate {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s has invalid value %q", name, value)
+}
+
+func validateNullableString(encoded json.RawMessage, name string) error {
+	if isJSONNull(encoded) {
+		return nil
+	}
+	_, err := requiredJSONString(encoded, name)
+	return err
+}
+
+func validateNullableBool(encoded json.RawMessage, name string) error {
+	if isJSONNull(encoded) {
+		return nil
+	}
+	var value bool
+	if err := json.Unmarshal(encoded, &value); err != nil {
+		return fmt.Errorf("%s must be a boolean or null", name)
+	}
 	return nil
+}
+
+func validateOptionalString(object map[string]json.RawMessage, key, name string) error {
+	encoded, ok := object[key]
+	if !ok {
+		return nil
+	}
+	_, err := requiredJSONString(encoded, name)
+	return err
+}
+
+func requiredJSONString(encoded json.RawMessage, name string) (string, error) {
+	if isJSONNull(encoded) {
+		return "", fmt.Errorf("%s must be a string", name)
+	}
+	var value string
+	if err := json.Unmarshal(encoded, &value); err != nil {
+		return "", fmt.Errorf("%s must be a string", name)
+	}
+	return value, nil
+}
+
+func validateAlignedBy(encoded json.RawMessage) error {
+	if isJSONNull(encoded) {
+		return fmt.Errorf("dmarc aligned_by must be an array")
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(encoded, &items); err != nil {
+		return fmt.Errorf("dmarc aligned_by must be an array")
+	}
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		value, err := requiredJSONString(item, "dmarc aligned_by item")
+		if err != nil {
+			return err
+		}
+		if value != "spf" && value != "dkim" {
+			return fmt.Errorf("dmarc aligned_by has invalid value %q", value)
+		}
+		if seen[value] {
+			return fmt.Errorf("dmarc aligned_by contains duplicate %q", value)
+		}
+		seen[value] = true
+	}
+	return nil
+}
+
+func isJSONNull(encoded json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(encoded), []byte("null"))
 }
 
 func validateNestedStrings(value any) error {

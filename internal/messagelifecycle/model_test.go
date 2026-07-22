@@ -138,8 +138,8 @@ func TestNewTransitionDerivesCanonicalFieldsAndCopiesInput(t *testing.T) {
 	when := time.Date(2026, 7, 21, 12, 30, 0, 123, time.FixedZone("test", -7*60*60))
 	authentication := map[string]any{
 		"spf":   map[string]any{"status": "pass", "domain": "example.com", "aligned": true, "detail": "aligned"},
-		"dmarc": map[string]any{"status": "pass"},
 		"dkim":  []any{map[string]any{"status": "pass", "domain": "example.com", "selector": "s1", "aligned": true, "detail": "valid"}},
+		"dmarc": map[string]any{"status": "pass", "domain": "example.com", "policy": "reject", "aligned_by": []any{"spf", "dkim"}},
 	}
 	evidence := map[string]any{"authentication": authentication, "source": "smtp"}
 	correlations := map[string]string{"event_id": "evt_123", "email_message_id": "<mail@example.com>"}
@@ -328,6 +328,45 @@ func TestEvidenceRejectsInvalidAuthenticationStructure(t *testing.T) {
 	}
 }
 
+func TestEvidenceRejectsIncompleteOrInvalidAuthenticationValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"missing SPF status", func(auth map[string]any) { delete(auth["spf"].(map[string]any), "status") }},
+		{"missing SPF domain", func(auth map[string]any) { delete(auth["spf"].(map[string]any), "domain") }},
+		{"missing SPF aligned", func(auth map[string]any) { delete(auth["spf"].(map[string]any), "aligned") }},
+		{"missing DKIM status", func(auth map[string]any) { delete(auth["dkim"].([]any)[0].(map[string]any), "status") }},
+		{"missing DKIM domain", func(auth map[string]any) { delete(auth["dkim"].([]any)[0].(map[string]any), "domain") }},
+		{"missing DKIM selector", func(auth map[string]any) { delete(auth["dkim"].([]any)[0].(map[string]any), "selector") }},
+		{"missing DKIM aligned", func(auth map[string]any) { delete(auth["dkim"].([]any)[0].(map[string]any), "aligned") }},
+		{"missing DMARC status", func(auth map[string]any) { delete(auth["dmarc"].(map[string]any), "status") }},
+		{"missing DMARC domain", func(auth map[string]any) { delete(auth["dmarc"].(map[string]any), "domain") }},
+		{"missing DMARC policy", func(auth map[string]any) { delete(auth["dmarc"].(map[string]any), "policy") }},
+		{"missing DMARC aligned_by", func(auth map[string]any) { delete(auth["dmarc"].(map[string]any), "aligned_by") }},
+		{"invalid SPF status", func(auth map[string]any) { auth["spf"].(map[string]any)["status"] = "policy" }},
+		{"invalid DKIM status", func(auth map[string]any) { auth["dkim"].([]any)[0].(map[string]any)["status"] = "softfail" }},
+		{"invalid DMARC status", func(auth map[string]any) { auth["dmarc"].(map[string]any)["status"] = "neutral" }},
+		{"invalid DMARC policy", func(auth map[string]any) { auth["dmarc"].(map[string]any)["policy"] = "drop" }},
+		{"null DKIM", func(auth map[string]any) { auth["dkim"] = nil }},
+		{"null aligned_by", func(auth map[string]any) { auth["dmarc"].(map[string]any)["aligned_by"] = nil }},
+		{"unknown aligned_by", func(auth map[string]any) { auth["dmarc"].(map[string]any)["aligned_by"] = []any{"arc"} }},
+		{"duplicate aligned_by", func(auth map[string]any) { auth["dmarc"].(map[string]any)["aligned_by"] = []any{"spf", "spf"} }},
+		{"null detail", func(auth map[string]any) { auth["spf"].(map[string]any)["detail"] = nil }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authentication := validAuthenticationMap()
+			tt.mutate(authentication)
+			in := validAppendInput()
+			in.Evidence = map[string]any{"authentication": authentication}
+			if _, err := NewTransition(in); err == nil {
+				t.Fatal("NewTransition() accepted incomplete or invalid authentication")
+			}
+		})
+	}
+}
+
 func TestEvidenceEnforcesStringAndSerializedLimits(t *testing.T) {
 	tooLong := strings.Repeat("x", 2*1024+1)
 	for name, evidence := range map[string]map[string]any{
@@ -389,6 +428,11 @@ func TestEvidenceAcceptsConcreteAndMappedAuthentication(t *testing.T) {
 		"struct":  concrete,
 		"pointer": &concrete,
 		"map":     validAuthenticationMap(),
+		"nullable map": map[string]any{
+			"spf":   map[string]any{"status": "none", "domain": nil, "aligned": nil},
+			"dkim":  []any{map[string]any{"status": "none", "domain": nil, "selector": nil, "aligned": nil}},
+			"dmarc": map[string]any{"status": "none", "domain": nil, "policy": nil, "aligned_by": []any{}},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			in := validAppendInput()
