@@ -39,8 +39,9 @@ with Go 1.26. Node: engines `>=18`, CI runs on 22. Python: `requires-python
 - `cmd/e2a/` — main server binary entry point (SMTP relay + HTTP API in one
   process). Other binaries: `cmd/e2a-contract-server` (test instance for SDK
   contract tests), `cmd/e2a-prober` (critical-path self-test runner),
-  `cmd/e2a-openapi-normalize`, `cmd/e2a-openapi-sdk-check`,
-  `cmd/e2a-openapi-security-check` (compat-gate helpers), `cmd/piguard-eval`.
+  `cmd/e2a-openapi-normalize`, `cmd/e2a-openapi-codegen-normalize`,
+  `cmd/e2a-openapi-sdk-check`, `cmd/e2a-openapi-security-check` (compat-gate/
+  codegen helpers), `cmd/piguard-eval`.
 - `internal/` — all backend packages (see "Backend architecture").
 - `api/openapi.yaml` — committed OpenAPI 3.1 document, golden-tested against
   the live Huma handlers. `api/testdata/oasdiff/` holds fixtures for the
@@ -272,7 +273,8 @@ web dashboard. The PR template checklists them.
   mypy. CI workflow: `.github/workflows/test.yml` (jobs: Go, coverage gate,
   Go e2e, web, ts-sdk, ts-contract, cli, mcp, spec gates, python-sdk,
   python-contract, generated-code freshness, design-system dist freshness,
-  SDK-version-sync, plugin manifests, repo text integrity).
+  SDK-version-sync, plugin manifests, repo text integrity, SDK operation
+  coverage).
 - `tests/e2e-prod/` is a production smoke harness — not part of local dev.
 
 ## Conventions
