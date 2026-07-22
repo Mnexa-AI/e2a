@@ -339,6 +339,134 @@ func TestReconstructDoesNotInventIntermediateStages(t *testing.T) {
 	}
 }
 
+func TestReconstructInboundDoesNotInventOutboundFacts(t *testing.T) {
+	providerAt := reconstructBaseTime.Add(time.Minute)
+	reviewedAt := reconstructBaseTime.Add(2 * time.Minute)
+	s := baseSnapshot("inbound", "loopback")
+	s.ProviderAcceptedAt = &providerAt
+	s.ProviderMessageID = "provider-should-be-ignored"
+	s.DeliveryStatus = "sent"
+	s.ReviewedAt = &reviewedAt
+	s.Recipients = []RecipientSnapshot{
+		{ID: "rcp_delivered", Address: "delivered@example.com", Status: "delivered", UpdatedAt: reconstructBaseTime.Add(3 * time.Minute)},
+		{ID: "rcp_bounced", Address: "bounced@example.com", Status: "bounced", UpdatedAt: reconstructBaseTime.Add(4 * time.Minute)},
+		{ID: "rcp_complained", Address: "complained@example.com", Status: "complained", UpdatedAt: reconstructBaseTime.Add(5 * time.Minute)},
+	}
+	s.Suppressions = []SuppressionSnapshot{
+		{ID: "sup_bounce", Address: "bounced@example.com", Source: "bounce", SourceMessageID: s.MessageID, CreatedAt: reconstructBaseTime.Add(6 * time.Minute)},
+		{ID: "sup_complaint", Address: "complained@example.com", Source: "complaint", SourceMessageID: s.MessageID, CreatedAt: reconstructBaseTime.Add(7 * time.Minute)},
+	}
+	got := Reconstruct(s)
+	for _, stage := range []Stage{StageSubmission, StageDelivery, StageComplaint, StageSuppression} {
+		if hasStage(got, stage) {
+			t.Fatalf("inbound message fabricated outbound %s fact: %#v", stage, got)
+		}
+	}
+}
+
+func TestReconstructAuthenticationEvidenceExactAndAbsent(t *testing.T) {
+	raw := authenticationJSON("pass")
+	var want map[string]any
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	s := baseSnapshot("inbound", "smtp")
+	s.Authentication = raw
+	auth := findReason(Reconstruct(s), ReasonAuthenticationDMARCPass)
+	if auth == nil || !reflect.DeepEqual(auth.Evidence["authentication"], want) {
+		t.Fatalf("authentication evidence = %#v, want exact %#v", auth, want)
+	}
+
+	for name, absent := range map[string]json.RawMessage{"nil": nil, "null": json.RawMessage("null")} {
+		t.Run(name, func(t *testing.T) {
+			without := baseSnapshot("inbound", "smtp")
+			without.Authentication = absent
+			got := Reconstruct(without)
+			if hasStage(got, StageAuthentication) || got[0].Evidence["authentication"] != nil {
+				t.Fatalf("absent authentication reconstructed evidence: %#v", got)
+			}
+		})
+	}
+}
+
+func TestReconstructEventCarriedAuthenticationExact(t *testing.T) {
+	raw := authenticationJSON("temperror")
+	var authentication map[string]any
+	if err := json.Unmarshal(raw, &authentication); err != nil {
+		t.Fatal(err)
+	}
+	s := baseSnapshot("inbound", "smtp")
+	s.Events = []EventSnapshot{eventSnapshot("evt_auth", "email.received", reconstructBaseTime.Add(time.Minute), map[string]any{
+		"message_id": s.MessageID, "direction": "inbound", "authentication": authentication,
+	})}
+	got := findReason(Reconstruct(s), ReasonAuthenticationDMARCTemporaryError)
+	if got == nil || !reflect.DeepEqual(got.Evidence["authentication"], authentication) || got.CorrelationIDs["event_id"] != "evt_auth" {
+		t.Fatalf("event authentication = %#v", got)
+	}
+}
+
+func TestReconstructAllOutboundRetainedEventVariants(t *testing.T) {
+	tests := []struct {
+		name, eventType, method, failureSource string
+		data                                   map[string]any
+		want                                   ReasonCode
+	}{
+		{"sent smtp", "email.sent", "smtp", "", map[string]any{"method": "smtp"}, ReasonSubmissionUpstreamAccepted},
+		{"sent loopback", "email.sent", "loopback", "", map[string]any{"method": "loopback"}, ReasonSubmissionLocalLoopbackAccepted},
+		{"failed provider", "email.failed", "smtp", "provider", map[string]any{"reason": "rejected", "reason_code": "smtp_rejected"}, ReasonSubmissionProviderRejected},
+		{"failed local", "email.failed", "smtp", "local", map[string]any{"reason": "exhausted", "reason_code": "retries_exhausted"}, ReasonSubmissionLocalRetriesExhausted},
+		{"delivered", "email.delivered", "smtp", "", map[string]any{"delivered_to": "a@example.com"}, ReasonDeliveryRecipientServerAccepted},
+		{"bounce permanent", "email.bounced", "smtp", "", map[string]any{"delivered_to": "a@example.com", "bounce_type": "permanent"}, ReasonDeliveryPermanentBounce},
+		{"bounce transient", "email.bounced", "smtp", "", map[string]any{"delivered_to": "a@example.com", "bounce_type": "transient"}, ReasonDeliveryTransientBounce},
+		{"bounce undetermined", "email.bounced", "smtp", "", map[string]any{"delivered_to": "a@example.com", "bounce_type": "undetermined"}, ReasonDeliveryUndeterminedBounce},
+		{"complained", "email.complained", "smtp", "", map[string]any{"delivered_to": "a@example.com"}, ReasonComplaintRecipientReported},
+		{"suppression bounce", "domain.suppression_added", "smtp", "", map[string]any{"address": "a@example.com", "source": "bounce"}, ReasonSuppressionHardBounceApplied},
+		{"suppression complaint", "domain.suppression_added", "smtp", "", map[string]any{"address": "a@example.com", "source": "complaint"}, ReasonSuppressionComplaintApplied},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := baseSnapshot("outbound", tt.method)
+			s.DeliveryFailureSource = tt.failureSource
+			data := map[string]any{"message_id": s.MessageID, "direction": "outbound"}
+			for key, value := range tt.data {
+				data[key] = value
+			}
+			s.Events = []EventSnapshot{eventSnapshot("evt_variant", tt.eventType, reconstructBaseTime.Add(time.Minute), data)}
+			if got := findReason(Reconstruct(s), tt.want); got == nil {
+				t.Fatalf("missing %s from %#v", tt.want, Reconstruct(s))
+			}
+		})
+	}
+}
+
+func TestReconstructMalformedOrUncorrelatedEventsAreOmitted(t *testing.T) {
+	validData := map[string]any{"message_id": "msg_1", "direction": "outbound", "delivered_to": "a@example.com"}
+	tests := []struct {
+		name  string
+		event EventSnapshot
+	}{
+		{"malformed JSON", EventSnapshot{ID: "evt_bad", Type: "email.delivered", Envelope: json.RawMessage(`{"type":`), CreatedAt: reconstructBaseTime}},
+		{"wrong envelope type", eventSnapshot("evt_bad", "email.bounced", reconstructBaseTime, validData)},
+		{"mismatched envelope ID", eventSnapshot("evt_other", "email.delivered", reconstructBaseTime, validData)},
+		{"invalid envelope ID", eventSnapshot("not-an-event-id", "email.delivered", reconstructBaseTime, validData)},
+		{"mismatched message ID", eventSnapshot("evt_bad", "email.delivered", reconstructBaseTime, map[string]any{"message_id": "msg_other", "delivered_to": "a@example.com"})},
+		{"delivered missing recipient", eventSnapshot("evt_bad", "email.delivered", reconstructBaseTime, map[string]any{"message_id": "msg_1"})},
+		{"bounce missing recipient", eventSnapshot("evt_bad", "email.bounced", reconstructBaseTime, map[string]any{"message_id": "msg_1", "bounce_type": "permanent"})},
+		{"complaint missing recipient", eventSnapshot("evt_bad", "email.complained", reconstructBaseTime, map[string]any{"message_id": "msg_1"})},
+	}
+	tests[1].event.Type = "email.delivered"
+	tests[2].event.ID = "evt_bad"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := baseSnapshot("outbound", "smtp")
+			s.Events = []EventSnapshot{tt.event}
+			if got := Reconstruct(s); len(got) != 1 {
+				t.Fatalf("invalid event reconstructed: %#v", got)
+			}
+		})
+	}
+}
+
 func baseSnapshot(direction, method string) Snapshot {
 	return Snapshot{MessageID: "msg_1", AgentID: "agt_1", Direction: direction, Method: method, CreatedAt: reconstructBaseTime}
 }

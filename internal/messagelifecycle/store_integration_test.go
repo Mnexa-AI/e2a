@@ -622,6 +622,69 @@ func TestListForMessageDeterministicPersistedPrecedenceOrderingAndNoWrites(t *te
 	}
 }
 
+func TestListForMessageHistoricalSourceIndexes(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	tests := []struct {
+		name, table, definition string
+	}{
+		{
+			"idx_suppressions_source_message_created", "suppressions",
+			"CREATE INDEX idx_suppressions_source_message_created ON public.suppressions USING btree (source_message_id, created_at, id) WHERE (source_message_id IS NOT NULL)",
+		},
+		{
+			"idx_webhook_events_message_created", "webhook_events",
+			"CREATE INDEX idx_webhook_events_message_created ON public.webhook_events USING btree (message_id, created_at, id) WHERE (message_id IS NOT NULL)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var definition string
+			var valid bool
+			err := pool.QueryRow(ctx, `
+				SELECT pg_get_indexdef(i.indexrelid), i.indisvalid
+				FROM pg_index i
+				JOIN pg_class idx ON idx.oid = i.indexrelid
+				JOIN pg_class tbl ON tbl.oid = i.indrelid
+				WHERE idx.relname = $1 AND tbl.relname = $2
+			`, tt.name, tt.table).Scan(&definition, &valid)
+			if err != nil {
+				t.Fatalf("load index: %v", err)
+			}
+			if !valid || definition != tt.definition {
+				t.Fatalf("index valid=%v definition=%q, want valid and %q", valid, definition, tt.definition)
+			}
+		})
+	}
+}
+
+func TestListForMessageHistoricalSourceIndexMigrationsEmbedded(t *testing.T) {
+	tests := []struct {
+		file, statement string
+	}{
+		{
+			"074_suppressions_source_message_idx.sql",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_suppressions_source_message_created\n    ON suppressions (source_message_id, created_at, id)\n    WHERE source_message_id IS NOT NULL;",
+		},
+		{
+			"075_webhook_events_message_idx.sql",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_webhook_events_message_created\n    ON webhook_events (message_id, created_at, id)\n    WHERE message_id IS NOT NULL;",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			contents, err := migrations.FS.ReadFile(tt.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(contents)
+			if !strings.Contains(text, "-- e2a:no-transaction") || !strings.Contains(text, "OPS NOTE — invalid-index recovery") || !strings.Contains(text, tt.statement) {
+				t.Fatalf("migration missing required concurrent-index convention:\n%s", text)
+			}
+		})
+	}
+}
+
 func lifecycleInput(messageID, dedupeKey string) AppendInput {
 	return AppendInput{
 		MessageID:      messageID,

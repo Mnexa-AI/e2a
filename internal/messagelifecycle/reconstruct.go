@@ -130,53 +130,57 @@ func Reconstruct(snapshot Snapshot) []MessageLifecycleTransition {
 		addReconstructed(add, snapshot, ReasonQueueOutboundSubmission, "", occurredAt, source, "job", strconv.FormatInt(*snapshot.SendJobID, 10), nil, correlations, false)
 	}
 
-	if snapshot.ProviderAcceptedAt != nil {
-		addReconstructed(add, snapshot, ReasonSubmissionUpstreamAccepted, "", *snapshot.ProviderAcceptedAt, "messages.provider_accepted_at", "submission", snapshot.ProviderMessageID, nil, baseCorrelations(snapshot), false)
-	} else if snapshot.Method == "loopback" && snapshot.DeliveryStatus == "sent" {
-		occurredAt := snapshot.CreatedAt
-		source := "messages.created_at"
-		if snapshot.ReviewedAt != nil {
-			occurredAt, source = *snapshot.ReviewedAt, "messages.reviewed_at"
+	if snapshot.Direction == "outbound" {
+		if snapshot.ProviderAcceptedAt != nil {
+			addReconstructed(add, snapshot, ReasonSubmissionUpstreamAccepted, "", *snapshot.ProviderAcceptedAt, "messages.provider_accepted_at", "submission", snapshot.ProviderMessageID, nil, baseCorrelations(snapshot), false)
+		} else if snapshot.Method == "loopback" && snapshot.DeliveryStatus == "sent" {
+			occurredAt := snapshot.CreatedAt
+			source := "messages.created_at"
+			if snapshot.ReviewedAt != nil {
+				occurredAt, source = *snapshot.ReviewedAt, "messages.reviewed_at"
+			}
+			addReconstructed(add, snapshot, ReasonSubmissionLocalLoopbackAccepted, "", occurredAt, source, "loopback", snapshot.MessageID, nil, baseCorrelations(snapshot), false)
 		}
-		addReconstructed(add, snapshot, ReasonSubmissionLocalLoopbackAccepted, "", occurredAt, source, "loopback", snapshot.MessageID, nil, baseCorrelations(snapshot), false)
 	}
 
-	for _, recipient := range snapshot.Recipients {
-		var reason ReasonCode
-		switch recipient.Status {
-		case "delivered":
-			reason = ReasonDeliveryRecipientServerAccepted
-		case "deferred":
-			reason = ReasonDeliveryTemporaryDelay
-		case "bounced":
-			reason = ReasonDeliveryUndeterminedBounce
-		case "complained":
-			reason = ReasonComplaintRecipientReported
-		default:
-			continue
+	if snapshot.Direction == "outbound" {
+		for _, recipient := range snapshot.Recipients {
+			var reason ReasonCode
+			switch recipient.Status {
+			case "delivered":
+				reason = ReasonDeliveryRecipientServerAccepted
+			case "deferred":
+				reason = ReasonDeliveryTemporaryDelay
+			case "bounced":
+				reason = ReasonDeliveryUndeterminedBounce
+			case "complained":
+				reason = ReasonComplaintRecipientReported
+			default:
+				continue
+			}
+			evidence := map[string]any{}
+			if recipient.Detail != "" {
+				evidence["smtp_detail"] = bounded(recipient.Detail)
+			}
+			addReconstructed(add, snapshot, reason, recipient.Address, recipient.UpdatedAt, "message_recipients.updated_at", "recipient", recipient.ID, evidence, baseCorrelations(snapshot), false)
 		}
-		evidence := map[string]any{}
-		if recipient.Detail != "" {
-			evidence["smtp_detail"] = bounded(recipient.Detail)
-		}
-		addReconstructed(add, snapshot, reason, recipient.Address, recipient.UpdatedAt, "message_recipients.updated_at", "recipient", recipient.ID, evidence, baseCorrelations(snapshot), false)
-	}
 
-	for _, suppression := range snapshot.Suppressions {
-		if suppression.SourceMessageID != snapshot.MessageID {
-			continue
+		for _, suppression := range snapshot.Suppressions {
+			if suppression.SourceMessageID != snapshot.MessageID {
+				continue
+			}
+			var reason ReasonCode
+			switch suppression.Source {
+			case "bounce":
+				reason = ReasonSuppressionHardBounceApplied
+			case "complaint":
+				reason = ReasonSuppressionComplaintApplied
+			default:
+				continue
+			}
+			evidence := map[string]any{"suppression_source": suppression.Source, "suppression_scope": "account"}
+			addReconstructed(add, snapshot, reason, suppression.Address, suppression.CreatedAt, "suppressions.created_at", "suppression", suppression.ID, evidence, baseCorrelations(snapshot), false)
 		}
-		var reason ReasonCode
-		switch suppression.Source {
-		case "bounce":
-			reason = ReasonSuppressionHardBounceApplied
-		case "complaint":
-			reason = ReasonSuppressionComplaintApplied
-		default:
-			continue
-		}
-		evidence := map[string]any{"suppression_source": suppression.Source, "suppression_scope": "account"}
-		addReconstructed(add, snapshot, reason, suppression.Address, suppression.CreatedAt, "suppressions.created_at", "suppression", suppression.ID, evidence, baseCorrelations(snapshot), false)
 	}
 
 	for _, event := range snapshot.Events {
@@ -246,7 +250,9 @@ func reconstructEvent(snapshot Snapshot, event EventSnapshot) []reconstructionCa
 		CreatedAt time.Time       `json:"created_at"`
 		Data      json.RawMessage `json:"data"`
 	}
-	if json.Unmarshal(event.Envelope, &envelope) != nil || envelope.Type != event.Type || envelope.ID != event.ID || envelope.CreatedAt.IsZero() {
+	if json.Unmarshal(event.Envelope, &envelope) != nil ||
+		envelope.Type != event.Type || envelope.ID != event.ID ||
+		!strings.HasPrefix(event.ID, "evt_") || envelope.CreatedAt.IsZero() {
 		return nil
 	}
 	var data map[string]json.RawMessage
@@ -455,7 +461,7 @@ func jsonString(data map[string]json.RawMessage, key string) string {
 
 func baseCorrelations(snapshot Snapshot) map[string]string {
 	result := map[string]string{}
-	if snapshot.ProviderMessageID != "" {
+	if snapshot.Direction == "outbound" && snapshot.ProviderMessageID != "" {
 		result["provider_message_id"] = snapshot.ProviderMessageID
 	}
 	if snapshot.EmailMessageID != "" {
