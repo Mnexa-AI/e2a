@@ -435,6 +435,105 @@ single message.
   `download_url` (so binary bytes never stream through an agent's context);
   `?inline=true` returns base64 `data` for small attachments.
 
+### Message lifecycle diagnostic contract
+
+`GET /v1/agents/{email}/messages/{id}/lifecycle` returns the ordered facts e2a
+observed for one persisted inbound or outbound message. It is a diagnostic
+ledger, not a synthetic status history. For example:
+
+```bash
+curl -H "Authorization: Bearer $E2A_API_KEY" \
+  "https://api.e2a.dev/v1/agents/bot%40agents.e2a.dev/messages/msg_abc/lifecycle?limit=50"
+```
+
+The response is `{ "items": [...], "next_cursor": string | null }`. Items are
+always in ascending `(occurred_at, id)` order. A cursor continues strictly
+after that tuple and is bound to both the owning agent and message ID; it
+cannot be replayed for another inbox or message. Page size is 1–100 (default
+50). Missing and foreign messages both return `404 not_found`.
+
+Each transition has `id`, `message_id`, `direction`, `stage`, `outcome`,
+`reason_code`, `retryable`, `evidence`, `correlation_ids`, `occurred_at`, and
+`reconstructed`. `recipient` is nullable: it is present for per-recipient
+delivery, complaint, and suppression observations and null/omitted for
+message-level observations. `evidence` contains safe, bounded diagnostic metadata
+only: keys are allowlisted, diagnostic strings are at most 2 KiB,
+the complete object is at most 16 KiB, and message bodies and secrets are not
+included. `correlation_ids` is an allowlisted open object for identifiers such
+as `event_id`, `job_id`, `provider_message_id`, `provider_event_id`, and
+`email_message_id`; consumers must tolerate additional map entries.
+
+The stage vocabulary is closed and exhaustive for this version:
+
+| Stage | Boundary observed by e2a |
+|---|---|
+| `accepted` | e2a accepted the message from SMTP, the outbound API, or local loopback. |
+| `authentication` | e2a evaluated inbound DMARC evidence. |
+| `review` | A human/TTL review hold was created or resolved. |
+| `suppression` | A recipient block or feedback suppression was applied. |
+| `queued` | e2a durably queued inbound processing or outbound submission. |
+| `submission` | e2a attempted or completed submission to an upstream provider or local loopback. |
+| `delivery` | Recipient-server feedback was observed for one recipient. |
+| `complaint` | Recipient complaint feedback was observed. |
+
+Reason codes are also closed. Each code fixes its stage, outcome, and
+retryability; clients must not reinterpret those fields independently:
+
+| Reason code | Stage | Outcome | Retryable |
+|---|---|---|---|
+| `acceptance.inbound_smtp` | `accepted` | `accepted` | false |
+| `acceptance.outbound_api` | `accepted` | `accepted` | false |
+| `acceptance.local_loopback` | `accepted` | `accepted` | false |
+| `authentication.dmarc_pass` | `authentication` | `passed` | false |
+| `authentication.dmarc_fail` | `authentication` | `failed` | false |
+| `authentication.dmarc_none` | `authentication` | `indeterminate` | false |
+| `authentication.dmarc_temporary_error` | `authentication` | `indeterminate` | true |
+| `authentication.dmarc_permanent_error` | `authentication` | `indeterminate` | false |
+| `review.hold_created` | `review` | `pending` | false |
+| `review.approved` | `review` | `approved` | false |
+| `review.rejected` | `review` | `rejected` | false |
+| `review.expired_approved` | `review` | `approved` | false |
+| `review.expired_rejected` | `review` | `rejected` | false |
+| `suppression.recipient_blocked` | `suppression` | `blocked` | false |
+| `suppression.hard_bounce_applied` | `suppression` | `applied` | false |
+| `suppression.complaint_applied` | `suppression` | `applied` | false |
+| `queue.inbound_processing` | `queued` | `enqueued` | false |
+| `queue.outbound_submission` | `queued` | `enqueued` | false |
+| `submission.upstream_accepted` | `submission` | `accepted` | false |
+| `submission.local_loopback_accepted` | `submission` | `accepted` | false |
+| `submission.temporary_failure` | `submission` | `deferred` | true |
+| `submission.provider_rejected` | `submission` | `failed` | false |
+| `submission.local_retries_exhausted` | `submission` | `failed` | true |
+| `submission.cancelled` | `submission` | `failed` | false |
+| `delivery.recipient_server_accepted` | `delivery` | `delivered` | false |
+| `delivery.temporary_delay` | `delivery` | `deferred` | true |
+| `delivery.permanent_bounce` | `delivery` | `bounced` | false |
+| `delivery.transient_bounce` | `delivery` | `bounced` | true |
+| `delivery.undetermined_bounce` | `delivery` | `bounced` | false |
+| `complaint.recipient_reported` | `complaint` | `reported` | false |
+
+Producers append a transition in the same database transaction as the message,
+queue, recipient, suppression, or event change that it explains. A
+message-local `dedupe_key` makes an identical worker retry return the original
+row; reusing that key for different semantics is a hard conflict. This keeps
+duplicate job delivery from creating duplicate logical transitions.
+
+For messages created before this ledger existed, the read may conservatively
+derive facts from durable message, job, recipient, suppression, and stored-event
+records. Such rows carry `reconstructed: true`, a deterministic ID, and safe
+source evidence. Reconstruction does not fabricate an event or transition when
+the durable records do not prove it, is read-only, and never overwrites a
+persisted observation. Historical event envelopes remain unchanged.
+
+This is an additive `/v1` contract: the endpoint and optional
+`lifecycle_transitions` event field may be consumed by new clients without
+changing historical responses or stored webhook redeliveries. The closed stage
+and reason-code vocabularies change only through a deliberate versioned contract
+change. delivered means the recipient mail server accepted the message; e2a does not observe or claim inbox placement.
+Screening and prompt-injection detections remain outside the lifecycle ledger.
+Their existing protection events and documentation remain authoritative; a
+screening verdict is not rewritten as delivery, authentication, or inbox state.
+
 For sender-trust decisions, a non-null `verified_domain` means DMARC passed for
 that RFC 5322 From domain. On detail responses the equivalent check is
 `authentication?.dmarc.status === "pass"`. Only after that check should an

@@ -921,7 +921,7 @@ git commit -m "feat(sdk): add message lifecycle clients"
 - Create: `web/src/lib/messageLifecycle.ts`
 - Create: `web/src/lib/messageLifecycle.test.ts`
 
-- [ ] **Step 1: Write failing surface tests**
+- [x] **Step 1: Write failing surface tests**
 
 CLI tests require `messages lifecycle <id> --agent <email> [--limit] [--cursor]
 --json`, usage failures for missing ID/invalid limit, and unchanged exit codes.
@@ -929,7 +929,7 @@ MCP tests require a strict `get_message_lifecycle` schema and exact parameter
 forwarding. Dashboard tests require URL encoding and response parsing without
 rendering UI.
 
-- [ ] **Step 2: Run focused tests and verify the expected failure**
+- [x] **Step 2: Run focused tests and verify the expected failure**
 
 Run:
 
@@ -941,7 +941,7 @@ npm test --workspace @e2a/mcp-server -- tools.test.ts client.test.ts
 
 Expected: FAIL because none of the three surfaces has lifecycle access.
 
-- [ ] **Step 3: Implement minimal parity surfaces**
+- [x] **Step 3: Implement minimal parity surfaces**
 
 CLI prints the page JSON using the existing camel-case model serialization.
 MCP registers a read-only/idempotent tool:
@@ -962,7 +962,7 @@ server.registerTool("get_message_lifecycle", {
 The dashboard helper calls the same `/api/v1/agents/.../lifecycle` proxy path
 and exports only types/fetching; do not modify components or pages.
 
-- [ ] **Step 4: Run focused and package-level tests**
+- [x] **Step 4: Run focused and package-level tests**
 
 Run:
 
@@ -976,7 +976,7 @@ npm run build --workspace @e2a/mcp-server
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit remaining client surfaces**
+- [x] **Step 5: Commit remaining client surfaces**
 
 ```bash
 git add cli mcp web/src/lib/messageLifecycle.ts web/src/lib/messageLifecycle.test.ts
@@ -990,14 +990,14 @@ git commit -m "feat(clients): expose message lifecycle"
 - Modify: `docs/events.md`
 - Modify: `docs/superpowers/plans/2026-07-21-message-trust-ledger.md` only to check completed boxes during execution
 
-- [ ] **Step 1: Write documentation contract checks or failing text assertions**
+- [x] **Step 1: Write documentation contract checks or failing text assertions**
 
 Extend existing repository text-integrity/spec-review tests to require the
 lifecycle endpoint, closed vocabulary, recipient-server definition, cursor
 ordering, reconstruction marker, idempotency statement, additive compatibility
 policy, and explicit exclusion of screening/inbox placement.
 
-- [ ] **Step 2: Run documentation checks and verify the expected failure**
+- [x] **Step 2: Run documentation checks and verify the expected failure**
 
 Run:
 
@@ -1007,7 +1007,7 @@ go test ./internal/httpapi -run 'TestSpecReview|Test.*Lifecycle.*Docs' -count=1
 
 Expected: FAIL until docs contain the contract.
 
-- [ ] **Step 3: Document REST, event, and compatibility semantics**
+- [x] **Step 3: Document REST, event, and compatibility semantics**
 
 Add endpoint examples, every stage/reason table, cursor rules, safe evidence,
 historical reconstruction, and the event-to-transition mapping. State exactly:
@@ -1015,7 +1015,7 @@ historical reconstruction, and the event-to-transition mapping. State exactly:
 observe or claim inbox placement.” Keep screening events documented in their
 existing section but explicitly outside the lifecycle ledger.
 
-- [ ] **Step 4: Run focused docs and contract checks**
+- [x] **Step 4: Run focused docs and contract checks**
 
 Run the command from Step 2 plus:
 
