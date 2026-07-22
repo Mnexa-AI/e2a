@@ -27,6 +27,28 @@ const renderTimeline = (transitions: Array<Record<string, unknown>>) =>
   render(createElement(CanonicalTimeline, { transitions }));
 
 describe("MessageLifecycleTimeline canonical observations", () => {
+  it("renders observations as an overflow-safe horizontal timeline", () => {
+    renderTimeline([
+      transition(),
+      transition({
+        id: "mlt_2",
+        stage: "queued",
+        outcome: "enqueued",
+        reason_code: "queue.outbound_submission",
+        occurred_at: "2026-07-22T12:01:00Z",
+      }),
+    ]);
+
+    const observations = screen.getByRole("list", {
+      name: "Message lifecycle observations",
+    });
+    expect(observations).toHaveStyle({
+      display: "grid",
+      gridAutoFlow: "column",
+      overflowX: "auto",
+    });
+  });
+
   it("shows an accepted-only message without claiming it was sent", () => {
     renderTimeline([transition()]);
 

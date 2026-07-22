@@ -126,23 +126,33 @@ function CanonicalObservation({ row, last }: { row: MessageLifecycleTransitionWi
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const label = REASON_LABELS[row.reason_code];
   return (
-    <div className="flex" style={{ gap: 11, position: "relative", paddingBottom: last ? 0 : 15 }}>
+    <li style={{ position: "relative", minWidth: 0 }}>
       {!last && (
-        <span aria-hidden style={{ position: "absolute", left: 5, top: 14, bottom: 0, width: 1, background: "var(--border-sub)" }} />
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: 11,
+            right: -23,
+            top: 5,
+            height: 1,
+            background: "var(--border-sub)",
+          }}
+        />
       )}
       <span
         aria-hidden
         style={{
           width: 11,
           height: 11,
-          marginTop: 4,
-          flexShrink: 0,
           borderRadius: "50%",
           background: observationTone(row),
           boxShadow: last ? "0 0 0 3px var(--bg-elev)" : "none",
+          display: "block",
+          position: "relative",
         }}
       />
-      <div className="flex-1 min-w-0">
+      <div style={{ minWidth: 0, marginTop: 10 }}>
         <div className="flex items-start" style={{ gap: 8 }}>
           <div className="flex-1 min-w-0">
             <div style={{ fontSize: 12, fontWeight: last ? 650 : 500, color: "var(--fg)" }}>{label}</div>
@@ -197,7 +207,7 @@ function CanonicalObservation({ row, last }: { row: MessageLifecycleTransitionWi
           </div>
         )}
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -217,9 +227,24 @@ export function MessageLifecycleTimeline({
           Observations recorded by e2a · not an inbox-placement claim
         </div>
       </div>
-      {transitions.map((row, index) => (
-        <CanonicalObservation key={row.id} row={row} last={index === transitions.length - 1} />
-      ))}
+      <ol
+        aria-label="Message lifecycle observations"
+        style={{
+          display: "grid",
+          gridAutoFlow: "column",
+          gridAutoColumns: "minmax(210px, 1fr)",
+          gap: 18,
+          margin: 0,
+          padding: "0 0 4px",
+          listStyle: "none",
+          overflowX: "auto",
+          overflowY: "hidden",
+        }}
+      >
+        {transitions.map((row, index) => (
+          <CanonicalObservation key={row.id} row={row} last={index === transitions.length - 1} />
+        ))}
+      </ol>
     </div>
   );
 }
