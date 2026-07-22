@@ -58,7 +58,7 @@ test("agents: get primary agent by email", async () => {
 });
 
 test("agents: get nonexistent agent returns 404 not_found (matches every other resource; anti-enumeration preserved)", async () => {
-  const r = await client.get(`/v1/agents/nonexistent-${Date.now()}@agents.e2a.dev`);
+  const r = await client.get<{ error?: { code?: string } }>(`/v1/agents/nonexistent-${Date.now()}@agents.e2a.dev`);
   assert.equal(r.status, 404, `unknown/non-owned agent → 404, got ${r.status}`);
   assert.equal(r.body?.error?.code, "not_found", `expected code not_found, got ${r.body?.error?.code}`);
 });
