@@ -170,12 +170,15 @@ func TestSpecEvolutionStance(t *testing.T) {
 	}
 }
 
-// The stance must also hold for operation-UNREACHABLE components. The typed
-// per-event payload schemas (Email*Data / Domain*Data / AttachmentMetaView,
-// published by registerEventPayloadSchemas) are consumer-direction (server →
-// client) but referenced by NO operation's request or response, so the
-// response-reachability pass in applyEvolutionStance never sees them — they
-// open themselves at registration. This test closes the gap the two-pass
+// The stance must also hold for operation-UNREACHABLE components. Most typed
+// per-event payload schemas (Email*Data / Domain*Data, published by
+// registerEventPayloadSchemas) are consumer-direction (server → client) but
+// referenced by no operation's request or response, so the response-reachability
+// pass in applyEvolutionStance never sees them — they open themselves at
+// registration. Shared components can also become operation-reachable over
+// time: AttachmentMetaView through account export, and now
+// MessageLifecycleTransition through the lifecycle endpoint. This test closes
+// the gap the two-pass
 // design leaves: every component schema that is not reachable from a request
 // body (i.e. everything that is not strict-by-design input) must be open, so
 // neither enforcement point can drift without failing here.
@@ -221,10 +224,9 @@ func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
 		}
 	}
 
-	// Anchor: the event payload components must exist, be operation-unreachable
-	// (they are documentation/codegen components, not operation bodies), and
-	// therefore be covered by the loop above — a rename or a future "attach
-	// them to an operation" refactor must consciously revisit this test.
+	// Anchor: event payload components must exist and remain response-only. Most
+	// are operation-unreachable documentation/codegen components; the conscious
+	// response-reachable exceptions below retain explicit policy assertions.
 	//
 	// Conscious exception: AttachmentMetaView. Since the user-data export's Message
 	// schema typed its `attachments` as []AttachmentMetaView (one shape everywhere),
@@ -242,6 +244,19 @@ func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
 		if name == "AttachmentMetaView" {
 			if !response[name] {
 				t.Error("AttachmentMetaView expected response-reachable via the export's Message.attachments — if that changed, revisit this exception")
+			}
+			continue
+		}
+		if name == "MessageLifecycleTransition" {
+			if !response[name] {
+				t.Error("MessageLifecycleTransition must remain response-reachable through getMessageLifecycle and mapped event schemas")
+			}
+			for _, field := range []string{"direction", "stage", "outcome", "reason_code"} {
+				key := name + "." + field
+				reason, explicitlyClosed := closedResponseEnumAllowlist[key]
+				if !explicitlyClosed || !strings.Contains(reason, "versioned contract change") {
+					t.Errorf("%s must retain the explicit closed/versioned lifecycle enum policy; got %q", key, reason)
+				}
 			}
 			continue
 		}

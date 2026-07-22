@@ -959,7 +959,7 @@ server.registerTool("get_message_lifecycle", {
 }, (args) => runTool(() => client.getMessageLifecycle(args.message_id, args, args.email)));
 ```
 
-The dashboard helper calls the same `/api/v1/agents/.../lifecycle` proxy path
+The dashboard helper calls the same `/v1/agents/.../lifecycle` proxy path
 and exports only types/fetching; do not modify components or pages.
 
 - [x] **Step 4: Run focused and package-level tests**

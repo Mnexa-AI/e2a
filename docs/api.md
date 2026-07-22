@@ -528,8 +528,9 @@ persisted observation. Historical event envelopes remain unchanged.
 This is an additive `/v1` contract: the endpoint and optional
 `lifecycle_transitions` event field may be consumed by new clients without
 changing historical responses or stored webhook redeliveries. The closed stage
-and reason-code vocabularies change only through a deliberate versioned contract
-change. delivered means the recipient mail server accepted the message; e2a does not observe or claim inbox placement.
+outcome, and reason-code vocabularies change only through deliberate versioned
+contract handling. Any addition requires coordinated OpenAPI, generated SDK, and handwritten client regeneration;
+it is never an unannounced additive response value. delivered means the recipient mail server accepted the message; e2a does not observe or claim inbox placement.
 Screening and prompt-injection detections remain outside the lifecycle ledger.
 Their existing protection events and documentation remain authoritative; a
 screening verdict is not rewritten as delivery, authentication, or inbox state.
