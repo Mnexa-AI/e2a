@@ -1,7 +1,7 @@
 # Canonical Message Trust Ledger Design
 
 Date: 2026-07-21
-Status: Approved for implementation
+Status: Approved design; beta rollout amendment pending review
 
 ## Context
 
@@ -18,10 +18,10 @@ only transitions e2a actually observed. The ledger becomes the source for a
 new REST read surface and for lifecycle data attached to existing message
 events. It does not claim inbox placement.
 
-The `/v1` API is GA. The design therefore preserves every existing event name,
-field, and message status. It adds one endpoint, new response schemas, and an
-optional additive lifecycle field on event payloads. No existing contract is
-reinterpreted or removed.
+The existing `/v1` API is GA, but the lifecycle feature is introduced as beta.
+The design therefore preserves every existing event name, field, and message
+status while marking the new endpoint, its schemas, and the optional lifecycle
+fields as beta. No existing stable contract is reinterpreted or removed.
 
 ## Industry comparison
 
@@ -422,17 +422,38 @@ requires coordinated SDK regeneration.
 
 ## Compatibility and rollout
 
-The change is additive:
+The change is additive and the complete lifecycle feature is beta at launch:
 
-- one new endpoint and schemas;
-- optional additive `lifecycle_transitions` fields on mapped event payloads;
-- two new tables and indexes; and
-- new client methods/commands/tools.
+- the `get-message-lifecycle` operation and its lifecycle page and transition
+  schemas carry `x-stability-level: beta` in OpenAPI;
+- each optional additive `lifecycle_transitions` property on a mapped event
+  payload carries `x-stability-level: beta` without marking its existing parent
+  event schema beta;
+- the generated and handwritten SDK methods, CLI command, MCP tool, and
+  dashboard data helper are documented as beta lifecycle surfaces;
+- two new tables and indexes.
 
 Existing message status fields, event names, event envelope version, webhook
 signatures, redelivery behavior, and WebSocket close semantics do not change.
-Event consumers must already tolerate additive fields under the GA event
-contract. No feature flag or destructive migration is required.
+Those existing contracts remain stable. The optional beta field does not make
+an existing event envelope or event type beta. Event consumers must already
+tolerate additive fields under the GA event contract. No feature flag or
+destructive migration is required.
+
+The Huma handler and schema metadata remain the source of truth for stability
+annotations. `api/openapi.yaml` and generated SDK files are regenerated with
+repository commands and are never hand-edited. Contract tests assert that the
+operation, lifecycle schemas, and optional event properties are beta and that
+the existing parent event schemas remain stable.
+
+While beta, lifecycle vocabulary and response details may evolve through
+coordinated additive or explicitly documented beta changes. The initial enums
+remain closed so current clients reject unrecognized values rather than
+silently misrepresenting them. Promotion to GA requires a separate
+compatibility review, a deliberate vocabulary freeze, and one coordinated
+handler, OpenAPI, generated-client, handwritten-client, and documentation
+change that removes the beta markers. Promotion is never inferred from age or
+usage.
 
 Deploy the migration before code begins writing transitions, as happens in the
 normal embedded auto-migration startup. Mixed-version processes remain safe:
