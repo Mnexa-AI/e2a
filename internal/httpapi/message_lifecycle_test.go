@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,6 +167,13 @@ func TestMessageLifecycleCursorBindingAndTamper(t *testing.T) {
 	if err := DecodeCursor([]string{lifecycleTestSecret}, cursor, &decoded); err != nil {
 		t.Fatal(err)
 	}
+	var decodedWire map[string]any
+	if err := DecodeCursor([]string{lifecycleTestSecret}, cursor, &decodedWire); err != nil {
+		t.Fatal(err)
+	}
+	if decodedWire["s"] != "asc" {
+		t.Fatalf("cursor sort binding = %#v, want asc", decodedWire["s"])
+	}
 	if decoded.Version != 1 || decoded.AgentID != "agent@example.com" || decoded.MessageID != "msg_one" || decoded.ID != "mlt_000" || decoded.OccurredAt.IsZero() {
 		t.Fatalf("cursor payload = %#v", decoded)
 	}
@@ -184,6 +192,121 @@ func TestMessageLifecycleCursorBindingAndTamper(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("invalid cursors reached lister: %v", *calls)
 	}
+}
+
+func TestMessageLifecycleCursorRejectsMissingOrWrongSortBinding(t *testing.T) {
+	srv, calls := newLifecycleServer(t, lifecycleTransitions(3))
+	base := map[string]any{
+		"v": 1, "g": "agent@example.com", "m": "msg_one",
+		"t": time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC), "i": "mlt_000",
+	}
+	missing, err := EncodeCursor(lifecycleTestSecret, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongPayload := make(map[string]any, len(base)+1)
+	for key, value := range base {
+		wrongPayload[key] = value
+	}
+	wrongPayload["s"] = "desc"
+	wrong, err := EncodeCursor(lifecycleTestSecret, wrongPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, cursor := range map[string]string{"missing": missing, "wrong": wrong} {
+		t.Run(name, func(t *testing.T) {
+			status, body := lifecycleGET(t, srv, "agent@example.com", "msg_one", "?cursor="+url.QueryEscape(cursor))
+			if status != http.StatusBadRequest || errCode(body) != "invalid_cursor" {
+				t.Fatalf("got %d %#v", status, body)
+			}
+		})
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("invalid sort cursors reached lister: %v", *calls)
+	}
+}
+
+func TestMessageLifecyclePaginationUsesKeysetAcrossMutations(t *testing.T) {
+	items := lifecycleTransitions(3)
+	srv, _ := newLifecycleServer(t, nil, func(deps *Deps) {
+		deps.ListMessageLifecycle = func(_ context.Context, messageID, agentID string) ([]messagelifecycle.MessageLifecycleTransition, error) {
+			out := append([]messagelifecycle.MessageLifecycleTransition(nil), items...)
+			for i := range out {
+				out[i].MessageID = messageID
+			}
+			return out, nil
+		}
+	})
+	status, first := lifecycleGET(t, srv, "agent@example.com", "msg_one", "?limit=2")
+	if status != http.StatusOK {
+		t.Fatalf("first page = %d %#v", status, first)
+	}
+	cursor := first["next_cursor"].(string)
+
+	historical := lifecycleTransitions(1)[0]
+	historical.ID = "mlt_historical"
+	historical.OccurredAt = historical.OccurredAt.Add(-time.Hour)
+	appended := lifecycleTransitions(1)[0]
+	appended.ID = "mlt_appended"
+	appended.OccurredAt = appended.OccurredAt.Add(time.Hour)
+	items = append(items, historical, appended)
+
+	status, continuation := lifecycleGET(t, srv, "agent@example.com", "msg_one", "?limit=10&cursor="+url.QueryEscape(cursor))
+	if status != http.StatusOK {
+		t.Fatalf("continuation = %d %#v", status, continuation)
+	}
+	got := map[string]int{}
+	for _, raw := range lifecycleItems(t, continuation) {
+		got[raw.(map[string]any)["id"].(string)]++
+	}
+	if got["mlt_002"] != 1 || got["mlt_appended"] != 1 || got["mlt_historical"] != 0 || len(got) != 2 {
+		t.Fatalf("continuation ids = %v", got)
+	}
+	for _, raw := range lifecycleItems(t, first) {
+		if got[raw.(map[string]any)["id"].(string)] != 0 {
+			t.Fatalf("duplicate across pages: %v", got)
+		}
+	}
+	status, restarted := lifecycleGET(t, srv, "agent@example.com", "msg_one", "?limit=10")
+	if status != http.StatusOK {
+		t.Fatalf("restart = %d %#v", status, restarted)
+	}
+	foundHistorical := false
+	for _, raw := range lifecycleItems(t, restarted) {
+		foundHistorical = foundHistorical || raw.(map[string]any)["id"] == "mlt_historical"
+	}
+	if !foundHistorical {
+		t.Fatal("historical observation should appear after restarting pagination")
+	}
+}
+
+func TestMessageLifecycleUnavailableAndListerErrors(t *testing.T) {
+	t.Run("unavailable", func(t *testing.T) {
+		srv, _ := newLifecycleServer(t, nil, func(deps *Deps) { deps.ListMessageLifecycle = nil })
+		status, body := lifecycleGET(t, srv, "absent@example.com", "msg_one", "")
+		if status != http.StatusNotFound || errCode(body) != "not_found" {
+			t.Fatalf("ownership must resolve before availability: got %d %#v", status, body)
+		}
+		status, body = lifecycleGET(t, srv, "agent@example.com", "msg_one", "")
+		if status != http.StatusNotImplemented || errCode(body) != "not_implemented" {
+			t.Fatalf("got %d %#v", status, body)
+		}
+	})
+	t.Run("store error", func(t *testing.T) {
+		srv, _ := newLifecycleServer(t, nil, func(deps *Deps) {
+			deps.ListMessageLifecycle = func(context.Context, string, string) ([]messagelifecycle.MessageLifecycleTransition, error) {
+				return nil, errors.New("database password is secret")
+			}
+		})
+		status, body := lifecycleGET(t, srv, "agent@example.com", "msg_one", "")
+		if status != http.StatusInternalServerError || errCode(body) != "internal_error" {
+			t.Fatalf("got %d %#v", status, body)
+		}
+		encoded, _ := json.Marshal(body)
+		if strings.Contains(string(encoded), "database password") || strings.Contains(string(encoded), "secret") {
+			t.Fatalf("error leaked details: %s", encoded)
+		}
+	})
 }
 
 func TestMessageLifecycleHidesForeignAndMissingOwnership(t *testing.T) {

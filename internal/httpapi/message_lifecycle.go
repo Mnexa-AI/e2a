@@ -13,6 +13,7 @@ import (
 
 const messageLifecycleCursorVersion = 1
 const messageLifecycleDefaultLimit = 50
+const messageLifecycleSortAscending = "asc"
 
 type messageLifecycleInput struct {
 	Email  string `path:"email"`
@@ -31,6 +32,7 @@ type messageLifecycleCursor struct {
 	MessageID  string    `json:"m"`
 	OccurredAt time.Time `json:"t"`
 	ID         string    `json:"i"`
+	Sort       string    `json:"s"`
 }
 
 func (s *Server) registerMessageLifecycle() {
@@ -60,7 +62,7 @@ func (s *Server) handleMessageLifecycle(ctx context.Context, in *messageLifecycl
 		var cursor messageLifecycleCursor
 		if err := DecodeCursor([]string{s.deps.CursorSecret}, in.Cursor, &cursor); err != nil ||
 			cursor.Version != messageLifecycleCursorVersion || cursor.AgentID != agent.ID || cursor.MessageID != in.ID ||
-			cursor.OccurredAt.IsZero() || cursor.ID == "" {
+			cursor.OccurredAt.IsZero() || cursor.ID == "" || cursor.Sort != messageLifecycleSortAscending {
 			return nil, NewError(http.StatusBadRequest, "invalid_cursor", "invalid pagination cursor")
 		}
 		afterTime, afterID = cursor.OccurredAt.UTC(), cursor.ID
@@ -105,7 +107,7 @@ func (s *Server) handleMessageLifecycle(ctx context.Context, in *messageLifecycl
 		last := items[len(items)-1]
 		nextCursor, err = EncodeCursor(s.deps.CursorSecret, messageLifecycleCursor{
 			Version: messageLifecycleCursorVersion, AgentID: agent.ID, MessageID: in.ID,
-			OccurredAt: last.OccurredAt.UTC(), ID: last.ID,
+			OccurredAt: last.OccurredAt.UTC(), ID: last.ID, Sort: messageLifecycleSortAscending,
 		})
 		if err != nil {
 			return nil, NewError(http.StatusInternalServerError, "internal_error", "failed to build pagination cursor")
