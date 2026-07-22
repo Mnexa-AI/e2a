@@ -57,6 +57,9 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.attachments).toEqual([
       { filename: "invoice.pdf", content_type: "application/pdf", size_bytes: 12345, index: 0 },
     ]);
+    expect(d.lifecycle_transitions?.[0].reason_code).toBe("acceptance.inbound_smtp");
+    expect(d.lifecycle_transitions?.[0].recipient).toBeUndefined();
+    expect(d.lifecycle_transitions?.[0].correlation_ids.email_message_id).toBeTruthy();
   });
 
   it("email.sent", () => {
@@ -68,6 +71,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.direction).toBe("outbound");
     expect(d.to).toEqual(["alice@customer.example.com"]);
     expect(d.message_type).toBe("reply");
+    expect(d.lifecycle_transitions?.[0].stage).toBe("submission");
   });
 
   it("email.failed", () => {
@@ -78,6 +82,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.message_type).toBe("send");
     // provider_message_id is not part of email.failed (never accepted).
     expect((d as unknown as Record<string, unknown>).provider_message_id).toBeUndefined();
+    expect(d.lifecycle_transitions?.[0].outcome).toBe("failed");
   });
 
   it("email.delivered", () => {
@@ -88,6 +93,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.subject).toBe("Re: Order #1234 delayed");
     // The redundant `status` field was DROPPED — the event type is the outcome.
     expect((d as unknown as Record<string, unknown>).status).toBeUndefined();
+    expect(d.lifecycle_transitions?.[0].recipient).toBe("alice@customer.example.com");
   });
 
   it("email.bounced", () => {
@@ -98,6 +104,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(d.bounce_sub_type).toBe("General");
     expect(d.smtp_detail).toBe("550 5.1.1 no such user");
     expect((d as unknown as Record<string, unknown>).status).toBeUndefined();
+    expect(d.lifecycle_transitions?.[0].reason_code).toBe("delivery.permanent_bounce");
   });
 
   it("email.complained", () => {
@@ -105,6 +112,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     if (!isEmailComplained(e)) throw new Error("guard failed");
     expect(e.data.delivered_to).toBe("carol@customer.example.com");
     expect((e.data as unknown as Record<string, unknown>).status).toBeUndefined();
+    expect(e.data.lifecycle_transitions?.[0].stage).toBe("complaint");
   });
 
   it("domain.sending_verified", () => {
@@ -127,6 +135,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
     expect(e.data.address).toBe("bob@customer.example.com");
     expect(e.data.source).toBe("bounce");
     expect(e.data.message_id).toMatch(/^msg_/);
+    expect(e.data.lifecycle_transitions?.[0].stage).toBe("suppression");
   });
 
   // Minimal (required-fields-only) fixtures: the same files the server's
@@ -151,6 +160,7 @@ describe("golden payload fixtures parse into the typed payloads", () => {
       // Optional fields are ABSENT on the wire.
       expect(d.conversation_id).toBeUndefined();
       expect(d.attachments).toBeUndefined();
+      expect(d.lifecycle_transitions).toBeUndefined();
     });
 
     it("email.sent.min", () => {

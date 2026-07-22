@@ -15,9 +15,11 @@ import typing
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from typing_extensions import is_typeddict
 
 from e2a.v1 import Authentication, DKIMResult, DMARCResult, SPFResult
+from e2a.v1.generated.models import MessageLifecycleTransition
 
 from e2a.v1.webhook_signature import (
     WebhookEvent,
@@ -146,6 +148,102 @@ def test_domain_suppression_added():
     assert d["message_id"].startswith("msg_")
 
 
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "email.received.json",
+        "email.sent.json",
+        "email.failed.json",
+        "email.delivered.json",
+        "email.bounced.json",
+        "email.complained.json",
+        "domain.suppression_added.json",
+    ],
+)
+def test_stable_mapped_payloads_parse_generated_lifecycle_models(fixture_name):
+    event = _construct(fixture_name)
+    transitions = event.data["lifecycle_transitions"]
+    assert transitions
+    assert all(isinstance(row, MessageLifecycleTransition) for row in transitions)
+    first = transitions[0]
+    assert first.evidence is not None
+    assert first.correlation_ids is not None
+    assert first.reconstructed is False
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "email.received.min.json",
+        "email.sent.min.json",
+        "email.failed.min.json",
+        "email.delivered.min.json",
+        "email.bounced.min.json",
+        "email.complained.min.json",
+        "domain.suppression_added.min.json",
+    ],
+)
+def test_stable_payloads_remain_backward_compatible_without_lifecycle(fixture_name):
+    assert "lifecycle_transitions" not in _construct(fixture_name).data
+
+
+def test_lifecycle_payload_preserves_nullable_recipient_open_maps_and_reconstruction():
+    payload = json.loads((FIXTURE_DIR / "email.received.min.json").read_text())
+    payload["data"]["lifecycle_transitions"] = [
+        {
+            "id": "mlt_recon_1",
+            "message_id": payload["data"]["message_id"],
+            "direction": "inbound",
+            "recipient": None,
+            "stage": "accepted",
+            "outcome": "accepted",
+            "reason_code": "acceptance.inbound_smtp",
+            "retryable": False,
+            "evidence": {"source": "message", "future": {"nested": True}},
+            "correlation_ids": {"future_id": "future_1"},
+            "occurred_at": "2026-07-22T00:00:00Z",
+            "reconstructed": True,
+        }
+    ]
+    raw = json.dumps(payload)
+    t = str(int(time.time()))
+    sig = hmac.new(SECRET.encode(), f"{t}.{raw}".encode(), hashlib.sha256).hexdigest()
+    event = construct_event(raw, f"t={t},v1={sig}", SECRET)
+    assert is_email_received(event)
+    transition = event.data["lifecycle_transitions"][0]
+    assert isinstance(transition, MessageLifecycleTransition)
+    assert transition.recipient is None
+    assert transition.evidence["future"] == {"nested": True}
+    assert transition.correlation_ids["future_id"] == "future_1"
+    assert transition.reconstructed is True
+    assert isinstance(event.raw["data"]["lifecycle_transitions"][0], dict)
+
+
+@pytest.mark.parametrize("field", ["direction", "stage", "outcome", "reason_code"])
+def test_lifecycle_payload_rejects_unknown_closed_values(field):
+    values = {
+        "id": "mlt_1",
+        "message_id": "msg_1",
+        "direction": "inbound",
+        "stage": "accepted",
+        "outcome": "accepted",
+        "reason_code": "acceptance.inbound_smtp",
+        "retryable": False,
+        "evidence": {},
+        "correlation_ids": {},
+        "occurred_at": "2026-07-22T00:00:00Z",
+        "reconstructed": False,
+    }
+    values[field] = "future_unknown_value"
+    payload = json.loads((FIXTURE_DIR / "email.received.min.json").read_text())
+    payload["data"]["lifecycle_transitions"] = [values]
+    raw = json.dumps(payload)
+    t = str(int(time.time()))
+    sig = hmac.new(SECRET.encode(), f"{t}.{raw}".encode(), hashlib.sha256).hexdigest()
+    with pytest.raises(ValidationError, match=field):
+        construct_event(raw, f"t={t},v1={sig}", SECRET)
+
+
 def test_unknown_event_type_still_parses():
     raw = json.dumps({
         "type": "email.future_kind",
@@ -168,7 +266,24 @@ def test_future_envelope_version_stays_generic():
         "id": "evt_v2",
         "schema_version": "2",
         "created_at": "2030-01-02T03:04:05Z",
-        "data": {"future": True},
+        "data": {
+            "future": True,
+            "lifecycle_transitions": [
+                {
+                    "id": "future_1",
+                    "message_id": "msg_future",
+                    "direction": "sideways",
+                    "stage": "future_stage",
+                    "outcome": "future_outcome",
+                    "reason_code": "future.reason",
+                    "retryable": "evolved",
+                    "evidence": {"future": True},
+                    "correlation_ids": {},
+                    "occurred_at": "future-time",
+                    "reconstructed": "maybe",
+                }
+            ],
+        },
         "future_envelope_field": True,
     })
     t = str(int(time.time()))
@@ -176,6 +291,8 @@ def test_future_envelope_version_stays_generic():
     e = construct_event(raw, f"t={t},v1={sig}", SECRET)
     assert e.schema_version == "2"
     assert e.raw["future_envelope_field"] is True
+    assert e.data is e.raw["data"]
+    assert e.data["lifecycle_transitions"][0]["stage"] == "future_stage"
     assert not is_email_received(e)
 
 
@@ -203,6 +320,8 @@ def test_email_received_minimal():
     # Optional fields are ABSENT on the wire.
     assert "conversation_id" not in d
     assert "attachments" not in d
+    assert "lifecycle_transitions" not in d
+    assert d is e.raw["data"]
 
 
 def test_email_sent_minimal():

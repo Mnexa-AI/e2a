@@ -9,13 +9,14 @@ import (
 
 // eventPayloadComponentNames are every component schema published by
 // registerEventPayloadSchemas, plus the nested components reachable from them
-// (AttachmentMetaView via EmailReceivedData.attachments).
+// (AttachmentMetaView via EmailReceivedData.attachments and the canonical
+// MessageLifecycleTransition shared by every stable email payload).
 var eventPayloadComponentNames = func() []string {
 	names := make([]string, 0, len(eventpayload.StableEvents)+2)
 	for _, event := range eventpayload.StableEvents {
 		names = append(names, event.SchemaName)
 	}
-	return append(names, "AttachmentMetaView", "AgentSuppressionAddedData")
+	return append(names, "AttachmentMetaView", "MessageLifecycleTransition", "AgentSuppressionAddedData")
 }()
 
 // TestEventPayloadSchemasAreOpen enforces the forward-compatibility invariant
@@ -52,6 +53,39 @@ func TestEventPayloadSchemasAreOpen(t *testing.T) {
 		}
 		assertObjectNodesOpen(t, name, schema)
 	}
+}
+
+func TestStableEmailPayloadsUseCanonicalLifecycleComponent(t *testing.T) {
+	registry := New(Deps{}).API.OpenAPI().Components.Schemas
+	wantRef := "#/components/schemas/MessageLifecycleTransition"
+	for _, name := range []string{"EmailReceivedData", "EmailSentData", "EmailFailedData", "EmailDeliveredData", "EmailBouncedData", "EmailComplainedData", "DomainSuppressionAddedData"} {
+		schema := registry.Map()[name]
+		if schema == nil {
+			t.Fatalf("component %s missing", name)
+		}
+		property := schema.Properties["lifecycle_transitions"]
+		if property == nil || property.Type != "array" || property.Items == nil || property.Items.Ref != wantRef {
+			t.Errorf("%s.lifecycle_transitions = %#v, want optional array of %s", name, property, wantRef)
+		}
+		for _, required := range schema.Required {
+			if required == "lifecycle_transitions" {
+				t.Errorf("%s.lifecycle_transitions must remain optional for historical events", name)
+			}
+		}
+	}
+
+	transition := registry.Map()["MessageLifecycleTransition"]
+	if transition == nil {
+		t.Fatal("shared MessageLifecycleTransition component missing")
+	}
+	validateSchema(t, registry, transition, "transition", map[string]any{
+		"id": "mlt_future", "message_id": "msg_future", "direction": "outbound",
+		"stage": "submission", "outcome": "accepted", "reason_code": "submission.upstream_accepted",
+		"retryable":       false,
+		"evidence":        map[string]any{"future_provider_signal": map[string]any{"score": 0.9}},
+		"correlation_ids": map[string]any{"provider_message_id": "provider_future", "future_id": "opaque"},
+		"occurred_at":     "2026-07-21T12:00:00Z", "reconstructed": false,
+	})
 }
 
 // assertObjectNodesOpen walks a rendered schema node and fails on any object

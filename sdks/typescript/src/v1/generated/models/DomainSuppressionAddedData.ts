@@ -10,10 +10,12 @@
  * Do not edit the class manually.
  */
 
+import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { HttpFile } from '../http/http.js';
 
 export class DomainSuppressionAddedData {
     'address': string;
+    'lifecycleTransitions'?: Array<MessageLifecycleTransition>;
     'messageId'?: string;
     'reason'?: string;
     /**
@@ -30,6 +32,12 @@ export class DomainSuppressionAddedData {
             "name": "address",
             "baseName": "address",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "lifecycleTransitions",
+            "baseName": "lifecycle_transitions",
+            "type": "Array<MessageLifecycleTransition>",
             "format": ""
         },
         {

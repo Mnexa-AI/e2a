@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // LocalDeliveryTxHook runs after both sides of a providerless local delivery
 // are visible in tx and before commit. Callers use it for durable outcome
 // events and idempotency completion so none can diverge from the Sent/Inbox
 // pair.
-type LocalDeliveryTxHook func(ctx context.Context, tx pgx.Tx, outbound, inbound *Message, result SendResult) error
+type LocalDeliveryTxHook func(ctx context.Context, tx pgx.Tx, outbound, inbound *Message, result SendResult, outboundTransitions, inboundTransitions []messagelifecycle.MessageLifecycleTransition) error
 
 // GetEventEnvelope returns the exact durable event envelope for a message.
 // WebSocket reconnect drain uses this instead of rebuilding an event whose
@@ -78,8 +79,12 @@ func (s *Store) ApproveAndDeliverLocal(
 		return nil, err
 	}
 
+	outboundTransitions, inboundTransitions, err := appendLocalDeliveryLifecycle(txCtx, tx, m, inbound, result, messagelifecycle.ReasonReviewApproved, MessageStatusReviewApproved)
+	if err != nil {
+		return nil, err
+	}
 	if beforeCommit != nil {
-		if err := beforeCommit(ctx, tx, m, inbound, result); err != nil {
+		if err := beforeCommit(ctx, tx, m, inbound, result, outboundTransitions, inboundTransitions); err != nil {
 			return nil, err
 		}
 	}
@@ -131,8 +136,12 @@ func (s *Store) ExpireAndDeliverLocal(
 	if err != nil {
 		return nil, err
 	}
+	outboundTransitions, inboundTransitions, err := appendLocalDeliveryLifecycle(txCtx, tx, m, inbound, result, messagelifecycle.ReasonReviewExpiredApproved, MessageStatusReviewExpiredApproved)
+	if err != nil {
+		return nil, err
+	}
 	if beforeCommit != nil {
-		if err := beforeCommit(ctx, tx, m, inbound, result); err != nil {
+		if err := beforeCommit(ctx, tx, m, inbound, result, outboundTransitions, inboundTransitions); err != nil {
 			return nil, err
 		}
 	}
@@ -141,6 +150,34 @@ func (s *Store) ExpireAndDeliverLocal(
 	}
 	committed = true
 	return m, nil
+}
+
+func appendLocalDeliveryLifecycle(ctx context.Context, tx pgx.Tx, outbound, inbound *Message, result SendResult, reviewReason messagelifecycle.ReasonCode, resolution string) ([]messagelifecycle.MessageLifecycleTransition, []messagelifecycle.MessageLifecycleTransition, error) {
+	review, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		MessageID: outbound.ID, DedupeKey: "review:resolution", Direction: "outbound",
+		ReasonCode: reviewReason, Evidence: map[string]any{"review_resolution": resolution}, OccurredAt: time.Now(),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	outbound.LifecycleTransitions = []messagelifecycle.MessageLifecycleTransition{review}
+	submitted, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		MessageID: outbound.ID, DedupeKey: "submission:local-loopback", Direction: "outbound",
+		ReasonCode:     messagelifecycle.ReasonSubmissionLocalLoopbackAccepted,
+		CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"email_message_id": result.ProviderMessageID}), OccurredAt: time.Now(),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	accepted, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+		MessageID: inbound.ID, DedupeKey: "acceptance", Direction: "inbound",
+		ReasonCode:     messagelifecycle.ReasonAcceptanceLocalLoopback,
+		CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"email_message_id": result.ProviderMessageID}), OccurredAt: inbound.CreatedAt,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return []messagelifecycle.MessageLifecycleTransition{submitted}, []messagelifecycle.MessageLifecycleTransition{accepted}, nil
 }
 
 func finalizeLocalDeliveryTx(

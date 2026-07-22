@@ -45,6 +45,7 @@ import type {
   DeleteTemplateResult,
   DeleteApiKeyResult,
   Page,
+  PageMessageLifecycleTransition,
 } from "@e2a/sdk/v1";
 import type { McpConfig } from "./config.js";
 import type { Scope } from "./tools/tiers.js";
@@ -244,6 +245,19 @@ export class McpClient {
 
   getMessage(messageId: string, explicitAddress?: string): Promise<MessageView> {
     return this.sdk.messages.get(this.resolveAddress(explicitAddress), messageId);
+  }
+
+  /** Beta: fetch the canonical observations for one message. */
+  getMessageLifecycle(
+    messageId: string,
+    params: { cursor?: string; limit?: number } = {},
+    explicitAddress?: string,
+  ): Promise<PageMessageLifecycleTransition> {
+    return this.sdk.messages.getLifecycle(
+      this.resolveAddress(explicitAddress),
+      messageId,
+      params,
+    );
   }
 
   // getAttachment (§6a #5): metadata + a short-lived download_url for one

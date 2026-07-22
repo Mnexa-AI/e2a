@@ -21,6 +21,28 @@
     ],
     "subject": "Re: Order #1234 delayed",
     "message_type": "send",
-    "reason": "550 5.1.1 user unknown"
+    "reason": "550 5.1.1 user unknown",
+    "reason_code": "submission.provider_rejected",
+    "retryable": false,
+    "lifecycle_transitions": [
+      {
+        "id": "mlt_failed",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp43",
+        "direction": "outbound",
+        "stage": "submission",
+        "outcome": "failed",
+        "reason_code": "submission.provider_rejected",
+        "retryable": false,
+        "evidence": {
+          "failure_code": "submission.provider_rejected",
+          "failure_reason": "550 5.1.1 user unknown"
+        },
+        "correlation_ids": {
+          "job_id": "4243"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      }
+    ]
   }
 }

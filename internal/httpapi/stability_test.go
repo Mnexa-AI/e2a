@@ -19,6 +19,7 @@ var betaOperationIDs = []string{
 	"deleteAgentSuppression",
 	"deleteTemplate",
 	"getAgentProtection",
+	"get-message-lifecycle",
 	"getReview",
 	"getStarterTemplate",
 	"getTemplate",
@@ -170,12 +171,15 @@ func TestSpecEvolutionStance(t *testing.T) {
 	}
 }
 
-// The stance must also hold for operation-UNREACHABLE components. The typed
-// per-event payload schemas (Email*Data / Domain*Data / AttachmentMetaView,
-// published by registerEventPayloadSchemas) are consumer-direction (server →
-// client) but referenced by NO operation's request or response, so the
-// response-reachability pass in applyEvolutionStance never sees them — they
-// open themselves at registration. This test closes the gap the two-pass
+// The stance must also hold for operation-UNREACHABLE components. Most typed
+// per-event payload schemas (Email*Data / Domain*Data, published by
+// registerEventPayloadSchemas) are consumer-direction (server → client) but
+// referenced by no operation's request or response, so the response-reachability
+// pass in applyEvolutionStance never sees them — they open themselves at
+// registration. Shared components can also become operation-reachable over
+// time: AttachmentMetaView through account export, and now
+// MessageLifecycleTransition through the lifecycle endpoint. This test closes
+// the gap the two-pass
 // design leaves: every component schema that is not reachable from a request
 // body (i.e. everything that is not strict-by-design input) must be open, so
 // neither enforcement point can drift without failing here.
@@ -221,10 +225,9 @@ func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
 		}
 	}
 
-	// Anchor: the event payload components must exist, be operation-unreachable
-	// (they are documentation/codegen components, not operation bodies), and
-	// therefore be covered by the loop above — a rename or a future "attach
-	// them to an operation" refactor must consciously revisit this test.
+	// Anchor: event payload components must exist and remain response-only. Most
+	// are operation-unreachable documentation/codegen components; the conscious
+	// response-reachable exceptions below retain explicit policy assertions.
 	//
 	// Conscious exception: AttachmentMetaView. Since the user-data export's Message
 	// schema typed its `attachments` as []AttachmentMetaView (one shape everywhere),
@@ -242,6 +245,19 @@ func TestSpecEvolutionStanceCoversUnreachableComponents(t *testing.T) {
 		if name == "AttachmentMetaView" {
 			if !response[name] {
 				t.Error("AttachmentMetaView expected response-reachable via the export's Message.attachments — if that changed, revisit this exception")
+			}
+			continue
+		}
+		if name == "MessageLifecycleTransition" {
+			if !response[name] {
+				t.Error("MessageLifecycleTransition must remain response-reachable through getMessageLifecycle and mapped event schemas")
+			}
+			for _, field := range []string{"direction", "stage", "outcome", "reason_code"} {
+				key := name + "." + field
+				reason, explicitlyClosed := closedResponseEnumAllowlist[key]
+				if !explicitlyClosed || !strings.Contains(reason, "versioned contract change") {
+					t.Errorf("%s must retain the explicit closed/versioned lifecycle enum policy; got %q", key, reason)
+				}
 			}
 			continue
 		}
@@ -292,6 +308,13 @@ func TestSpecBetaMarkers(t *testing.T) {
 			t.Errorf("%s description must contain shared beta sentence, got %q", id, desc)
 		}
 	}
+	lifecycleOp := opFor("get-message-lifecycle")
+	if summary, _ := lifecycleOp["summary"].(string); !strings.Contains(summary, "(beta)") {
+		t.Errorf("get-message-lifecycle summary must visibly say (beta), got %q", summary)
+	}
+	if desc, _ := lifecycleOp["description"].(string); !strings.Contains(desc, "Beta: message lifecycle") {
+		t.Errorf("get-message-lifecycle description must describe its beta status, got %q", desc)
+	}
 	for _, id := range []string{"sendMessage", "replyToMessage", "forwardMessage", "listSuppressions", "deleteSuppression", "createAgent", "listMessages", "createWebhook", "listEvents", "deleteMessage", "restoreMessage", "restoreAgent", "deleteAgent"} {
 		if got := opExt(id, "x-stability"); got != nil {
 			t.Errorf("%s is stable GA surface and must NOT carry x-stability, got %v", id, got)
@@ -310,12 +333,28 @@ func TestSpecBetaMarkers(t *testing.T) {
 		}
 		return sc[extension]
 	}
-	for _, name := range []string{"AgentSuppressionView", "CreateAgentSuppressionRequest", "PageAgentSuppressionView", "UnsubscribeOptions", "TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView"} {
+	for _, name := range []string{"AgentSuppressionView", "CreateAgentSuppressionRequest", "PageAgentSuppressionView", "UnsubscribeOptions", "TemplateView", "CreateTemplateRequest", "StarterTemplateView", "ProtectionConfigView", "ProtectionConfigRequest", "ReviewView", "PageReviewView", "ApproveRequest", "RejectRequest", "RejectResultView", "HoldReasonView", "ProtectionFindingView", "ThreatCategoryView", "MessageLifecycleTransition", "PageMessageLifecycleTransition"} {
 		if got := schemaExt(name, "x-stability"); got != nil {
 			t.Errorf("schema %s must not carry duplicate x-stability alias, got %v", name, got)
 		}
 		if got := schemaExt(name, "x-stability-level"); got != "beta" {
 			t.Errorf("schema %s must carry canonical x-stability-level: beta, got %v", name, got)
+		}
+	}
+
+	// Lifecycle data is beta even when embedded in an otherwise-stable event
+	// payload. Keep the marker on the optional property so existing event
+	// schemas and envelopes retain their GA stability.
+	for _, name := range []string{"EmailReceivedData", "EmailSentData", "EmailFailedData", "EmailDeliveredData", "EmailBouncedData", "EmailComplainedData", "DomainSuppressionAddedData"} {
+		property, _ := schemaProps(t, doc, name)["lifecycle_transitions"].(map[string]any)
+		if property == nil || property["x-stability-level"] != "beta" {
+			t.Errorf("%s.lifecycle_transitions must carry canonical x-stability-level: beta", name)
+		}
+		if property != nil && property["x-stability"] != nil {
+			t.Errorf("%s.lifecycle_transitions must not carry duplicate x-stability alias", name)
+		}
+		if got := schemaExt(name, "x-stability-level"); got != nil {
+			t.Errorf("stable parent schema %s must remain unmarked, got %v", name, got)
 		}
 	}
 	for _, name := range []string{"MessageView", "AgentView", "WebhookView", "SendEmailRequest", "ReplyRequest", "ForwardRequest", "SuppressionView", "PageSuppressionView", "DeleteSuppressionResult", "ErrorEnvelope", "DeleteMessageResult"} {
@@ -450,7 +489,7 @@ func TestDocumentedBetaOperationsMatchOpenAPI(t *testing.T) {
 	if end := strings.Index(section, "\n### "); end >= 0 {
 		section = section[:end]
 	}
-	re := regexp.MustCompile("`([A-Za-z][A-Za-z0-9]*)`")
+	re := regexp.MustCompile("`([A-Za-z][A-Za-z0-9-]*)`")
 	var documented []string
 	for _, line := range strings.Split(section, "\n") {
 		if !strings.HasPrefix(line, "|") {

@@ -535,6 +535,33 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
   );
 
   server.registerTool(
+    "get_message_lifecycle",
+    {
+      title: "Get message lifecycle (beta)",
+      annotations: { readOnlyHint: true, idempotentHint: true },
+      description:
+        "Beta: returns the ordered transitions e2a observed for one persisted inbound or outbound message; the lifecycle contract may change before it is declared stable. SMTP acceptance, upstream submission, provider delivery feedback, and complaint feedback remain distinct; this does not claim inbox placement. Cursor-paginated with the canonical REST page envelope.",
+      inputSchema: strictInputSchema({
+        message_id: z.string(),
+        email: z.string().optional(),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      }),
+    },
+    async (args) =>
+      runTool(() =>
+        client.getMessageLifecycle(
+          args.message_id,
+          {
+            ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
+            ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          },
+          args.email,
+        ),
+      ),
+  );
+
+  server.registerTool(
     "get_attachment",
     {
       title: "Get one attachment (download URL; bytes by reference)",

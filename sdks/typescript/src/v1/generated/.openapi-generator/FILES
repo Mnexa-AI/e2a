@@ -76,6 +76,7 @@ models/LimitsCapsView.ts
 models/LimitsUsageView.ts
 models/Message.ts
 models/MessageBodyView.ts
+models/MessageLifecycleTransition.ts
 models/MessageParsedView.ts
 models/MessageSummaryView.ts
 models/MessageView.ts
@@ -87,6 +88,7 @@ models/PageAgentView.ts
 models/PageConversationSummaryView.ts
 models/PageDomainView.ts
 models/PageEventView.ts
+models/PageMessageLifecycleTransition.ts
 models/PageMessageSummaryView.ts
 models/PageReviewView.ts
 models/PageStarterTemplateView.ts

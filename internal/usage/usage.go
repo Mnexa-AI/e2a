@@ -3,7 +3,13 @@ package usage
 import (
 	"context"
 	"log"
+
+	"github.com/jackc/pgx/v5"
 )
+
+type TransactionalUsageTracker interface {
+	RecordAndCheckTx(context.Context, pgx.Tx, string, string, string, string) (bool, error)
+}
 
 // UsageTracker records usage events. Always allows the action (no quota enforcement).
 type UsageTracker interface {
@@ -55,6 +61,24 @@ func (t *LiveUsageTracker) RecordAndCheck(ctx context.Context, userID, agentID, 
 	return true, nil
 }
 
+func (t *LiveUsageTracker) RecordAndCheckTx(ctx context.Context, tx pgx.Tx, userID, agentID, domain, direction string) (bool, error) {
+	class, err := t.store.GetAccountClassTx(ctx, tx, userID)
+	if err != nil {
+		return false, err
+	}
+	if !PolicyFor(class).Meter {
+		return true, nil
+	}
+	e := &UsageEvent{UserID: userID, AgentID: agentID, Domain: domain, Direction: direction}
+	if err := t.store.RecordUsageEventTx(ctx, tx, e); err != nil {
+		return false, err
+	}
+	if err := t.store.IncrementUsageSummaryTx(ctx, tx, userID, CurrentDate(), direction); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // NoopUsageTracker always allows everything. Used when billing is disabled.
 type NoopUsageTracker struct{}
 
@@ -63,5 +87,9 @@ func NewNoopUsageTracker() *NoopUsageTracker {
 }
 
 func (t *NoopUsageTracker) RecordAndCheck(ctx context.Context, userID, agentID, domain, direction string) (bool, error) {
+	return true, nil
+}
+
+func (t *NoopUsageTracker) RecordAndCheckTx(context.Context, pgx.Tx, string, string, string, string) (bool, error) {
 	return true, nil
 }

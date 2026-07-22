@@ -21,9 +21,9 @@
 // map[string]any at their trigger sites — their payloads are open/unstable
 // and must NOT be typed here until they are declared stable.
 //
-// This package stays a light leaf (time + internal/mailparse only) so the
-// stdlib-oriented internal/delivery package can import it without dragging in
-// webhookpub's storage dependencies.
+// This package stays lightweight (mail parsing plus the lifecycle wire model)
+// so delivery producers can import it without dragging in webhookpub's storage
+// dependencies.
 package eventpayload
 
 import (
@@ -31,6 +31,7 @@ import (
 
 	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/mailparse"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // AttachmentMetaView is the CANONICAL wire shape for one attachment's
@@ -86,6 +87,9 @@ type EmailReceivedData struct {
 	// Attachments is per-attachment METADATA (never bytes) parsed from the
 	// raw message. Omitted when the message has none.
 	Attachments []AttachmentMetaView `json:"attachments,omitempty" nullable:"false"`
+	// LifecycleTransitions are the exact canonical rows committed with this
+	// event. Omitted on historical events created before the lifecycle ledger.
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailSentData is the `data` payload of an email.sent event — an outbound
@@ -100,14 +104,15 @@ type EmailSentData struct {
 	// from the e2a message_id, and the correlation key for the async
 	// delivered/bounced/complained feedback events. Omitted for providerless
 	// local loopback delivery.
-	ProviderMessageID string   `json:"provider_message_id,omitempty"`
-	Method            string   `json:"method" doc:"Transport used for the send. Open set; tolerate unknown values. Known values: smtp, loopback."`
-	From              string   `json:"from"`
-	To                []string `json:"to" nullable:"false"`
-	CC                []string `json:"cc,omitempty" nullable:"false"`
-	BCC               []string `json:"bcc,omitempty" nullable:"false"`
-	Subject           string   `json:"subject"`
-	MessageType       string   `json:"message_type" doc:"Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."`
+	ProviderMessageID    string                                        `json:"provider_message_id,omitempty"`
+	Method               string                                        `json:"method" doc:"Transport used for the send. Open set; tolerate unknown values. Known values: smtp, loopback."`
+	From                 string                                        `json:"from"`
+	To                   []string                                      `json:"to" nullable:"false"`
+	CC                   []string                                      `json:"cc,omitempty" nullable:"false"`
+	BCC                  []string                                      `json:"bcc,omitempty" nullable:"false"`
+	Subject              string                                        `json:"subject"`
+	MessageType          string                                        `json:"message_type" doc:"Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."`
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailFailedData is the `data` payload of an email.failed event — an
@@ -136,6 +141,9 @@ type EmailFailedData struct {
 	// Populated only where the send path genuinely knows it; omitted
 	// otherwise (absent ≠ false).
 	Retryable *bool `json:"retryable,omitempty"`
+	// LifecycleTransitions are the exact canonical rows committed with this
+	// event. Omitted on historical events created before the lifecycle ledger.
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailDeliveredData is the `data` payload of an email.delivered event — the
@@ -152,7 +160,8 @@ type EmailDeliveredData struct {
 	Subject     string `json:"subject,omitempty"`
 	// SMTPDetail is the provider diagnostic string (e.g. the remote SMTP
 	// response), when the feedback notification carried one.
-	SMTPDetail string `json:"smtp_detail,omitempty"`
+	SMTPDetail           string                                        `json:"smtp_detail,omitempty"`
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailBouncedData is the `data` payload of an email.bounced event — an
@@ -177,7 +186,8 @@ type EmailBouncedData struct {
 	BounceType string `json:"bounce_type" enum:"permanent,transient,undetermined"`
 	// BounceSubType is the raw SES bounceSubType (e.g. General, NoEmail,
 	// MailboxFull), when present.
-	BounceSubType string `json:"bounce_sub_type,omitempty"`
+	BounceSubType        string                                        `json:"bounce_sub_type,omitempty"`
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailComplainedData is the `data` payload of an email.complained event — a
@@ -185,12 +195,13 @@ type EmailBouncedData struct {
 // Same shape as EmailDeliveredData; SMTPDetail carries the complaint
 // feedback type when present.
 type EmailComplainedData struct {
-	MessageID   string `json:"message_id"`
-	AgentEmail  string `json:"agent_email"`
-	Direction   string `json:"direction" doc:"Always \"outbound\" on this event."`
-	DeliveredTo string `json:"delivered_to" doc:"The one recipient address this per-recipient outcome is about."`
-	Subject     string `json:"subject,omitempty"`
-	SMTPDetail  string `json:"smtp_detail,omitempty"`
+	MessageID            string                                        `json:"message_id"`
+	AgentEmail           string                                        `json:"agent_email"`
+	Direction            string                                        `json:"direction" doc:"Always \"outbound\" on this event."`
+	DeliveredTo          string                                        `json:"delivered_to" doc:"The one recipient address this per-recipient outcome is about."`
+	Subject              string                                        `json:"subject,omitempty"`
+	SMTPDetail           string                                        `json:"smtp_detail,omitempty"`
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // DomainSendingVerifiedData is the `data` payload of a domain.sending_verified
@@ -222,7 +233,8 @@ type DomainSuppressionAddedData struct {
 	Reason string `json:"reason,omitempty"`
 	// MessageID is the outbound message whose feedback triggered the
 	// suppression, when still known.
-	MessageID string `json:"message_id,omitempty"`
+	MessageID            string                                        `json:"message_id,omitempty"`
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // AgentSuppressionAddedData is the exact agent-recipient consent scope added

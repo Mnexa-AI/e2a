@@ -47,6 +47,7 @@ type scenario struct {
 	AuthOverride *string     `yaml:"auth_override,omitempty"`
 	Setup        []setupStep `yaml:"setup,omitempty"`
 	Steps        []step      `yaml:"steps"`
+	Cleanup      []step      `yaml:"cleanup,omitempty"`
 }
 
 type setupStep struct {
@@ -87,10 +88,11 @@ type step struct {
 }
 
 type expectation struct {
-	Status       int                    `yaml:"status,omitempty"`
-	BodyContains []string               `yaml:"body_contains,omitempty"`
-	BodyMatch    map[string]interface{} `yaml:"body_match,omitempty"`
-	BodyExcludes []string               `yaml:"body_excludes,omitempty"`
+	Status            int                               `yaml:"status,omitempty"`
+	BodyContains      []string                          `yaml:"body_contains,omitempty"`
+	BodyMatch         map[string]interface{}            `yaml:"body_match,omitempty"`
+	BodyArrayContains map[string]map[string]interface{} `yaml:"body_array_contains,omitempty"`
+	BodyExcludes      []string                          `yaml:"body_excludes,omitempty"`
 	// WS-specific
 	FieldsPresent []string               `yaml:"fields_present,omitempty"`
 	FieldsAbsent  []string               `yaml:"fields_absent,omitempty"`
@@ -401,17 +403,42 @@ func (r *runner) executeSteps(t *testing.T) {
 	}
 }
 
-func (r *runner) cleanup() {
+func (r *runner) cleanup(t *testing.T) {
+	t.Helper()
+	for _, err := range r.cleanupErrors() {
+		t.Errorf("cleanup %v", err)
+	}
+}
+
+func (r *runner) cleanupErrors() []error {
+	var errors []error
 	if r.wsConn != nil {
 		r.wsConn.Close(websocket.StatusNormalClosure, "")
 		r.wsConn = nil
 	}
+	for i := range r.sc.Cleanup {
+		s := &r.sc.Cleanup[i]
+		if s.Action != "request" {
+			errors = append(errors, fmt.Errorf("step %s: only request actions are supported", s.ID))
+			continue
+		}
+		if err := r.execRequestError(s); err != nil {
+			errors = append(errors, err)
+		}
+	}
+	return errors
 }
 
 // ── Step executors ─────────────────────────────────────────────────
 
 func (r *runner) execRequest(t *testing.T, s *step) {
 	t.Helper()
+	if err := r.execRequestError(s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (r *runner) execRequestError(s *step) error {
 	path := r.resolve(s.Path)
 
 	var bodyReader io.Reader
@@ -421,7 +448,7 @@ func (r *runner) execRequest(t *testing.T, s *step) {
 	}
 	req, err := http.NewRequest(s.Method, r.env.baseURL+path, bodyReader)
 	if err != nil {
-		t.Fatalf("step %s: create request: %v", s.ID, err)
+		return fmt.Errorf("step %s: create request: %w", s.ID, err)
 	}
 	if auth, ok := r.authHeader(s); ok {
 		req.Header.Set("Authorization", auth)
@@ -432,52 +459,85 @@ func (r *runner) execRequest(t *testing.T, s *step) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("step %s: %s %s: %v", s.ID, s.Method, path, err)
+		return fmt.Errorf("step %s: %s %s: %w", s.ID, s.Method, path, err)
 	}
 	defer resp.Body.Close()
 
 	rawBody, _ := io.ReadAll(resp.Body)
 
 	if s.Expect == nil {
-		return
+		return nil
 	}
 
 	// Status assertion
 	if s.Expect.Status != 0 && resp.StatusCode != s.Expect.Status {
-		t.Fatalf("step %s: status = %d, want %d; body: %s", s.ID, resp.StatusCode, s.Expect.Status, rawBody)
+		return fmt.Errorf("step %s: status = %d, want %d; body: %s", s.ID, resp.StatusCode, s.Expect.Status, rawBody)
 	}
 
 	// JSON body assertions
-	if len(s.Expect.BodyContains) == 0 && len(s.Expect.BodyMatch) == 0 && len(s.Expect.BodyExcludes) == 0 {
-		return
+	if len(s.Expect.BodyContains) == 0 && len(s.Expect.BodyMatch) == 0 && len(s.Expect.BodyArrayContains) == 0 && len(s.Expect.BodyExcludes) == 0 && len(s.Capture) == 0 {
+		return nil
 	}
 
 	var jsonBody map[string]interface{}
 	if err := json.Unmarshal(rawBody, &jsonBody); err != nil {
-		t.Fatalf("step %s: unmarshal response: %v; raw: %s", s.ID, err, rawBody)
+		return fmt.Errorf("step %s: unmarshal response: %w; raw: %s", s.ID, err, rawBody)
 	}
 
 	for _, key := range s.Expect.BodyContains {
 		resolvedKey := r.resolve(key)
 		if _, ok := jsonBody[resolvedKey]; !ok {
-			t.Fatalf("step %s: expected key %q in response", s.ID, resolvedKey)
+			return fmt.Errorf("step %s: expected key %q in response", s.ID, resolvedKey)
 		}
 	}
 	for _, key := range s.Expect.BodyExcludes {
 		resolvedKey := r.resolve(key)
 		if _, ok := jsonBody[resolvedKey]; ok {
-			t.Fatalf("step %s: unexpected key %q in response", s.ID, resolvedKey)
+			return fmt.Errorf("step %s: unexpected key %q in response", s.ID, resolvedKey)
 		}
 	}
 	for path, expected := range s.Expect.BodyMatch {
 		resolvedPath := r.resolve(path)
 		actual, found := jsonPathGet(jsonBody, resolvedPath)
 		if !found {
-			t.Fatalf("step %s: path %q not found in response: %s", s.ID, resolvedPath, rawBody)
+			return fmt.Errorf("step %s: path %q not found in response: %s", s.ID, resolvedPath, rawBody)
 		}
 		resolvedExpected := r.resolveValue(expected)
 		if !valuesEqual(actual, resolvedExpected) {
-			t.Fatalf("step %s: path %q = %v (%T), want %v (%T)", s.ID, resolvedPath, actual, actual, resolvedExpected, resolvedExpected)
+			return fmt.Errorf("step %s: path %q = %v (%T), want %v (%T)", s.ID, resolvedPath, actual, actual, resolvedExpected, resolvedExpected)
+		}
+	}
+	for path, expectedFields := range s.Expect.BodyArrayContains {
+		resolvedPath := r.resolve(path)
+		rawItems, found := jsonPathGet(jsonBody, resolvedPath)
+		if !found {
+			return fmt.Errorf("step %s: array path %q not found in response: %s", s.ID, resolvedPath, rawBody)
+		}
+		items, ok := rawItems.([]interface{})
+		if !ok {
+			return fmt.Errorf("step %s: path %q is not an array", s.ID, resolvedPath)
+		}
+		matched := false
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			itemMatches := true
+			for field, expected := range expectedFields {
+				actual, found := jsonPathGet(item, r.resolve(field))
+				if !found || !valuesEqual(actual, r.resolveValue(expected)) {
+					itemMatches = false
+					break
+				}
+			}
+			if itemMatches {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("step %s: path %q has no item matching %v", s.ID, resolvedPath, expectedFields)
 		}
 	}
 
@@ -490,10 +550,11 @@ func (r *runner) execRequest(t *testing.T, s *step) {
 		resolvedSrc := r.resolve(srcPath)
 		raw, found := jsonPathGet(jsonBody, resolvedSrc)
 		if !found {
-			t.Fatalf("step %s: capture path %q not found in response: %s", s.ID, resolvedSrc, rawBody)
+			return fmt.Errorf("step %s: capture path %q not found in response: %s", s.ID, resolvedSrc, rawBody)
 		}
 		r.vars[name] = fmt.Sprint(raw)
 	}
+	return nil
 }
 
 func (r *runner) execInjectMessage(t *testing.T, s *step) {
@@ -716,7 +777,7 @@ func TestScenarios(t *testing.T) {
 		t.Run(sc.Name, func(t *testing.T) {
 			env := setupEnv(t)
 			r := newRunner(env, sc)
-			defer r.cleanup()
+			t.Cleanup(func() { r.cleanup(t) })
 			r.executeSetup(t)
 			r.executeSteps(t)
 		})

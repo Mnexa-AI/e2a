@@ -15,16 +15,145 @@
  * cross-language scenarios.yaml migration (tracked separately); this runner is
  * gated behind live-server env vars and is not part of the unit build.
  */
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { parse as yamlParse } from "yaml";
 import { WSListener } from "../../src/v1/ws.js";
 import { Seeder, seedEnabled, sweepLeaks } from "./seed.js";
+import { ObjectSerializer } from "../../src/v1/generated/models/ObjectSerializer.js";
+import type { PageMessageLifecycleTransition } from "../../src/v1/index.js";
 
 // When the isolated CF zone + SMTP port are configured, store-dependent scenarios
 // are SEEDED over the API (verified domains + real inbound) instead of skipped.
 const SEED = seedEnabled();
+
+it("parses the generated message lifecycle page contract", () => {
+  const page = ObjectSerializer.deserialize(
+    {
+      items: [
+        {
+          id: "mlt_1",
+          message_id: "msg_1",
+          direction: "outbound",
+          recipient: null,
+          stage: "accepted",
+          outcome: "accepted",
+          reason_code: "acceptance.outbound_api",
+          retryable: false,
+          evidence: { source: "api", nested: { future: true } },
+          correlation_ids: { request_id: "req_1", future_id: "future_1" },
+          occurred_at: "2026-07-22T00:00:00Z",
+          reconstructed: false,
+        },
+        {
+          id: "mlt_recon_2",
+          message_id: "msg_1",
+          direction: "outbound",
+          stage: "delivery",
+          outcome: "delivered",
+          reason_code: "delivery.recipient_server_accepted",
+          retryable: false,
+          evidence: {},
+          correlation_ids: {},
+          occurred_at: "2026-07-22T01:00:00Z",
+          reconstructed: true,
+        },
+      ],
+      next_cursor: null,
+    },
+    "PageMessageLifecycleTransition",
+    "",
+  ) as PageMessageLifecycleTransition;
+
+  expect(page.items[0].recipient).toBeNull();
+  expect(page.items[0].evidence.nested).toEqual({ future: true });
+  expect(page.items[0].correlationIds.future_id).toBe("future_1");
+  expect(page.items[1].recipient).toBeUndefined();
+  expect(page.items[1].reconstructed).toBe(true);
+  expect(page.items[1].reasonCode).toBe("delivery.recipient_server_accepted");
+});
+
+it("keeps the managed-unsubscribe scenario self-cleaning and lifecycle-observable", () => {
+  const scenario = loadScenarios().find(
+    (candidate) => candidate.name === "agent_suppression_and_managed_unsubscribe",
+  );
+  expect(scenario).toBeDefined();
+
+  const held = scenario!.steps.find((step) => step.id === "managed_unsubscribe_send_held");
+  expect(held?.capture).toEqual({ managed_message_id: "message_id" });
+
+  const lifecycle = scenario!.steps.find((step) => step.id === "get_managed_message_lifecycle");
+  expect(lifecycle?.path).toContain("{managed_message_id}/lifecycle");
+  expect(lifecycle?.expect?.body_array_contains).toEqual({
+    items: {
+      message_id: "{managed_message_id}",
+      direction: "outbound",
+      stage: "review",
+      outcome: "pending",
+      reason_code: "review.hold_created",
+      retryable: false,
+      reconstructed: false,
+    },
+  });
+
+  expect(scenario!.steps.map((step) => step.id)).not.toContain("delete_agent_permanently");
+  expect(scenario!.cleanup?.map((step) => step.id)).toEqual([
+    "delete_agent_permanently",
+    "delete_domain",
+  ]);
+});
+
+it("runs cleanup in order after a primary failure without masking it", async () => {
+  const paths: string[] = [];
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = new URL(String(input)).pathname;
+    paths.push(path);
+    if (path === "/fail") return new Response("primary", { status: 500 });
+    if (path === "/cleanup-agent") return new Response("cleanup", { status: 500 });
+    return new Response("", { status: 200 });
+  });
+  const scenario = {
+    name: "failure_cleanup",
+    description: "cleanup survives primary and cleanup failures",
+    steps: [{ id: "fail", action: "request", method: "GET", path: "/fail", expect: { status: 200 } }],
+    cleanup: [
+      { id: "cleanup_agent", action: "request", method: "DELETE", path: "/cleanup-agent", expect: { status: 200 } },
+      { id: "cleanup_domain", action: "request", method: "DELETE", path: "/cleanup-domain", expect: { status: 200 } },
+    ],
+  } satisfies Scenario;
+
+  try {
+    await expect(executeRunner(new Runner("https://contract.test", "key", scenario))).rejects.toThrow(
+      /step fail: status/,
+    );
+    expect(paths).toEqual(["/fail", "/cleanup-agent", "/cleanup-domain"]);
+  } finally {
+    fetchMock.mockRestore();
+  }
+});
+
+it("surfaces cleanup failure when the scenario itself succeeds", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response("cleanup", { status: 500 }),
+  );
+  const scenario = {
+    name: "cleanup_failure",
+    description: "cleanup failure is visible",
+    steps: [],
+    cleanup: [
+      { id: "cleanup", action: "request", method: "DELETE", path: "/cleanup", expect: { status: 200 } },
+    ],
+  } satisfies Scenario;
+
+  try {
+    await expect(executeRunner(new Runner("https://contract.test", "key", scenario))).rejects.toThrow(
+      /contract scenario cleanup failed/,
+    );
+  } finally {
+    fetchMock.mockRestore();
+  }
+});
 
 // Minimal raw-HTTP driver — the scenario runner needs a generic
 // request(method, path, body) shim, not the ergonomic client surface.
@@ -70,6 +199,7 @@ interface Scenario {
   auth_override?: string;
   setup?: SetupStep[];
   steps: Step[];
+  cleanup?: Step[];
 }
 
 interface SetupStep {
@@ -101,6 +231,7 @@ interface Expectation {
   body_contains?: string[];
   body_excludes?: string[];
   body_match?: Record<string, unknown>;
+  body_array_contains?: Record<string, Record<string, unknown>>;
   fields_present?: string[];
   fields_absent?: string[];
   field_match?: Record<string, unknown>;
@@ -317,11 +448,27 @@ class Runner {
   }
 
   async cleanup(): Promise<void> {
+    const errors: unknown[] = [];
     if (this.wsListener) {
       this.wsListener.close();
       this.wsListener = null;
     }
-    if (this.seeder) await this.seeder.cleanup();
+    for (const step of this.scenario.cleanup ?? []) {
+      try {
+        if (step.action !== "request") throw new Error(`cleanup step ${step.id}: only request actions are supported`);
+        await this.execRequest(step);
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    if (this.seeder) {
+      try {
+        await this.seeder.cleanup();
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, "contract scenario cleanup failed");
   }
 
   /** verify_and_retry: verify the (registered) domain, then run the request. */
@@ -379,7 +526,9 @@ class Runner {
       expect(status, `step ${step.id}: status`).toBe(ex.status);
     }
 
-    const hasBodyChecks = Boolean(ex?.body_contains?.length || ex?.body_match || ex?.body_excludes?.length);
+    const hasBodyChecks = Boolean(
+      ex?.body_contains?.length || ex?.body_match || ex?.body_excludes?.length || ex?.body_array_contains,
+    );
     const hasCapture = Boolean(step.capture && Object.keys(step.capture).length);
     if (!hasBodyChecks && !hasCapture) return;
 
@@ -403,6 +552,18 @@ class Runner {
           `step ${step.id}: body_match ${resolvedPath} = ${JSON.stringify(actual)}, want ${JSON.stringify(resolvedExpected)}`,
         ).toBe(true);
       }
+    }
+    for (const [jsonPath, expectedFields] of Object.entries(ex?.body_array_contains ?? {})) {
+      const resolvedPath = this.resolve(jsonPath);
+      const items = jsonPathGet(json, resolvedPath);
+      expect(Array.isArray(items), `step ${step.id}: body_array_contains ${resolvedPath} is an array`).toBe(true);
+      const resolvedFields = this.resolveValue(expectedFields) as Record<string, unknown>;
+      const found = (items as unknown[]).some((item) =>
+        item !== null && typeof item === "object" && Object.entries(resolvedFields).every(
+          ([field, expected]) => valuesEqual(jsonPathGet(item as Record<string, unknown>, field), expected),
+        ),
+      );
+      expect(found, `step ${step.id}: body_array_contains ${resolvedPath} has a matching item`).toBe(true);
     }
 
     // Capture phase — AFTER assertions (Go-runner parity): extract a response
@@ -500,6 +661,22 @@ class Runner {
   }
 }
 
+async function executeRunner(runner: Runner): Promise<void> {
+  let primary: unknown;
+  try {
+    const skipped = await runner.executeSetup();
+    if (!skipped) await runner.executeSteps();
+  } catch (err) {
+    primary = err;
+  }
+  try {
+    await runner.cleanup();
+  } catch (cleanupError) {
+    if (primary === undefined) throw cleanupError;
+  }
+  if (primary !== undefined) throw primary;
+}
+
 // ── Scenarios that require store-level setup ────────────────────
 
 const STORE_DEPENDENT_ACTIONS = new Set(["inject_message", "verify_and_retry"]);
@@ -537,14 +714,7 @@ describe.skipIf(!baseUrl || !apiKey)("Contract scenarios", () => {
     (skip ? it.skip : it)(
       sc.name,
       async () => {
-        const runner = new Runner(baseUrl!, apiKey!, sc);
-        try {
-          const skipped = await runner.executeSetup();
-          if (skipped) return;
-          await runner.executeSteps();
-        } finally {
-          await runner.cleanup();
-        }
+        await executeRunner(new Runner(baseUrl!, apiKey!, sc));
       },
       // Seeding mints + CF-verifies a real domain (variable DNS propagation), so
       // seeded scenarios need a generous budget with headroom over the worst-case

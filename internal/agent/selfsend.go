@@ -2,16 +2,17 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/mail"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/loopback"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -97,9 +98,25 @@ func (a *API) performSelfSend(
 			return fmt.Errorf("self-send inbound method: %w", txErr)
 		}
 		inboundMsg.Method = "loopback"
+		submittedOutbound, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+			MessageID: outboundMsg.ID, DedupeKey: "submission:local-loopback", Direction: "outbound",
+			ReasonCode:     messagelifecycle.ReasonSubmissionLocalLoopbackAccepted,
+			CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"email_message_id": providerID}), OccurredAt: time.Now(),
+		})
+		if txErr != nil {
+			return txErr
+		}
+		acceptedInbound, txErr := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{
+			MessageID: inboundMsg.ID, DedupeKey: "acceptance", Direction: "inbound",
+			ReasonCode:     messagelifecycle.ReasonAcceptanceLocalLoopback,
+			CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"email_message_id": providerID}), OccurredAt: inboundMsg.CreatedAt,
+		})
+		if txErr != nil {
+			return txErr
+		}
 
 		if a.outbox != nil {
-			if receivedEvent, txErr = a.publishLoopbackEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, msgType, rawMessage); txErr != nil {
+			if receivedEvent, txErr = a.publishLoopbackEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, msgType, rawMessage, []messagelifecycle.MessageLifecycleTransition{submittedOutbound}, []messagelifecycle.MessageLifecycleTransition{acceptedInbound}); txErr != nil {
 				return txErr
 			}
 		}
@@ -121,7 +138,7 @@ func (a *API) performSelfSend(
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailSent)
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailReceived)
 	}
-	a.pushLoopbackReceived(agent.ID, receivedEvent)
+	a.pushLoopbackReceived(ctx, agent.ID, receivedEvent.MessageID)
 	return outboundMsg, nil
 }
 
@@ -133,18 +150,22 @@ func (a *API) publishLoopbackEventsTx(
 	req outbound.SendRequest,
 	msgType string,
 	rawMessage []byte,
+	outboundTransitions, inboundTransitions []messagelifecycle.MessageLifecycleTransition,
 ) (webhookpub.Event, error) {
 	sentResult := &outbound.SendResult{
 		Method: "loopback", To: []string{agent.EmailAddress()},
 		SentAs: "own_address", Raw: rawMessage,
 	}
 	sentEvent := a.buildSentEvent(agent, outboundMsg, sentResult, req, msgType)
+	sentData := sentEvent.Data.(eventpayload.EmailSentData)
+	sentData.LifecycleTransitions = outboundTransitions
+	sentEvent.Data = sentData
 	sentEvent.ID = webhookpub.DeterministicEventID(outboundMsg.ID, webhookpub.EventEmailSent)
 	if err := a.outbox.PublishTx(ctx, tx, sentEvent); err != nil {
 		return webhookpub.Event{}, fmt.Errorf("self-send email.sent event: %w", err)
 	}
 
-	receivedEvent := buildLoopbackReceivedEvent(agent, inboundMsg, req, rawMessage)
+	receivedEvent := buildLoopbackReceivedEvent(agent, inboundMsg, req, rawMessage, inboundTransitions)
 	if err := a.outbox.PublishTx(ctx, tx, receivedEvent); err != nil {
 		return webhookpub.Event{}, fmt.Errorf("self-send email.received event: %w", err)
 	}
@@ -184,10 +205,10 @@ func (a *API) approveSelfSend(
 				Raw:               raw,
 			}, nil
 		},
-		func(ctx context.Context, tx pgx.Tx, outboundMsg, inboundMsg *identity.Message, result identity.SendResult) error {
+		func(ctx context.Context, tx pgx.Tx, outboundMsg, inboundMsg *identity.Message, result identity.SendResult, outboundTransitions, inboundTransitions []messagelifecycle.MessageLifecycleTransition) error {
 			if a.outbox != nil {
 				var hookErr error
-				receivedEvent, hookErr = a.publishLoopbackEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, outboundMsg.Type, result.Raw)
+				receivedEvent, hookErr = a.publishLoopbackEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, outboundMsg.Type, result.Raw, outboundTransitions, inboundTransitions)
 				if hookErr != nil {
 					return hookErr
 				}
@@ -205,7 +226,7 @@ func (a *API) approveSelfSend(
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailSent)
 		a.emit().OutboxEventsPublished(webhookpub.EventEmailReceived)
 	}
-	a.pushLoopbackReceived(agent.ID, receivedEvent)
+	a.pushLoopbackReceived(ctx, agent.ID, receivedEvent.MessageID)
 	return sent, nil
 }
 
@@ -224,23 +245,24 @@ func replyToList(replyTo string) []string {
 	return []string{replyTo}
 }
 
-func buildLoopbackReceivedEvent(agent *identity.AgentIdentity, msg *identity.Message, req outbound.SendRequest, raw []byte) webhookpub.Event {
+func buildLoopbackReceivedEvent(agent *identity.AgentIdentity, msg *identity.Message, req outbound.SendRequest, raw []byte, transitions []messagelifecycle.MessageLifecycleTransition) webhookpub.Event {
 	data := eventpayload.EmailReceivedData{
-		MessageID:      msg.ID,
-		AgentEmail:     agent.EmailAddress(),
-		Direction:      "inbound",
-		ConversationID: req.ConversationID,
-		HeaderFrom:     stringPointer(agent.EmailAddress()),
-		EnvelopeFrom:   nil,
-		VerifiedDomain: nil,
-		To:             []string{agent.EmailAddress()},
-		CC:             []string{},
-		ReplyTo:        replyToList(req.ReplyTo),
-		Authentication: nil,
-		DeliveredTo:    agent.EmailAddress(),
-		Subject:        req.Subject,
-		ReceivedAt:     msg.CreatedAt.UTC(),
-		Attachments:    eventpayload.AttachmentMetadata(raw),
+		MessageID:            msg.ID,
+		AgentEmail:           agent.EmailAddress(),
+		Direction:            "inbound",
+		ConversationID:       req.ConversationID,
+		HeaderFrom:           stringPointer(agent.EmailAddress()),
+		EnvelopeFrom:         nil,
+		VerifiedDomain:       nil,
+		To:                   []string{agent.EmailAddress()},
+		CC:                   []string{},
+		ReplyTo:              replyToList(req.ReplyTo),
+		Authentication:       nil,
+		DeliveredTo:          agent.EmailAddress(),
+		Subject:              req.Subject,
+		ReceivedAt:           msg.CreatedAt.UTC(),
+		Attachments:          eventpayload.AttachmentMetadata(raw),
+		LifecycleTransitions: transitions,
 	}
 	e := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, data)
 	e.ID = webhookpub.DeterministicEventID(msg.ID, webhookpub.EventEmailReceived)
@@ -262,12 +284,13 @@ func loopbackDisplayFrom(req outbound.SendRequest, agentEmail string) string {
 	return agentEmail
 }
 
-func (a *API) pushLoopbackReceived(agentID string, event webhookpub.Event) {
-	if a.wsHub == nil || event.ID == "" || !a.wsHub.IsConnected(agentID) {
+func (a *API) pushLoopbackReceived(ctx context.Context, agentID, messageID string) {
+	if a.wsHub == nil || messageID == "" || !a.wsHub.IsConnected(agentID) {
 		return
 	}
-	payload, err := json.Marshal(event.AsEnvelope())
-	if err == nil {
-		a.wsHub.Send(agentID, payload)
+	payload, err := a.store.GetEventEnvelope(ctx, messageID, webhookpub.EventEmailReceived)
+	if err != nil || len(payload) == 0 {
+		return
 	}
+	a.wsHub.Send(agentID, payload)
 }

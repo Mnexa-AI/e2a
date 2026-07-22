@@ -136,7 +136,8 @@ func (s Status) ProvesProviderAcceptance() bool {
 //   - a locally inferred (or legacy unknown-provenance) `failed` is CORRECTED
 //     by a rollup that proves the provider accepted the submission (the
 //     falsely-declared terminal failure from a final-attempt crash);
-//   - a provider-confirmed `failed` is never revived.
+//   - a provider-confirmed `failed` is never revived by sent/delivered, but a
+//     stronger bounced/complained provider disposition still advances it.
 //
 // Callers must only feed it rollups computed from authoritatively correlated
 // feedback (provider_message_id match or the SNS-verified X-E2A-Message-ID
@@ -144,6 +145,9 @@ func (s Status) ProvesProviderAcceptance() bool {
 // caller's gate, provenance is this function's.
 func ResolveMessageRollup(current Status, source FailureSource, rollup Status) Status {
 	if current != StatusFailed {
+		return rollup
+	}
+	if rank[rollup] > rank[StatusFailed] {
 		return rollup
 	}
 	if source.Correctable() && rollup.ProvesProviderAcceptance() {

@@ -61,6 +61,7 @@ import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
+import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
@@ -71,6 +72,7 @@ import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventView } from '../models/PageEventView.js';
+import { PageMessageLifecycleTransition } from '../models/PageMessageLifecycleTransition.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
@@ -1472,6 +1474,46 @@ export class ObservableMessagesApi {
      */
     public getMessage(email: string, id: string, _options?: ConfigurationOptions): Observable<MessageView> {
         return this.getMessageWithHttpInfo(email, id, _options).pipe(map((apiResponse: HttpInfo<MessageView>) => apiResponse.data));
+    }
+
+    /**
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable.
+     * Get a message\'s lifecycle (beta)
+     * @param email
+     * @param id
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor.
+     * @param [limit] Maximum number of lifecycle transitions to return (1-100).
+     */
+    public getMessageLifecycleWithHttpInfo(email: string, id: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<HttpInfo<PageMessageLifecycleTransition>> {
+        const _config = mergeConfiguration(this.configuration, _options);
+
+        const requestContextPromise = this.requestFactory.getMessageLifecycle(email, id, cursor, limit, _config);
+        // build promise chain
+        let middlewarePreObservable = from<RequestContext>(requestContextPromise);
+        for (const middleware of _config.middleware) {
+            middlewarePreObservable = middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => middleware.pre(ctx)));
+        }
+
+        return middlewarePreObservable.pipe(mergeMap((ctx: RequestContext) => _config.httpApi.send(ctx))).
+            pipe(mergeMap((response: ResponseContext) => {
+                let middlewarePostObservable = of(response);
+                for (const middleware of _config.middleware.reverse()) {
+                    middlewarePostObservable = middlewarePostObservable.pipe(mergeMap((rsp: ResponseContext) => middleware.post(rsp)));
+                }
+                return middlewarePostObservable.pipe(map((rsp: ResponseContext) => this.responseProcessor.getMessageLifecycleWithHttpInfo(rsp)));
+            }));
+    }
+
+    /**
+     * Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable.
+     * Get a message\'s lifecycle (beta)
+     * @param email
+     * @param id
+     * @param [cursor] Opaque pagination cursor from a previous response\&#39;s next_cursor.
+     * @param [limit] Maximum number of lifecycle transitions to return (1-100).
+     */
+    public getMessageLifecycle(email: string, id: string, cursor?: string, limit?: number, _options?: ConfigurationOptions): Observable<PageMessageLifecycleTransition> {
+        return this.getMessageLifecycleWithHttpInfo(email, id, cursor, limit, _options).pipe(map((apiResponse: HttpInfo<PageMessageLifecycleTransition>) => apiResponse.data));
     }
 
     /**

@@ -10,6 +10,7 @@
  * Do not edit the class manually.
  */
 
+import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { HttpFile } from '../http/http.js';
 
 export class EmailComplainedData {
@@ -22,6 +23,7 @@ export class EmailComplainedData {
     * Always \"outbound\" on this event.
     */
     'direction': string;
+    'lifecycleTransitions'?: Array<MessageLifecycleTransition>;
     'messageId': string;
     'smtpDetail'?: string;
     'subject'?: string;
@@ -47,6 +49,12 @@ export class EmailComplainedData {
             "name": "direction",
             "baseName": "direction",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "lifecycleTransitions",
+            "baseName": "lifecycle_transitions",
+            "type": "Array<MessageLifecycleTransition>",
             "format": ""
         },
         {

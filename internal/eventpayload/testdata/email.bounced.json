@@ -11,6 +11,29 @@
     "subject": "Re: Order #1234 delayed",
     "smtp_detail": "550 5.1.1 no such user",
     "bounce_type": "permanent",
-    "bounce_sub_type": "General"
+    "bounce_sub_type": "General",
+    "lifecycle_transitions": [
+      {
+        "id": "mlt_bounced",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp44",
+        "direction": "outbound",
+        "recipient": "bob@customer.example.com",
+        "stage": "delivery",
+        "outcome": "bounced",
+        "reason_code": "delivery.permanent_bounce",
+        "retryable": false,
+        "evidence": {
+          "bounce_sub_type": "General",
+          "bounce_type": "permanent",
+          "smtp_detail": "550 5.1.1 no such user"
+        },
+        "correlation_ids": {
+          "provider_event_id": "sns-test",
+          "provider_message_id": "ses-golden"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      }
+    ]
   }
 }

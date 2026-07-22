@@ -2,7 +2,9 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +17,9 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -23,12 +27,69 @@ import (
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
 
+func lifecycleRows(t *testing.T, pool *pgxpool.Pool, messageID string) []messagelifecycle.MessageLifecycleTransition {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT id, message_id, direction, COALESCE(recipient,''), stage, outcome, reason_code, retryable, evidence, correlation_ids, occurred_at, reconstructed FROM message_lifecycle_transitions WHERE message_id=$1 ORDER BY occurred_at,id`, messageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []messagelifecycle.MessageLifecycleTransition
+	for rows.Next() {
+		var tr messagelifecycle.MessageLifecycleTransition
+		var evidence, correlations []byte
+		if err := rows.Scan(&tr.ID, &tr.MessageID, &tr.Direction, &tr.Recipient, &tr.Stage, &tr.Outcome, &tr.ReasonCode, &tr.Retryable, &evidence, &correlations, &tr.OccurredAt, &tr.Reconstructed); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(evidence, &tr.Evidence); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(correlations, &tr.CorrelationIDs); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, tr)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func eventLifecycle(t *testing.T, pool *pgxpool.Pool, messageID, eventType string) []messagelifecycle.MessageLifecycleTransition {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(context.Background(), `SELECT envelope->'data'->'lifecycle_transitions' FROM webhook_events WHERE message_id=$1 AND type=$2`, messageID, eventType).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var got []messagelifecycle.MessageLifecycleTransition
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
 // fakeOutboundEnqueuer stands in for the shared River client: it records the
 // in-tx enqueue and returns a stable job id the accept-tx stamps on the row.
 type fakeOutboundEnqueuer struct{ jobID int64 }
 
 func (f *fakeOutboundEnqueuer) EnqueueSendTx(_ context.Context, _ pgx.Tx, _ string) (int64, error) {
 	return f.jobID, nil
+}
+
+type txSentinelEnqueuer struct{}
+
+func (txSentinelEnqueuer) EnqueueSendTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, `INSERT INTO task6_durable_jobs (message_id) VALUES ($1) RETURNING id`, messageID).Scan(&id)
+	return id, err
+}
+
+func installTask6DurableJobs(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `DROP TABLE IF EXISTS task6_durable_jobs; CREATE TABLE task6_durable_jobs (id bigserial PRIMARY KEY, message_id text NOT NULL UNIQUE)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS task6_durable_jobs`) })
 }
 
 type fakeNotifyEnqueuer struct{ called int }
@@ -43,6 +104,29 @@ type fakeAsyncDeliverer struct{ out outboundsend.DeliverOutcome }
 
 func (f fakeAsyncDeliverer) Deliver(_ context.Context, _ *outboundsend.SendJob) outboundsend.DeliverOutcome {
 	return f.out
+}
+
+type countingAsyncDeliverer struct{ calls int }
+
+func (d *countingAsyncDeliverer) Deliver(context.Context, *outboundsend.SendJob) outboundsend.DeliverOutcome {
+	d.calls++
+	return outboundsend.DeliverOutcome{ProviderMessageID: "unexpected"}
+}
+
+type timedAsyncDeliverer struct {
+	out        outboundsend.DeliverOutcome
+	returnedAt time.Time
+}
+
+func (d *timedAsyncDeliverer) Deliver(context.Context, *outboundsend.SendJob) outboundsend.DeliverOutcome {
+	d.returnedAt = time.Now().UTC()
+	return d.out
+}
+
+type legacyOnlyUsageTracker struct{}
+
+func (legacyOnlyUsageTracker) RecordAndCheck(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
 }
 
 type blockingAsyncDeliverer struct {
@@ -111,6 +195,20 @@ func TestHoldForApprovalCore_SuppressedAgentCreatesHoldWithoutNotificationJob(t 
 	}
 }
 
+func TestHoldForApprovalCore_ReviewRequestedUsesExactPersistedHoldTransition(t *testing.T) {
+	api, store, _, _, pool := setupAsyncAPIWithPool(t)
+	_, ag := selfAgent(t, store, "reviewrequestedlifecycle")
+	ag.HITLTTLSeconds = identity.HITLDefaultTTLSeconds
+
+	msg, err := api.HoldForApprovalCore(context.Background(), ag, outbound.SendRequest{
+		To: []string{"review-target@example.test"}, Subject: "held with lifecycle", Body: "body",
+	}, "send", "")
+	if err != nil {
+		t.Fatalf("HoldForApprovalCore: %v", err)
+	}
+	assertReviewEventLifecycleMatchesRow(t, pool, msg.ID, webhookpub.EventEmailReviewRequested, messagelifecycle.ReasonReviewHoldCreated)
+}
+
 // TestDeliverOutbound_MissingQueueFailsClosed prevents a regression to the
 // pre-GA submit-inline fallback. Queue wiring is mandatory: a miswired process
 // must return an error before provider I/O, never send an email synchronously.
@@ -141,11 +239,17 @@ func TestDeliverOutbound_MissingQueueFailsClosed(t *testing.T) {
 // TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit pins the pre-commit
 // half of the response-loss boundary. If completing the idempotency record
 // fails, the accepted message and stamped job must roll back with it.
-func TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit(t *testing.T) {
+func TestDeliverOutbound_AcceptTransactionLifecycleRollsBackAsAUnit(t *testing.T) {
 	api, store, _, _ := setupAsyncAPI(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "acceptrollback")
 	callbackCalled := false
+	var lifecycleBaseline int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleBaseline)
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
 		To: []string{"alice@external.test"}, Subject: "rollback boundary", Body: "never accepted",
@@ -178,6 +282,54 @@ func TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit(t *testing.T) {
 	if messages != 0 {
 		t.Fatalf("accepted messages after aborted transaction = %d, want 0", messages)
 	}
+	var lifecycleAfter int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleAfter)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycleAfter != lifecycleBaseline {
+		t.Fatalf("lifecycle rows after abort before=%d after=%d", lifecycleBaseline, lifecycleAfter)
+	}
+}
+
+func TestDeliverOutbound_QueueLifecycleFailureRollsBack(t *testing.T) {
+	api, store, _, _, pool := setupAsyncAPIWithPool(t)
+	installTask6DurableJobs(t, pool)
+	api.SetOutboundEnqueuer(txSentinelEnqueuer{})
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "queuelifecyclerb")
+	_, err := pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_queue_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_queue_lifecycle(); CREATE FUNCTION test_fail_queue_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='queue.outbound_submission' THEN RAISE EXCEPTION 'forced queue lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_queue_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_queue_lifecycle();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_queue_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_queue_lifecycle();`)
+	})
+	var lifecycleBaseline int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleBaseline); err != nil {
+		t.Fatal(err)
+	}
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"a@example.net"}, Subject: "queue lifecycle rollback", Body: "body"}, "send", "", nil, nil)
+	if res != nil || oerr == nil {
+		t.Fatalf("result=%+v error=%+v want failure", res, oerr)
+	}
+	var messages, jobsCount, lifecycleAfter int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject='queue lifecycle rollback'`, ag.ID).Scan(&messages); err != nil {
+		t.Fatal(err)
+	}
+	if messages != 0 {
+		t.Fatalf("message survived queue lifecycle failure: %d", messages)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task6_durable_jobs`).Scan(&jobsCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions`).Scan(&lifecycleAfter); err != nil {
+		t.Fatal(err)
+	}
+	if jobsCount != 0 || lifecycleAfter != lifecycleBaseline {
+		t.Fatalf("partial accept jobs=%d lifecycle before=%d after=%d", jobsCount, lifecycleBaseline, lifecycleAfter)
+	}
 }
 
 // TestDeliverOutbound_AsyncAccept is the end-to-end slice-C check: with the async
@@ -186,8 +338,10 @@ func TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit(t *testing.T) {
 // with the send_job_id stamped, and does NOT yet emit email.sent. Running the real
 // SendWorker over the store adapter + a fake deliverer then flips the row to sent,
 // records the provider id, and emits email.sent.
-func TestDeliverOutbound_AsyncAccept(t *testing.T) {
-	api, store, outbox, enq := setupAsyncAPI(t)
+func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	installTask6DurableJobs(t, pool)
+	api.SetOutboundEnqueuer(txSentinelEnqueuer{})
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "asyncacc")
 
@@ -224,8 +378,15 @@ func TestDeliverOutbound_AsyncAccept(t *testing.T) {
 	if providerID != "" {
 		t.Errorf("provider_message_id = %q, want empty at accept", providerID)
 	}
-	if sendJobID == nil || *sendJobID != enq.jobID {
-		t.Errorf("send_job_id = %v, want %d", sendJobID, enq.jobID)
+	if sendJobID == nil {
+		t.Fatal("send_job_id is nil")
+	}
+	var durableMessageID string
+	if err := pool.QueryRow(ctx, `SELECT message_id FROM task6_durable_jobs WHERE id=$1`, *sendJobID).Scan(&durableMessageID); err != nil {
+		t.Fatalf("durable job: %v", err)
+	}
+	if durableMessageID != res.MessageID {
+		t.Fatalf("durable job message=%s want %s", durableMessageID, res.MessageID)
 	}
 	if len(raw) == 0 {
 		t.Errorf("raw_message empty; the composed bytes must be persisted for the worker")
@@ -234,13 +395,23 @@ func TestDeliverOutbound_AsyncAccept(t *testing.T) {
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 0 {
 		t.Errorf("email.sent events at accept = %d, want 0", n)
 	}
+	var acceptance, queued int
+	var lifecycleJobID string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE reason_code='acceptance.outbound_api'), count(*) FILTER (WHERE reason_code='queue.outbound_submission'), COALESCE(max(correlation_ids->>'job_id') FILTER (WHERE reason_code='queue.outbound_submission'),'') FROM message_lifecycle_transitions WHERE message_id=$1`, res.MessageID).Scan(&acceptance, &queued, &lifecycleJobID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if acceptance != 1 || queued != 1 || lifecycleJobID != fmt.Sprint(*sendJobID) {
+		t.Fatalf("accept lifecycle acceptance=%d queued=%d job=%q", acceptance, queued, lifecycleJobID)
+	}
 
 	// Run the real SendWorker over the production store adapter + a fake submit.
 	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
 	worker := outboundsend.NewSendWorker(adapter, fakeAsyncDeliverer{
 		out: outboundsend.DeliverOutcome{ProviderMessageID: "<ses-async-1@amazonses.com>", SentAs: "relay"},
 	})
-	if err := worker.Work(ctx, workerJob(res.MessageID, 1)); err != nil {
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, *sendJobID, 1)); err != nil {
 		t.Fatalf("worker.Work: %v", err)
 	}
 
@@ -263,11 +434,297 @@ func TestDeliverOutbound_AsyncAccept(t *testing.T) {
 	}
 
 	// Re-running the worker is a no-op (delivery_status past accepted/sending).
-	if err := worker.Work(ctx, workerJob(res.MessageID, 2)); err != nil {
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, *sendJobID, 2)); err != nil {
 		t.Fatalf("worker.Work re-drive: %v", err)
 	}
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 1 {
 		t.Errorf("email.sent events after re-drive = %d, want 1 (idempotent)", n)
+	}
+}
+
+func TestSendWorker_UpstreamAcceptedLifecycleEventParity(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "submissionsuccess")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"alice@example.net"}, Subject: "submission accepted", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewUsageTracker(usage.NewStore(pool))), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{ProviderMessageID: "0100019283abcdef-1a2b3c4d-0000", SentAs: "relay"}})
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var submission []messagelifecycle.MessageLifecycleTransition
+	for _, tr := range rows {
+		if tr.Stage == messagelifecycle.StageSubmission {
+			submission = append(submission, tr)
+		}
+	}
+	var usageEvents, summary int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM usage_events WHERE user_id=$1`, user.ID).Scan(&usageEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(sum(outbound_count),0) FROM usage_summaries WHERE user_id=$1`, user.ID).Scan(&summary); err != nil {
+		t.Fatal(err)
+	}
+	if usageEvents != 1 || summary != 1 {
+		t.Fatalf("submission metering events=%d summary=%d", usageEvents, summary)
+	}
+	if len(submission) != 1 || submission[0].ReasonCode != messagelifecycle.ReasonSubmissionUpstreamAccepted {
+		t.Fatalf("submission lifecycle = %+v, want one upstream acceptance", submission)
+	}
+	if submission[0].CorrelationIDs["job_id"] != fmt.Sprint(jobID) || submission[0].CorrelationIDs["provider_message_id"] != "0100019283abcdef-1a2b3c4d-0000" {
+		t.Fatalf("correlations = %#v", submission[0].CorrelationIDs)
+	}
+	if len(eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent)) != 1 || eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent)[0].ID != submission[0].ID {
+		t.Fatal("email.sent must embed only the exact stored submission transition")
+	}
+	goldenassert.Lifecycle(t, "../eventpayload/testdata/email.sent.json", eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent))
+	for _, tr := range rows {
+		if tr.Stage == messagelifecycle.StageDelivery {
+			t.Fatalf("provider acceptance overstated as delivery: %+v", tr)
+		}
+	}
+
+	// Same logical job/attempt is a no-op and must preserve the stored envelope.
+	var before []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE message_id=$1 AND type='email.sent'`, res.MessageID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err != nil {
+		t.Fatal(err)
+	}
+	var after []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM webhook_events WHERE message_id=$1 AND type='email.sent'`, res.MessageID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("duplicate execution rewrote stored envelope")
+	}
+}
+
+func TestSendWorker_RejectsLegacyUsageTrackerBeforeClaimOrProviderIO(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "legacyusage")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"legacy@example.net"}, Subject: "legacy usage", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	d := &countingAsyncDeliverer{}
+	w := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, legacyOnlyUsageTracker{}), d)
+	if err := w.Work(ctx, workerJob(res.MessageID, 1)); err == nil {
+		t.Fatal("legacy usage tracker should fail configuration")
+	}
+	if d.calls != 0 {
+		t.Fatalf("provider calls=%d", d.calls)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT delivery_status FROM messages WHERE id=$1`, res.MessageID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "accepted" {
+		t.Fatalf("message status=%q want accepted", status)
+	}
+}
+
+func TestSendWorker_TemporaryAndProviderRejectedLifecycle(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "submissionfailures")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"bob@example.net"}, Subject: "submission failures", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+
+	retry := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New(strings.Repeat("remote diagnostic ", 300))}})
+	if err := retry.Work(ctx, workerJobWithID(res.MessageID, jobID, 1)); err == nil {
+		t.Fatal("temporary failure must retry")
+	}
+	if err := retry.Work(ctx, workerJobWithID(res.MessageID, jobID, 2)); err == nil {
+		t.Fatal("second temporary failure must retry")
+	}
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var temporary []messagelifecycle.MessageLifecycleTransition
+	for _, tr := range rows {
+		if tr.ReasonCode == messagelifecycle.ReasonSubmissionTemporaryFailure {
+			temporary = append(temporary, tr)
+		}
+	}
+	if len(temporary) != 2 {
+		t.Fatalf("temporary transitions=%d want 2: %+v", len(temporary), temporary)
+	}
+	var dedupeKeys []string
+	keyRows, err := pool.Query(ctx, `SELECT dedupe_key FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.temporary_failure' ORDER BY dedupe_key`, res.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for keyRows.Next() {
+		var key string
+		if err := keyRows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		dedupeKeys = append(dedupeKeys, key)
+	}
+	keyRows.Close()
+	wantKeys := []string{fmt.Sprintf("submission:job:%d:attempt:1:submission.temporary_failure", jobID), fmt.Sprintf("submission:job:%d:attempt:2:submission.temporary_failure", jobID)}
+	if fmt.Sprint(dedupeKeys) != fmt.Sprint(wantKeys) {
+		t.Fatalf("dedupe keys=%v want %v", dedupeKeys, wantKeys)
+	}
+	if temporary[0].Evidence["failure_reason"] == strings.Repeat("remote diagnostic ", 300) {
+		t.Fatal("unbounded remote SMTP diagnostic stored")
+	}
+
+	timedReject := &timedAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("550 rejected"), Permanent: true}}
+	reject := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), timedReject)
+	rejectJob := workerJobWithID(res.MessageID, jobID, 3)
+	ancient := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	rejectJob.AttemptedAt = &ancient
+	if err := reject.Work(ctx, rejectJob); err == nil {
+		t.Fatal("provider rejection must cancel")
+	}
+	rows = lifecycleRows(t, pool, res.MessageID)
+	var terminal *messagelifecycle.MessageLifecycleTransition
+	for i := range rows {
+		if rows[i].ReasonCode == messagelifecycle.ReasonSubmissionProviderRejected {
+			terminal = &rows[i]
+		}
+	}
+	if terminal == nil {
+		t.Fatalf("missing provider rejection lifecycle: %+v", rows)
+	}
+	if terminal.OccurredAt.Before(timedReject.returnedAt.Truncate(time.Microsecond)) {
+		t.Fatalf("provider rejection occurred_at=%s before outcome returned=%s", terminal.OccurredAt, timedReject.returnedAt)
+	}
+	event := eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailFailed)
+	if len(event) != 1 || event[0].ID != terminal.ID {
+		t.Fatalf("email.failed lifecycle=%+v terminal=%+v", event, terminal)
+	}
+	var reasonCode string
+	var retryable bool
+	if err := pool.QueryRow(ctx, `SELECT envelope->'data'->>'reason_code',(envelope->'data'->>'retryable')::boolean FROM webhook_events WHERE message_id=$1 AND type='email.failed'`, res.MessageID).Scan(&reasonCode, &retryable); err != nil {
+		t.Fatal(err)
+	}
+	if reasonCode != string(terminal.ReasonCode) || retryable != terminal.Retryable {
+		t.Fatalf("email.failed classification=%q/%v transition=%q/%v", reasonCode, retryable, terminal.ReasonCode, terminal.Retryable)
+	}
+}
+
+func TestSendWorker_DuplicateAttemptLifecycleReusesLogicalTransition(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "submissionduplicate")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"dup@example.net"}, Subject: "duplicate attempt", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := store.ClaimOutboundForSend(ctx, res.MessageID, jobID); err != nil || claimed == nil {
+		t.Fatalf("claim=(%+v,%v)", claimed, err)
+	}
+	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
+	observedAt := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 2; i++ {
+		if err := adapter.DeferTerminalFailure(ctx, res.MessageID, jobID, 6, observedAt.Add(time.Duration(i)*time.Minute), fmt.Sprintf("451 retry later probe %d", i)); err != nil {
+			t.Fatalf("defer %d: %v", i, err)
+		}
+	}
+	var count int
+	var key string
+	if err := pool.QueryRow(ctx, `SELECT count(*),max(dedupe_key) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.temporary_failure'`, res.MessageID).Scan(&count, &key); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("submission:job:%d:attempt:6:submission.temporary_failure", jobID)
+	if count != 1 || key != want {
+		t.Fatalf("duplicate lifecycle count=%d key=%q want 1/%q", count, key, want)
+	}
+}
+
+func TestSendWorker_ProviderOutageSnoozeRedriveLifecycleIsFirstWins(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "outagesnooze")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"outage@example.net"}, Subject: "outage", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	w := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), fakeAsyncDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("dial provider unavailable"), Outage: true}})
+	base := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 2; i++ {
+		j := workerJobWithID(res.MessageID, jobID, 1)
+		at := base.Add(time.Duration(i) * time.Minute)
+		j.AttemptedAt = &at
+		if err := w.Work(ctx, j); err == nil {
+			t.Fatal("outage must snooze")
+		}
+	}
+	j := workerJobWithID(res.MessageID, jobID, 2)
+	at := base.Add(2 * time.Minute)
+	j.AttemptedAt = &at
+	if err := w.Work(ctx, j); err == nil {
+		t.Fatal("next outage attempt must snooze")
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.temporary_failure'`, res.MessageID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("outage temporary rows=%d want one for attempt 1 plus one for attempt 2", count)
+	}
+}
+
+func TestSendWorker_ProviderEvidenceRepairUsesDurableLifecycleAttribution(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "evidencerepair")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"repair@example.net"}, Subject: "evidence repair", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	var jobID int64
+	if err := pool.QueryRow(ctx, `SELECT send_job_id FROM messages WHERE id=$1`, res.MessageID).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordProviderAcceptEvidence(ctx, res.MessageID, "provider-repair"); err != nil {
+		t.Fatal(err)
+	}
+	var acceptedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT provider_accepted_at FROM messages WHERE id=$1`, res.MessageID).Scan(&acceptedAt); err != nil {
+		t.Fatal(err)
+	}
+	deliverer := &countingAsyncDeliverer{}
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), deliverer)
+	if err := worker.Work(ctx, workerJobWithID(res.MessageID, jobID, 5)); err != nil {
+		t.Fatal(err)
+	}
+	if deliverer.calls != 0 {
+		t.Fatal("provider evidence repair resubmitted")
+	}
+	var occurred time.Time
+	var dedupe string
+	if err := pool.QueryRow(ctx, `SELECT occurred_at,dedupe_key FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='submission.upstream_accepted'`, res.MessageID).Scan(&occurred, &dedupe); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("submission:job:%d:attempt:0:submission.upstream_accepted", jobID)
+	if !occurred.Equal(acceptedAt) || dedupe != want {
+		t.Fatalf("repair occurred=%s/%s key=%q want %q", occurred, acceptedAt, dedupe, want)
 	}
 }
 
@@ -436,7 +893,7 @@ func TestSendWorker_TrashLinearizesWithDurableClaim(t *testing.T) {
 }
 
 func TestSendWorker_TrashBeforeClaimCancelsWithoutSubmit(t *testing.T) {
-	api, store, outbox, _ := setupAsyncAPI(t)
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "asynctrashfirst")
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
@@ -479,6 +936,66 @@ func TestSendWorker_TrashBeforeClaimCancelsWithoutSubmit(t *testing.T) {
 	}
 	if deliveryStatus != "failed" || detail == "" {
 		t.Fatalf("canceled row = status %q detail %q, want failed with detail", deliveryStatus, detail)
+	}
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var cancelled int
+	for _, tr := range rows {
+		if tr.ReasonCode == messagelifecycle.ReasonSubmissionCancelled {
+			cancelled++
+		}
+	}
+	if cancelled != 1 {
+		t.Fatalf("trash-before-claim cancellation lifecycle=%d", cancelled)
+	}
+	var reason string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(delivery_failure_reason_code,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&reason); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "submission.cancelled" {
+		t.Fatalf("trash reason=%q", reason)
+	}
+}
+
+func TestSendWorker_TrashCancellationLifecycleFailureRollsBackState(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "trashlifecyclerb")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"never@example.net"}, Subject: "trash lifecycle rollback", Body: "body"}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	if err := store.SoftDeleteMessage(ctx, res.MessageID, ag.ID); err != nil {
+		t.Fatal(err)
+	}
+	install := `CREATE FUNCTION test_fail_trash_cancel_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.cancelled' THEN RAISE EXCEPTION 'forced trash lifecycle failure'; END IF; RETURN NEW; END;$f$ LANGUAGE plpgsql;CREATE TRIGGER test_fail_trash_cancel_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_trash_cancel_lifecycle();`
+	uninstall := `DROP TRIGGER IF EXISTS test_fail_trash_cancel_lifecycle ON message_lifecycle_transitions;DROP FUNCTION IF EXISTS test_fail_trash_cancel_lifecycle();`
+	if _, err := pool.Exec(ctx, install); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
+	d := &countingAsyncDeliverer{}
+	w := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), d)
+	if err := w.Work(ctx, workerJob(res.MessageID, 1)); err == nil {
+		t.Fatal("forced lifecycle failure succeeded")
+	}
+	var status, reason string
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_reason_code,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&status, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if status != "accepted" || reason != "" || d.calls != 0 {
+		t.Fatalf("partial trash cancellation status=%q reason=%q calls=%d", status, reason, d.calls)
+	}
+	if _, err := pool.Exec(ctx, uninstall); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Work(ctx, workerJob(res.MessageID, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(delivery_failure_reason_code,'') FROM messages WHERE id=$1`, res.MessageID).Scan(&status, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || reason != "submission.cancelled" {
+		t.Fatalf("recovered trash cancellation status=%q reason=%q", status, reason)
 	}
 }
 
@@ -586,7 +1103,7 @@ func TestOutboundSendStore_MarkFailed(t *testing.T) {
 	}
 
 	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
-	if err := adapter.MarkFailed(ctx, res.MessageID, 6, "550 mailbox unavailable", delivery.FailureSourceProvider); err != nil {
+	if err := adapter.MarkFailed(ctx, res.MessageID, 999, 6, time.Now().UTC(), "550 mailbox unavailable", delivery.FailureSourceProvider, messagelifecycle.ReasonSubmissionProviderRejected, nil); err != nil {
 		t.Fatalf("MarkFailed: %v", err)
 	}
 

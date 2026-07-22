@@ -24,9 +24,9 @@ How reachability is decided (deliberately stricter than a substring grep):
     boundary and an opening paren. Anchoring on the paren also kills prefix
     collisions — `.deleteAgentSuppression(` does not satisfy `deleteAgent`,
     because the character after `deleteAgent` is `S`, not `(`.
-  - The Python method name is derived from the operationId by snake_case, then
-    CHECKED to exist in the generated api modules. A derivation that stops
-    matching the generator's naming is a gate failure, not a silent pass.
+  - TypeScript and Python method names are derived using their generators'
+    casing rules. The Python name is then CHECKED against the generated api
+    modules, so a derivation that drifts becomes a loud gate failure.
 
 Usage: python3 scripts/check-sdk-operation-coverage.py [--openapi PATH]
 Exit 0 = every operation reachable (or explicitly allowlisted); 1 = a gap; 2 = usage/IO error.
@@ -70,8 +70,14 @@ def load_ops(openapi_path):
 
 
 def snake(name):
-    """lowerCamelCase → snake_case, matching the Python generator's method names."""
+    """OpenAPI operationId → snake_case, matching Python generator methods."""
+    name = name.replace("-", "_")
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def typescript_method(name):
+    """OpenAPI operationId → lowerCamelCase, matching TypeScript generator methods."""
+    return re.sub(r"-([A-Za-z0-9])", lambda match: match.group(1).upper(), name)
 
 
 def strip_ts_comments(src):
@@ -172,7 +178,10 @@ def main():
         if not re.search(r"def\s+" + re.escape(py_name) + r"\s*\(", py_generated):
             bad_derivation.append((opid, py_name))
             continue
-        for sdk, src, name in (("ts", ts_src, opid), ("py", py_src, py_name)):
+        for sdk, src, name in (
+            ("ts", ts_src, typescript_method(opid)),
+            ("py", py_src, py_name),
+        ):
             if calls(src, name):
                 continue
             reason = reasons_for(opid, sdk)

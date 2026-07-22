@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 // review_approved + delivery_status='accepted', stamps the enqueued send_job_id, and
 // returns method/sent_as — WITHOUT submitting inline (no provider id yet; the
 // SendWorker submits + emits email.sent later).
-func TestApprovePendingCore_AsyncExternal(t *testing.T) {
+func TestApprovePendingCore_AsyncExternalLifecycle(t *testing.T) {
 	api, store, _, _ := setupAsyncAPI(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "apprasyncext")
@@ -37,6 +38,13 @@ func TestApprovePendingCore_AsyncExternal(t *testing.T) {
 		}
 		if deliveryStatus != "accepted" || sendJobID == nil || *sendJobID != 999 {
 			t.Fatalf("idempotency completion ran before async accept was durable in tx: delivery_status=%q send_job_id=%v", deliveryStatus, sendJobID)
+		}
+		var approvedCount, queued int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE reason_code='review.approved'), count(*) FILTER (WHERE reason_code='queue.outbound_submission') FROM message_lifecycle_transitions WHERE message_id=$1`, approved.ID).Scan(&approvedCount, &queued); err != nil {
+			return err
+		}
+		if approvedCount != 1 || queued != 1 {
+			t.Fatalf("approval lifecycle approved=%d queued=%d", approvedCount, queued)
 		}
 		idemCompleted = true
 		return nil
@@ -83,8 +91,8 @@ func TestApprovePendingCore_AsyncExternal(t *testing.T) {
 // (single To == the agent's own address) is NOT enqueued onto QueueOutbound — it
 // falls through to the sync loopback path, so no send_job_id is stamped and the row
 // is not delivery_status='accepted'.
-func TestApprovePendingCore_AsyncSelfSendStaysSync(t *testing.T) {
-	api, store, _, _ := setupAsyncAPI(t)
+func TestApprovePendingCore_AsyncSelfSendLifecycleStaysSync(t *testing.T) {
+	api, store, _, _, pool := setupAsyncAPIWithPool(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "apprasyncself")
 
@@ -161,5 +169,36 @@ func TestApprovePendingCore_AsyncSelfSendStaysSync(t *testing.T) {
 	}
 	if inboundRows != 1 {
 		t.Errorf("self-send approval inbound rows=%d want 1", inboundRows)
+	}
+	var inboundID string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT id FROM messages WHERE agent_id=$1 AND direction='inbound' AND subject='To self'`, ag.ID).Scan(&inboundID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertApprovedLoopbackLifecycleParity(t, pool, msg.ID, inboundID)
+	sentEnvelope, err := store.GetEventEnvelope(ctx, msg.ID, "email.sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receivedEnvelope, err := store.GetEventEnvelope(ctx, inboundID, "email.received")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lifecycleBefore int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN ($1,$2)`, msg.ID, inboundID).Scan(&lifecycleBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, oerr := api.ApprovePendingCore(ctx, user.ID, msg.ID, ag.Email, agent.ApproveOverrides{}, complete); oerr == nil || oerr.Code != "message_not_pending" {
+		t.Fatalf("duplicate approval error=%+v", oerr)
+	}
+	var lifecycleAfter int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN ($1,$2)`, msg.ID, inboundID).Scan(&lifecycleAfter); err != nil {
+		t.Fatal(err)
+	}
+	sentAfter, _ := store.GetEventEnvelope(ctx, msg.ID, "email.sent")
+	receivedAfter, _ := store.GetEventEnvelope(ctx, inboundID, "email.received")
+	if lifecycleAfter != lifecycleBefore || !bytes.Equal(sentEnvelope, sentAfter) || !bytes.Equal(receivedEnvelope, receivedAfter) {
+		t.Fatalf("duplicate approval changed lifecycle/envelopes: lifecycle %d->%d", lifecycleBefore, lifecycleAfter)
 	}
 }

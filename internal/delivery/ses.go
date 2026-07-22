@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // MessageIDHeader is the stable e2a correlation marker (async-send-contract
@@ -55,8 +56,10 @@ type RecipientOutcome struct {
 // per-recipient outcomes. The message rollup is the worst status across
 // Recipients by Merge precedence.
 type Event struct {
-	Kind         EventKind
-	SESMessageID string // the mail.messageId — correlates to messages.provider_message_id
+	Kind            EventKind
+	SESMessageID    string // the mail.messageId — correlates to messages.provider_message_id
+	ProviderEventID string
+	OccurredAt      time.Time
 	// E2AMessageID is the e2a message id echoed back by SES from the
 	// MessageIDHeader stamped at submit time (`mail.headers` — present only
 	// when the SES configuration set enables "include original headers").

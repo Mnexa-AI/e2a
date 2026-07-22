@@ -75,6 +75,50 @@ The review-hold + screening events (`email.flagged`, `email.blocked`, `email.rev
 
 One `email.blocked` asymmetry to know: an **outbound** gate-block refuses the send outright, so no message row exists — its `data.message_id` is a stable rowless soft-ref (`msgblk_…`), the event's top-level `message_id` is absent, and `GET /v1/events?message_id=…` cannot match it (filter by `type` + `agent_email`, or by `conversation_id`, instead). **Inbound** blocks are accept-then-quarantine, reference a real message, and filter normally.
 
+## Lifecycle transitions on events (beta)
+
+**Beta:** message lifecycle and the optional `data.lifecycle_transitions` field
+may change before they are declared stable, while existing event envelopes remain stable,
+as do existing event names and their non-lifecycle payload fields.
+
+Mapped message events may include `data.lifecycle_transitions`. Every item is
+the exact canonical transition row committed for that observation, with the
+same ID and fields returned by
+`GET /v1/agents/{email}/messages/{id}/lifecycle`. Webhooks, WebSocket frames,
+and REST event reads all use the stored envelope, so redelivery does not rebuild
+or reinterpret lifecycle data. The field is optional for additive
+compatibility: historical envelopes created before the ledger remain valid and
+are redelivered byte-for-byte without a fabricated array.
+
+The event-to-reason mapping is:
+
+| Event | Canonical lifecycle reason(s) |
+|---|---|
+| `email.received` | `acceptance.inbound_smtp` (or `acceptance.local_loopback`); DMARC `pass` → `authentication.dmarc_pass`, DMARC `fail` → `authentication.dmarc_fail`, DMARC `none` → `authentication.dmarc_none`, DMARC `temperror` → `authentication.dmarc_temporary_error`, and DMARC `permerror` → `authentication.dmarc_permanent_error`; plus `queue.inbound_processing` when async intake was durably queued. |
+| `email.sent` | `submission.upstream_accepted` or `submission.local_loopback_accepted`. |
+| `email.failed` | `submission.provider_rejected`, `submission.local_retries_exhausted`, or `submission.cancelled`, matching the terminal cause. Temporary attempts use `submission.temporary_failure` in the ledger but do not emit a terminal `email.failed` event. |
+| `email.delivered` | `delivery.recipient_server_accepted` for `delivered_to`. |
+| `email.bounced` | `delivery.permanent_bounce`, `delivery.transient_bounce`, or `delivery.undetermined_bounce` for `delivered_to`. |
+| `email.complained` | `complaint.recipient_reported` for `delivered_to`. |
+| `email.review_requested` | `review.hold_created`. |
+| `email.review_approved` | `review.approved` or `review.expired_approved`. |
+| `email.review_rejected` | `review.rejected` or `review.expired_rejected`. |
+| `domain.suppression_added` | `suppression.hard_bounce_applied` or `suppression.complaint_applied` for the suppressed address. |
+
+Review and suppression events carry the exact newly committed transition when
+their producer has one. If an older or screening-originated review envelope
+does not carry the optional array, the lifecycle read may reconstruct only the
+fact proven by that durable envelope and marks it `reconstructed: true`.
+`agent.suppression_added` is account/agent consent administration rather than a
+provider observation for one message, so it has no message-lifecycle mapping.
+
+`email.flagged` and `email.blocked` remain screening events outside the lifecycle ledger;
+prompt-injection detections likewise remain in the existing protection-event
+contract. They are not converted into lifecycle stages or reason codes, and
+their existing documentation above remains in force.
+
+delivered means the recipient mail server accepted the message; e2a does not observe or claim inbox placement.
+
 ## Envelope and typed payloads
 
 Webhook deliveries and WebSocket frames use the canonical OpenAPI

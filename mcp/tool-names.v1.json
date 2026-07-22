@@ -20,6 +20,7 @@
   "get_domain",
   "get_event",
   "get_message",
+  "get_message_lifecycle",
   "get_pending_message",
   "get_protection",
   "get_review",

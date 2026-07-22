@@ -46,6 +46,70 @@
         "size_bytes": 12345,
         "index": 0
       }
+    ],
+    "lifecycle_transitions": [
+      {
+        "id": "mlt_received_accept",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp41",
+        "direction": "inbound",
+        "stage": "accepted",
+        "outcome": "accepted",
+        "reason_code": "acceptance.inbound_smtp",
+        "retryable": false,
+        "evidence": {},
+        "correlation_ids": {
+          "email_message_id": "\u003cfixture@customer.example.com\u003e"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      },
+      {
+        "id": "mlt_received_auth",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp41",
+        "direction": "inbound",
+        "stage": "authentication",
+        "outcome": "passed",
+        "reason_code": "authentication.dmarc_pass",
+        "retryable": false,
+        "evidence": {
+          "authentication": {
+            "dkim": [],
+            "dmarc": {
+              "aligned_by": [
+                "spf"
+              ],
+              "domain": "customer.example.com",
+              "policy": "reject",
+              "status": "pass"
+            },
+            "spf": {
+              "aligned": true,
+              "domain": "customer.example.com",
+              "status": "pass"
+            }
+          }
+        },
+        "correlation_ids": {
+          "email_message_id": "\u003cfixture@customer.example.com\u003e"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      },
+      {
+        "id": "mlt_received_queue",
+        "message_id": "msg_01h2xcejqtf2nbrexx3vqjhp41",
+        "direction": "inbound",
+        "stage": "queued",
+        "outcome": "enqueued",
+        "reason_code": "queue.inbound_processing",
+        "retryable": false,
+        "evidence": {},
+        "correlation_ids": {
+          "job_id": "4242"
+        },
+        "occurred_at": "2026-07-01T10:30:00.123456789Z",
+        "reconstructed": false
+      }
     ]
   }
 }

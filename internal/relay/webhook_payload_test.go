@@ -73,9 +73,10 @@ func TestBuildEmailReceivedPayload_Shape(t *testing.T) {
 }
 
 // TestBuildEmailReceivedPayload_Golden asserts the relay builder's marshaled
-// output byte-for-byte matches the committed golden fixture — the same file
-// the eventpayload envelope test, the WS channel test, and the TS/Python SDK
-// tests assert against (the cross-channel drift lock).
+// output matches the non-ledger fields in the committed golden fixture. The
+// lifecycle array is excluded because this pure helper does not own the
+// transaction; DB-backed relay tests prove the stored event contains the exact
+// rows AppendTx returned.
 func TestBuildEmailReceivedPayload_Golden(t *testing.T) {
 	receivedAt := time.Date(2026, 7, 1, 10, 30, 0, 123456789, time.UTC)
 	ti := threadInfo{
@@ -128,7 +129,7 @@ func TestBuildEmailReceivedPayload_Golden(t *testing.T) {
 		receivedAt,
 		eventpayload.AttachmentMetadata(raw),
 	)
-	goldenassert.Data(t, "../eventpayload/testdata/email.received.json", payload)
+	goldenassert.DataIgnoringLifecycle(t, "../eventpayload/testdata/email.received.json", payload)
 }
 
 // TestBuildEmailReceivedPayload_GoldenMinimal is the presence-semantics lock:

@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/delivery"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // OutboundSendClaimStaleWindow exceeds River's one-minute worker timeout and
@@ -106,13 +109,66 @@ func (s *Store) CorrelateByE2AMessageID(ctx context.Context, e2aMessageID string
 // guards (send worker, terminal reconciler, MarkOutboundFailedTx's CAS) read
 // this evidence before declaring an accepted/sending row failed.
 func (s *Store) RecordProviderAcceptEvidence(ctx context.Context, messageID, sesMessageID string) error {
-	_, err := s.pool.Exec(ctx,
+	return s.WithTx(ctx, func(tx pgx.Tx) error {
+		return s.RecordProviderAcceptEvidenceTx(ctx, tx, messageID, sesMessageID, time.Now().UTC())
+	})
+}
+
+func (s *Store) RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string, occurredAt time.Time) error {
+	_, err := tx.Exec(ctx,
 		`UPDATE messages
-		    SET provider_accepted_at = COALESCE(provider_accepted_at, now()),
+		    SET provider_accepted_at = COALESCE(provider_accepted_at, $3),
 		        provider_message_id = CASE WHEN COALESCE(provider_message_id, '') = ''
 		                                   THEN $2 ELSE provider_message_id END
 		  WHERE id = $1 AND direction = 'outbound'`,
-		messageID, sesMessageID)
+		messageID, sesMessageID, occurredAt.UTC())
+	return err
+}
+
+func (s *Store) AppendLifecycleTx(ctx context.Context, tx pgx.Tx, input messagelifecycle.AppendInput) (messagelifecycle.MessageLifecycleTransition, error) {
+	return messagelifecycle.AppendTx(ctx, tx, input)
+}
+
+// ProviderAcceptancePendingTx reports whether signed provider evidence must be
+// finalized through the canonical outbound sent path before feedback can be
+// applied. Pre-terminal rows and locally inferred failures are correctable;
+// authoritative provider failures are not. The consumer fails closed when
+// that finalizer is unavailable.
+func (s *Store) ProviderAcceptancePendingTx(ctx context.Context, tx pgx.Tx, messageID string) (bool, error) {
+	var pending bool
+	err := tx.QueryRow(ctx, `SELECT provider_accepted_at IS NOT NULL AND (
+		delivery_status IN ('accepted','sending') OR
+		(delivery_status='failed' AND COALESCE(delivery_failure_source,'local')='local')
+	) FROM messages WHERE id=$1 FOR UPDATE`, messageID).Scan(&pending)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return pending, err
+}
+
+func (s *Store) OutboundSendJobIDTx(ctx context.Context, tx pgx.Tx, messageID string) (int64, error) {
+	var jobID int64
+	err := tx.QueryRow(ctx, `SELECT COALESCE(send_job_id,0) FROM messages WHERE id=$1 FOR UPDATE`, messageID).Scan(&jobID)
+	return jobID, err
+}
+
+// RecordProviderRejectTx establishes the authoritative terminal provenance
+// for an SES Reject, including when a local inferred failure was already
+// present. A later acceptance/delivery observation therefore cannot revive
+// this message through the local-failure correction path.
+func (s *Store) RecordProviderRejectTx(ctx context.Context, tx pgx.Tx, messageID, detail string, occurredAt time.Time) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE messages
+		    SET delivery_status=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_status ELSE 'failed' END,
+		        delivery_failure_source=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_source ELSE 'provider' END,
+		        delivery_failure_reason_code=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_reason_code ELSE $2 END,
+		        delivery_detail=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_detail ELSE $3 END,
+		        delivery_failure_occurred_at=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_occurred_at ELSE $4 END,
+		        delivery_failure_attempt=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_attempt ELSE NULL END,
+		        delivery_failure_blocked_recipients=CASE WHEN delivery_status IN ('bounced','complained') THEN delivery_failure_blocked_recipients ELSE NULL END,
+		        send_claimed_at=NULL
+		  WHERE id=$1 AND direction='outbound'`,
+		messageID, string(messagelifecycle.ReasonSubmissionProviderRejected), nullIfEmpty(messagelifecycle.SafeDiagnostic(detail)), occurredAt.UTC())
 	return err
 }
 
@@ -127,15 +183,42 @@ func (s *Store) RecordProviderAcceptEvidence(ctx context.Context, messageID, ses
 // a recomputed rollup that proves provider acceptance CORRECTS the row — the
 // falsely-declared terminal failure from a final-attempt crash. A
 // provider-confirmed `failed` is never revived, and feedback for an address
-// outside the message's own envelope is ignored on a failed row so unrelated
-// feedback can never resurrect a genuine failure.
+// outside the message's own envelope is always ignored so a foreign recipient
+// can never create state or lifecycle for this message.
 func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address string, status delivery.Status, detail string) error {
-	addr := NormalizeEmail(address)
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
+	return s.WithTx(ctx, func(tx pgx.Tx) error {
+		_, err := s.RecordDeliveryOutcomeTx(ctx, tx, messageID, address, status, detail)
 		return err
+	})
+}
+
+// HasApplicableRecipientTx locks the message and checks candidate provider
+// recipients against its persisted immutable envelope. This preflight keeps a
+// foreign-only notification from establishing provider-accept evidence before
+// RecordDeliveryOutcomeTx gets a chance to apply its per-recipient gate.
+func (s *Store) HasApplicableRecipientTx(ctx context.Context, tx pgx.Tx, messageID string, addresses []string) (bool, error) {
+	var envTo, envCC, envBCC []string
+	err := tx.QueryRow(ctx,
+		`SELECT COALESCE(to_recipients, '{}'), COALESCE(cc, '{}'), COALESCE(bcc, '{}')
+		   FROM messages WHERE id=$1 FOR UPDATE`,
+		messageID,
+	).Scan(&envTo, &envCC, &envBCC)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
 	}
-	defer tx.Rollback(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, address := range addresses {
+		if addressInEnvelope(NormalizeEmail(address), envTo, envCC, envBCC) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *Store) RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status delivery.Status, detail string) (bool, error) {
+	addr := NormalizeEmail(address)
 
 	// Lock the message row to serialize ALL events for this message (every
 	// recipient). SES fans out delivery + bounce/complaint for the same message
@@ -149,26 +232,25 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 		curStatus, curSource string
 		envTo, envCC, envBCC []string
 	)
-	err = tx.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT COALESCE(delivery_status, ''), COALESCE(delivery_failure_source, ''),
 		        COALESCE(to_recipients, '{}'), COALESCE(cc, '{}'), COALESCE(bcc, '{}')
 		   FROM messages WHERE id = $1 FOR UPDATE`,
 		messageID,
 	).Scan(&curStatus, &curSource, &envTo, &envCC, &envBCC)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // message deleted between correlation and now
+		return false, nil // message deleted between correlation and now
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	cur := delivery.Status(curStatus)
 
-	// Envelope-membership guard on failed rows: only feedback for this
-	// message's own recipients may touch a failed message — an address the
-	// send never targeted must not create the recipient row whose rollup
-	// would revive the failure.
-	if cur == delivery.StatusFailed && !addressInEnvelope(addr, envTo, envCC, envBCC) {
-		return nil
+	// Only feedback for an address in this message's immutable envelope is an
+	// applicable observation. Provider payload corruption or a foreign address
+	// must not create recipient state, lifecycle, suppression, or events.
+	if !addressInEnvelope(addr, envTo, envCC, envBCC) {
+		return false, nil
 	}
 
 	var curRecipient string
@@ -186,10 +268,10 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 			 VALUES ($1, $2, $3, $4, $5)`,
 			"rcpt_"+generateID(), messageID, addr, string(status), nullIfEmpty(detail),
 		); err != nil {
-			return err
+			return false, err
 		}
 	case err != nil:
-		return err
+		return false, err
 	default:
 		merged := delivery.Merge(delivery.Status(curRecipient), status)
 		// Only write when the status actually advances — a duplicate/lower-rank
@@ -202,7 +284,7 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 				  WHERE message_id = $1 AND address = $2`,
 				messageID, addr, string(merged), nullIfEmpty(detail),
 			); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
@@ -212,14 +294,14 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 	// place (delivery.Merge).
 	rows, err := tx.Query(ctx, `SELECT status FROM message_recipients WHERE message_id = $1`, messageID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var rollup delivery.Status
 	for rows.Next() {
 		var st string
 		if err := rows.Scan(&st); err != nil {
 			rows.Close()
-			return err
+			return false, err
 		}
 		rollup = delivery.Merge(rollup, delivery.Status(st))
 	}
@@ -240,7 +322,7 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 				        delivery_failure_source = COALESCE(delivery_failure_source, 'provider')
 				  WHERE id = $1`, messageID,
 			); err != nil {
-				return err
+				return false, err
 			}
 		case cur == delivery.StatusFailed:
 			// §3.1 correction: authoritatively correlated provider evidence
@@ -249,20 +331,21 @@ func (s *Store) RecordDeliveryOutcome(ctx context.Context, messageID, address st
 			// carry the provider diagnostics).
 			if _, err := tx.Exec(ctx,
 				`UPDATE messages
-				    SET delivery_status = $2, delivery_failure_source = NULL, delivery_detail = NULL
+				    SET delivery_status = $2, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL,
+				        delivery_failure_occurred_at = NULL, delivery_failure_attempt = NULL, delivery_failure_blocked_recipients = NULL
 				  WHERE id = $1`, messageID, string(next),
 			); err != nil {
-				return err
+				return false, err
 			}
 		default:
 			if _, err := tx.Exec(ctx,
 				`UPDATE messages SET delivery_status = $2 WHERE id = $1`, messageID, string(next),
 			); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
-	return tx.Commit(ctx)
+	return true, nil
 }
 
 // addressInEnvelope reports whether addr (already normalized) is one of the
@@ -347,7 +430,8 @@ type OutboundSendPayload struct {
 	// evidence for this message (provider_accepted_at): the provider already
 	// has it, so the worker must settle it as sent instead of re-submitting
 	// (the SMTP-accept↔mark-sent crash window's duplicate residual).
-	ProviderAccepted bool
+	ProviderAccepted   bool
+	ProviderAcceptedAt *time.Time
 	// ProviderMessageID is the evidence-repaired provider id ('' when none).
 	ProviderMessageID string
 }
@@ -356,9 +440,10 @@ type OutboundSendPayload struct {
 // adapters need to build the email.sent / email.failed event and meter usage,
 // resolved from the row + its owning agent in one transaction.
 type OutboundSentInfo struct {
-	Message *Message
-	UserID  string
-	Domain  string
+	Message            *Message
+	UserID             string
+	Domain             string
+	ProviderAcceptedAt time.Time
 }
 
 // SendOutcome is the current terminal-ish state of an async send, for wait=sent
@@ -489,6 +574,10 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 		providerAcceptedAt *time.Time
 		providerMessageID  string
 		messageType        string
+		failureSource      string
+		failureReason      string
+		failureOccurredAt  *time.Time
+		failureAttempt     *int
 	)
 	var userID, registeredDomain string
 	// Lock agent first to match permanent agent deletion's lock order, then
@@ -510,13 +599,16 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 		`SELECT COALESCE(m.delivery_status,''), COALESCE(m.envelope_from,''), COALESCE(m.sent_as,''),
 		        COALESCE(m.message_type,''),
 		        m.to_recipients, m.cc, m.bcc, m.raw_message, m.created_at,
-		        m.deleted_at, m.send_job_id, m.provider_accepted_at, COALESCE(m.provider_message_id,'')
+		        m.deleted_at, m.send_job_id, m.provider_accepted_at, COALESCE(m.provider_message_id,''),
+		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_failure_reason_code,''),
+		        m.delivery_failure_occurred_at,m.delivery_failure_attempt
 		   FROM messages m
 		  WHERE m.id = $1 AND m.agent_id = $2 AND m.direction = 'outbound'
 		  FOR UPDATE OF m`,
 		messageID, agentID,
 	).Scan(&deliveryStatus, &envelopeFrom, &sentAs, &messageType, &to, &cc, &bcc, &raw, &createdAt,
-		&deletedAt, &stampedJobID, &providerAcceptedAt, &providerMessageID)
+		&deletedAt, &stampedJobID, &providerAcceptedAt, &providerMessageID,
+		&failureSource, &failureReason, &failureOccurredAt, &failureAttempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
@@ -533,6 +625,12 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 		}
 		return nil, nil
 	}
+	if isCompleteTerminalFallback(failureSource, failureReason, failureOccurredAt, failureAttempt) {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
 	if deletedAt != nil || agentDeletedAt != nil {
 		// The locked snapshot says trash won before the claim. Cancel the queued
 		// send without a webhook event; no provider attempt occurred in this run.
@@ -544,10 +642,14 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 			    SET delivery_status = 'failed',
 			        delivery_detail = 'send canceled because the message or agent is in trash',
 			        delivery_failure_source = 'local',
+			        delivery_failure_reason_code = 'submission.cancelled',
 			        send_claimed_at = NULL
 			  WHERE id = $1`,
 			messageID,
 		); err != nil {
+			return nil, err
+		}
+		if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: fmt.Sprintf("submission:job:%d:attempt:0:%s", jobID, messagelifecycle.ReasonSubmissionCancelled), Direction: "outbound", ReasonCode: messagelifecycle.ReasonSubmissionCancelled, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": fmt.Sprint(jobID)}), OccurredAt: time.Now().UTC()}); err != nil {
 			return nil, err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -567,24 +669,39 @@ func (s *Store) ClaimOutboundForSend(ctx context.Context, messageID string, jobI
 	recipients = append(recipients, cc...)
 	recipients = append(recipients, bcc...)
 	p := &OutboundSendPayload{
-		ID:                messageID,
-		UserID:            userID,
-		AgentID:           agentID,
-		Domain:            registeredDomain,
-		MessageType:       messageType,
-		DeliveryStatus:    deliveryStatus,
-		EnvelopeFrom:      envelopeFrom,
-		SentAs:            sentAs,
-		Recipients:        recipients,
-		Raw:               raw,
-		CreatedAt:         createdAt,
-		ProviderAccepted:  providerAcceptedAt != nil,
-		ProviderMessageID: providerMessageID,
+		ID:                 messageID,
+		UserID:             userID,
+		AgentID:            agentID,
+		Domain:             registeredDomain,
+		MessageType:        messageType,
+		DeliveryStatus:     deliveryStatus,
+		EnvelopeFrom:       envelopeFrom,
+		SentAs:             sentAs,
+		Recipients:         recipients,
+		Raw:                raw,
+		CreatedAt:          createdAt,
+		ProviderAccepted:   providerAcceptedAt != nil,
+		ProviderAcceptedAt: providerAcceptedAt,
+		ProviderMessageID:  providerMessageID,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return p, nil
+}
+
+func isCompleteTerminalFallback(source, reason string, occurredAt *time.Time, attempt *int) bool {
+	if occurredAt == nil || occurredAt.IsZero() || attempt == nil || *attempt < 0 {
+		return false
+	}
+	switch messagelifecycle.ReasonCode(reason) {
+	case messagelifecycle.ReasonSubmissionProviderRejected:
+		return delivery.FailureSource(source) == delivery.FailureSourceProvider
+	case messagelifecycle.ReasonSubmissionLocalRetriesExhausted, messagelifecycle.ReasonSubmissionCancelled:
+		return delivery.FailureSource(source) == delivery.FailureSourceLocal
+	default:
+		return false
+	}
 }
 
 // ReleaseOutboundSendClaim moves a side-effect-free provider failure back to
@@ -618,6 +735,39 @@ func (s *Store) DeferOutboundTerminalFailure(ctx context.Context, messageID stri
 	return err
 }
 
+// PreserveOutboundTerminalFailure durably records authoritative failure
+// provenance after the richer terminal transaction failed. It deliberately
+// leaves the row preterminal and emits no event so the terminal reconciler can
+// retry the complete state+lifecycle+event transaction later.
+func (s *Store) PreserveOutboundTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error {
+	if !messagelifecycle.IsTerminalSubmissionFailure(reason) {
+		return fmt.Errorf("invalid terminal submission reason %q", reason)
+	}
+	if occurredAt.IsZero() {
+		return fmt.Errorf("terminal failure occurred_at is required")
+	}
+	if attempt < 0 {
+		return fmt.Errorf("terminal failure attempt must be non-negative")
+	}
+	seen := make(map[string]struct{}, len(blockedRecipients))
+	for _, raw := range blockedRecipients {
+		if recipient := NormalizeEmail(raw); recipient != "" {
+			seen[recipient] = struct{}{}
+		}
+	}
+	blockedRecipients = blockedRecipients[:0]
+	for recipient := range seen {
+		blockedRecipients = append(blockedRecipients, recipient)
+	}
+	sort.Strings(blockedRecipients)
+	var storedRecipients any
+	if len(blockedRecipients) > 0 {
+		storedRecipients = blockedRecipients
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE messages SET delivery_status='accepted',delivery_detail=$3,delivery_failure_source=$4,delivery_failure_reason_code=$5,delivery_failure_occurred_at=$6,delivery_failure_attempt=$7,delivery_failure_blocked_recipients=$8,send_claimed_at=NULL WHERE id=$1 AND direction='outbound' AND send_job_id=$2 AND delivery_status IN ('accepted','sending')`, messageID, jobID, nullIfEmpty(detail), string(source), string(reason), occurredAt.UTC(), attempt, storedRecipients)
+	return err
+}
+
 // MarkOutboundSentTx records, within the caller's transaction, that a claimed
 // outbound message was submitted to the provider: delivery_status='sent',
 // provider_message_id, and one message_recipients row per recipient at 'sent'
@@ -629,7 +779,9 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent", ProviderMessageID: providerMessageID}
 	err := tx.QueryRow(ctx,
 		`UPDATE messages m
-		    SET delivery_status = 'sent', provider_message_id = $2, send_claimed_at = NULL
+		    SET delivery_status = 'sent', provider_message_id = $2, send_claimed_at = NULL,
+		        delivery_failure_source=NULL,delivery_failure_reason_code=NULL,delivery_detail=NULL,
+		        delivery_failure_occurred_at=NULL,delivery_failure_attempt=NULL,delivery_failure_blocked_recipients=NULL
 		   FROM agent_identities a
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id
@@ -661,20 +813,65 @@ func (s *Store) MarkOutboundSentTx(ctx context.Context, tx pgx.Tx, messageID, pr
 // proceeds to the failure write, whose own CAS re-checks the evidence.
 func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx, messageID string) (*OutboundSentInfo, string, error) {
 	var providerMessageID string
-	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent"}
+	var providerAcceptedAt time.Time
+	var (
+		jobID             *int64
+		failureSource     string
+		failureReason     string
+		failureOccurredAt *time.Time
+		failureAttempt    *int
+		blockedRecipients []string
+	)
 	err := tx.QueryRow(ctx,
+		`SELECT send_job_id,COALESCE(delivery_failure_source,''),COALESCE(delivery_failure_reason_code,''),
+		        delivery_failure_occurred_at,delivery_failure_attempt,delivery_failure_blocked_recipients
+		   FROM messages
+		  WHERE id=$1 AND direction='outbound'
+		    AND (delivery_status IN ('accepted','sending') OR
+		         (delivery_status='failed' AND COALESCE(delivery_failure_source,'local')='local'))
+		    AND provider_accepted_at IS NOT NULL
+		  FOR UPDATE`, messageID,
+	).Scan(&jobID, &failureSource, &failureReason, &failureOccurredAt, &failureAttempt, &blockedRecipients)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	if jobID != nil && isCompleteTerminalFallback(failureSource, failureReason, failureOccurredAt, failureAttempt) {
+		seen := make(map[string]struct{}, len(blockedRecipients))
+		for _, raw := range blockedRecipients {
+			if recipient := NormalizeEmail(raw); recipient != "" {
+				seen[recipient] = struct{}{}
+			}
+		}
+		blockedRecipients = blockedRecipients[:0]
+		for recipient := range seen {
+			blockedRecipients = append(blockedRecipients, recipient)
+		}
+		sort.Strings(blockedRecipients)
+		for _, recipient := range blockedRecipients {
+			if _, err := messagelifecycle.AppendTx(ctx, tx, messagelifecycle.AppendInput{MessageID: messageID, DedupeKey: messagelifecycle.SendSuppressionDedupeKey(*jobID, *failureAttempt, recipient), Direction: "outbound", Recipient: recipient, ReasonCode: messagelifecycle.ReasonSuppressionRecipientBlocked, CorrelationIDs: messagelifecycle.SafeCorrelationIDs(map[string]string{"job_id": strconv.FormatInt(*jobID, 10)}), OccurredAt: failureOccurredAt.UTC()}); err != nil {
+				return nil, "", err
+			}
+		}
+	}
+	m := &Message{ID: messageID, Direction: "outbound", DeliveryStatus: "sent"}
+	err = tx.QueryRow(ctx,
 		`UPDATE messages m
-		    SET delivery_status = 'sent', send_claimed_at = NULL, delivery_failure_source = NULL
+		    SET delivery_status = 'sent', send_claimed_at = NULL, delivery_failure_source = NULL, delivery_failure_reason_code = NULL, delivery_detail = NULL,
+		        delivery_failure_occurred_at=NULL, delivery_failure_attempt=NULL, delivery_failure_blocked_recipients=NULL
 		   FROM agent_identities a
 		  WHERE m.id = $1 AND m.direction = 'outbound'
 		    AND m.agent_id = a.id
-		    AND m.delivery_status IN ('accepted', 'sending')
+		    AND (m.delivery_status IN ('accepted','sending') OR
+		         (m.delivery_status='failed' AND COALESCE(m.delivery_failure_source,'local')='local'))
 		    AND m.provider_accepted_at IS NOT NULL
 		 RETURNING m.agent_id, m.subject, m.message_type, m.method, m.conversation_id, m.sender,
-		           m.to_recipients, m.cc, m.bcc, COALESCE(m.provider_message_id, '')`,
+		           m.to_recipients, m.cc, m.bcc, COALESCE(m.provider_message_id, ''),m.provider_accepted_at`,
 		messageID,
 	).Scan(&m.AgentID, &m.Subject, &m.Type, &m.Method, &m.ConversationID, &m.Sender,
-		&m.ToRecipients, &m.CC, &m.BCC, &providerMessageID)
+		&m.ToRecipients, &m.CC, &m.BCC, &providerMessageID, &providerAcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
 	}
@@ -686,6 +883,9 @@ func (s *Store) ResolveOutboundProviderAcceptedTx(ctx context.Context, tx pgx.Tx
 		return nil, "", err
 	}
 	info, err := outboundSentInfoTx(ctx, tx, m)
+	if info != nil {
+		info.ProviderAcceptedAt = providerAcceptedAt
+	}
 	return info, providerMessageID, err
 }
 
@@ -786,16 +986,33 @@ type Suppression struct {
 // false when it already existed, so the caller fires domain.suppression_added
 // at most once per address.
 func (s *Store) AddSuppression(ctx context.Context, userID, address, reason, source, sourceMessageID string) (bool, error) {
-	tag, err := s.pool.Exec(ctx,
+	var added bool
+	err := s.WithTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		_, added, err = s.AddSuppressionTx(ctx, tx, userID, address, reason, source, sourceMessageID)
+		return err
+	})
+	return added, err
+}
+
+func (s *Store) AddSuppressionTx(ctx context.Context, tx pgx.Tx, userID, address, reason, source, sourceMessageID string) (string, bool, error) {
+	id := "supp_" + generateID()
+	tag, err := tx.Exec(ctx,
 		`INSERT INTO suppressions (id, user_id, address, reason, source, source_message_id)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (user_id, address) DO NOTHING`,
-		"supp_"+generateID(), userID, NormalizeEmail(address), reason, source, nullIfEmpty(sourceMessageID),
+		id, userID, NormalizeEmail(address), reason, source, nullIfEmpty(sourceMessageID),
 	)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	if tag.RowsAffected() == 0 {
+		if err := tx.QueryRow(ctx, `SELECT id FROM suppressions WHERE user_id=$1 AND address=$2`, userID, NormalizeEmail(address)).Scan(&id); err != nil {
+			return "", false, err
+		}
+		return id, false, nil
+	}
+	return id, true, nil
 }
 
 // SuppressedAddresses returns the subset of addrs that are suppressed for the

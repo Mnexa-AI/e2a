@@ -2,11 +2,13 @@ package relay_test
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tokencanopy/e2a/internal/config"
+	"github.com/tokencanopy/e2a/internal/emailauth"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/relay"
 	"github.com/tokencanopy/e2a/internal/testutil"
@@ -22,6 +24,51 @@ type fakeInboundEnq struct{ calls int }
 func (f *fakeInboundEnq) EnqueueInboundProcessTx(_ context.Context, _ pgx.Tx, _ string) (int64, error) {
 	f.calls++
 	return int64(f.calls), nil
+}
+
+func TestInboundLifecycleSyncSMTPBoundsAdversarialMetadata(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	ctx := context.Background()
+
+	const domain = "sync-lifecycle.example.com"
+	const agentEmail = "bot@" + domain
+	user, err := store.CreateOrGetUser(ctx, "owner@"+domain, "O", "g-sync-lifecycle")
+	if err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if _, err := store.ClaimOrCreateDomain(ctx, domain, user.ID); err != nil {
+		t.Fatalf("domain: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE domains SET verified=true WHERE domain=$1`, domain); err != nil {
+		t.Fatalf("verify domain: %v", err)
+	}
+	if _, err := store.CreateAgent(ctx, agentEmail, domain, "", "", "", user.ID); err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+
+	port, err := freePort()
+	if err != nil {
+		t.Fatalf("freePort: %v", err)
+	}
+	cfg := &config.Config{SMTP: config.SMTPConfig{ListenAddr: "127.0.0.1:" + port, Domain: domain}, Env: "development"}
+	server := relay.NewServer(cfg, store, usage.NewNoopUsageTracker(), ws.NewHub())
+	server.SetOutbox(webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)))
+	authentication := adversarialLifecycleAuthentication()
+	server.SetAuthenticationChecker(func(context.Context, net.IP, string, string, []byte, emailauth.AuthorIdentity) *emailauth.Authentication {
+		return authentication
+	})
+	go func() { _ = server.ListenAndServe() }()
+	t.Cleanup(func() { _ = server.Close() })
+	waitForSMTP(t, cfg.SMTP.ListenAddr)
+
+	body := "From: sender@ext.test\r\nTo: " + agentEmail + "\r\n" + oversizedFoldedMessageIDHeader() + "\r\nSubject: sync lifecycle\r\n\r\nhello"
+	sendSMTP(t, cfg.SMTP.ListenAddr, "sender@ext.test", agentEmail, body)
+	var messageID string
+	if err := pool.QueryRow(ctx, `SELECT id FROM messages WHERE agent_id=$1 AND subject='sync lifecycle'`, agentEmail).Scan(&messageID); err != nil {
+		t.Fatalf("load message: %v", err)
+	}
+	assertAdversarialInboundLifecycle(t, pool, messageID, agentEmail, 2, len(authentication.DKIM))
 }
 
 // TestInbound_AsyncAcceptAndDedup exercises the queue-first accept-tx (slice 4):

@@ -9,7 +9,52 @@ import (
 
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/testutil"
+	"github.com/tokencanopy/e2a/migrations"
 )
+
+func TestMessagesFailureReasonCodeMigrationIsNullableAndIdempotent(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.TestDB(t)
+	sql, err := migrations.FS.ReadFile("076_messages_failure_reason_code.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatalf("second migration application: %v", err)
+	}
+	var nullable, defaultValue string
+	if err := pool.QueryRow(ctx, `SELECT is_nullable,COALESCE(column_default,'') FROM information_schema.columns WHERE table_schema='public' AND table_name='messages' AND column_name='delivery_failure_reason_code'`).Scan(&nullable, &defaultValue); err != nil {
+		t.Fatal(err)
+	}
+	if nullable != "YES" || defaultValue != "" {
+		t.Fatalf("column nullable=%q default=%q", nullable, defaultValue)
+	}
+}
+
+func TestMessagesFailureProvenanceMigrationIsNullableDefaultFreeAndIdempotent(t *testing.T) {
+	ctx := context.Background()
+	sql, err := migrations.FS.ReadFile("077_messages_failure_provenance.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := testutil.TestDB(t)
+	if _, err := pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatalf("second migration application: %v", err)
+	}
+	for _, column := range []string{
+		"delivery_failure_occurred_at",
+		"delivery_failure_attempt",
+		"delivery_failure_blocked_recipients",
+	} {
+		var nullable, defaultValue string
+		if err := pool.QueryRow(ctx, `SELECT is_nullable,COALESCE(column_default,'') FROM information_schema.columns WHERE table_schema='public' AND table_name='messages' AND column_name=$1`, column).Scan(&nullable, &defaultValue); err != nil {
+			t.Fatal(err)
+		}
+		if nullable != "YES" || defaultValue != "" {
+			t.Fatalf("column %s nullable=%q default=%q", column, nullable, defaultValue)
+		}
+	}
+}
 
 // stubFS builds an fs.FS with the given filename → SQL body mapping.
 // Order isn't preserved by MapFS but RunMigrations sorts by filename.
@@ -31,7 +76,7 @@ func TestParseMigrationMode(t *testing.T) {
 		{"auto", identity.ModeAuto, false},
 		{"verify", identity.ModeVerify, false},
 		{"skip", identity.ModeSkip, false},
-		{"AUTO", "", true},   // case-sensitive on purpose
+		{"AUTO", "", true}, // case-sensitive on purpose
 		{"yolo", "", true},
 		{"true", "", true},
 	}

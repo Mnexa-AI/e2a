@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from e2a.v1.generated.models.attachment_meta_view import AttachmentMetaView
 from e2a.v1.generated.models.authentication import Authentication
+from e2a.v1.generated.models.message_lifecycle_transition import MessageLifecycleTransition
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -38,6 +39,7 @@ class EmailReceivedData(BaseModel):
     direction: StrictStr = Field(description="Always \"inbound\" on this event.")
     envelope_from: Optional[StrictStr] = Field(description="SMTP MAIL FROM address for inbound SMTP delivery; null for a null reverse path or providerless delivery.")
     header_from: Optional[StrictStr] = Field(description="Parsed RFC 5322 From address; never replaced by Reply-To.")
+    lifecycle_transitions: Optional[List[MessageLifecycleTransition]] = None
     message_id: StrictStr
     received_at: datetime
     reply_to: List[StrictStr]
@@ -45,7 +47,7 @@ class EmailReceivedData(BaseModel):
     to: List[StrictStr]
     verified_domain: Optional[StrictStr] = Field(description="DMARC-authenticated RFC 5322 From domain when authentication passed; null when authentication failed, was unavailable, or was not evaluated. A null caused by dmarc.status=none (sender publishes no DMARC record) is common and NOT itself suspicious — distinct from dmarc.status=fail, an actual mismatch. Only DMARC ties a passing SPF or DKIM identity back to this header domain; a bare SPF or DKIM pass without DMARC does not.")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "attachments", "authentication", "cc", "conversation_id", "delivered_to", "direction", "envelope_from", "header_from", "message_id", "received_at", "reply_to", "subject", "to", "verified_domain"]
+    __properties: ClassVar[List[str]] = ["agent_email", "attachments", "authentication", "cc", "conversation_id", "delivered_to", "direction", "envelope_from", "header_from", "lifecycle_transitions", "message_id", "received_at", "reply_to", "subject", "to", "verified_domain"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -98,6 +100,13 @@ class EmailReceivedData(BaseModel):
         # override the default output from pydantic by calling `to_dict()` of authentication
         if self.authentication:
             _dict['authentication'] = self.authentication.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of each item in lifecycle_transitions (list)
+        _items = []
+        if self.lifecycle_transitions:
+            for _item_lifecycle_transitions in self.lifecycle_transitions:
+                if _item_lifecycle_transitions:
+                    _items.append(_item_lifecycle_transitions.to_dict())
+            _dict['lifecycle_transitions'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -144,6 +153,7 @@ class EmailReceivedData(BaseModel):
             "direction": obj.get("direction"),
             "envelope_from": obj.get("envelope_from"),
             "header_from": obj.get("header_from"),
+            "lifecycle_transitions": [MessageLifecycleTransition.from_dict(_item) for _item in obj["lifecycle_transitions"]] if obj.get("lifecycle_transitions") is not None else None,
             "message_id": obj.get("message_id"),
             "received_at": obj.get("received_at"),
             "reply_to": obj.get("reply_to"),

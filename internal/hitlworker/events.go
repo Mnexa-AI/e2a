@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
 
@@ -40,7 +41,7 @@ func (w *Worker) publish(e webhookpub.Event) {
 // emitInboundResolved fires the review-resolution event for an inbound hold the
 // sweep just released (approved=true) or dropped (approved=false). meta is the
 // pre-transition dispatch view; ownerUserID is the routing key.
-func (w *Worker) emitInboundResolved(meta *identity.ReviewMessageMeta, ownerUserID string, approved bool, reason string) {
+func (w *Worker) emitInboundResolved(meta *identity.ReviewMessageMeta, ownerUserID string, approved bool, reason string, transitions ...messagelifecycle.MessageLifecycleTransition) {
 	if w.publisher == nil {
 		return
 	}
@@ -70,6 +71,7 @@ func (w *Worker) emitInboundResolved(meta *identity.ReviewMessageMeta, ownerUser
 			"auto_resolved": true,
 		}
 	}
+	attachLifecycle(data, transitions)
 	e := webhookpub.NewEvent(typ, ownerUserID, data)
 	e.AgentID = meta.AgentID
 	e.MessageID = meta.ID
@@ -98,6 +100,7 @@ func (w *Worker) emitOutboundApproved(agent *identity.AgentIdentity, sent *ident
 	if sent.ProviderMessageID != "" && sent.Method != "loopback" {
 		data["provider_message_id"] = sent.ProviderMessageID
 	}
+	attachLifecycle(data, sent.LifecycleTransitions)
 	e := webhookpub.NewEvent(webhookpub.EventEmailReviewApproved, agent.UserID, data)
 	e.AgentID = agent.ID
 	e.MessageID = sent.ID
@@ -126,9 +129,16 @@ func (w *Worker) emitOutboundRejected(ctx context.Context, rejected *identity.Me
 		"reason":        reason,
 		"auto_resolved": true,
 	}
+	attachLifecycle(data, rejected.LifecycleTransitions)
 	e := webhookpub.NewEvent(webhookpub.EventEmailReviewRejected, ownerUserID, data)
 	e.AgentID = rejected.AgentID
 	e.MessageID = rejected.ID
 	e.ID = webhookpub.DeterministicEventID(rejected.ID, webhookpub.EventEmailReviewRejected)
 	w.publish(e)
+}
+
+func attachLifecycle(data map[string]interface{}, transitions []messagelifecycle.MessageLifecycleTransition) {
+	if len(transitions) > 0 {
+		data["lifecycle_transitions"] = transitions
+	}
 }

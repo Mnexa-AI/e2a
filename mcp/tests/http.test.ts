@@ -468,12 +468,13 @@ describe("HTTP MCP server", () => {
 
     const { client, transport } = await connect();
     const names = new Set((await client.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(15);
+    expect(names.size).toBe(16);
     expect(names.has("send_message")).toBe(true); // runtime present
     expect(names.has("send_email")).toBe(true); // deprecated runtime alias
     expect(names.has("get_attachment_data")).toBe(true); // deprecated runtime alias
     expect(names.has("restore_message")).toBe(true); // per-agent trash lifecycle
     expect(names.has("delete_message")).toBe(true); // soft delete is per-agent too
+    expect(names.has("get_message_lifecycle")).toBe(true); // per-agent diagnostic read
     expect(names.has("create_agent")).toBe(false); // admin hidden
     expect(names.has("list_agents")).toBe(false); // REST requires account scope
     expect(names.has("restore_agent")).toBe(false); // account administration

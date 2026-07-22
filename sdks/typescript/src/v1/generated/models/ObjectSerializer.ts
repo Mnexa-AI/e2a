@@ -58,6 +58,7 @@ export * from '../models/LimitsCapsView.js';
 export * from '../models/LimitsUsageView.js';
 export * from '../models/Message.js';
 export * from '../models/MessageBodyView.js';
+export * from '../models/MessageLifecycleTransition.js';
 export * from '../models/MessageParsedView.js';
 export * from '../models/MessageSummaryView.js';
 export * from '../models/MessageView.js';
@@ -68,6 +69,7 @@ export * from '../models/PageAgentView.js';
 export * from '../models/PageConversationSummaryView.js';
 export * from '../models/PageDomainView.js';
 export * from '../models/PageEventView.js';
+export * from '../models/PageMessageLifecycleTransition.js';
 export * from '../models/PageMessageSummaryView.js';
 export * from '../models/PageReviewView.js';
 export * from '../models/PageStarterTemplateView.js';
@@ -176,7 +178,7 @@ import { DomainSendingFailedData } from '../models/DomainSendingFailedData.js';
 import { DomainSendingVerifiedData } from '../models/DomainSendingVerifiedData.js';
 import { DomainSuppressionAddedData } from '../models/DomainSuppressionAddedData.js';
 import { DomainView } from '../models/DomainView.js';
-import { EmailBouncedData  , EmailBouncedDataBounceTypeEnum        } from '../models/EmailBouncedData.js';
+import { EmailBouncedData  , EmailBouncedDataBounceTypeEnum         } from '../models/EmailBouncedData.js';
 import { EmailComplainedData } from '../models/EmailComplainedData.js';
 import { EmailDeliveredData } from '../models/EmailDeliveredData.js';
 import { EmailFailedData } from '../models/EmailFailedData.js';
@@ -196,6 +198,7 @@ import { LimitsCapsView } from '../models/LimitsCapsView.js';
 import { LimitsUsageView } from '../models/LimitsUsageView.js';
 import { Message } from '../models/Message.js';
 import { MessageBodyView } from '../models/MessageBodyView.js';
+import { MessageLifecycleTransition , MessageLifecycleTransitionDirectionEnum      , MessageLifecycleTransitionOutcomeEnum  , MessageLifecycleTransitionReasonCodeEnum     , MessageLifecycleTransitionStageEnum   } from '../models/MessageLifecycleTransition.js';
 import { MessageParsedView } from '../models/MessageParsedView.js';
 import { MessageSummaryView } from '../models/MessageSummaryView.js';
 import { MessageView } from '../models/MessageView.js';
@@ -206,6 +209,7 @@ import { PageAgentView } from '../models/PageAgentView.js';
 import { PageConversationSummaryView } from '../models/PageConversationSummaryView.js';
 import { PageDomainView } from '../models/PageDomainView.js';
 import { PageEventView } from '../models/PageEventView.js';
+import { PageMessageLifecycleTransition } from '../models/PageMessageLifecycleTransition.js';
 import { PageMessageSummaryView } from '../models/PageMessageSummaryView.js';
 import { PageReviewView } from '../models/PageReviewView.js';
 import { PageStarterTemplateView } from '../models/PageStarterTemplateView.js';
@@ -295,6 +299,10 @@ let enumsMap: Set<string> = new Set<string>([
     "DMARCResultStatusEnum",
     "EmailBouncedDataBounceTypeEnum",
     "LimitExceededErrorBodyCodeEnum",
+    "MessageLifecycleTransitionDirectionEnum",
+    "MessageLifecycleTransitionOutcomeEnum",
+    "MessageLifecycleTransitionReasonCodeEnum",
+    "MessageLifecycleTransitionStageEnum",
     "MessageSummaryViewDirectionEnum",
     "MessageViewDirectionEnum",
     "ProtectionGateRequestActionEnum",
@@ -370,6 +378,7 @@ let typeMap: {[index: string]: any} = {
     "LimitsUsageView": LimitsUsageView,
     "Message": Message,
     "MessageBodyView": MessageBodyView,
+    "MessageLifecycleTransition": MessageLifecycleTransition,
     "MessageParsedView": MessageParsedView,
     "MessageSummaryView": MessageSummaryView,
     "MessageView": MessageView,
@@ -380,6 +389,7 @@ let typeMap: {[index: string]: any} = {
     "PageConversationSummaryView": PageConversationSummaryView,
     "PageDomainView": PageDomainView,
     "PageEventView": PageEventView,
+    "PageMessageLifecycleTransition": PageMessageLifecycleTransition,
     "PageMessageSummaryView": PageMessageSummaryView,
     "PageReviewView": PageReviewView,
     "PageStarterTemplateView": PageStarterTemplateView,

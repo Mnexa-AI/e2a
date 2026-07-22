@@ -80,6 +80,7 @@ export type {
   VerifySignatureOptions,
   ConstructEventOptions,
   WebhookEvent,
+  EventMessageLifecycleTransition,
   AttachmentMetaView,
   SPFResult,
   DKIMResult,

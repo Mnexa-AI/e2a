@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -73,6 +74,15 @@ type mockStore struct {
 	agentErr error
 	messages []identity.Message
 	msgErr   error
+}
+
+type envelopeMockStore struct {
+	*mockStore
+	envelope []byte
+}
+
+func (m *envelopeMockStore) GetEventEnvelope(context.Context, string, string) ([]byte, error) {
+	return m.envelope, nil
 }
 
 func (m *mockStore) GetPrincipalByAPIKey(_ context.Context, apiKey string) (*identity.Principal, error) {
@@ -607,6 +617,34 @@ func TestHandler_DrainUnreadOnConnect(t *testing.T) {
 	}
 }
 
+func TestHandlerCrossChannelEmailReceivedFrameUsesStoredEnvelopeBytes(t *testing.T) {
+	hub := NewHub()
+	defer hub.Close()
+	stored := []byte(`{"type":"email.received", "id":"evt_exact", "schema_version":"1", "created_at":"2026-07-21T12:00:00Z", "data":{"message_id":"msg_exact","lifecycle_transitions":[{"id":"mlt_exact","message_id":"msg_exact","direction":"inbound","stage":"accepted","outcome":"accepted","reason_code":"acceptance.inbound_smtp","retryable":false,"evidence":{"future_signal":{"nested":true}},"correlation_ids":{},"occurred_at":"2026-07-21T12:00:00Z","reconstructed":false}]}}`)
+	store := &envelopeMockStore{
+		mockStore: &mockStore{
+			user: newTestUser(), agent: newTestAgent("user_1"),
+			messages: []identity.Message{{ID: "msg_exact", AgentID: "agent_test", Direction: "inbound"}},
+		},
+		envelope: stored,
+	}
+	srv := startServer(t, NewHandler(hub, store))
+	conn, _ := dialWS(t, srv, "bot@agents.e2a.dev", "valid_key")
+	if conn == nil {
+		t.Fatal("expected successful WS connection")
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, frame, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(frame, stored) {
+		t.Fatalf("WebSocket frame rebuilt the stored envelope\nstored: %s\nframe:  %s", stored, frame)
+	}
+}
+
 func TestHandler_DisconnectUnregisters(t *testing.T) {
 	hub := NewHub()
 	defer hub.Close()
@@ -808,11 +846,14 @@ func TestBuildNotification_OmitsEmptyConversationID(t *testing.T) {
 	}
 }
 
-// TestBuildNotification_GoldenParity locks the WS drain frame to the same
-// golden fixture the webhook channel asserts against: given a message row
-// carrying everything the fixture's payload needs, the frame's data must be
-// byte-identical to the fixture's data — including canonical authentication
-// evidence persisted on the message row. The
+// TestBuildNotification_GoldenParity locks the legacy message-row fallback to
+// the non-lifecycle portion of the same golden fixture the webhook channel
+// asserts against. Canonical lifecycle rows cannot be reconstructed from a
+// message row; the normal drain path instead reuses the exact stored event
+// envelope (locked by TestHandlerCrossChannelEmailReceivedFrameUsesStoredEnvelopeBytes).
+// Given a message row carrying everything else the fixture's payload needs,
+// the frame's data must be byte-identical to the fixture's remaining data —
+// including canonical authentication evidence persisted on the message row. The
 // only genuine drain divergences (attachments omitted without raw_message,
 // row-time timestamps) don't apply here because the test row carries the
 // fixture's raw message and created_at.
@@ -872,6 +913,7 @@ func TestBuildNotification_GoldenParity(t *testing.T) {
 	if err := json.Unmarshal(want, &fixture); err != nil {
 		t.Fatal(err)
 	}
+	delete(fixture.Data, "lifecycle_transitions")
 	got, _ := json.Marshal(env.Data)
 	wantJSON, _ := json.Marshal(fixture.Data)
 	if string(got) != string(wantJSON) {

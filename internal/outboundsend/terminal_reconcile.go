@@ -11,6 +11,7 @@ import (
 
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/jobs"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 const terminalReconcileInterval = time.Minute
@@ -61,9 +62,17 @@ func NewTerminalReconcileWorker(pool *pgxpool.Pool, store Store, ramps ...RampGa
 }
 
 type terminalCandidate struct {
-	messageID string
-	attempt   int
-	state     string
+	messageID                string
+	jobID                    int64
+	attempt                  int
+	state                    string
+	finalizedAt              *time.Time
+	failureSource            delivery.FailureSource
+	detail                   string
+	failureReason            string
+	failureOccurredAt        *time.Time
+	failureAttempt           *int
+	failureBlockedRecipients []string
 }
 
 func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[TerminalReconcileArgs]) error {
@@ -74,8 +83,12 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 	// skipped this pass so in-flight SES notifications can still arrive.
 	rows, err := w.pool.Query(ctx,
 		`SELECT m.id,
+		        m.send_job_id,
 		        COALESCE(r.attempt, 0),
-		        CASE WHEN r.id IS NULL THEN 'missing' ELSE r.state::text END
+		        CASE WHEN r.id IS NULL THEN 'missing' ELSE r.state::text END,
+		        r.finalized_at,
+		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_detail,''),COALESCE(m.delivery_failure_reason_code,''),
+		        m.delivery_failure_occurred_at,m.delivery_failure_attempt,m.delivery_failure_blocked_recipients
 		   FROM messages m
 		   LEFT JOIN river_job r ON r.id = m.send_job_id
 		  WHERE m.direction = 'outbound'
@@ -97,7 +110,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 	candidates := make([]terminalCandidate, 0)
 	for rows.Next() {
 		var candidate terminalCandidate
-		if err := rows.Scan(&candidate.messageID, &candidate.attempt, &candidate.state); err != nil {
+		if err := rows.Scan(&candidate.messageID, &candidate.jobID, &candidate.attempt, &candidate.state, &candidate.finalizedAt, &candidate.failureSource, &candidate.detail, &candidate.failureReason, &candidate.failureOccurredAt, &candidate.failureAttempt, &candidate.failureBlockedRecipients); err != nil {
 			return err
 		}
 		candidates = append(candidates, candidate)
@@ -110,12 +123,40 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 	processed := 0
 	for _, candidate := range candidates {
 		detail := fmt.Sprintf("outbound send job %s before terminal delivery status was recorded", candidate.state)
+		if candidate.detail != "" {
+			detail = candidate.detail
+		}
+		reason := messagelifecycle.ReasonSubmissionLocalRetriesExhausted
+		source := delivery.FailureSourceLocal
+		storedReason := messagelifecycle.ReasonCode(candidate.failureReason)
+		if messagelifecycle.IsTerminalSubmissionFailure(storedReason) {
+			reason = storedReason
+			if reason == messagelifecycle.ReasonSubmissionProviderRejected {
+				source = delivery.FailureSourceProvider
+			}
+		} else if candidate.failureSource == delivery.FailureSourceProvider {
+			reason = messagelifecycle.ReasonSubmissionProviderRejected
+			source = delivery.FailureSourceProvider
+		} else if candidate.state == "cancelled" {
+			reason = messagelifecycle.ReasonSubmissionCancelled
+		}
+		occurredAt := time.Now().UTC()
+		if candidate.finalizedAt != nil && !candidate.finalizedAt.IsZero() {
+			occurredAt = candidate.finalizedAt.UTC()
+		}
+		if candidate.failureOccurredAt != nil && !candidate.failureOccurredAt.IsZero() {
+			occurredAt = candidate.failureOccurredAt.UTC()
+		}
+		attempt := candidate.attempt
+		if candidate.failureAttempt != nil {
+			attempt = *candidate.failureAttempt
+		}
 		// MarkFailed is the guarded terminal write: it settles the row as sent
 		// when provider-accept evidence exists (never a false failure), else
 		// fails it with provenance 'local' so later authoritative evidence can
 		// still correct it. The stored detail of a deferred final attempt is
 		// preferred over this generic sweep detail.
-		if err := w.store.MarkFailed(ctx, candidate.messageID, candidate.attempt, detail, delivery.FailureSourceLocal); err != nil {
+		if err := w.store.MarkFailed(ctx, candidate.messageID, candidate.jobID, attempt, occurredAt, detail, source, reason, candidate.failureBlockedRecipients); err != nil {
 			if processed > 0 {
 				log.Printf("[outbound-terminal-reconcile] processed %d candidates", processed)
 			}

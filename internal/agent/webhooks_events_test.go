@@ -7,6 +7,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/eventpayload/goldenassert"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -58,11 +59,10 @@ func TestBuildSentEvent_PopulatesEnvelope(t *testing.T) {
 }
 
 // TestSentEventGoldenPayloads is this package's side of the cross-channel
-// drift lock, and the sync/async identity proof: the synchronous
-// buildSentEvent and the async worker's buildEmailSentEventFromRow must BOTH
-// marshal byte-identical to the same committed fixture, and the async
-// email.failed builder to its fixture — the files the eventpayload envelope
-// test and the TS/Python SDK tests also assert against.
+// drift lock for fields owned by these pure builders. Lifecycle rows are
+// deliberately excluded here: DB-backed worker tests prove the emitted event
+// contains the exact row returned by AppendTx, rather than injecting a fixture
+// transition into the producer and creating a circular test.
 func TestSentEventGoldenPayloads(t *testing.T) {
 	const fixture = "../eventpayload/testdata/"
 	agent := &identity.AgentIdentity{
@@ -89,7 +89,7 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 			},
 			"reply",
 		)
-		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
+		goldenassert.DataIgnoringLifecycle(t, fixture+"email.sent.json", ev.Data)
 	})
 
 	t.Run("email.sent async builder emits the identical payload", func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 				ConversationID: "conv_9f8e7d6c",
 			},
 		}, "0100019283abcdef-1a2b3c4d-0000")
-		goldenassert.Data(t, fixture+"email.sent.json", ev.Data)
+		goldenassert.DataIgnoringLifecycle(t, fixture+"email.sent.json", ev.Data)
 	})
 
 	t.Run("email.failed async builder", func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestSentEventGoldenPayloads(t *testing.T) {
 				ConversationID: "conv_9f8e7d6c",
 			},
 		}, "550 5.1.1 user unknown")
-		goldenassert.Data(t, fixture+"email.failed.json", ev.Data)
+		goldenassert.DataIgnoringLifecycle(t, fixture+"email.failed.json", ev.Data, "reason_code", "retryable")
 	})
 
 	// Minimal (required-fields-only) variants: the same builders fed only the
@@ -216,6 +216,20 @@ func TestBuildPendingApprovalEvent(t *testing.T) {
 	}
 	if ev.UserID != "u_1" {
 		t.Errorf("UserID = %q", ev.UserID)
+	}
+}
+
+func TestBuildPendingApprovalEventUsesProvidedExactHoldTransition(t *testing.T) {
+	transition := messagelifecycle.MessageLifecycleTransition{ID: "mlt_exact", MessageID: "msg_pending", ReasonCode: messagelifecycle.ReasonReviewHoldCreated}
+	agent := &identity.AgentIdentity{ID: "bot@example.test", UserID: "user_owner"}
+	msg := &identity.Message{ID: "msg_pending", LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{transition}}
+	event := (&API{}).buildPendingApprovalEvent(agent, msg, outbound.SendRequest{To: []string{"alice@example.net"}, Subject: "review me"}, "send")
+	got, ok := event.Data.(map[string]interface{})["lifecycle_transitions"].([]messagelifecycle.MessageLifecycleTransition)
+	if !ok || len(got) != 1 {
+		t.Fatalf("lifecycle_transitions = %#v, want one exact hold transition", event.Data)
+	}
+	if got[0].ID != transition.ID {
+		t.Fatalf("event transition id = %q, provided = %q", got[0].ID, transition.ID)
 	}
 }
 

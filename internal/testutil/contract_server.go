@@ -13,6 +13,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/jobs"
 	"github.com/tokencanopy/e2a/internal/limits"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/relay"
@@ -38,6 +39,14 @@ type ContractServer struct {
 func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, error) {
 	pool, err := OpenPreparedTestDB(ctx, dbURL)
 	if err != nil {
+		return nil, err
+	}
+	if err := jobs.Migrate(ctx, pool); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := resetRiverOperationalState(ctx, pool); err != nil {
+		pool.Close()
 		return nil, err
 	}
 

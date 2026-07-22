@@ -12,7 +12,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
+from e2a.v1.generated.models import MessageLifecycleTransition
+from e2a.v1.webhook_signature import is_email_received
 from e2a.v1.websocket import WSEvent, _build_ws_url
 
 
@@ -65,6 +68,25 @@ def _envelope(data: dict, type_: str = "email.received") -> dict:
     }
 
 
+def _lifecycle_transition(**overrides) -> dict:
+    row = {
+        "id": "mlt_1",
+        "message_id": "msg_1",
+        "direction": "inbound",
+        "recipient": None,
+        "stage": "accepted",
+        "outcome": "accepted",
+        "reason_code": "acceptance.inbound_smtp",
+        "retryable": False,
+        "evidence": {"source": "message", "future": {"nested": True}},
+        "correlation_ids": {"future_id": "future_1"},
+        "occurred_at": "2026-07-22T00:00:00Z",
+        "reconstructed": True,
+    }
+    row.update(overrides)
+    return row
+
+
 def test_ws_event_from_payload():
     e = WSEvent.from_payload(_envelope({
         "message_id": "msg_1",
@@ -84,6 +106,49 @@ def test_ws_event_from_payload():
     assert e.raw["type"] == "email.received"
 
 
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "email.received",
+        "email.sent",
+        "email.failed",
+        "email.delivered",
+        "email.bounced",
+        "email.complained",
+        "domain.suppression_added",
+    ],
+)
+def test_ws_event_coerces_v1_stable_lifecycle_with_original_raw_preserved(event_type):
+    payload = _envelope(
+        {"lifecycle_transitions": [_lifecycle_transition()]}, type_=event_type
+    )
+    event = WSEvent.from_payload(payload)
+    transition = event.data["lifecycle_transitions"][0]
+    assert isinstance(transition, MessageLifecycleTransition)
+    assert transition.recipient is None
+    assert transition.evidence["future"] == {"nested": True}
+    assert transition.correlation_ids["future_id"] == "future_1"
+    assert transition.reconstructed is True
+    assert isinstance(event.raw["data"]["lifecycle_transitions"][0], dict)
+    assert is_email_received(event) is (event_type == "email.received")
+
+
+@pytest.mark.parametrize("field", ["direction", "stage", "outcome", "reason_code"])
+def test_ws_event_rejects_unknown_v1_lifecycle_values(field):
+    with pytest.raises(ValidationError, match=field):
+        WSEvent.from_payload(
+            _envelope(
+                {"lifecycle_transitions": [_lifecycle_transition(**{field: "future_value"})]}
+            )
+        )
+
+
+def test_ws_event_without_lifecycle_keeps_original_data_object():
+    payload = _envelope({"message_id": "msg_1"})
+    event = WSEvent.from_payload(payload)
+    assert event.data is payload["data"]
+
+
 def test_ws_event_tolerates_unknown_type():
     """Future WS event kinds parse into the same envelope (forward-compat)."""
     e = WSEvent.from_payload(_envelope({"anything": True}, type_="email.future_kind"))
@@ -100,12 +165,27 @@ def test_ws_event_rejects_missing_required_envelope_field(missing):
 
 
 def test_ws_event_preserves_future_envelope_versions_and_fields():
-    payload = _envelope({"future": True})
+    payload = _envelope(
+        {
+            "future": True,
+            "lifecycle_transitions": [
+                _lifecycle_transition(
+                    direction="sideways",
+                    stage="future_stage",
+                    outcome="future_outcome",
+                    reason_code="future.reason",
+                )
+            ],
+        }
+    )
     payload["schema_version"] = "2"
     payload["future_envelope_field"] = True
     event = WSEvent.from_payload(payload)
     assert event.schema_version == "2"
     assert event.raw["future_envelope_field"] is True
+    assert event.data is payload["data"]
+    assert event.data["lifecycle_transitions"][0]["stage"] == "future_stage"
+    assert not is_email_received(event)
 
 
 # ── _connect_and_stream ──────────────────────────────────────────

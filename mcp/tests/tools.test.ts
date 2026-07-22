@@ -86,6 +86,22 @@ function makeStubClient(
     listConversations: vi.fn(async () => ({ items: [{ conversationId: "conv_1" }], next_cursor: undefined })),
     getConversation: vi.fn(async () => ({ conversationId: "conv_1", messages: [] })),
     listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
+    getMessageLifecycle: vi.fn(async () => ({
+      items: [{
+        id: "mlt_1",
+        messageId: "msg_1",
+        direction: "outbound",
+        stage: "submission",
+        outcome: "accepted",
+        reasonCode: "submission.upstream_accepted",
+        retryable: false,
+        evidence: { response: "250 queued" },
+        correlationIds: { providerMessageId: "provider_1" },
+        occurredAt: new Date("2026-07-21T12:00:00Z"),
+        reconstructed: false,
+      }],
+      nextCursor: "cursor_2",
+    })),
     listAgents: vi.fn(async () => ({ items: [{ email: "bot@example.com" }], next_cursor: undefined })),
     restoreAgent: vi.fn(async (addr?: string) => ({ email: addr ?? "bot@example.com" })),
     listAllAgents: vi.fn(async () => [{ email: "bot@example.com" }]),
@@ -418,7 +434,7 @@ describe("e2a MCP server", () => {
   // account scope sees the full surface; agent scope sees only the runtime tier.
 
   it("keeps the frozen v1 tool-name baseline sorted, unique, and callable", async () => {
-    expect(frozenToolNames).toHaveLength(59);
+    expect(frozenToolNames).toHaveLength(60);
     expect(frozenToolNames).toEqual([...new Set(frozenToolNames)].sort());
     const accountNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
     for (const name of frozenToolNames) {
@@ -448,7 +464,7 @@ describe("e2a MCP server", () => {
     registerApiKeyTools(recorder, stub);
     registerLegacyTools(recorder, stub);
 
-    expect(names).toHaveLength(59);
+    expect(names).toHaveLength(60);
     // Throws if any registered tool is untiered / double-tiered / phantom.
     expect(() => assertToolTiersComplete(names)).not.toThrow();
   });
@@ -457,29 +473,29 @@ describe("e2a MCP server", () => {
     expect(toolNamesForScope("bogus")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("")).toBe(RUNTIME_TOOLS);
     expect(toolNamesForScope("agent")).toBe(RUNTIME_TOOLS);
-    expect(RUNTIME_TOOLS.size).toBe(15);
+    expect(RUNTIME_TOOLS.size).toBe(16);
     expect(ADMIN_TOOLS.size).toBe(44);
-    expect(toolNamesForScope("account").size).toBe(59);
+    expect(toolNamesForScope("account").size).toBe(60);
   });
 
-  it("account scope exposes all 59 canonical and compatibility tools", async () => {
+  it("account scope exposes all 60 canonical and compatibility tools", async () => {
     const acct = await connect(makeStubClient({ scope: "account" }));
     const { tools } = await acct.listTools();
-    expect(tools).toHaveLength(59);
+    expect(tools).toHaveLength(60);
     const names = new Set(tools.map((tool) => tool.name));
     for (const name of ["list_reviews", "get_review", "approve_review", "reject_review"]) {
       expect(names.has(name), `account review tool ${name} should be visible`).toBe(true);
     }
   });
 
-  it("agent scope exposes 13 canonical runtime tools plus two runtime aliases", async () => {
+  it("agent scope exposes 14 canonical runtime tools plus two runtime aliases", async () => {
     const ag = await connect(makeStubClient({ scope: "agent" }));
     const names = new Set((await ag.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(15);
+    expect(names.size).toBe(16);
     // Runtime tools present: an agent can send and read its own mailbox, but
     // account review discovery and decisions stay with the account owner.
     for (const n of [
-      "whoami", "get_agent", "list_messages", "get_message",
+      "whoami", "get_agent", "list_messages", "get_message", "get_message_lifecycle",
       "get_attachment", "update_message_labels", "list_conversations",
       "get_conversation", "send_message", "reply_to_message", "forward_message",
       "restore_message", "delete_message", "send_email", "get_attachment_data",
@@ -555,9 +571,10 @@ describe("e2a MCP server", () => {
     }
 
     // Reads → readOnlyHint.
-    for (const n of ["list_messages", "whoami", "list_domains", "get_event", "list_webhook_deliveries", "list_templates", "get_template", "validate_template", "list_starter_templates", "get_starter_template", "list_api_keys"]) {
+    for (const n of ["list_messages", "get_message_lifecycle", "whoami", "list_domains", "get_event", "list_webhook_deliveries", "list_templates", "get_template", "validate_template", "list_starter_templates", "get_starter_template", "list_api_keys"]) {
       expect(byName.get(n)?.readOnlyHint, `${n} readOnlyHint`).toBe(true);
     }
+    expect(byName.get("get_message_lifecycle")?.idempotentHint).toBe(true);
     // Deletes → destructive + idempotent.
     for (const n of ["delete_agent", "delete_message", "delete_domain", "delete_webhook", "delete_template", "delete_api_key"]) {
       expect(byName.get(n)?.destructiveHint, `${n} destructiveHint`).toBe(true);
@@ -718,6 +735,40 @@ describe("e2a MCP server", () => {
       limit: 10,
       cursor: "c_prev",
     });
+  });
+
+  it("get_message_lifecycle has an exact schema and returns the canonical page", async () => {
+    const { tools } = await client.listTools();
+    const lifecycleTool = tools.find((t) => t.name === "get_message_lifecycle")!;
+    expect(lifecycleTool.title).toContain("(beta)");
+    expect(lifecycleTool.description).toContain("Beta:");
+    const schema = lifecycleTool.inputSchema as {
+      properties: Record<string, unknown>;
+    };
+    expect(Object.keys(schema.properties).sort()).toEqual(["cursor", "email", "limit", "message_id"]);
+
+    const res = await client.callTool({
+      name: "get_message_lifecycle",
+      arguments: { message_id: "msg_1", email: "other@test.dev", cursor: "cursor_1", limit: 25 },
+    });
+    expect(stub.getMessageLifecycle).toHaveBeenCalledWith(
+      "msg_1", { cursor: "cursor_1", limit: 25 }, "other@test.dev",
+    );
+    const payload = JSON.parse((res.content as Array<{ text: string }>)[0]!.text);
+    expect(payload).toMatchObject({
+      items: [{
+        message_id: "msg_1",
+        reason_code: "submission.upstream_accepted",
+        correlation_ids: { provider_message_id: "provider_1" },
+      }],
+      next_cursor: "cursor_2",
+    });
+
+    const rejected = await client.callTool({
+      name: "get_message_lifecycle",
+      arguments: { message_id: "msg_1", unknown: true },
+    });
+    expect(rejected.isError).toBe(true);
   });
 
   it("list_messages rejects the removed from spelling", async () => {

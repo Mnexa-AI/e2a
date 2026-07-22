@@ -18,9 +18,18 @@ export interface MessagesGetOptions {
   json?: boolean;
 }
 
+export interface MessagesLifecycleOptions {
+  agent?: string;
+  cursor?: string;
+  limit?: string;
+  json?: boolean;
+}
+
 const LIST_USAGE =
   "usage: e2a messages list [--direction inbound|outbound|all] [--since <ISO>] [--conversation <id>] [--read-status unread|read|all] [--limit <n>] [--agent <inbox>] [--json]";
 const GET_USAGE = "usage: e2a messages get <message-id> [--text] [--agent <inbox>] [--json]";
+const LIFECYCLE_USAGE =
+  "usage: e2a messages lifecycle <message-id> (beta) [--agent <inbox>] [--limit <1-100>] [--cursor <cursor>] [--json]";
 
 const DIRECTIONS = ["inbound", "outbound", "all"] as const;
 const READ_STATUSES = ["unread", "read", "all"] as const;
@@ -121,4 +130,27 @@ export async function messagesGet(
     return;
   }
   process.stdout.write(JSON.stringify(withWireFrom(message)) + "\n");
+}
+
+export async function messagesLifecycle(
+  messageId: string | undefined,
+  opts: MessagesLifecycleOptions,
+): Promise<void> {
+  if (!messageId) fail(EXIT.USAGE, LIFECYCLE_USAGE);
+
+  let limit: number | undefined;
+  if (opts.limit !== undefined) {
+    limit = Number(opts.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      fail(EXIT.USAGE, LIFECYCLE_USAGE);
+    }
+  }
+
+  const client = createClient();
+  const agentEmail = requireAgentEmail(opts.agent);
+  const page = await client.messages.getLifecycle(agentEmail, messageId, {
+    ...(opts.cursor !== undefined ? { cursor: opts.cursor } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  });
+  process.stdout.write(JSON.stringify(withWireFrom(page)) + "\n");
 }

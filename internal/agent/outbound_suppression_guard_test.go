@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
 
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/delivery"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/outboundsend"
 	"github.com/tokencanopy/e2a/internal/sendramp"
@@ -96,13 +98,13 @@ func TestDeliverOutbound_AgentSuppressionBlocksSendReplyAndForward(t *testing.T)
 }
 
 func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) {
-	api, store, outbox, _ := setupAsyncAPI(t)
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "suppafterqueue")
 
 	// Accept + queue while the recipient is clean.
 	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
-		To: []string{"victim@external.test"}, Subject: "queued then suppressed", Body: "x",
+		To: []string{"victim@external.test", "Victim@External.TEST", "victim@external.test"}, Subject: "queued then suppressed", Body: "x",
 	}, "send", "", nil, nil)
 	if oerr != nil {
 		t.Fatalf("DeliverOutbound: %+v", oerr)
@@ -152,6 +154,29 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 0 {
 		t.Errorf("email.sent events = %d, want 0", n)
 	}
+	rows := lifecycleRows(t, pool, res.MessageID)
+	var blocked, cancelled int
+	for _, tr := range rows {
+		if tr.ReasonCode == messagelifecycle.ReasonSuppressionRecipientBlocked {
+			blocked++
+			if tr.Recipient != "victim@external.test" {
+				t.Fatalf("blocked recipient=%q", tr.Recipient)
+			}
+			if len(tr.Evidence) != 0 {
+				t.Fatalf("blocked evidence=%v, want none: scope and source were not observed", tr.Evidence)
+			}
+		}
+		if tr.ReasonCode == messagelifecycle.ReasonSubmissionCancelled {
+			cancelled++
+		}
+	}
+	if blocked != 1 || cancelled != 1 {
+		t.Fatalf("send-time suppression lifecycle blocked=%d cancelled=%d", blocked, cancelled)
+	}
+	event := eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailFailed)
+	if len(event) != 1 || event[0].ReasonCode != messagelifecycle.ReasonSubmissionCancelled {
+		t.Fatalf("email.failed lifecycle=%+v", event)
+	}
 
 	// A sibling agent under the same account remains allowed for the same
 	// recipient; the exact message.agent_id must reach the worker guard.
@@ -173,6 +198,183 @@ func TestSendWorker_SuppressionAddedAfterAcceptPreventsProviderIO(t *testing.T) 
 	}
 	if allowedDeliverer.calls != 1 {
 		t.Fatalf("sibling provider calls = %d, want 1", allowedDeliverer.calls)
+	}
+}
+
+func TestSendWorker_SuppressionFallbackReplaysExactObservation(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "suppfallback")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"Victim@External.TEST", "victim@external.test"}, Subject: "suppression fallback", Body: "x",
+	}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "Victim@External.TEST", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	install := `CREATE FUNCTION test_fail_suppression_fallback() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.cancelled' THEN RAISE EXCEPTION 'forced lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_suppression_fallback BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_suppression_fallback();`
+	uninstall := `DROP TRIGGER IF EXISTS test_fail_suppression_fallback ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_suppression_fallback();`
+	if _, err := pool.Exec(ctx, install); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
+
+	worker := outboundsend.NewSendWorker(agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker()), &countingDeliverer{})
+	if err := worker.Work(ctx, workerJob(res.MessageID, 7)); err == nil {
+		t.Fatal("suppressed send must cancel")
+	}
+	var occurredAt *time.Time
+	var attempt *int
+	var recipients []string
+	if err := pool.QueryRow(ctx, `SELECT delivery_failure_occurred_at,delivery_failure_attempt,delivery_failure_blocked_recipients FROM messages WHERE id=$1`, res.MessageID).Scan(&occurredAt, &attempt, &recipients); err != nil {
+		t.Fatal(err)
+	}
+	if occurredAt == nil || attempt == nil || *attempt != 7 {
+		t.Fatalf("fallback occurred_at=%v attempt=%v, want exact attempt 7 observation", occurredAt, attempt)
+	}
+	if len(recipients) != 1 || recipients[0] != "victim@external.test" {
+		t.Fatalf("fallback blocked recipients=%v, want normalized unique recipient", recipients)
+	}
+	if rows := lifecycleRows(t, pool, res.MessageID); len(rows) != 2 { // acceptance + queue only
+		t.Fatalf("failed primary tx leaked lifecycle rows: %+v", rows)
+	}
+
+	if _, err := pool.Exec(ctx, uninstall); err != nil {
+		t.Fatal(err)
+	}
+	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
+	if err := outboundsend.NewTerminalReconcileWorker(pool, adapter).Work(ctx, &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatal(err)
+	}
+	var cancelled, blocked *messagelifecycle.MessageLifecycleTransition
+	rows := lifecycleRows(t, pool, res.MessageID)
+	for i := range rows {
+		tr := rows[i]
+		switch tr.ReasonCode {
+		case messagelifecycle.ReasonSubmissionCancelled:
+			cancelled = &tr
+		case messagelifecycle.ReasonSuppressionRecipientBlocked:
+			blocked = &tr
+		}
+	}
+	if cancelled == nil || blocked == nil {
+		t.Fatalf("reconciled cancelled=%+v blocked=%+v", cancelled, blocked)
+	}
+	if !cancelled.OccurredAt.Equal(occurredAt.UTC()) || !blocked.OccurredAt.Equal(occurredAt.UTC()) {
+		t.Fatalf("replayed timestamps cancelled=%s blocked=%s want %s", cancelled.OccurredAt, blocked.OccurredAt, occurredAt.UTC())
+	}
+	var dedupeKey string
+	if err := pool.QueryRow(ctx, `SELECT dedupe_key FROM message_lifecycle_transitions WHERE id=$1`, cancelled.ID).Scan(&dedupeKey); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dedupeKey, ":attempt:7:") || len(blocked.Evidence) != 0 {
+		t.Fatalf("replayed cancellation dedupe_key=%q suppression evidence=%v", dedupeKey, blocked.Evidence)
+	}
+}
+
+func TestSendWorker_ProviderEvidenceCorrectionRetainsFallbackSuppression(t *testing.T) {
+	api, store, outbox, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "suppevidence")
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{
+		To: []string{"Victim@External.TEST", "victim@external.test"}, Subject: "suppression evidence correction", Body: "x",
+	}, "send", "", nil, nil)
+	if oerr != nil {
+		t.Fatalf("DeliverOutbound: %+v", oerr)
+	}
+	if _, _, err := store.AddAgentSuppression(ctx, user.ID, ag.ID, "Victim@External.TEST", "opted out", "unsubscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	install := `CREATE FUNCTION test_fail_suppression_evidence() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.cancelled' THEN RAISE EXCEPTION 'forced lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_suppression_evidence BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_suppression_evidence();`
+	uninstall := `DROP TRIGGER IF EXISTS test_fail_suppression_evidence ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_suppression_evidence();`
+	if _, err := pool.Exec(ctx, install); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), uninstall) })
+
+	adapter := agent.NewOutboundSendStore(store, outbox, usage.NewNoopUsageTracker())
+	if err := outboundsend.NewSendWorker(adapter, &countingDeliverer{}).Work(ctx, workerJob(res.MessageID, 6)); err == nil {
+		t.Fatal("suppressed send must cancel")
+	}
+	var preservedAt time.Time
+	var preservedAttempt int
+	if err := pool.QueryRow(ctx, `SELECT delivery_failure_occurred_at,delivery_failure_attempt FROM messages WHERE id=$1`, res.MessageID).Scan(&preservedAt, &preservedAttempt); err != nil {
+		t.Fatal(err)
+	}
+	if preservedAttempt != 6 {
+		t.Fatalf("preserved attempt=%d want 6", preservedAttempt)
+	}
+	if err := store.RecordProviderAcceptEvidence(ctx, res.MessageID, "ses-suppression-correction"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, uninstall); err != nil {
+		t.Fatal(err)
+	}
+	correctionInstall := `CREATE FUNCTION test_fail_suppression_correction() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='suppression.recipient_blocked' THEN RAISE EXCEPTION 'forced correction failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_suppression_correction BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_suppression_correction();`
+	correctionUninstall := `DROP TRIGGER IF EXISTS test_fail_suppression_correction ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_suppression_correction();`
+	if _, err := pool.Exec(ctx, correctionInstall); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), correctionUninstall) })
+	if err := outboundsend.NewTerminalReconcileWorker(pool, adapter).Work(ctx, &river.Job[outboundsend.TerminalReconcileArgs]{}); err == nil {
+		t.Fatal("forced suppression append failure unexpectedly committed sent correction")
+	}
+	var atomicStatus string
+	var atomicFallback bool
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,delivery_failure_occurred_at IS NOT NULL AND delivery_failure_attempt IS NOT NULL AND delivery_failure_blocked_recipients IS NOT NULL FROM messages WHERE id=$1`, res.MessageID).Scan(&atomicStatus, &atomicFallback); err != nil {
+		t.Fatal(err)
+	}
+	if atomicStatus != "accepted" || !atomicFallback || countEvents(t, store, user.ID, webhookpub.EventEmailSent) != 0 {
+		t.Fatalf("partial sent correction status=%q fallback=%v", atomicStatus, atomicFallback)
+	}
+	if _, err := pool.Exec(ctx, correctionUninstall); err != nil {
+		t.Fatal(err)
+	}
+	if err := outboundsend.NewTerminalReconcileWorker(pool, adapter).Work(ctx, &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var status, providerID string
+	var retainedFallback bool
+	if err := pool.QueryRow(ctx, `SELECT delivery_status,COALESCE(provider_message_id,''),delivery_failure_source IS NOT NULL OR delivery_failure_reason_code IS NOT NULL OR delivery_failure_occurred_at IS NOT NULL OR delivery_failure_attempt IS NOT NULL OR delivery_failure_blocked_recipients IS NOT NULL FROM messages WHERE id=$1`, res.MessageID).Scan(&status, &providerID, &retainedFallback); err != nil {
+		t.Fatal(err)
+	}
+	if status != "sent" || providerID != "ses-suppression-correction" || retainedFallback {
+		t.Fatalf("corrected status=%q provider=%q retained_fallback=%v", status, providerID, retainedFallback)
+	}
+	var blocked, accepted *messagelifecycle.MessageLifecycleTransition
+	for _, tr := range lifecycleRows(t, pool, res.MessageID) {
+		tr := tr
+		switch tr.ReasonCode {
+		case messagelifecycle.ReasonSuppressionRecipientBlocked:
+			blocked = &tr
+		case messagelifecycle.ReasonSubmissionUpstreamAccepted:
+			accepted = &tr
+		case messagelifecycle.ReasonSubmissionCancelled:
+			t.Fatalf("provider correction retained cancelled terminal transition: %+v", tr)
+		}
+	}
+	if blocked == nil || blocked.Recipient != "victim@external.test" || !blocked.OccurredAt.Equal(preservedAt) || len(blocked.Evidence) != 0 {
+		t.Fatalf("preserved suppression=%+v want normalized recipient at %s without evidence", blocked, preservedAt)
+	}
+	var blockedDedupeKey string
+	if err := pool.QueryRow(ctx, `SELECT dedupe_key FROM message_lifecycle_transitions WHERE id=$1`, blocked.ID).Scan(&blockedDedupeKey); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(blockedDedupeKey, ":attempt:6:") {
+		t.Fatalf("preserved suppression dedupe_key=%q want original attempt 6", blockedDedupeKey)
+	}
+	if accepted == nil {
+		t.Fatal("provider correction missing upstream accepted transition")
+	}
+	if countEvents(t, store, user.ID, webhookpub.EventEmailSent) != 1 || countEvents(t, store, user.ID, webhookpub.EventEmailFailed) != 0 {
+		t.Fatal("provider correction event counts are inconsistent")
+	}
+	event := eventLifecycle(t, pool, res.MessageID, webhookpub.EventEmailSent)
+	if len(event) != 1 || event[0].ID != accepted.ID {
+		t.Fatalf("email.sent lifecycle=%+v want accepted transition %+v", event, accepted)
 	}
 }
 
@@ -297,6 +499,8 @@ func TestAccountSuppressionFromBounceBlocksEveryAgentSend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSESNotification: %v", err)
 	}
+	bounce.ProviderEventID = "sns-account-bounce"
+	bounce.OccurredAt = time.Date(2026, 7, 21, 18, 0, 0, 0, time.UTC)
 	if err := delivery.NewConsumer(store, nil).Process(ctx, bounce); err != nil {
 		t.Fatalf("Process bounce: %v", err)
 	}

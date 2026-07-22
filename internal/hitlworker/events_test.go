@@ -2,13 +2,47 @@ package hitlworker_test
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
+
+func assertTTLReviewEventLifecycleMatchesRow(t *testing.T, pool interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, messageID, eventType string, event webhookpub.Event, wantReason messagelifecycle.ReasonCode) {
+	t.Helper()
+	data := dataOf(t, event)
+	raw, err := json.Marshal(data["lifecycle_transitions"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []messagelifecycle.MessageLifecycleTransition
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	var persistedRaw []byte
+	if err := pool.QueryRow(context.Background(), `SELECT jsonb_build_array(to_jsonb(t) - 'dedupe_key') FROM message_lifecycle_transitions t WHERE message_id=$1 AND reason_code=$2`, messageID, wantReason).Scan(&persistedRaw); err != nil {
+		t.Fatalf("read persisted lifecycle: %v", err)
+	}
+	var persisted []messagelifecycle.MessageLifecycleTransition
+	if err := json.Unmarshal(persistedRaw, &persisted); err != nil {
+		t.Fatalf("decode persisted lifecycle: %v", err)
+	}
+	if len(got) == 1 && len(persisted) == 1 {
+		got[0].OccurredAt = got[0].OccurredAt.UTC()
+		persisted[0].OccurredAt = persisted[0].OccurredAt.UTC()
+	}
+	if len(got) != 1 || len(persisted) != 1 || got[0].ReasonCode != wantReason || !reflect.DeepEqual(got[0], persisted[0]) {
+		t.Fatalf("%s lifecycle = %+v, persisted = %+v, want exact %s transition", eventType, got, persisted, wantReason)
+	}
+}
 
 // capPub captures published events for the TTL-resolution emission tests.
 type capPub struct {
@@ -86,6 +120,7 @@ func TestWorkerEmitsInboundReviewApprovedOnExpiry(t *testing.T) {
 	if d["auto_resolved"] != true {
 		t.Errorf("auto_resolved = %v, want true (distinguishes TTL from human)", d["auto_resolved"])
 	}
+	assertTTLReviewEventLifecycleMatchesRow(t, pool, m.ID, webhookpub.EventEmailReviewApproved, e, messagelifecycle.ReasonReviewExpiredApproved)
 }
 
 // TestWorkerEmitsInboundReviewRejectedOnExpiry: a TTL auto-REJECTED inbound hold
@@ -118,6 +153,7 @@ func TestWorkerEmitsInboundReviewRejectedOnExpiry(t *testing.T) {
 	if d["direction"] != "inbound" || d["reason"] != "ttl_expired" {
 		t.Errorf("payload = %v, want inbound/ttl_expired", d)
 	}
+	assertTTLReviewEventLifecycleMatchesRow(t, pool, m.ID, webhookpub.EventEmailReviewRejected, e, messagelifecycle.ReasonReviewExpiredRejected)
 }
 
 // TestWorkerEmitsOutboundReviewRejectedOnExpiry: a TTL auto-rejected OUTBOUND hold
@@ -146,6 +182,7 @@ func TestWorkerEmitsOutboundReviewRejectedOnExpiry(t *testing.T) {
 	if d["direction"] != "outbound" {
 		t.Errorf("direction = %v, want outbound", d["direction"])
 	}
+	assertTTLReviewEventLifecycleMatchesRow(t, pool, msg.ID, webhookpub.EventEmailReviewRejected, e, messagelifecycle.ReasonReviewExpiredRejected)
 }
 
 // TestWorkerEmitsOutboundReviewApprovedOnExpiry: a TTL auto-approved OUTBOUND hold
@@ -177,6 +214,7 @@ func TestWorkerEmitsOutboundReviewApprovedOnExpiry(t *testing.T) {
 	if d["auto_resolved"] != true {
 		t.Errorf("auto_resolved = %v, want true", d["auto_resolved"])
 	}
+	assertTTLReviewEventLifecycleMatchesRow(t, pool, msg.ID, webhookpub.EventEmailReviewApproved, e, messagelifecycle.ReasonReviewExpiredApproved)
 }
 
 func TestWorkerLoopbackReviewApprovedOmitsProviderID(t *testing.T) {

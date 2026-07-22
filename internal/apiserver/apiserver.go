@@ -24,6 +24,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/idempotency"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/limits"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/sendramp"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhook"
@@ -109,6 +110,10 @@ func BuildDeps(p Params) httpapi.Deps {
 	if p.Pool != nil {
 		rampSnapshot = sendramp.NewStore(p.Pool).Snapshot
 	}
+	var listMessageLifecycle httpapi.MessageLifecycleLister
+	if p.Pool != nil {
+		listMessageLifecycle = messagelifecycle.NewStore(p.Pool).ListForMessage
+	}
 	deps := httpapi.Deps{
 		Authenticator:          p.API.AuthenticateUser,
 		PrincipalAuthenticator: p.API.AuthenticatePrincipal,
@@ -120,6 +125,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		GetMessage:             p.Store.GetMessageWithContent,
 		AttachmentStore:        attachmentStore(p),
 		ListMessages:           p.Store.GetMessagesByAgent,
+		ListMessageLifecycle:   listMessageLifecycle,
 		ModifyMessageLabels:    p.Store.ModifyMessageLabels,
 
 		ListConversations: p.Store.ListConversationsByAgent,

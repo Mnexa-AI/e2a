@@ -10,6 +10,7 @@
  * Do not edit the class manually.
  */
 
+import { MessageLifecycleTransition } from '../models/MessageLifecycleTransition.js';
 import { HttpFile } from '../http/http.js';
 
 export class EmailFailedData {
@@ -22,6 +23,7 @@ export class EmailFailedData {
     */
     'direction': string;
     'from_': string;
+    'lifecycleTransitions'?: Array<MessageLifecycleTransition>;
     'messageId': string;
     /**
     * Send kind. Open set; tolerate unknown values. Known values: send, reply, forward.
@@ -76,6 +78,12 @@ export class EmailFailedData {
             "name": "from_",
             "baseName": "from",
             "type": "string",
+            "format": ""
+        },
+        {
+            "name": "lifecycleTransitions",
+            "baseName": "lifecycle_transitions",
+            "type": "Array<MessageLifecycleTransition>",
             "format": ""
         },
         {

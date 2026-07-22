@@ -19,6 +19,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
+from e2a.v1.generated.models.message_lifecycle_transition import MessageLifecycleTransition
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -32,6 +33,7 @@ class EmailFailedData(BaseModel):
     conversation_id: Optional[StrictStr] = None
     direction: StrictStr = Field(description="Always \"outbound\" on this event.")
     from_: StrictStr = Field(alias="from")
+    lifecycle_transitions: Optional[List[MessageLifecycleTransition]] = None
     message_id: StrictStr
     message_type: StrictStr = Field(description="Send kind. Open set; tolerate unknown values. Known values: send, reply, forward.")
     method: StrictStr = Field(description="Transport used for the send. Open set; tolerate unknown values. Known values: smtp.")
@@ -41,7 +43,7 @@ class EmailFailedData(BaseModel):
     subject: StrictStr
     to: List[StrictStr]
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["agent_email", "bcc", "cc", "conversation_id", "direction", "from", "message_id", "message_type", "method", "reason", "reason_code", "retryable", "subject", "to"]
+    __properties: ClassVar[List[str]] = ["agent_email", "bcc", "cc", "conversation_id", "direction", "from", "lifecycle_transitions", "message_id", "message_type", "method", "reason", "reason_code", "retryable", "subject", "to"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -84,6 +86,13 @@ class EmailFailedData(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in lifecycle_transitions (list)
+        _items = []
+        if self.lifecycle_transitions:
+            for _item_lifecycle_transitions in self.lifecycle_transitions:
+                if _item_lifecycle_transitions:
+                    _items.append(_item_lifecycle_transitions.to_dict())
+            _dict['lifecycle_transitions'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
@@ -107,6 +116,7 @@ class EmailFailedData(BaseModel):
             "conversation_id": obj.get("conversation_id"),
             "direction": obj.get("direction"),
             "from": obj.get("from"),
+            "lifecycle_transitions": [MessageLifecycleTransition.from_dict(_item) for _item in obj["lifecycle_transitions"]] if obj.get("lifecycle_transitions") is not None else None,
             "message_id": obj.get("message_id"),
             "message_type": obj.get("message_type"),
             "method": obj.get("method"),

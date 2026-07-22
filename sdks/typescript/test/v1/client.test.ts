@@ -254,6 +254,60 @@ describe("E2AClient", () => {
 
   // ── Messages: idempotency + pagination ──────────────────────────
 
+  it("messages.getLifecycle forwards cursor/limit and parses canonical transitions", async () => {
+    globalThis.fetch = mockFetch(200, {
+      items: [
+        {
+          id: "mlt_1",
+          message_id: "msg_1",
+          direction: "outbound",
+          recipient: null,
+          stage: "accepted",
+          outcome: "accepted",
+          reason_code: "acceptance.outbound_api",
+          retryable: false,
+          evidence: { source: "api", nested: { future: true } },
+          correlation_ids: { request_id: "req_1", future_id: "future_1" },
+          occurred_at: "2026-07-22T00:00:00Z",
+          reconstructed: false,
+        },
+        {
+          id: "mlt_recon_2",
+          message_id: "msg_1",
+          direction: "outbound",
+          stage: "delivery",
+          outcome: "delivered",
+          reason_code: "delivery.recipient_server_accepted",
+          retryable: false,
+          evidence: { source: "recipient_status" },
+          correlation_ids: {},
+          occurred_at: "2026-07-22T01:00:00Z",
+          reconstructed: true,
+        },
+      ],
+      next_cursor: "cur_2",
+    });
+
+    const page = await client.messages.getLifecycle("bot@test.dev", "msg_1", {
+      cursor: "cur_1",
+      limit: 2,
+    });
+
+    const { url, init } = lastCall();
+    const parsedUrl = new URL(url);
+    expect(init.method).toBe("GET");
+    expect(parsedUrl.pathname).toContain("/v1/agents/bot%40test.dev/messages/msg_1/lifecycle");
+    expect(parsedUrl.searchParams.get("cursor")).toBe("cur_1");
+    expect(parsedUrl.searchParams.get("limit")).toBe("2");
+    expect(page.nextCursor).toBe("cur_2");
+    expect(page.items[0].recipient).toBeNull();
+    expect(page.items[0].evidence.nested).toEqual({ future: true });
+    expect(page.items[0].correlationIds.future_id).toBe("future_1");
+    expect(page.items[1].recipient).toBeUndefined();
+    expect(page.items[1].reconstructed).toBe(true);
+    expect(page.items[1].stage).toBe("delivery");
+  });
+
   it("messages.send mints an Idempotency-Key for the POST", async () => {
     globalThis.fetch = mockFetch(200, { message_id: "msg_s1", status: "sent" });
     await client.messages.send("bot@test.dev", { to: ["a@x.com"], subject: "Hi", text: "Hello" } as never);

@@ -10,6 +10,7 @@ import json
 import httpx
 import pytest
 from pydantic import ValidationError
+import e2a.v1 as v1
 
 from e2a.v1._retry import RetryConfig
 from e2a.v1.client import AsyncE2AClient
@@ -36,6 +37,8 @@ from e2a.v1.generated.models import (
     ErrorBody,
     FieldError,
     MessageSummaryView,
+    MessageLifecycleTransition,
+    PageMessageLifecycleTransition,
     MessageView,
     ReviewView,
     StarterTemplateView,
@@ -80,6 +83,13 @@ def test_error_body_requires_request_id_and_accepts_future_details():
         details={"future_field": {"nested": True}},
     )
     assert body.details == {"future_field": {"nested": True}}
+
+
+def test_lifecycle_models_are_exported_from_v1():
+    assert v1.MessageLifecycleTransition is MessageLifecycleTransition
+    assert v1.PageMessageLifecycleTransition is PageMessageLifecycleTransition
+    assert "MessageLifecycleTransition" in v1.__all__
+    assert "PageMessageLifecycleTransition" in v1.__all__
 
 
 from datetime import datetime, timezone  # noqa: E402
@@ -624,6 +634,62 @@ async def test_messages_list_threads_cursor(httpx_mock):
     reqs = httpx_mock.get_requests()
     assert len(reqs) == 2
     assert "cursor=cur_2" in str(reqs[1].url)
+
+
+@pytest.mark.anyio
+async def test_messages_get_lifecycle_uses_read_path_and_parses_contract(httpx_mock):
+    httpx_mock.add_response(
+        json={
+            "items": [
+                {
+                    "id": "mlt_1",
+                    "message_id": "msg_1",
+                    "direction": "outbound",
+                    "recipient": None,
+                    "stage": "accepted",
+                    "outcome": "accepted",
+                    "reason_code": "acceptance.outbound_api",
+                    "retryable": False,
+                    "evidence": {"source": "api", "nested": {"future": True}},
+                    "correlation_ids": {"request_id": "req_1", "future_id": "future_1"},
+                    "occurred_at": "2026-07-22T00:00:00Z",
+                    "reconstructed": False,
+                },
+                {
+                    "id": "mlt_recon_2",
+                    "message_id": "msg_1",
+                    "direction": "outbound",
+                    "stage": "delivery",
+                    "outcome": "delivered",
+                    "reason_code": "delivery.recipient_server_accepted",
+                    "retryable": False,
+                    "evidence": {},
+                    "correlation_ids": {},
+                    "occurred_at": "2026-07-22T01:00:00Z",
+                    "reconstructed": True,
+                },
+            ],
+            "next_cursor": "cur_2",
+        }
+    )
+
+    async with _client() as c:
+        page = await c.messages.get_lifecycle(
+            "bot@test.dev", "msg_1", cursor="cur_1", limit=2
+        )
+
+    assert isinstance(page, PageMessageLifecycleTransition)
+    assert page.next_cursor == "cur_2"
+    assert page.items[0].recipient is None
+    assert page.items[0].evidence["nested"] == {"future": True}
+    assert page.items[0].correlation_ids["future_id"] == "future_1"
+    assert page.items[1].recipient is None
+    assert page.items[1].reconstructed is True
+    request = httpx_mock.get_requests()[-1]
+    assert request.method == "GET"
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/lifecycle" in str(request.url)
+    assert request.url.params["cursor"] == "cur_1"
+    assert request.url.params["limit"] == "2"
 
 
 @pytest.mark.anyio

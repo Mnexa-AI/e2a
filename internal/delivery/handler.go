@@ -71,6 +71,10 @@ func Handler(v *Verifier, c *Consumer) http.HandlerFunc {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
+			ev.ProviderEventID = m.MessageId
+			if occurredAt, err := time.Parse(time.RFC3339Nano, m.Timestamp); err == nil {
+				ev.OccurredAt = occurredAt.UTC()
+			}
 			if err := c.Process(r.Context(), ev); err != nil {
 				log.Printf("[delivery] process %s: %v", ev.Kind, err)
 				http.Error(w, "processing error", http.StatusInternalServerError) // SES retries

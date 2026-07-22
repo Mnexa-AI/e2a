@@ -24,6 +24,11 @@
 #   ws_read          — read and assert one WebSocket notification
 #   verify_and_retry — verify a domain in the store, then replay an HTTP request
 #
+# Optional cleanup blocks contain request steps. Every runner executes them in
+# declaration order after setup/steps, including after failures. Cleanup is
+# best-effort: every request runs, the primary failure wins, and otherwise a
+# cleanup failure fails the scenario.
+#
 # Placeholder tokens (resolved by runner at execution time):
 #   {base_url}      — test server URL
 #   {api_key}       — valid API key for the test user
@@ -747,6 +752,50 @@ scenarios:
           status: 202
           body_match:
             status: pending_review
+        capture:
+          managed_message_id: message_id
+
+      - id: get_managed_message_lifecycle
+        action: request
+        method: GET
+        path: /v1/agents/bot@suppression-contract.test.dev/messages/{managed_message_id}/lifecycle
+        expect:
+          status: 200
+          body_match:
+            "items.length": 2
+          # Both observations share the accept transaction's timestamp. The
+          # wire contract therefore orders them by stable transition ID, not
+          # by stage, so assert the canonical review row independent of index.
+          body_array_contains:
+            items:
+              message_id: "{managed_message_id}"
+              direction: outbound
+              stage: review
+              outcome: pending
+              reason_code: review.hold_created
+              retryable: false
+              reconstructed: false
+
+    cleanup:
+      - id: delete_agent_permanently
+        action: request
+        method: DELETE
+        path: /v1/agents/bot@suppression-contract.test.dev?confirm=DELETE&permanent=true
+        expect:
+          status: 200
+          body_match:
+            deleted: true
+            email: bot@suppression-contract.test.dev
+
+      - id: delete_domain
+        action: request
+        method: DELETE
+        path: /v1/domains/suppression-contract.test.dev?confirm=DELETE
+        expect:
+          status: 200
+          body_match:
+            deleted: true
+            domain: suppression-contract.test.dev
 
   - name: info_unauthenticated_shape
     description: >

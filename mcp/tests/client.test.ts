@@ -46,6 +46,7 @@ describe("McpClient trash/restore delegation", () => {
         },
         messages: {
           list: vi.fn(() => ({ page: messagesPage })),
+          getLifecycle: vi.fn(async () => ({ items: [], nextCursor: null })),
           restore: vi.fn(async (email: string, id: string) => ({ email, id })),
           delete: vi.fn(async (_email: string, id: string) => ({ deleted: true, id })),
         },
@@ -82,6 +83,19 @@ describe("McpClient trash/restore delegation", () => {
       { deleted: true, limit: 10 },
     );
     expect(messagesPage).toHaveBeenCalledWith("messages_cursor");
+  });
+
+  it("getMessageLifecycle forwards pagination and resolves explicit then bound agent", async () => {
+    const { sdk } = mockTrashSdk();
+    const c = new McpClient(sdk as never, "bound@test.dev", "agent");
+    await c.getMessageLifecycle("msg_1", { cursor: "cursor_1", limit: 20 }, "other@test.dev");
+    await c.getMessageLifecycle("msg_2");
+    expect(sdk.messages.getLifecycle).toHaveBeenNthCalledWith(
+      1, "other@test.dev", "msg_1", { cursor: "cursor_1", limit: 20 },
+    );
+    expect(sdk.messages.getLifecycle).toHaveBeenNthCalledWith(
+      2, "bound@test.dev", "msg_2", {},
+    );
   });
 
   it("restoreMessage forwards message id and resolved explicit address", async () => {

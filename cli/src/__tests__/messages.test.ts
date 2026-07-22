@@ -2,9 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockList = vi.fn();
 const mockGet = vi.fn();
+const mockGetLifecycle = vi.fn();
 
 vi.mock("../sdk.js", () => ({
-  createClient: vi.fn(() => ({ messages: { list: mockList, get: mockGet } })),
+  createClient: vi.fn(() => ({
+    messages: { list: mockList, get: mockGet, getLifecycle: mockGetLifecycle },
+  })),
   requireAgentEmail: vi.fn(() => "bot@agents.e2a.dev"),
 }));
 
@@ -188,5 +191,49 @@ describe("messages commands", () => {
       "process.exit",
     );
     expect(mockExit).toHaveBeenCalledWith(2);
+  });
+
+  it("lifecycle prints the canonical page and forwards agent, cursor, and limit", async () => {
+    const page = {
+      items: [{
+        id: "mlt_1",
+        messageId: "msg_1",
+        direction: "outbound",
+        stage: "submission",
+        outcome: "accepted",
+        reasonCode: "submission.upstream_accepted",
+        retryable: false,
+        evidence: { response: "250 queued" },
+        correlationIds: { provider_message_id: "provider_1" },
+        occurredAt: new Date("2026-07-21T12:00:00Z"),
+        reconstructed: false,
+      }],
+      nextCursor: "cursor_2",
+    };
+    mockGetLifecycle.mockResolvedValue(page);
+    const { messagesLifecycle } = await import("../commands/messages.js");
+
+    await messagesLifecycle("msg_1", {
+      agent: "other@example.com",
+      cursor: "cursor_1",
+      limit: "25",
+      json: true,
+    });
+
+    expect(mockGetLifecycle).toHaveBeenCalledWith("bot@agents.e2a.dev", "msg_1", {
+      cursor: "cursor_1",
+      limit: 25,
+    });
+    expect(mockStdout).toHaveBeenCalledWith(JSON.stringify(page) + "\n");
+  });
+
+  it("lifecycle exits USAGE (2) without an id or with a limit outside 1..100", async () => {
+    const { messagesLifecycle } = await import("../commands/messages.js");
+    for (const [id, limit] of [[undefined, undefined], ["msg_1", "0"], ["msg_1", "101"], ["msg_1", "1.5"]] as const) {
+      mockExit.mockClear();
+      await expect(messagesLifecycle(id, { limit })).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(2);
+    }
+    expect(mockGetLifecycle).not.toHaveBeenCalled();
   });
 });

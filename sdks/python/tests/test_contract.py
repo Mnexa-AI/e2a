@@ -26,6 +26,8 @@ import httpx
 import pytest
 import yaml
 
+from e2a.v1.generated.models import PageMessageLifecycleTransition
+
 # NOTE: the runner drives the server over raw HTTP (a thin scenario interpreter,
 # not the ergonomic client). scenario `path`s are repointed from /api/v1 to /v1
 # as part of the cross-language scenarios.yaml migration (tracked separately);
@@ -48,24 +50,29 @@ def load_scenarios() -> list[dict[str, Any]]:
     return data["scenarios"]
 
 
-def json_path_get(obj: Any, path: str) -> Any:
+_MISSING = object()
+
+
+def json_path_get(obj: Any, path: str, default: Any = None) -> Any:
     """Evaluate a simple JSON path like 'agents[0].email' or 'agents.length'."""
     parts = path.split(".")
     current = obj
     for part in parts:
         if part == "length":
-            return len(current) if isinstance(current, list) else None
+            return len(current) if isinstance(current, list) else default
         m = re.match(r"^(.+)\[(\d+)\]$", part)
         if m:
             name, idx = m.group(1), int(m.group(2))
             arr = current.get(name) if isinstance(current, dict) else None
             if not isinstance(arr, list) or idx >= len(arr):
-                return None
+                return default
             current = arr[idx]
         else:
             if not isinstance(current, dict):
-                return None
-            current = current.get(part)
+                return default
+            current = current.get(part, default)
+            if current is default:
+                return default
     return current
 
 
@@ -172,6 +179,22 @@ class Runner:
             else:
                 raise ValueError(f"step {step['id']}: unknown action {action}")
 
+    def cleanup(self):
+        errors: list[BaseException] = []
+        for step in self.scenario.get("cleanup") or []:
+            try:
+                if step.get("action") != "request":
+                    raise ValueError(
+                        f"cleanup step {step['id']}: only request actions are supported"
+                    )
+                self._exec_request(step)
+            except BaseException as exc:
+                errors.append(exc)
+        if errors:
+            raise AssertionError(
+                f"contract scenario cleanup failed ({len(errors)} error(s)): {errors[0]}"
+            ) from errors[0]
+
     def _exec_request(self, step: dict[str, Any]):
         path = self.resolve(step["path"])
         body = self.resolve_value(step["body"]) if "body" in step else None
@@ -204,7 +227,10 @@ class Runner:
         if "status" in ex:
             assert status == ex["status"], f"step {step['id']}: expected {ex['status']}, got {status}"
 
-        if not any(k in ex for k in ("body_contains", "body_excludes", "body_match")):
+        has_capture = bool(step.get("capture"))
+        if not any(
+            k in ex for k in ("body_contains", "body_excludes", "body_match", "body_array_contains")
+        ) and not has_capture:
             return
 
         if data is None:
@@ -227,14 +253,88 @@ class Runner:
                     f"step {step['id']}: body_match {resolved_path} = {actual!r}, want {resolved_expected!r}"
                 )
 
+        for json_path, expected_fields in ex.get("body_array_contains", {}).items():
+            resolved_path = self.resolve(json_path)
+            items = json_path_get(data, resolved_path, _MISSING)
+            assert isinstance(items, list), (
+                f"step {step['id']}: body_array_contains {resolved_path} is not an array"
+            )
+            resolved_fields = self.resolve_value(expected_fields)
+            assert any(
+                isinstance(item, dict)
+                and all(
+                    values_equal(json_path_get(item, field, _MISSING), expected)
+                    for field, expected in resolved_fields.items()
+                )
+                for item in items
+            ), f"step {step['id']}: body_array_contains {resolved_path} has no matching item"
+
+        for name, src_path in (step.get("capture") or {}).items():
+            resolved_path = self.resolve(src_path)
+            value = json_path_get(data, resolved_path, _MISSING)
+            assert value is not _MISSING, (
+                f"step {step['id']}: capture path {resolved_path} not found in response"
+            )
+            if value is None:
+                self.vars[name] = "null"
+            elif isinstance(value, bool):
+                self.vars[name] = str(value).lower()
+            else:
+                self.vars[name] = str(value)
+
 
 # ── Test entry point ──────────────────────────────────────────────
 
 
-pytestmark = pytest.mark.skipif(
+requires_contract_server = pytest.mark.skipif(
     not BASE_URL or not API_KEY,
     reason="E2A_TEST_BASE_URL and E2A_TEST_API_KEY required for contract tests",
 )
+
+
+def test_generated_message_lifecycle_page_parses_canonical_contract():
+    page = PageMessageLifecycleTransition.from_dict(
+        {
+            "items": [
+                {
+                    "id": "mlt_1",
+                    "message_id": "msg_1",
+                    "direction": "outbound",
+                    "recipient": None,
+                    "stage": "accepted",
+                    "outcome": "accepted",
+                    "reason_code": "acceptance.outbound_api",
+                    "retryable": False,
+                    "evidence": {"source": "api", "nested": {"future": True}},
+                    "correlation_ids": {"request_id": "req_1", "future_id": "future_1"},
+                    "occurred_at": "2026-07-22T00:00:00Z",
+                    "reconstructed": False,
+                },
+                {
+                    "id": "mlt_recon_2",
+                    "message_id": "msg_1",
+                    "direction": "outbound",
+                    "stage": "delivery",
+                    "outcome": "delivered",
+                    "reason_code": "delivery.recipient_server_accepted",
+                    "retryable": False,
+                    "evidence": {},
+                    "correlation_ids": {},
+                    "occurred_at": "2026-07-22T01:00:00Z",
+                    "reconstructed": True,
+                },
+            ],
+            "next_cursor": None,
+        }
+    )
+
+    assert page is not None
+    assert page.items[0].recipient is None
+    assert page.items[0].evidence["nested"] == {"future": True}
+    assert page.items[0].correlation_ids["future_id"] == "future_1"
+    assert page.items[1].recipient is None
+    assert page.items[1].reconstructed is True
+    assert page.items[1].reason_code == "delivery.recipient_server_accepted"
 
 
 def _scenario_ids():
@@ -250,20 +350,192 @@ def _scenario_by_name(name: str) -> dict[str, Any]:
     raise ValueError(f"scenario {name!r} not found")
 
 
+def run_runner(runner: Runner) -> None:
+    primary: BaseException | None = None
+    traceback = None
+    try:
+        skipped = runner.execute_setup()
+        if not skipped:
+            runner.execute_steps()
+    except BaseException as exc:
+        primary = exc
+        traceback = exc.__traceback__
+    try:
+        runner.cleanup()
+    except BaseException:
+        if primary is None:
+            raise
+    if primary is not None:
+        raise primary.with_traceback(traceback)
+
+
+def test_runner_captures_response_values_for_later_paths(monkeypatch):
+    scenario = {
+        "name": "capture",
+        "description": "capture parity",
+        "steps": [
+            {
+                "id": "create",
+                "action": "request",
+                "method": "POST",
+                "path": "/messages",
+                "expect": {"status": 202},
+                "capture": {"message_id": "message_id"},
+            },
+            {
+                "id": "read",
+                "action": "request",
+                "method": "GET",
+                "path": "/messages/{message_id}/lifecycle",
+                "expect": {"status": 200},
+            },
+        ],
+    }
+    paths: list[str] = []
+    responses = iter(
+        [
+            httpx.Response(202, json={"message_id": "msg_captured"}),
+            httpx.Response(200, json={"items": []}),
+        ]
+    )
+    runner = Runner("https://contract.test", "key", scenario)
+
+    def fake_raw(method: str, path: str, body: Any = None) -> httpx.Response:
+        del method, body
+        paths.append(path)
+        return next(responses)
+
+    monkeypatch.setattr(runner, "_raw", fake_raw)
+    try:
+        runner.execute_steps()
+    finally:
+        runner.close()
+
+    assert paths == ["/messages", "/messages/msg_captured/lifecycle"]
+
+
+def test_runner_cleanup_preserves_primary_failure_and_runs_every_request(monkeypatch):
+    scenario = {
+        "name": "failure_cleanup",
+        "description": "cleanup survives primary and cleanup failures",
+        "steps": [
+            {
+                "id": "fail",
+                "action": "request",
+                "method": "GET",
+                "path": "/fail",
+                "expect": {"status": 200},
+            }
+        ],
+        "cleanup": [
+            {
+                "id": "cleanup_agent",
+                "action": "request",
+                "method": "DELETE",
+                "path": "/cleanup-agent",
+                "expect": {"status": 200},
+            },
+            {
+                "id": "cleanup_domain",
+                "action": "request",
+                "method": "DELETE",
+                "path": "/cleanup-domain",
+                "expect": {"status": 200},
+            },
+        ],
+    }
+    paths: list[str] = []
+    responses = iter(
+        [
+            httpx.Response(500, text="primary"),
+            httpx.Response(500, text="cleanup"),
+            httpx.Response(200),
+        ]
+    )
+    runner = Runner("https://contract.test", "key", scenario)
+
+    def fake_raw(method: str, path: str, body: Any = None) -> httpx.Response:
+        del method, body
+        paths.append(path)
+        return next(responses)
+
+    monkeypatch.setattr(runner, "_raw", fake_raw)
+    try:
+        with pytest.raises(AssertionError, match="step fail"):
+            run_runner(runner)
+    finally:
+        runner.close()
+
+    assert paths == ["/fail", "/cleanup-agent", "/cleanup-domain"]
+
+
+def test_runner_surfaces_cleanup_failure_without_primary_failure(monkeypatch):
+    scenario = {
+        "name": "cleanup_failure",
+        "description": "cleanup failure is visible",
+        "steps": [],
+        "cleanup": [
+            {
+                "id": "cleanup",
+                "action": "request",
+                "method": "DELETE",
+                "path": "/cleanup",
+                "expect": {"status": 200},
+            }
+        ],
+    }
+    runner = Runner("https://contract.test", "key", scenario)
+    monkeypatch.setattr(
+        runner,
+        "_raw",
+        lambda method, path, body=None: httpx.Response(500, text="cleanup"),
+    )
+    try:
+        with pytest.raises(AssertionError, match="contract scenario cleanup failed"):
+            run_runner(runner)
+    finally:
+        runner.close()
+
+
+def test_managed_unsubscribe_scenario_is_self_cleaning_and_lifecycle_observable():
+    scenario = _scenario_by_name("agent_suppression_and_managed_unsubscribe")
+    steps = {step["id"]: step for step in scenario["steps"]}
+
+    assert steps["managed_unsubscribe_send_held"]["capture"] == {
+        "managed_message_id": "message_id"
+    }
+    lifecycle = steps["get_managed_message_lifecycle"]
+    assert "{managed_message_id}/lifecycle" in lifecycle["path"]
+    assert lifecycle["expect"]["body_array_contains"] == {
+        "items": {
+            "message_id": "{managed_message_id}",
+            "direction": "outbound",
+            "stage": "review",
+            "outcome": "pending",
+            "reason_code": "review.hold_created",
+            "retryable": False,
+            "reconstructed": False,
+        }
+    }
+    assert "delete_agent_permanently" not in {step["id"] for step in scenario["steps"]}
+    assert [step["id"] for step in scenario["cleanup"]] == [
+        "delete_agent_permanently",
+        "delete_domain",
+    ]
+
+
 @pytest.fixture(params=_scenario_ids() if SCENARIOS_PATH.exists() else [])
 def scenario(request):
     return _scenario_by_name(request.param)
 
 
+@requires_contract_server
 def test_contract_scenario(scenario):
     if scenario_needs_store(scenario):
         pytest.skip(f"scenario {scenario['name']}: requires store access (inject_message/verify_domain)")
 
     runner = Runner(BASE_URL, API_KEY, scenario)
     try:
-        skipped = runner.execute_setup()
-        if skipped:
-            pytest.skip(f"scenario {scenario['name']}: setup requires store access")
-        runner.execute_steps()
+        run_runner(runner)
     finally:
         runner.close()

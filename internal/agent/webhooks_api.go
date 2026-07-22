@@ -5,6 +5,7 @@ import (
 
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
 )
@@ -96,6 +97,7 @@ func (a *API) buildPendingApprovalEvent(
 		"conversation_id":     req.ConversationID,
 		"approval_expires_at": msg.ApprovalExpiresAt,
 	}
+	attachReviewLifecycle(data, msg.LifecycleTransitions)
 	return webhookpub.Event{
 		ID:             generateEventIDForAgent(),
 		Type:           webhookpub.EventEmailReviewRequested,
@@ -129,6 +131,7 @@ func (a *API) buildApprovedEvent(
 	if sent.ProviderMessageID != "" && sent.Method != "loopback" {
 		data["provider_message_id"] = sent.ProviderMessageID
 	}
+	attachReviewLifecycle(data, sent.LifecycleTransitions)
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
 		Type:      webhookpub.EventEmailReviewApproved,
@@ -156,6 +159,7 @@ func (a *API) buildRejectedEvent(
 		"message_type": rejected.Type,
 		"reason":       reason,
 	}
+	attachReviewLifecycle(data, rejected.LifecycleTransitions)
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
 		Type:      webhookpub.EventEmailReviewRejected,
@@ -179,7 +183,7 @@ func (a *API) buildRejectedEvent(
 // is NOT exposed in the payload (an internal DB user id) but is kept as a distinct
 // parameter from ownerUserID so a future multi-reviewer ACL can't misroute the
 // event to a non-owner reviewer.
-func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID string) webhookpub.Event {
+func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID string, transitions ...messagelifecycle.MessageLifecycleTransition) webhookpub.Event {
 	data := map[string]interface{}{
 		"message_id":   msg.ID,
 		"direction":    "inbound",
@@ -188,6 +192,7 @@ func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, ownerUs
 		"subject":      msg.Subject,
 		"message_type": msg.Type,
 	}
+	attachReviewLifecycle(data, transitions)
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
 		Type:      webhookpub.EventEmailReviewApproved,
@@ -203,7 +208,7 @@ func (a *API) buildInboundReleasedEvent(msg *identity.ReviewMessageMeta, ownerUs
 // (status pending_review → review_rejected; it stays hidden from the agent and
 // its raw payload is retained for forensics — design §4.4). Routing key is the
 // agent owner (see buildInboundReleasedEvent).
-func (a *API) buildInboundRejectedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID, reason string) webhookpub.Event {
+func (a *API) buildInboundRejectedEvent(msg *identity.ReviewMessageMeta, ownerUserID, reviewerUserID, reason string, transitions ...messagelifecycle.MessageLifecycleTransition) webhookpub.Event {
 	data := map[string]interface{}{
 		"message_id":   msg.ID,
 		"direction":    "inbound",
@@ -211,6 +216,7 @@ func (a *API) buildInboundRejectedEvent(msg *identity.ReviewMessageMeta, ownerUs
 		"message_type": msg.Type,
 		"reason":       reason,
 	}
+	attachReviewLifecycle(data, transitions)
 	return webhookpub.Event{
 		ID:        generateEventIDForAgent(),
 		Type:      webhookpub.EventEmailReviewRejected,
@@ -236,4 +242,10 @@ func orEmpty(ss []string) []string {
 		return []string{}
 	}
 	return ss
+}
+
+func attachReviewLifecycle(data map[string]interface{}, transitions []messagelifecycle.MessageLifecycleTransition) {
+	if len(transitions) > 0 {
+		data["lifecycle_transitions"] = transitions
+	}
 }

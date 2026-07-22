@@ -2,9 +2,14 @@ package delivery
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/tokencanopy/e2a/internal/eventpayload"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 )
 
 // CorrelatedMessage is CorrelateBySESMessageID's result: the outbound message
@@ -47,14 +52,22 @@ type Store interface {
 	// notification kind) and repairs a provider_message_id lost to the
 	// crash window. Idempotent. The worker/terminal-reconciler guards read
 	// this evidence before declaring a terminal failure.
-	RecordProviderAcceptEvidence(ctx context.Context, messageID, sesMessageID string) error
+	WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error
+	// HasApplicableRecipientTx locks and checks the persisted immutable
+	// envelope. Recipient-bearing feedback must pass this preflight before it
+	// can establish provider acceptance or trigger canonical sent finalization.
+	HasApplicableRecipientTx(ctx context.Context, tx pgx.Tx, messageID string, addresses []string) (bool, error)
+	RecordProviderAcceptEvidenceTx(ctx context.Context, tx pgx.Tx, messageID, sesMessageID string, occurredAt time.Time) error
+	ProviderAcceptancePendingTx(ctx context.Context, tx pgx.Tx, messageID string) (bool, error)
+	RecordProviderRejectTx(ctx context.Context, tx pgx.Tx, messageID, detail string, occurredAt time.Time) error
 	// RecordDeliveryOutcome upserts the per-recipient status monotonically and
 	// recomputes the message rollup (worst status by precedence). Idempotent:
 	// a duplicate/older event is a no-op.
-	RecordDeliveryOutcome(ctx context.Context, messageID, address string, status Status, detail string) error
+	RecordDeliveryOutcomeTx(ctx context.Context, tx pgx.Tx, messageID, address string, status Status, detail string) (applied bool, err error)
 	// AddSuppression idempotently inserts a (user, address) suppression.
 	// added=false when it already existed (so the event fires at most once).
-	AddSuppression(ctx context.Context, userID, address, reason, source, sourceMessageID string) (added bool, err error)
+	AddSuppressionTx(ctx context.Context, tx pgx.Tx, userID, address, reason, source, sourceMessageID string) (suppressionID string, added bool, err error)
+	AppendLifecycleTx(ctx context.Context, tx pgx.Tx, input messagelifecycle.AppendInput) (messagelifecycle.MessageLifecycleTransition, error)
 }
 
 // FiredEvent is the set of fields delivery hands its Firer for one webhook
@@ -80,12 +93,17 @@ type FiredEvent struct {
 	Type           string
 	Data           any
 	DedupKey       string
+	OccurredAt     time.Time
 }
 
 // Firer publishes one delivery/suppression webhook event to the owning user's
 // subscribers. Injected as a closure so this package does not depend on
 // webhookpub.
-type Firer func(ctx context.Context, e FiredEvent)
+type Firer func(ctx context.Context, tx pgx.Tx, e FiredEvent) error
+
+// ProviderAcceptanceFinalizer completes the canonical sent side effects in
+// the consumer's transaction when feedback closes the SMTP-accept crash gap.
+type ProviderAcceptanceFinalizer func(ctx context.Context, tx pgx.Tx, messageID string) error
 
 // Event push types for delivery outcomes (decision 9 vocabulary).
 const (
@@ -126,13 +144,18 @@ func pushEventFor(s Status) string {
 // delivery events, and auto-suppression. It is idempotent end-to-end (safe to
 // process the same SNS notification twice — at-least-once delivery).
 type Consumer struct {
-	store Store
-	fire  Firer
+	store              Store
+	fire               Firer
+	finalizeAcceptance ProviderAcceptanceFinalizer
 }
 
 // NewConsumer builds the consumer. fire may be nil (no events).
-func NewConsumer(store Store, fire Firer) *Consumer {
-	return &Consumer{store: store, fire: fire}
+func NewConsumer(store Store, fire Firer, finalizers ...ProviderAcceptanceFinalizer) *Consumer {
+	consumer := &Consumer{store: store, fire: fire}
+	if len(finalizers) > 0 {
+		consumer.finalizeAcceptance = finalizers[0]
+	}
+	return consumer
 }
 
 // Process applies one normalized SES event. Unknown/uncorrelated messages are
@@ -142,6 +165,12 @@ func NewConsumer(store Store, fire Firer) *Consumer {
 func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 	if ev == nil {
 		return nil
+	}
+	if strings.TrimSpace(ev.ProviderEventID) == "" {
+		return fmt.Errorf("provider event id is required")
+	}
+	if ev.OccurredAt.IsZero() {
+		return fmt.Errorf("provider event timestamp is required")
 	}
 	m, found, err := c.store.CorrelateBySESMessageID(ctx, ev.SESMessageID)
 	if err != nil {
@@ -167,77 +196,179 @@ func (c *Consumer) Process(ctx context.Context, ev *Event) error {
 		return nil
 	}
 
-	// Record provider-accept evidence BEFORE the per-recipient outcomes: any
-	// post-acceptance notification kind proves SES accepted the submission,
-	// and the terminal-failure guards (send worker final attempt, terminal
-	// reconciler) read this evidence before declaring `failed`. An SES Reject
-	// explicitly means the submission was NOT accepted — never evidence.
-	if ev.Kind.impliesProviderAcceptance() {
-		if err := c.store.RecordProviderAcceptEvidence(ctx, m.MessageID, ev.SESMessageID); err != nil {
-			return err
+	return c.store.WithTx(ctx, func(tx pgx.Tx) error {
+		// Evidence, recipient rollup, canonical lifecycle, causal suppression,
+		// and event outbox rows share this transaction. A notification retry can
+		// therefore never expose a state/event contradiction.
+		if ev.Kind.requiresApplicableRecipient() {
+			addresses := make([]string, 0, len(ev.Recipients))
+			for _, recipient := range ev.Recipients {
+				if address := norm(recipient.Address); address != "" {
+					addresses = append(addresses, address)
+				}
+			}
+			applicable, err := c.store.HasApplicableRecipientTx(ctx, tx, m.MessageID, addresses)
+			if err != nil {
+				return err
+			}
+			if !applicable {
+				return nil
+			}
 		}
-	}
+		if ev.Kind.impliesProviderAcceptance() {
+			if err := c.store.RecordProviderAcceptEvidenceTx(ctx, tx, m.MessageID, ev.SESMessageID, ev.OccurredAt); err != nil {
+				return err
+			}
+			pending, err := c.store.ProviderAcceptancePendingTx(ctx, tx, m.MessageID)
+			if err != nil {
+				return err
+			}
+			if pending {
+				if c.finalizeAcceptance == nil {
+					return fmt.Errorf("provider acceptance finalizer is required")
+				}
+				if err := c.finalizeAcceptance(ctx, tx, m.MessageID); err != nil {
+					return err
+				}
+			}
+		}
 
-	recorded := 0
-	for _, r := range ev.Recipients {
-		if r.Address == "" || !r.Status.Valid() {
-			continue
-		}
-		if err := c.store.RecordDeliveryOutcome(ctx, m.MessageID, r.Address, r.Status, r.Detail); err != nil {
-			return err
-		}
-		recorded++
-		if evType := pushEventFor(r.Status); evType != "" && c.fire != nil {
-			// m.AgentID is the agent's own address (agent identity id == email), so
-			// it doubles as agent_email. smtp_detail is the SES diagnostic string
-			// (named to disambiguate from email.failed's `reason`). The event TYPE
-			// is the outcome — there is no redundant `status` field (contract
-			// freeze PR-2). MessageID/ConversationID on the envelope keep the
-			// persisted event findable via GET /v1/events?message_id=/?conversation_id=.
-			c.fire(ctx, FiredEvent{
-				UserID:         m.UserID,
-				AgentID:        m.AgentID,
-				ConversationID: m.ConversationID,
-				MessageID:      m.MessageID,
-				Type:           evType,
-				Data:           deliveryEventData(evType, m, ev, r),
-				DedupKey:       evType + "|" + m.MessageID + "|" + r.Address,
-			})
-		}
-		if r.Suppress {
-			c.suppress(ctx, m.UserID, m.MessageID, r)
-		}
-	}
+		recorded := 0
+		for _, r := range ev.Recipients {
+			r.Address = norm(r.Address)
+			if r.Address == "" || !r.Status.Valid() {
+				continue
+			}
+			applied, err := c.store.RecordDeliveryOutcomeTx(ctx, tx, m.MessageID, r.Address, r.Status, r.Detail)
+			if err != nil {
+				return err
+			}
+			if !applied {
+				continue
+			}
+			recorded++
+			reason := feedbackReason(ev, r)
+			var feedbackTransitions []messagelifecycle.MessageLifecycleTransition
+			var suppressionEvent *FiredEvent
+			if reason != "" {
+				transition, err := c.store.AppendLifecycleTx(ctx, tx, messagelifecycle.AppendInput{MessageID: m.MessageID, DedupeKey: feedbackDedupeKey(ev, r.Address, reason), Direction: "outbound", Recipient: r.Address, ReasonCode: reason, Evidence: feedbackEvidence(ev, r), CorrelationIDs: feedbackCorrelations(ev), OccurredAt: ev.OccurredAt})
+				if err != nil {
+					return err
+				}
+				feedbackTransitions = append(feedbackTransitions, transition)
+			}
 
-	// An SES Reject is the provider refusing the whole already-accepted
-	// message (e.g. content scan), so it emits ONE message-level email.failed
-	// — the same canonical stable event/shape the async send worker publishes
-	// on terminal send failure — never a per-recipient event: the payload's
-	// to/cc/bcc lists carry the recipients, and two events for one message
-	// would be conflicting duplicates of a message-level fact. The dedup key
-	// hashes to the IDENTICAL deterministic event id as the worker path
-	// (DeterministicEventID(messageID, "email.failed")), so duplicate SNS
-	// deliveries AND any cross-path double emission collapse in the durable
-	// outbox via ON CONFLICT (id) DO NOTHING.
-	if ev.Kind == KindReject && recorded > 0 && c.fire != nil {
-		c.fire(ctx, FiredEvent{
-			UserID:         m.UserID,
-			AgentID:        m.AgentID,
-			ConversationID: m.ConversationID,
-			MessageID:      m.MessageID,
-			Type:           EventEmailFailed,
-			Data:           failedEventData(m, rejectReason(ev)),
-			DedupKey:       m.MessageID + "|" + EventEmailFailed,
-		})
+			if r.Suppress {
+				source := suppressionSourceBounce
+				suppressionReason := messagelifecycle.ReasonSuppressionHardBounceApplied
+				if r.Status == StatusComplained {
+					source = suppressionSourceCompl
+					suppressionReason = messagelifecycle.ReasonSuppressionComplaintApplied
+				}
+				suppressionID, added, err := c.store.AddSuppressionTx(ctx, tx, m.UserID, r.Address, r.Detail, source, m.MessageID)
+				if err != nil {
+					return err
+				}
+				if added {
+					suppressionTransition, err := c.store.AppendLifecycleTx(ctx, tx, messagelifecycle.AppendInput{MessageID: m.MessageID, DedupeKey: fmt.Sprintf("suppression:feedback:%s:%s:%s", suppressionID, m.MessageID, r.Address), Direction: "outbound", Recipient: r.Address, ReasonCode: suppressionReason, Evidence: map[string]any{"suppression_scope": "account", "suppression_source": source}, CorrelationIDs: feedbackCorrelations(ev), OccurredAt: ev.OccurredAt})
+					if err != nil {
+						return err
+					}
+					if c.fire != nil {
+						event := FiredEvent{UserID: m.UserID, Type: EventSuppressionAdded, Data: eventpayload.DomainSuppressionAddedData{Address: r.Address, Source: source, Reason: r.Detail, MessageID: m.MessageID, LifecycleTransitions: []messagelifecycle.MessageLifecycleTransition{suppressionTransition}}, DedupKey: EventSuppressionAdded + "|" + m.UserID + "|" + r.Address, OccurredAt: ev.OccurredAt}
+						suppressionEvent = &event
+					}
+				}
+			}
+
+			if evType := pushEventFor(r.Status); evType != "" && c.fire != nil {
+				if err := c.fire(ctx, tx, FiredEvent{UserID: m.UserID, AgentID: m.AgentID, ConversationID: m.ConversationID, MessageID: m.MessageID, Type: evType, Data: deliveryEventData(evType, m, ev, r, feedbackTransitions), DedupKey: feedbackDedupeKey(ev, r.Address, reason), OccurredAt: ev.OccurredAt}); err != nil {
+					return err
+				}
+			}
+			if suppressionEvent != nil {
+				if err := c.fire(ctx, tx, *suppressionEvent); err != nil {
+					return err
+				}
+			}
+		}
+
+		if ev.Kind == KindReject && recorded > 0 {
+			if err := c.store.RecordProviderRejectTx(ctx, tx, m.MessageID, rejectReason(ev), ev.OccurredAt); err != nil {
+				return err
+			}
+			transition, err := c.store.AppendLifecycleTx(ctx, tx, messagelifecycle.AppendInput{MessageID: m.MessageID, DedupeKey: feedbackDedupeKey(ev, "", messagelifecycle.ReasonSubmissionProviderRejected), Direction: "outbound", ReasonCode: messagelifecycle.ReasonSubmissionProviderRejected, Evidence: map[string]any{"failure_reason": messagelifecycle.SafeDiagnostic(rejectReason(ev)), "failure_code": string(messagelifecycle.ReasonSubmissionProviderRejected)}, CorrelationIDs: feedbackCorrelations(ev), OccurredAt: ev.OccurredAt})
+			if err != nil {
+				return err
+			}
+			if c.fire != nil {
+				if err := c.fire(ctx, tx, FiredEvent{UserID: m.UserID, AgentID: m.AgentID, ConversationID: m.ConversationID, MessageID: m.MessageID, Type: EventEmailFailed, Data: failedEventData(m, rejectReason(ev), transition), DedupKey: m.MessageID + "|" + EventEmailFailed, OccurredAt: ev.OccurredAt}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func (k EventKind) requiresApplicableRecipient() bool {
+	switch k {
+	case KindDelivery, KindDeliveryDelay, KindBounce, KindComplaint, KindReject:
+		return true
 	}
-	return nil
+	return false
+}
+
+func feedbackReason(ev *Event, r RecipientOutcome) messagelifecycle.ReasonCode {
+	switch r.Status {
+	case StatusDelivered:
+		return messagelifecycle.ReasonDeliveryRecipientServerAccepted
+	case StatusDeferred:
+		return messagelifecycle.ReasonDeliveryTemporaryDelay
+	case StatusBounced:
+		return messagelifecycle.BounceReason(ev.BounceType)
+	case StatusComplained:
+		return messagelifecycle.ReasonComplaintRecipientReported
+	default:
+		return ""
+	}
+}
+
+func feedbackDedupeKey(ev *Event, recipient string, reason messagelifecycle.ReasonCode) string {
+	return "provider-feedback:" + ev.ProviderEventID + ":" + recipient + ":" + string(reason)
+}
+
+func feedbackCorrelations(ev *Event) map[string]string {
+	return messagelifecycle.SafeCorrelationIDs(map[string]string{
+		"provider_message_id": ev.SESMessageID,
+		"provider_event_id":   ev.ProviderEventID,
+		"email_message_id":    ev.E2AMessageID,
+	})
+}
+
+func feedbackEvidence(ev *Event, r RecipientOutcome) map[string]any {
+	evidence := map[string]any{}
+	if detail := messagelifecycle.SafeDiagnostic(r.Detail); detail != "" {
+		evidence["smtp_detail"] = detail
+	}
+	if r.Status == StatusBounced {
+		bounceType := ev.BounceType
+		if bounceType == "" {
+			bounceType = "undetermined"
+		}
+		evidence["bounce_type"] = bounceType
+		if subType := messagelifecycle.SafeDiagnostic(ev.BounceSubType); subType != "" {
+			evidence["bounce_sub_type"] = subType
+		}
+	}
+	return evidence
 }
 
 // deliveryEventData builds the canonical typed payload for one per-recipient
 // delivery outcome. bounce_type/bounce_sub_type come from the SES bounce
 // notification's classification, parsed in ParseSESNotification; a bounced
 // outcome that somehow lacks one is "undetermined" (the field is required).
-func deliveryEventData(evType string, m *CorrelatedMessage, ev *Event, r RecipientOutcome) any {
+func deliveryEventData(evType string, m *CorrelatedMessage, ev *Event, r RecipientOutcome, transitions []messagelifecycle.MessageLifecycleTransition) any {
 	switch evType {
 	case EventEmailBounced:
 		bounceType := ev.BounceType
@@ -245,32 +376,35 @@ func deliveryEventData(evType string, m *CorrelatedMessage, ev *Event, r Recipie
 			bounceType = "undetermined"
 		}
 		return eventpayload.EmailBouncedData{
-			MessageID:     m.MessageID,
-			AgentEmail:    m.AgentID,
-			Direction:     "outbound",
-			DeliveredTo:   r.Address,
-			Subject:       m.Subject,
-			SMTPDetail:    r.Detail,
-			BounceType:    bounceType,
-			BounceSubType: ev.BounceSubType,
+			MessageID:            m.MessageID,
+			AgentEmail:           m.AgentID,
+			Direction:            "outbound",
+			DeliveredTo:          r.Address,
+			Subject:              m.Subject,
+			SMTPDetail:           r.Detail,
+			BounceType:           bounceType,
+			BounceSubType:        ev.BounceSubType,
+			LifecycleTransitions: transitions,
 		}
 	case EventEmailComplained:
 		return eventpayload.EmailComplainedData{
-			MessageID:   m.MessageID,
-			AgentEmail:  m.AgentID,
-			Direction:   "outbound",
-			DeliveredTo: r.Address,
-			Subject:     m.Subject,
-			SMTPDetail:  r.Detail,
+			MessageID:            m.MessageID,
+			AgentEmail:           m.AgentID,
+			Direction:            "outbound",
+			DeliveredTo:          r.Address,
+			Subject:              m.Subject,
+			SMTPDetail:           r.Detail,
+			LifecycleTransitions: transitions,
 		}
 	default: // EventEmailDelivered
 		return eventpayload.EmailDeliveredData{
-			MessageID:   m.MessageID,
-			AgentEmail:  m.AgentID,
-			Direction:   "outbound",
-			DeliveredTo: r.Address,
-			Subject:     m.Subject,
-			SMTPDetail:  r.Detail,
+			MessageID:            m.MessageID,
+			AgentEmail:           m.AgentID,
+			Direction:            "outbound",
+			DeliveredTo:          r.Address,
+			Subject:              m.Subject,
+			SMTPDetail:           r.Detail,
+			LifecycleTransitions: transitions,
 		}
 	}
 }
@@ -278,23 +412,27 @@ func deliveryEventData(evType string, m *CorrelatedMessage, ev *Event, r Recipie
 // failedEventData builds the canonical eventpayload.EmailFailedData for an SES
 // Reject — byte-identical in shape to the async send worker's emission
 // (golden-fixture-locked): every field the correlated message carries is
-// populated; ReasonCode and Retryable stay unset because the SES Reject
-// notification carries only the human-readable reject.reason, matching the
-// worker path's convention (absent ≠ false).
-func failedEventData(m *CorrelatedMessage, reason string) eventpayload.EmailFailedData {
+// populated; ReasonCode and Retryable carry the canonical provider-rejection
+// classification so every consumer receives the same terminal diagnosis.
+
+func failedEventData(m *CorrelatedMessage, reason string, transitions ...messagelifecycle.MessageLifecycleTransition) eventpayload.EmailFailedData {
+	retryable := false
 	return eventpayload.EmailFailedData{
-		MessageID:      m.MessageID,
-		AgentEmail:     m.AgentID,
-		Direction:      "outbound",
-		ConversationID: m.ConversationID,
-		Method:         m.Method,
-		From:           m.From,
-		To:             nonNil(m.To),
-		CC:             m.CC,
-		BCC:            m.BCC,
-		Subject:        m.Subject,
-		MessageType:    m.MessageType,
-		Reason:         reason,
+		MessageID:            m.MessageID,
+		AgentEmail:           m.AgentID,
+		Direction:            "outbound",
+		ConversationID:       m.ConversationID,
+		Method:               m.Method,
+		From:                 m.From,
+		To:                   nonNil(m.To),
+		CC:                   m.CC,
+		BCC:                  m.BCC,
+		Subject:              m.Subject,
+		MessageType:          m.MessageType,
+		Reason:               reason,
+		ReasonCode:           string(messagelifecycle.ReasonSubmissionProviderRejected),
+		Retryable:            &retryable,
+		LifecycleTransitions: transitions,
 	}
 }
 
@@ -317,35 +455,4 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
-}
-
-func (c *Consumer) suppress(ctx context.Context, userID, messageID string, r RecipientOutcome) {
-	source := suppressionSourceBounce
-	if r.Status == StatusComplained {
-		source = suppressionSourceCompl
-	}
-	added, err := c.store.AddSuppression(ctx, userID, r.Address, r.Detail, source, messageID)
-	if err != nil {
-		log.Printf("[delivery] suppress %s for user=%s: %v", r.Address, userID, err)
-		return
-	}
-	if added && c.fire != nil {
-		// Auto-suppression emits an event so the tenant is alerted, not silently
-		// cut off (decision 9). It is ACCOUNT-scoped, not tied to one message
-		// thread: no AgentID/ConversationID/MessageID envelope routing keys (the
-		// triggering message rides in the payload's source_message_id instead), so
-		// it is not filtered out of a message/thread-scoped GET /v1/events query it
-		// was never about.
-		c.fire(ctx, FiredEvent{
-			UserID: userID,
-			Type:   EventSuppressionAdded,
-			Data: eventpayload.DomainSuppressionAddedData{
-				Address:   r.Address,
-				Source:    source,
-				Reason:    r.Detail,
-				MessageID: messageID,
-			},
-			DedupKey: EventSuppressionAdded + "|" + userID + "|" + r.Address,
-		})
-	}
 }
