@@ -153,9 +153,9 @@ across different agent inboxes, and session storage does not receive the
 sender's literal address. Unparseable senders receive a message-scoped private
 identifier instead.
 
-For shorter integrations across OpenAI Agents SDK, Anthropic, LangChain, and
-ADK in both Python and TypeScript, see the
-[agent framework webhook matrix](../agent-framework-webhooks/README.md).
+For shorter runnable OpenAI webhook references in Python and TypeScript, plus
+compact Anthropic, LangChain, and ADK substitution snippets, see the
+[minimal agent webhook examples](../agent-framework-webhooks/README.md).
 
 ## What this example deliberately doesn't show
 
