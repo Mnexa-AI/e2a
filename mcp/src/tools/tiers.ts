@@ -26,6 +26,7 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "list_messages",
   "get_message",
   "get_attachment",
+  "get_attachment_data",
   // Soft delete + restore are both per-agent inbox hygiene: the REST handler
   // pins an agent-scoped credential to its own bound agent (resolveOwnedAgent).
   // The PERMANENT purge is account-only server-side, and the MCP tool doesn't
@@ -37,6 +38,7 @@ export const RUNTIME_TOOLS: ReadonlySet<string> = new Set([
   "list_conversations",
   "get_conversation",
   "send_message",
+  "send_email",
   "reply_to_message",
   "forward_message",
   // Review discovery and decisions are deliberately NOT here. They expose the
@@ -63,12 +65,18 @@ export const ADMIN_TOOLS: ReadonlySet<string> = new Set([
   // self-approval of its own outbound mail.
   "list_reviews",
   "get_review",
+  "list_pending_messages",
+  "get_pending_message",
   // Review approval is an account-owner / human review action — NOT something the
   // gated agent may do to its own held outbound (that would be self-approval,
   // defeating the review gate). The backend enforces this too: the approve/reject
   // handlers (internal/httpapi/reviews.go) require account scope (403 for agent-scoped).
   "approve_review",
   "reject_review",
+  "approve_pending_message",
+  "reject_pending_message",
+  "approve_message",
+  "reject_message",
   "list_domains",
   "get_domain",
   "register_domain",

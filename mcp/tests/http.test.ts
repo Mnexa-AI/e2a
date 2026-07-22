@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import http from "node:http";
+import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpClient } from "../src/client.js";
 import { startHttpServer } from "../src/http-server.js";
 import { ResolveCache } from "../src/resolve.js";
+
+const frozenToolNames = JSON.parse(
+  readFileSync(new URL("../tool-names.v1.json", import.meta.url), "utf8"),
+) as string[];
 
 // GET a URL with an explicit Host header. undici's fetch forbids overriding
 // Host, so host-sensitive discovery tests drop to the raw http client.
@@ -381,67 +386,13 @@ describe("HTTP MCP server", () => {
   it("lists every registered tool after initialize", async () => {
     const { client, transport } = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(
-      [
-        "send_message",
-        "reply_to_message",
-        "forward_message",
-        "update_message_labels",
-        "list_conversations",
-        "get_conversation",
-        "list_messages",
-        "get_message",
-        "get_attachment",
-        "restore_message",
-        "delete_message",
-        "list_agents",
-        "get_agent",
-        "whoami",
-        "create_agent",
-        "update_agent",
-        "delete_agent",
-        "restore_agent",
-        "get_protection",
-        "update_protection",
-        "list_domains",
-        "register_domain",
-        "verify_domain",
-        "get_domain",
-        "delete_domain",
-        "list_reviews",
-        "get_review",
-        "approve_review",
-        "reject_review",
-        "list_webhooks",
-        "get_webhook",
-        "create_webhook",
-        "update_webhook",
-        "delete_webhook",
-        "rotate_webhook_secret",
-        "test_webhook",
-        "list_webhook_deliveries",
-        "list_events",
-        "get_event",
-        "redeliver_event",
-        "list_templates",
-        "get_template",
-        "create_template",
-        "update_template",
-        "delete_template",
-        "validate_template",
-        "list_starter_templates",
-        "get_starter_template",
-        "list_api_keys",
-        "create_api_key",
-        "delete_api_key",
-      ].sort(),
-    );
+    expect(tools.map((t) => t.name).sort()).toEqual(frozenToolNames);
     await transport.close();
   });
 
   it("over the wire, an agent-scoped session lists only the runtime tier", async () => {
     // End-to-end scope-gating across the real Streamable-HTTP transport: a
-    // session whose whoami reports agent scope sees the 16 runtime tools and
+    // session whose whoami reports agent scope sees the 15 runtime tools and
     // none of the admin tools — proven over JSON-RPC, not just in-process.
     await close();
     const agentStub = makeStubClient();
@@ -462,8 +413,10 @@ describe("HTTP MCP server", () => {
 
     const { client, transport } = await connect();
     const names = new Set((await client.listTools()).tools.map((t) => t.name));
-    expect(names.size).toBe(13);
+    expect(names.size).toBe(15);
     expect(names.has("send_message")).toBe(true); // runtime present
+    expect(names.has("send_email")).toBe(true); // deprecated runtime alias
+    expect(names.has("get_attachment_data")).toBe(true); // deprecated runtime alias
     expect(names.has("restore_message")).toBe(true); // per-agent trash lifecycle
     expect(names.has("delete_message")).toBe(true); // soft delete is per-agent too
     expect(names.has("create_agent")).toBe(false); // admin hidden
