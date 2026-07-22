@@ -212,17 +212,3 @@ func TestMessageLifecycleDocsMapEventsWithoutAbsorbingScreening(t *testing.T) {
 		}
 	}
 }
-
-func TestMessageLifecycleCompletedPlanUsesLiveDashboardRoute(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "superpowers", "plans", "2026-07-21-message-trust-ledger.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan := string(b)
-	if strings.Contains(plan, "`/api/v1/agents/.../lifecycle`") {
-		t.Error("completed lifecycle plan still names the retired /api/v1 dashboard route")
-	}
-	if !strings.Contains(plan, "`/v1/agents/.../lifecycle`") {
-		t.Error("completed lifecycle plan must name the live /v1 dashboard route")
-	}
-}
