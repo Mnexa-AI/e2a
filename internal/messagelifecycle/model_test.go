@@ -217,18 +217,18 @@ func TestNewTransitionRejectsInvalidRequiredFields(t *testing.T) {
 }
 
 func TestNewTransitionEnforcesRecipientRules(t *testing.T) {
-	required := []ReasonCode{
-		ReasonSuppressionRecipientBlocked,
-		ReasonSuppressionHardBounceApplied,
-		ReasonSuppressionComplaintApplied,
-		ReasonDeliveryRecipientServerAccepted,
-		ReasonDeliveryTemporaryDelay,
-		ReasonDeliveryPermanentBounce,
-		ReasonDeliveryTransientBounce,
-		ReasonDeliveryUndeterminedBounce,
-		ReasonComplaintRecipientReported,
+	required := map[ReasonCode]struct{}{
+		ReasonSuppressionRecipientBlocked:     {},
+		ReasonSuppressionHardBounceApplied:    {},
+		ReasonSuppressionComplaintApplied:     {},
+		ReasonDeliveryRecipientServerAccepted: {},
+		ReasonDeliveryTemporaryDelay:          {},
+		ReasonDeliveryPermanentBounce:         {},
+		ReasonDeliveryTransientBounce:         {},
+		ReasonDeliveryUndeterminedBounce:      {},
+		ReasonComplaintRecipientReported:      {},
 	}
-	for _, reason := range required {
+	for reason := range required {
 		t.Run(string(reason)+" requires recipient", func(t *testing.T) {
 			in := validAppendInput()
 			in.ReasonCode = reason
@@ -242,7 +242,10 @@ func TestNewTransitionEnforcesRecipientRules(t *testing.T) {
 		})
 	}
 
-	for _, reason := range []ReasonCode{ReasonAcceptanceInboundSMTP, ReasonReviewHoldCreated, ReasonQueueOutboundSubmission, ReasonSubmissionUpstreamAccepted} {
+	for reason := range Catalog() {
+		if _, recipientRequired := required[reason]; recipientRequired {
+			continue
+		}
 		t.Run(string(reason)+" forbids recipient", func(t *testing.T) {
 			in := validAppendInput()
 			in.ReasonCode = reason
