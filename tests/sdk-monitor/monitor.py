@@ -28,7 +28,9 @@ message subject, which now also carries which interface sent it:
                     "probe <nonce>"; nonce embeds the interface, the send
                     time, and randomness
     POST /webhook   email.received on B -> reply (via the SAME interface the
-                    nonce names); email.received on A -> success
+                    nonce names), then trash the probe; email.received on A
+                    -> success, then trash the reply (cleanup is best-effort
+                    and decoupled from the success signal — see _cleanup)
     GET  /health    liveness
 
 Success is a structured log line (``monitor_ok``) carrying `iface` and the
@@ -173,11 +175,19 @@ def _check_send_status(iface: str, status: object) -> None:
 # --------------------------------------------------------------------------
 # Interface strategies.
 #
-# Each interface implements the same two operations, uniform across all five
-# so the webhook hub can dispatch on the iface name alone:
+# Each interface implements the same three operations, uniform across all
+# five so the webhook hub can dispatch on the iface name alone:
 #
 #   send(agent_a, agent_b, subject, body) -> None    # outbound leg
 #   reply(inbox, message_id, text, idempotency_key) -> None   # inbound leg
+#   delete(inbox, message_id) -> None                # cleanup (trash the
+#                                                    # probe/reply message)
+#
+# supports_delete() reports whether the interface's published client HAS a
+# delete verb at all — the published @e2a/cli has no delete command, so the
+# cli interface reports False and its cleanup is a documented skip, never a
+# silent substitution through another surface (which would mask the missing
+# capability).
 #
 # None of the five ever sets a subject on reply: every wire shape (REST
 # ReplyRequest, the SDKs' reply(), the CLI's `reply`, the MCP
@@ -195,6 +205,10 @@ class Interface(Protocol):
         self, *, inbox: str, message_id: str, text: str, idempotency_key: str
     ) -> None: ...
 
+    def supports_delete(self) -> bool: ...
+
+    def delete(self, *, inbox: str, message_id: str) -> None: ...
+
 
 class ApiStrategy:
     """Raw HTTP against the server API — no SDK. Exercises the wire contract
@@ -209,11 +223,19 @@ class ApiStrategy:
     def available(self) -> bool:
         return True  # core interface; required config already gates startup
 
-    def _request(self, path: str, body: dict, idempotency_key: Optional[str] = None) -> dict:
+    def _request(
+        self,
+        path: str,
+        body: Optional[dict] = None,
+        method: str = "POST",
+        idempotency_key: Optional[str] = None,
+    ) -> dict:
         url = f"{self._base_url}{path}"
-        req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST")
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Authorization", f"Bearer {self._api_key}")
-        req.add_header("Content-Type", "application/json")
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
         req.add_header("User-Agent", USER_AGENT)
         if idempotency_key:
             req.add_header("Idempotency-Key", idempotency_key)
@@ -243,6 +265,21 @@ class ApiStrategy:
         result = self._request(path, {"text": text}, idempotency_key=idempotency_key)
         _check_send_status("api", result.get("status"))
 
+    def supports_delete(self) -> bool:
+        return True
+
+    def delete(self, *, inbox: str, message_id: str) -> None:
+        path = (
+            f"/v1/agents/{urllib.parse.quote(inbox, safe='')}"
+            f"/messages/{urllib.parse.quote(message_id, safe='')}"
+        )
+        result = self._request(path, method="DELETE")
+        # The receipt is DeleteMessageResult ({deleted:true, id}) — a 200 with
+        # anything else is a contract drift worth failing on, same discipline
+        # as _check_send_status on the send path.
+        if result.get("deleted") is not True:
+            raise RuntimeError(f"api delete returned an unexpected receipt: {result!r}")
+
 
 class PythonSdkStrategy:
     """The published `e2a` PyPI package — today's original path."""
@@ -259,6 +296,14 @@ class PythonSdkStrategy:
             inbox, message_id, {"text": text}, idempotency_key=idempotency_key
         )
         _check_send_status("python_sdk", getattr(result, "status", None))
+
+    def supports_delete(self) -> bool:
+        return True
+
+    def delete(self, *, inbox: str, message_id: str) -> None:
+        result = client().messages.delete(inbox, message_id)
+        if getattr(result, "deleted", None) is not True:
+            raise RuntimeError(f"python_sdk delete returned an unexpected receipt: {result!r}")
 
 
 # Fixed id shared by every send/reply JSON-RPC request this service makes.
@@ -370,11 +415,13 @@ class McpStrategy:
         return result
 
     @staticmethod
-    def _result_status(result: dict) -> Optional[str]:
-        """The tool's success text block is a JSON-stringified SendResultView
-        (mcp/src/tools/util.ts's runTool + toMcpOutput) — pull `status` out of
-        it so a held/failed send can be treated as a failure here too, not
-        just on the api/python_sdk/ts_sdk interfaces."""
+    def _result_json(result: dict) -> Optional[dict]:
+        """The tool's success text block is a JSON-stringified view
+        (mcp/src/tools/util.ts's runTool + toMcpOutput) — a SendResultView on
+        send/reply, a DeleteMessageResult on delete. Pull the parsed payload
+        out so callers can check `status` / `deleted` and treat a held/failed
+        or unreceipted outcome as a failure here too, not just on the
+        api/python_sdk/ts_sdk interfaces."""
         for block in result.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "text":
                 try:
@@ -382,7 +429,7 @@ class McpStrategy:
                 except ValueError:
                     return None
                 if isinstance(payload, dict):
-                    return payload.get("status")
+                    return payload
         return None
 
     def send(self, *, agent_a: str, agent_b: str, subject: str, body: str) -> None:
@@ -390,7 +437,7 @@ class McpStrategy:
             "send_message",
             {"to": [agent_b], "subject": subject, "text": body, "email": agent_a},
         )
-        _check_send_status("mcp", self._result_status(result))
+        _check_send_status("mcp", (self._result_json(result) or {}).get("status"))
 
     def reply(self, *, inbox: str, message_id: str, text: str, idempotency_key: str) -> None:
         result = self._call(
@@ -402,7 +449,18 @@ class McpStrategy:
                 "idempotency_key": idempotency_key,
             },
         )
-        _check_send_status("mcp", self._result_status(result))
+        _check_send_status("mcp", (self._result_json(result) or {}).get("status"))
+
+    def supports_delete(self) -> bool:
+        return True
+
+    def delete(self, *, inbox: str, message_id: str) -> None:
+        result = self._call(
+            "delete_message",
+            {"message_id": message_id, "email": inbox, "confirm": True},
+        )
+        if (self._result_json(result) or {}).get("deleted") is not True:
+            raise RuntimeError("mcp delete_message returned an unexpected receipt")
 
 
 # The full parent environment is never handed to a child: it would carry
@@ -470,6 +528,12 @@ class TsSdkStrategy:
             self._env,
         )
 
+    def supports_delete(self) -> bool:
+        return True
+
+    def delete(self, *, inbox: str, message_id: str) -> None:
+        _run_subprocess(["node", NODE_HELPER, "delete", inbox, message_id], self._env)
+
 
 class CliStrategy:
     """The published `@e2a/cli` npm package's `e2a` bin, invoked directly
@@ -505,6 +569,16 @@ class CliStrategy:
             self._env,
         )
 
+    def supports_delete(self) -> bool:
+        # The published @e2a/cli (cli/src/commands/) has no delete command.
+        # Cleanup for this interface is a documented skip (monitor_skip,
+        # stage=cleanup) — never a silent substitution through another
+        # interface's surface, which would mask the missing capability.
+        return False
+
+    def delete(self, *, inbox: str, message_id: str) -> None:
+        raise RuntimeError("cli interface has no delete command (supports_delete is False)")
+
 
 def _build_strategies() -> dict:
     return {
@@ -520,6 +594,31 @@ def _build_strategies() -> dict:
 # Correlation state (which round trip is in flight) still lives entirely in
 # the message subject, never here.
 STRATEGIES: dict = _build_strategies()
+
+
+def _cleanup(strategy: Interface, iface: str, nonce: str, *, inbox: str, message_id: str) -> None:
+    """Best-effort trash of one round-trip message via the SAME interface
+    that carried the leg — each interface's delete path is exercised every
+    tick, and probe/reply residue doesn't accumulate in the two inboxes
+    forever (trash purges after the retention window; the *sent* copies in
+    the opposite folders are out of scope — the service is stateless and the
+    send-side ids would have to ride in the nonce).
+
+    Cleanup is deliberately decoupled from the success signal: the leg's
+    monitor_replied/monitor_ok line is logged BEFORE this runs, so a delete
+    failure is a monitor_error(stage=cleanup), never a 5xx — a webhook
+    redelivery must not fan out duplicate replies or double-count a success
+    for what is only a hygiene failure. An interface without a delete verb
+    (cli) is a documented skip, not an error."""
+    if not strategy.supports_delete():
+        log("monitor_skip", stage="cleanup", iface=iface, detail="interface has no delete verb")
+        return
+    try:
+        strategy.delete(inbox=inbox, message_id=message_id)
+    except Exception as exc:  # noqa: BLE001 - cleanup failure is a signal, not a crash
+        log("monitor_error", stage="cleanup", iface=iface, nonce=nonce, error=type(exc).__name__, detail=str(exc))
+        return
+    log("monitor_deleted", iface=iface, nonce=nonce, inbox=inbox, message_id=message_id)
 
 
 def handle_tick() -> tuple[int, dict]:
@@ -657,6 +756,8 @@ def handle_webhook(raw_body: bytes, signature: str) -> tuple[int, dict]:
             log("monitor_error", stage="reply", iface=iface, nonce=nonce, error=type(exc).__name__, detail=str(exc))
             return 500, {"ok": False, "stage": "reply"}
         log("monitor_replied", iface=iface, nonce=nonce, age_ms=age_ms)
+        # Reply succeeded — trash the probe sitting in B's inbox.
+        _cleanup(strategy, iface, nonce, inbox=AGENT_B, message_id=email.id)
         return 200, {"ok": True, "leg": "outbound"}
 
     if inbox == AGENT_A.lower():
@@ -666,6 +767,8 @@ def handle_webhook(raw_body: bytes, signature: str) -> tuple[int, dict]:
             log("monitor_stale", leg="reply", iface=iface, nonce=nonce, age_ms=age_ms)
             return 200, {"ok": True, "stale": True}
         log("monitor_ok", iface=iface, nonce=nonce, latency_ms=age_ms, message_id=email.id)
+        # Success is logged — trash the reply sitting in A's inbox.
+        _cleanup(strategy, iface, nonce, inbox=AGENT_A, message_id=email.id)
         return 200, {"ok": True, "leg": "reply", "iface": iface, "latency_ms": age_ms}
 
     return 200, {"ok": True, "ignored": "unknown inbox"}

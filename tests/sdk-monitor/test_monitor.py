@@ -12,15 +12,20 @@ even match), the stale-reply guard (both legs), the interface-strategy
 dispatch, the unknown-iface safety net, the /tick aggregate + status-code
 semantics (all-ok / partial / total-outage / an optional interface skipped),
 uniform non-success send-status handling across every offline-exercisable
-interface, the wire shape of the api/ts_sdk/cli strategies (argv/URL/headers,
-and that secrets never land in argv), the minimal subprocess environment, and
-McpStrategy's JSON-RPC response parsing (SSE framing, a JSON-RPC error, a
-tool-level isError, a leading notification/mismatched-id frame that must be
-skipped rather than mistaken for our response, and the malformed-response
-guard). Every interface's actual send/reply I/O is stubbed with fakes
+interface, the cleanup (message-deletion) behavior on both legs (trash via
+the nonce's own interface AFTER the leg's success marker, a cleanup failure
+never revoking monitor_ok/monitor_replied, and a delete-less interface being
+a documented monitor_skip rather than an error), the wire shape of the
+api/python_sdk/ts_sdk/cli/mcp strategies for send/reply AND delete
+(argv/URL/headers/tool-arguments, receipt validation, and that secrets never
+land in argv), the minimal subprocess environment, and McpStrategy's
+JSON-RPC response parsing (SSE framing, a JSON-RPC error, a tool-level
+isError, a leading notification/mismatched-id frame that must be skipped
+rather than mistaken for our response, and the malformed-response guard).
+Every interface's actual send/reply/delete I/O is stubbed with fakes
 injected into monitor.STRATEGIES, or with urllib.request.urlopen /
-subprocess.run monkeypatched to capture/replay a call — no real network call,
-no real subprocess to node/npm.
+subprocess.run monkeypatched to capture/replay a call — no real network
+call, no real subprocess to node/npm.
 """
 
 import hashlib
@@ -149,6 +154,7 @@ class FakeStrategy:
     def __init__(self):
         self.send_calls = []
         self.reply_calls = []
+        self.delete_calls = []
 
     def available(self):
         return True
@@ -158,6 +164,12 @@ class FakeStrategy:
 
     def reply(self, **kwargs):
         self.reply_calls.append(kwargs)
+
+    def supports_delete(self):
+        return True
+
+    def delete(self, **kwargs):
+        self.delete_calls.append(kwargs)
 
 
 class FakeEmail:
@@ -359,6 +371,120 @@ check("unknown iface never emits monitor_ok", "monitor_ok" in emitted_events(), 
 
 
 # ---------------------------------------------------------------------------
+# Cleanup (message deletion): each leg trashes its message via the SAME
+# interface, AFTER the leg's success marker — a hygiene/coverage step that is
+# deliberately decoupled from the round-trip success signal.
+# ---------------------------------------------------------------------------
+
+
+class CleanupStrategy(FakeStrategy):
+    def __init__(self, fail_delete=False, delete_supported=True):
+        super().__init__()
+        self.fail_delete = fail_delete
+        self._delete_supported = delete_supported
+
+    def supports_delete(self):
+        return self._delete_supported
+
+    def delete(self, **kwargs):
+        super().delete(**kwargs)
+        if self.fail_delete:
+            raise RuntimeError("delete boom")
+
+
+# B leg: after the reply is dispatched, the probe in B's inbox is trashed via
+# the nonce's own interface, logged as monitor_deleted, after monitor_replied.
+cleanup_ts = CleanupStrategy()
+monitor._client = FakeClientB()
+monitor.STRATEGIES = {iface: FakeStrategy() for iface in monitor.IFACES}
+monitor.STRATEGIES["ts_sdk"] = cleanup_ts
+FakeEmailB.subject = f"probe {make_nonce('ts_sdk', int(time.time() * 1000) - 100)}"
+emitted.clear()
+status, payload = monitor.handle_webhook(inbound_body_b, sign(inbound_body_b))
+check("cleanup (B leg) returns 200", status, 200)
+check("cleanup (B leg) still dispatches the reply first", len(cleanup_ts.reply_calls), 1)
+check("cleanup (B leg) deletes via the nonce's own iface", len(cleanup_ts.delete_calls), 1)
+_del_kwargs = cleanup_ts.delete_calls[0]
+check(
+    "cleanup (B leg) deletes the probe from B's inbox",
+    (_del_kwargs.get("inbox"), _del_kwargs.get("message_id")),
+    (monitor.AGENT_B, "msg_fresh_b"),
+)
+check(
+    "cleanup (B leg) does not delete via other ifaces",
+    sum(len(s.delete_calls) for k, s in monitor.STRATEGIES.items() if k != "ts_sdk"),
+    0,
+)
+check("cleanup (B leg) logs monitor_deleted", any(e == "monitor_deleted" and f.get("iface") == "ts_sdk" for e, f in emitted), True)
+check(
+    "cleanup (B leg) runs after monitor_replied",
+    [e for e, _ in emitted].index("monitor_replied") < [e for e, _ in emitted].index("monitor_deleted"),
+    True,
+)
+
+# A leg: after monitor_ok, the reply in A's inbox is trashed the same way.
+cleanup_py = CleanupStrategy()
+monitor._client = FakeClient()
+monitor.STRATEGIES = {iface: FakeStrategy() for iface in monitor.IFACES}
+monitor.STRATEGIES["python_sdk"] = cleanup_py
+FakeEmail.subject = f"Re: probe {make_nonce('python_sdk', int(time.time() * 1000) - 3000)}"
+emitted.clear()
+status, payload = monitor.handle_webhook(inbound_body, sign(inbound_body))
+check("cleanup (A leg) returns 200", status, 200)
+check("cleanup (A leg) still emits monitor_ok", "monitor_ok" in emitted_events(), True)
+check("cleanup (A leg) deletes via the nonce's own iface", len(cleanup_py.delete_calls), 1)
+check(
+    "cleanup (A leg) deletes the reply from A's inbox",
+    (cleanup_py.delete_calls[0].get("inbox"), cleanup_py.delete_calls[0].get("message_id")),
+    (monitor.AGENT_A, FakeEmail.id),
+)
+check(
+    "cleanup (A leg) runs after monitor_ok",
+    [e for e, _ in emitted].index("monitor_ok") < [e for e, _ in emitted].index("monitor_deleted"),
+    True,
+)
+
+# A cleanup failure is decoupled from the success signal: 200, monitor_ok
+# stands, stage=cleanup error logged, no monitor_deleted.
+failing_cleanup = CleanupStrategy(fail_delete=True)
+monitor.STRATEGIES = {iface: FakeStrategy() for iface in monitor.IFACES}
+monitor.STRATEGIES["python_sdk"] = failing_cleanup
+emitted.clear()
+status, payload = monitor.handle_webhook(inbound_body, sign(inbound_body))
+check("cleanup failure (A leg) still returns 200", status, 200)
+check("cleanup failure (A leg) still emits monitor_ok", "monitor_ok" in emitted_events(), True)
+check(
+    "cleanup failure (A leg) logs stage=cleanup",
+    any(e == "monitor_error" and f.get("stage") == "cleanup" and f.get("iface") == "python_sdk" for e, f in emitted),
+    True,
+)
+check("cleanup failure (A leg) does not log monitor_deleted", "monitor_deleted" in emitted_events(), False)
+
+# An interface without a delete verb (cli): cleanup is a documented skip, not
+# an error — the reply is still dispatched and no delete is attempted.
+no_delete_cleanup = CleanupStrategy(delete_supported=False)
+monitor._client = FakeClientB()
+monitor.STRATEGIES = {iface: FakeStrategy() for iface in monitor.IFACES}
+monitor.STRATEGIES["cli"] = no_delete_cleanup
+FakeEmailB.subject = f"probe {make_nonce('cli', int(time.time() * 1000) - 100)}"
+emitted.clear()
+status, payload = monitor.handle_webhook(inbound_body_b, sign(inbound_body_b))
+check("cleanup-unsupported iface still replies and returns 200", status, 200)
+check("cleanup-unsupported iface dispatches the reply", len(no_delete_cleanup.reply_calls), 1)
+check("cleanup-unsupported iface does not attempt a delete", no_delete_cleanup.delete_calls, [])
+check(
+    "cleanup-unsupported iface logs monitor_skip stage=cleanup",
+    any(e == "monitor_skip" and f.get("stage") == "cleanup" and f.get("iface") == "cli" for e, f in emitted),
+    True,
+)
+check(
+    "cleanup-unsupported iface does not log a cleanup error",
+    any(e == "monitor_error" and f.get("stage") == "cleanup" for e, f in emitted),
+    False,
+)
+
+
+# ---------------------------------------------------------------------------
 # /tick aggregate + status-code semantics (FIX 2): the aggregate is computed
 # over non-skipped ("considered") interfaces only, and the HTTP status
 # distinguishes all-ok / partial / total outage for Cloud Scheduler.
@@ -548,6 +674,52 @@ check("python_sdk strategy does not raise on status=accepted", _py_ok, True)
 monitor._client = _saved_client
 
 
+# python_sdk delete: client.messages.delete(inbox, message_id) with the
+# DeleteMessageResult receipt validated.
+class _FakeDeleteReceipt:
+    def __init__(self, deleted):
+        self.deleted = deleted
+
+
+class _FakeDeleteMessages:
+    def __init__(self, deleted):
+        self._deleted = deleted
+        self.delete_calls = []
+
+    def delete(self, *a, **k):
+        self.delete_calls.append((a, k))
+        return _FakeDeleteReceipt(self._deleted)
+
+
+class _FakePySdkDeleteClient:
+    def __init__(self, deleted):
+        self.messages = _FakeDeleteMessages(deleted)
+
+
+_saved_client = monitor._client
+monitor._client = _FakePySdkDeleteClient(True)
+try:
+    _py.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+    _py_del_ok = True
+except Exception:
+    _py_del_ok = False
+check("python_sdk strategy accepts a deleted:true receipt", _py_del_ok, True)
+check(
+    "python_sdk delete calls client.messages.delete(inbox, message_id)",
+    monitor._client.messages.delete_calls,
+    [(("mon-b@agents.e2a.dev", "msg_abc"), {})],
+)
+
+monitor._client = _FakePySdkDeleteClient(False)
+try:
+    _py.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+    _py_del_raised = False
+except RuntimeError:
+    _py_del_raised = True
+check("python_sdk strategy raises on a non-deleted receipt", _py_del_raised, True)
+monitor._client = _saved_client
+
+
 # --- mcp ---
 def _mcp_sse_for_status(status):
     text = json.dumps({"status": status, "message_id": "msg_x"})
@@ -710,6 +882,29 @@ check(
 check("ApiStrategy.reply sends Idempotency-Key", header(_req.headers, "Idempotency-Key"), "sdkmon:evt_1")
 check("ApiStrategy.reply body shape is text-only (ReplyRequest has no subject)", json.loads(_req.data.decode()), {"text": "nonce123"})
 
+# ApiStrategy.delete: DELETE /v1/agents/{email}/messages/{id}, no body, and
+# the DeleteMessageResult receipt ({deleted:true, id}) is validated.
+_urllib_request.urlopen = _capturing_urlopen({"deleted": True, "id": "msg_abc"})
+_captured_requests.clear()
+_api_wire.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+_req = _captured_requests[-1]
+check("ApiStrategy.delete method is DELETE", _req.method, "DELETE")
+check(
+    "ApiStrategy.delete URL is .../messages/{id}",
+    _req.full_url,
+    "https://api.e2a.dev/v1/agents/mon-b%40agents.e2a.dev/messages/msg_abc",
+)
+check("ApiStrategy.delete sends no body", _req.data, None)
+check("ApiStrategy.delete sends Authorization: Bearer <key>", header(_req.headers, "Authorization"), "Bearer e2a_acct_secret")
+
+_urllib_request.urlopen = _capturing_urlopen({"deleted": False, "id": "msg_abc"})
+try:
+    _api_wire.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+    _api_del_raised = False
+except RuntimeError:
+    _api_del_raised = True
+check("ApiStrategy.delete raises on a non-deleted receipt", _api_del_raised, True)
+
 _urllib_request.urlopen = _saved_urlopen
 
 
@@ -753,6 +948,16 @@ check(
     ["reply", "mon-a@agents.e2a.dev", "msg_abc", "x", "sdkmon:evt_1"],
 )
 
+_captured_calls.clear()
+_ts_wire.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+_call = _captured_calls[-1]
+check(
+    "TsSdkStrategy.delete passes delete + positional args",
+    _call["argv"][2:],
+    ["delete", "mon-b@agents.e2a.dev", "msg_abc"],
+)
+check("TsSdkStrategy.delete secret never appears in argv", any("e2a_acct_secret" in a for a in _call["argv"]), False)
+
 _cli_wire = monitor.CliStrategy("https://api.e2a.dev", "e2a_acct_secret")
 _captured_calls.clear()
 _cli_wire.send(agent_a="mon-a@agents.e2a.dev", agent_b="mon-b@agents.e2a.dev", subject="probe x", body="x")
@@ -777,6 +982,17 @@ check(
     _call["argv"][2:],
     ["reply", "msg_abc", "--body", "x", "--agent", "mon-a@agents.e2a.dev", "--idempotency-key", "sdkmon:evt_1", "--json"],
 )
+
+# The published CLI has no delete command: CliStrategy must report no delete
+# support (so cleanup is a documented skip) and its delete() must never be
+# silently wired to some other verb.
+check("CliStrategy reports no delete support", _cli_wire.supports_delete(), False)
+try:
+    _cli_wire.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+    _cli_del_raised = False
+except RuntimeError:
+    _cli_del_raised = True
+check("CliStrategy.delete raises (no delete verb in the published CLI)", _cli_del_raised, True)
 
 monitor.subprocess.run = _saved_subprocess_run
 
@@ -864,6 +1080,47 @@ try:
 except RuntimeError:
     _mcp_only_mismatched_raised = True
 check("mcp strategy raises when no frame matches our request id", _mcp_only_mismatched_raised, True)
+
+_urllib_request.urlopen = _saved_urlopen
+
+
+# McpStrategy.delete: the delete_message tool call's wire shape (name +
+# message_id/email/confirm:true arguments) and receipt validation.
+def _mcp_sse_for_payload(payload: dict):
+    env = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(payload)}]}}
+    return f"data: {json.dumps(env)}\n\n"
+
+
+_captured_mcp_requests = []
+
+
+def _capturing_urlopen_sse(sse_body: str):
+    def _fake_urlopen(req, timeout=None):
+        _captured_mcp_requests.append(_CapturedRequest(req))
+        return _FakeResponse(sse_body.encode(), "text/event-stream")
+
+    return _fake_urlopen
+
+
+_mcp_wire = monitor.McpStrategy("https://mcp.example/mcp", "e2a_acct_test")
+_urllib_request.urlopen = _capturing_urlopen_sse(_mcp_sse_for_payload({"deleted": True, "id": "msg_abc"}))
+_captured_mcp_requests.clear()
+_mcp_wire.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+_mcp_payload = json.loads(_captured_mcp_requests[-1].data.decode())
+check("McpStrategy.delete calls the delete_message tool", _mcp_payload["params"]["name"], "delete_message")
+check(
+    "McpStrategy.delete passes message_id + email + confirm:true",
+    _mcp_payload["params"]["arguments"],
+    {"message_id": "msg_abc", "email": "mon-b@agents.e2a.dev", "confirm": True},
+)
+
+_urllib_request.urlopen = _stub_urlopen(_mcp_sse_for_payload({"unexpected": "receipt"}))
+try:
+    _mcp_wire.delete(inbox="mon-b@agents.e2a.dev", message_id="msg_abc")
+    _mcp_del_raised = False
+except RuntimeError:
+    _mcp_del_raised = True
+check("McpStrategy.delete raises on a non-deleted receipt", _mcp_del_raised, True)
 
 _urllib_request.urlopen = _saved_urlopen
 

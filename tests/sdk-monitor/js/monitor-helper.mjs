@@ -13,6 +13,7 @@
 // Usage:
 //   node monitor-helper.mjs send <fromAgent> <toAgent> <subject> <body>
 //   node monitor-helper.mjs reply <inboxAgent> <messageId> <text> <idempotencyKey>
+//   node monitor-helper.mjs delete <inboxAgent> <messageId>
 
 import { E2AClient } from "@e2a/sdk/v1";
 
@@ -70,6 +71,22 @@ async function main() {
     const result = await client.messages.reply(inbox, messageId, { text }, opts);
     process.stdout.write(JSON.stringify(result) + "\n");
     checkSendStatus(result);
+    return;
+  }
+  if (cmd === "delete") {
+    const [inbox, messageId] = args;
+    if (!inbox || !messageId) {
+      fail("usage: monitor-helper.mjs delete <inbox> <message-id>");
+    }
+    const result = await client.messages.delete(inbox, messageId);
+    process.stdout.write(JSON.stringify(result) + "\n");
+    // The receipt is DeleteMessageResult ({deleted:true, id}) — anything else
+    // is a contract drift the parent monitor should see as a non-zero exit,
+    // same discipline as checkSendStatus on the send/reply paths.
+    if (result?.deleted !== true) {
+      process.stderr.write(`unexpected delete receipt: ${JSON.stringify(result)}\n`);
+      process.exitCode = 1;
+    }
     return;
   }
   fail(`unknown command: ${cmd ?? "(none)"}`);

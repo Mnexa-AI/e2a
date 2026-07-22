@@ -37,6 +37,22 @@ Anything that breaks any of those — a bad publish, a wire-contract drift, a
 packaging regression, an MCP transport change — stops that interface's
 success log line, without silencing the other four.
 
+Each round trip also **cleans up after itself through the same interface**:
+after the reply leg lands, the webhook hub trashes the probe (from B's
+inbox) and the reply (from A's inbox) via the interface named in the nonce —
+so four interfaces' `delete` paths (REST `DELETE …/messages/{id}`, the
+Python SDK's `messages.delete`, the TS SDK's `messages.delete`, and the MCP
+`delete_message` tool) are exercised every tick, and probe residue doesn't
+accumulate in the two inboxes forever. The published **CLI has no delete
+command**, so the `cli` interface's cleanup is a documented `monitor_skip`
+(`stage=cleanup`), never a substitution through another surface. Cleanup is
+deliberately decoupled from the success signal: it runs *after* the leg's
+`monitor_replied`/`monitor_ok` line, and a delete failure is a
+`monitor_error(stage=cleanup)` — never a 5xx that would redeliver the
+webhook and double-count the leg. Deletion is the soft (trash) path; the
+*sent* copies in the opposite folders are out of scope (the service is
+stateless — the send-side ids would have to ride in the nonce).
+
 ### Handlers
 
 - **`POST /tick`** (Cloud Scheduler, ~5 min). Fires ONE outbound leg PER
@@ -59,9 +75,11 @@ success log line, without silencing the other four.
   regardless of which interface the nonce names. It ignores non-
   `email.received` types, then branches on which agent received the mail:
   delivered to **B** → reply **via the interface named in the nonce** (so
-  each interface's reply/threading path is exercised too, not just send);
-  delivered to **A** → that's the reply coming home, emit the success line
-  with that interface's key.
+  each interface's reply/threading path is exercised too, not just send),
+  then trash the probe from B's inbox via that same interface; delivered to
+  **A** → that's the reply coming home, emit the success line with that
+  interface's key, then trash the reply from A's inbox (same interface
+  again). Both deletes are best-effort cleanup — see "What it exercises".
 - **`GET /health`** — liveness.
 
 The service is **stateless** across requests. Cloud Run scales to zero, so
@@ -153,9 +171,10 @@ labeled by `iface`:
 | `monitor_ok` | Round trip completed for `iface`. **Alert on the absence of this, per iface.** `latency_ms` is the metric. |
 | `monitor_tick` | Outbound leg sent for `iface`. |
 | `monitor_replied` | Inbound leg received and replied to, via `iface`. |
+| `monitor_deleted` | Cleanup done for `iface`: the leg's message was trashed via `iface` (carries `inbox` + `message_id`). |
 | `monitor_stale` | A probe arrived past `MAX_AGE_MS` on `leg` (`outbound` or `reply`) for `iface`; not a success. |
-| `monitor_skip` | `iface` was skipped this tick because its config is absent (currently only `mcp` without `E2A_MONITOR_MCP_URL`). |
-| `monitor_error` | Failure, with `stage` = `config` \| `send` \| `signature` \| `hydrate` \| `reply` \| `unknown_iface` \| `nonce_auth`, and (where applicable) `iface`. A `send`/`reply` failure includes a held (`pending_review`), terminal-`failed`, or unrecognized send-response `status` — see "Uniform send-status handling" below. |
+| `monitor_skip` | `iface` was skipped this tick because its config is absent (`stage=send`, currently only `mcp` without `E2A_MONITOR_MCP_URL`), or its cleanup was skipped because the interface's published client has no delete verb (`stage=cleanup`, currently always `cli`). |
+| `monitor_error` | Failure, with `stage` = `config` \| `send` \| `signature` \| `hydrate` \| `reply` \| `cleanup` \| `unknown_iface` \| `nonce_auth`, and (where applicable) `iface`. A `send`/`reply` failure includes a held (`pending_review`), terminal-`failed`, or unrecognized send-response `status` — see "Uniform send-status handling" below. A `cleanup` failure means the round trip succeeded (its `monitor_replied`/`monitor_ok` was already logged) but the trash step failed — hygiene, not an outage. |
 | `monitor_start` | Process start; lists the configured `ifaces` and whether `mcp` is configured. |
 
 Secret values are never logged — only env var *names* on a config failure. A
@@ -283,19 +302,24 @@ status-code semantics (all-ok → 200, one optional interface skipped but the
 rest ok → 200, partial failure → 207, total outage across every considered
 interface → 500), uniform non-`sent`/`accepted` send-status handling across
 every offline-exercisable interface (a stubbed `pending_review`/`failed`
-response raises immediately rather than logging success-shaped), the wire
-shape of the `api`/`ts_sdk`/`cli` strategies (argv/URL/headers, and that
-secrets never land in argv), the minimal subprocess environment (the full
-parent env, including the webhook secret, is never handed to a node/CLI
-child), and `McpStrategy`'s JSON-RPC response parsing (SSE framing, a
-JSON-RPC error, a tool-level `isError`, a leading notification or
-mismatched-id frame that must be skipped rather than mistaken for the real
-response, and the malformed-response guard). Every interface's actual
-send/reply I/O is stubbed with fakes injected into `monitor.STRATEGIES`, or
-with `urllib.request.urlopen` / `subprocess.run` monkeypatched to
-capture/replay a call — no real network call, no real subprocess to
-node/npm. The live round trips are only exercisable against a real
-deployment with a reachable webhook URL.
+response raises immediately rather than logging success-shaped), the cleanup
+behavior on both legs (the probe/reply is trashed via the nonce's own
+interface after the leg's success marker, a delete failure logs
+`stage=cleanup` without revoking `monitor_ok`/`monitor_replied` or the 200,
+and a delete-less interface is a `monitor_skip`, not an error), the wire
+shape of the `api`/`python_sdk`/`ts_sdk`/`cli`/`mcp` strategies for
+send/reply AND delete (argv/URL/headers/tool-arguments, `deleted:true`
+receipt validation, and that secrets never land in argv), the minimal
+subprocess environment (the full parent env, including the webhook secret,
+is never handed to a node/CLI child), and `McpStrategy`'s JSON-RPC response
+parsing (SSE framing, a JSON-RPC error, a tool-level `isError`, a leading
+notification or mismatched-id frame that must be skipped rather than
+mistaken for the real response, and the malformed-response guard). Every
+interface's actual send/reply/delete I/O is stubbed with fakes injected into
+`monitor.STRATEGIES`, or with `urllib.request.urlopen` / `subprocess.run`
+monkeypatched to capture/replay a call — no real network call, no real
+subprocess to node/npm. The live round trips are only exercisable against a
+real deployment with a reachable webhook URL.
 
 ## Design decisions to review
 
