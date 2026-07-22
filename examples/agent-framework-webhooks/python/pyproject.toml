@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-framework-webhooks-python"
 version = "0.1.0"
-description = "Authenticated e2a inbound webhook examples for Python agent frameworks"
+description = "Minimal authenticated e2a webhook with the OpenAI Agents SDK"
 requires-python = ">=3.10"
 dependencies = [
   "e2a>=5.2,<6",
@@ -13,10 +13,6 @@ dependencies = [
   "uvicorn[standard]",
   "python-dotenv",
   "openai-agents",
-  "anthropic",
-  "langchain>=1,<2",
-  "langchain-openai",
-  "google-adk",
 ]
 
 [project.optional-dependencies]

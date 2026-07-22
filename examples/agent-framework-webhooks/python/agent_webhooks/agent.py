@@ -1,4 +1,4 @@
-"""OpenAI Agents SDK reply adapter."""
+"""OpenAI Agents SDK integration for the minimal webhook example."""
 
 import os
 from collections.abc import Awaitable, Callable
@@ -6,17 +6,21 @@ from typing import Any
 
 from e2a import AsyncInboundEmail
 
-from agent_webhooks.prompt import REPLY_INSTRUCTIONS, email_prompt
+from .prompt import REPLY_INSTRUCTIONS, email_prompt
 
 OpenAIRun = Callable[[str], Awaitable[Any]]
 
 
 class OpenAIReplyAgent:
+    """Produce reply text from the safe, normalized inbound projection."""
+
     def __init__(self, run: OpenAIRun) -> None:
         self._run = run
 
     @classmethod
     def from_env(cls) -> "OpenAIReplyAgent":
+        """Build the production agent with the official OpenAI Agents SDK."""
+
         from agents import Agent, Runner
 
         agent = Agent(
@@ -24,7 +28,11 @@ class OpenAIReplyAgent:
             instructions=REPLY_INSTRUCTIONS,
             model=os.getenv("OPENAI_MODEL", "gpt-5.6"),
         )
-        return cls(lambda prompt: Runner.run(agent, prompt))
+
+        async def run(prompt: str) -> Any:
+            return await Runner.run(agent, prompt)
+
+        return cls(run)
 
     async def reply(
         self, email: AsyncInboundEmail, conversation_id: str

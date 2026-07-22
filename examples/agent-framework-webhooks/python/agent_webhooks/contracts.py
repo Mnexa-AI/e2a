@@ -1,4 +1,4 @@
-"""Runtime-neutral contracts shared by agent framework adapters."""
+"""Small structural contracts used by the webhook delivery handler."""
 
 from typing import Protocol
 

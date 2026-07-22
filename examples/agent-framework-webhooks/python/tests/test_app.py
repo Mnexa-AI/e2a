@@ -11,10 +11,15 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_webhooks.app import create_app, select_agent
+from agent_webhooks.app import create_app
 from agent_webhooks.delivery_state import EventDeduper
 
 SECRET = "whsec_app_test"
+
+
+@pytest.fixture(autouse=True)
+def openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
 
 
 def signed_delivery(*, event_id: str = "evt_app_1") -> tuple[bytes, str]:
@@ -69,25 +74,19 @@ class FakeClient:
             text="Please reply.",
             reply=AsyncMock(return_value=SimpleNamespace(status="accepted")),
         )
-        self.inbound = SimpleNamespace(
-            from_event=AsyncMock(return_value=self.email)
-        )
+        self.inbound = SimpleNamespace(from_event=AsyncMock(return_value=self.email))
         self.aclose = AsyncMock()
 
 
-class ClosableAgent:
+class FakeAgent:
     def __init__(self) -> None:
+        self.reply = AsyncMock(return_value="reply")
+
+
+class ClosableAgent(FakeAgent):
+    def __init__(self) -> None:
+        super().__init__()
         self.aclose = AsyncMock()
-
-    async def reply(self, email: Any) -> str:
-        return "reply"
-
-
-def agent_factories(agent: Any) -> dict[str, Any]:
-    return {
-        name: lambda: agent
-        for name in ("openai", "anthropic", "langchain", "adk", "fake")
-    }
 
 
 def test_health_and_lifespan_create_and_close_one_client() -> None:
@@ -101,8 +100,8 @@ def test_health_and_lifespan_create_and_close_one_client() -> None:
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="fake",
         client_factory=client_factory,
+        agent_factory=FakeAgent,
     )
     assert clients == []
 
@@ -115,11 +114,12 @@ def test_health_and_lifespan_create_and_close_one_client() -> None:
 
 def test_invalid_signature_returns_401_without_downstream_calls() -> None:
     client = FakeClient()
+    agent = FakeAgent()
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="fake",
         client_factory=lambda **_: client,
+        agent_factory=lambda: agent,
     )
     body, signature = signed_delivery()
 
@@ -133,16 +133,17 @@ def test_invalid_signature_returns_401_without_downstream_calls() -> None:
     assert response.status_code == 401
     client.inbound.from_event.assert_not_awaited()
     client.email.reply.assert_not_awaited()
-    assert app.state.agent.call_count == 0
+    agent.reply.assert_not_awaited()
 
 
 def test_oversized_stream_without_content_length_returns_413_before_delivery() -> None:
     client = FakeClient()
+    agent = FakeAgent()
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="fake",
         client_factory=lambda **_: client,
+        agent_factory=lambda: agent,
     )
 
     def chunks() -> Any:
@@ -160,19 +161,20 @@ def test_oversized_stream_without_content_length_returns_413_before_delivery() -
     assert response.status_code == 413
     client.inbound.from_event.assert_not_awaited()
     client.email.reply.assert_not_awaited()
-    assert app.state.agent.call_count == 0
+    agent.reply.assert_not_awaited()
 
 
 def test_delivery_in_progress_returns_503() -> None:
     client = FakeClient()
+    agent = FakeAgent()
     deduper = EventDeduper()
     body, signature = signed_delivery()
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="fake",
         client_factory=lambda **_: client,
         deduper_factory=lambda: deduper,
+        agent_factory=lambda: agent,
     )
 
     with TestClient(app) as http:
@@ -184,16 +186,17 @@ def test_delivery_in_progress_returns_503() -> None:
 
     assert response.status_code == 503
     client.inbound.from_event.assert_not_awaited()
-    assert app.state.agent.call_count == 0
+    agent.reply.assert_not_awaited()
 
 
-def test_valid_signed_fake_delivery_replies_once() -> None:
+def test_valid_signed_delivery_replies_once() -> None:
     client = FakeClient()
+    agent = FakeAgent()
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="fake",
         client_factory=lambda **_: client,
+        agent_factory=lambda: agent,
     )
     body, signature = signed_delivery()
 
@@ -209,141 +212,28 @@ def test_valid_signed_fake_delivery_replies_once() -> None:
     }
     client.inbound.from_event.assert_awaited_once()
     client.email.reply.assert_awaited_once()
-    assert app.state.agent.call_count == 1
+    agent.reply.assert_awaited_once()
 
 
-@pytest.mark.parametrize(
-    "framework", ["openai", "anthropic", "langchain", "adk", "fake"]
-)
-def test_framework_selection_accepts_exact_supported_names(
-    framework: str,
+def test_startup_requires_openai_key_before_creating_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sentinel = object()
-    factories = {name: lambda: sentinel for name in (
-        "openai", "anthropic", "langchain", "adk", "fake"
-    )}
-
-    assert select_agent(framework, factories=factories) is sentinel
-
-
-@pytest.mark.parametrize("framework", ["", "OPENAI", "unknown", " fake "])
-def test_framework_selection_rejects_unknown_names(framework: str) -> None:
-    with pytest.raises(ValueError, match="AGENT_FRAMEWORK must be one of"):
-        select_agent(framework)
-
-
-def test_unknown_framework_fails_startup_before_creating_client() -> None:
-    factory = AsyncMock()
+    monkeypatch.delenv("OPENAI_API_KEY")
+    client_factory = Mock()
+    agent_factory = Mock()
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="unknown",
-        client_factory=factory,
+        client_factory=client_factory,
+        agent_factory=agent_factory,
     )
 
-    with pytest.raises(ValueError, match="AGENT_FRAMEWORK must be one of"):
+    with pytest.raises(ValueError, match="OPENAI_API_KEY is required"):
         with TestClient(app):
             pass
 
-    factory.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    ("framework", "missing", "message"),
-    [
-        ("openai", ["OPENAI_API_KEY"], "OPENAI_API_KEY"),
-        ("anthropic", ["ANTHROPIC_API_KEY"], "ANTHROPIC_API_KEY"),
-        ("langchain", ["OPENAI_API_KEY"], "OPENAI_API_KEY"),
-        ("adk", ["GEMINI_API_KEY", "GOOGLE_API_KEY"], "GEMINI_API_KEY or GOOGLE_API_KEY"),
-    ],
-)
-def test_real_framework_missing_provider_config_fails_before_client_creation(
-    framework: str,
-    missing: list[str],
-    message: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    for name in missing:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.delenv("LANGCHAIN_MODEL", raising=False)
-    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
-    factory = Mock()
-    app = create_app(
-        api_key="e2a_test",
-        webhook_secret=SECRET,
-        framework=framework,
-        client_factory=factory,
-        agent_factories=agent_factories(ClosableAgent()),
-    )
-
-    with pytest.raises(ValueError, match=message):
-        with TestClient(app):
-            pass
-
-    factory.assert_not_called()
-
-
-@pytest.mark.parametrize("key_name", ["GEMINI_API_KEY", "GOOGLE_API_KEY"])
-def test_adk_accepts_either_api_key(
-    key_name: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
-    monkeypatch.setenv(key_name, "test-provider-key")
-    client = FakeClient()
-    app = create_app(
-        api_key="e2a_test",
-        webhook_secret=SECRET,
-        framework="adk",
-        client_factory=lambda **_: client,
-        agent_factories=agent_factories(ClosableAgent()),
-    )
-
-    with TestClient(app) as http:
-        assert http.get("/health").status_code == 200
-
-
-def test_adk_accepts_complete_vertex_configuration(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-    client = FakeClient()
-    app = create_app(
-        api_key="e2a_test",
-        webhook_secret=SECRET,
-        framework="adk",
-        client_factory=lambda **_: client,
-        agent_factories=agent_factories(ClosableAgent()),
-    )
-
-    with TestClient(app) as http:
-        assert http.get("/health").status_code == 200
-
-
-def test_langchain_rejects_uninstalled_provider_prefix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "test-provider-key")
-    monkeypatch.setenv("LANGCHAIN_MODEL", "anthropic:claude-example")
-    factory = Mock()
-    app = create_app(
-        api_key="e2a_test",
-        webhook_secret=SECRET,
-        framework="langchain",
-        client_factory=factory,
-        agent_factories=agent_factories(ClosableAgent()),
-    )
-
-    with pytest.raises(ValueError, match="must use the installed openai: provider"):
-        with TestClient(app):
-            pass
-
-    factory.assert_not_called()
+    agent_factory.assert_not_called()
+    client_factory.assert_not_called()
 
 
 def test_lifespan_closes_agent_and_client() -> None:
@@ -352,9 +242,8 @@ def test_lifespan_closes_agent_and_client() -> None:
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="fake",
         client_factory=lambda **_: client,
-        agent_factories=agent_factories(agent),
+        agent_factory=lambda: agent,
     )
 
     with TestClient(app):
@@ -373,9 +262,8 @@ def test_partial_startup_failure_closes_created_agent() -> None:
     app = create_app(
         api_key="e2a_test",
         webhook_secret=SECRET,
-        framework="fake",
         client_factory=fail_client,
-        agent_factories=agent_factories(agent),
+        agent_factory=lambda: agent,
     )
 
     with pytest.raises(RuntimeError, match="client construction failed"):

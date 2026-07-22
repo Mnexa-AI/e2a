@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
@@ -11,18 +11,11 @@ from dotenv import load_dotenv
 from e2a import AsyncE2AClient, E2AWebhookSignatureError
 from fastapi import FastAPI, HTTPException, Request
 
-from .adapters import (
-    ADKReplyAgent,
-    AnthropicReplyAgent,
-    FakeReplyAgent,
-    LangChainReplyAgent,
-    OpenAIReplyAgent,
-)
+from .agent import OpenAIReplyAgent
 from .contracts import ReplyAgent
 from .delivery_state import EventDeduper
 from .handler import DeliveryInProgress, handle_delivery
 
-SUPPORTED_FRAMEWORKS = ("openai", "anthropic", "langchain", "adk", "fake")
 MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 AgentFactory = Callable[[], ReplyAgent]
 ClientFactory = Callable[..., Any]
@@ -34,68 +27,6 @@ def _require_env(name: str, explicit: str | None = None) -> str:
     if not value:
         raise ValueError(f"{name} is required")
     return value
-
-
-def _agent_factories() -> dict[str, AgentFactory]:
-    return {
-        "openai": OpenAIReplyAgent.from_env,
-        "anthropic": AnthropicReplyAgent.from_env,
-        "langchain": LangChainReplyAgent.from_env,
-        "adk": ADKReplyAgent.from_env,
-        "fake": FakeReplyAgent,
-    }
-
-
-def select_agent(
-    framework: str,
-    *,
-    factories: Mapping[str, Callable[[], Any]] | None = None,
-) -> Any:
-    """Build the adapter for one exact, supported framework name."""
-
-    available = _agent_factories() if factories is None else factories
-    if framework not in SUPPORTED_FRAMEWORKS:
-        choices = ", ".join(SUPPORTED_FRAMEWORKS)
-        raise ValueError(f"AGENT_FRAMEWORK must be one of: {choices}; got {framework!r}")
-    return available[framework]()
-
-
-def _validate_provider_config(framework: str) -> None:
-    """Fail startup before allocating clients when provider config is incomplete."""
-
-    if framework == "fake":
-        return
-    if framework == "openai":
-        _require_env("OPENAI_API_KEY")
-        return
-    if framework == "anthropic":
-        _require_env("ANTHROPIC_API_KEY")
-        return
-    if framework == "langchain":
-        model = os.getenv("LANGCHAIN_MODEL", "openai:gpt-5.5")
-        if not model.startswith("openai:"):
-            raise ValueError(
-                "LANGCHAIN_MODEL must use the installed openai: provider prefix"
-            )
-        _require_env("OPENAI_API_KEY")
-        return
-    if framework == "adk":
-        if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
-            return
-        if os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").casefold() == "true":
-            missing = [
-                name
-                for name in ("GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION")
-                if not os.getenv(name)
-            ]
-            if not missing:
-                return
-            raise ValueError(
-                "ADK Vertex mode requires " + " and ".join(missing)
-            )
-        raise ValueError(
-            "ADK requires GEMINI_API_KEY or GOOGLE_API_KEY, or complete Vertex config"
-        )
 
 
 async def _read_limited_body(request: Request) -> bytes:
@@ -122,10 +53,9 @@ def create_app(
     api_key: str | None = None,
     webhook_secret: str | None = None,
     base_url: str | None = None,
-    framework: str | None = None,
     client_factory: ClientFactory = AsyncE2AClient,
     deduper_factory: DeduperFactory = EventDeduper,
-    agent_factories: Mapping[str, Callable[[], Any]] | None = None,
+    agent_factory: AgentFactory | None = None,
 ) -> FastAPI:
     """Create an app; environment and clients are resolved only at startup."""
 
@@ -134,14 +64,13 @@ def create_app(
         load_dotenv()
         resolved_key = _require_env("E2A_API_KEY", api_key)
         resolved_secret = _require_env("E2A_WEBHOOK_SECRET", webhook_secret)
-        selected = framework if framework is not None else os.getenv(
-            "AGENT_FRAMEWORK", "fake"
-        )
-        if selected not in SUPPORTED_FRAMEWORKS:
-            select_agent(selected, factories=agent_factories)
-        _validate_provider_config(selected)
+        _require_env("OPENAI_API_KEY")
         async with AsyncExitStack() as stack:
-            agent = select_agent(selected, factories=agent_factories)
+            agent = (
+                OpenAIReplyAgent.from_env()
+                if agent_factory is None
+                else agent_factory()
+            )
             agent_close = getattr(agent, "aclose", None)
             if callable(agent_close):
                 stack.push_async_callback(agent_close)

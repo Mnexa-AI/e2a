@@ -9,11 +9,11 @@ import json
 import time
 from typing import Any, TypedDict
 
-from e2a import AsyncInboundResource, models
+from e2a import AsyncInboundEmail, AsyncInboundResource, models
 
-from .adapters import FakeReplyAgent
 from .delivery_state import EventDeduper
 from .handler import handle_delivery
+from .prompt import email_prompt
 
 SECRET = "whsec_agent_framework_dry_run"
 
@@ -23,6 +23,21 @@ class Evidence(TypedDict):
     second_status: str
     reply: str
     reply_count: int
+
+
+class FakeReplyAgent:
+    """Deterministic no-key agent used only by this local dry run."""
+
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.prompts: list[str] = []
+
+    async def reply(
+        self, email: AsyncInboundEmail, conversation_id: str
+    ) -> str:
+        del conversation_id
+        self.prompts.append(email_prompt(email))
+        return self.response
 
 
 class FakeMessageOperations:

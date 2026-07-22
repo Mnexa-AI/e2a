@@ -30,16 +30,7 @@ def test_installed_dry_run_command_needs_no_provider_key() -> None:
         "agent-framework-webhooks-dry-run"
     )
     env = os.environ.copy()
-    for name in (
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "GOOGLE_GENAI_USE_VERTEXAI",
-        "GOOGLE_CLOUD_PROJECT",
-        "GOOGLE_CLOUD_LOCATION",
-    ):
-        env.pop(name, None)
+    env.pop("OPENAI_API_KEY", None)
 
     completed = subprocess.run(
         [str(executable)],

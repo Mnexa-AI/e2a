@@ -1,1 +1,1 @@
-"""Shared primitives for the Python agent-framework webhook examples."""
+"""Minimal authenticated Python webhook using the OpenAI Agents SDK."""
