@@ -141,7 +141,7 @@ func TestDeliverOutbound_MissingQueueFailsClosed(t *testing.T) {
 // TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit pins the pre-commit
 // half of the response-loss boundary. If completing the idempotency record
 // fails, the accepted message and stamped job must roll back with it.
-func TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit(t *testing.T) {
+func TestDeliverOutbound_AcceptTransactionLifecycleRollsBackAsAUnit(t *testing.T) {
 	api, store, _, _ := setupAsyncAPI(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "acceptrollback")
@@ -178,6 +178,39 @@ func TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit(t *testing.T) {
 	if messages != 0 {
 		t.Fatalf("accepted messages after aborted transaction = %d, want 0", messages)
 	}
+	var lifecycle int
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN (SELECT id FROM messages WHERE agent_id=$1 AND subject=$2)`, ag.ID, "rollback boundary").Scan(&lifecycle)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != 0 {
+		t.Fatalf("lifecycle rows after abort=%d want 0", lifecycle)
+	}
+}
+
+func TestDeliverOutbound_QueueLifecycleFailureRollsBack(t *testing.T) {
+	api, store, _, _, pool := setupAsyncAPIWithPool(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "queuelifecyclerb")
+	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_queue_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='queue.outbound_submission' THEN RAISE EXCEPTION 'forced queue lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_queue_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_queue_lifecycle();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_queue_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_queue_lifecycle();`)
+	})
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{"a@example.net"}, Subject: "queue lifecycle rollback", Body: "body"}, "send", "", nil, nil)
+	if res != nil || oerr == nil {
+		t.Fatalf("result=%+v error=%+v want failure", res, oerr)
+	}
+	var messages int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject='queue lifecycle rollback'`, ag.ID).Scan(&messages); err != nil {
+		t.Fatal(err)
+	}
+	if messages != 0 {
+		t.Fatalf("message survived queue lifecycle failure: %d", messages)
+	}
 }
 
 // TestDeliverOutbound_AsyncAccept is the end-to-end slice-C check: with the async
@@ -186,7 +219,7 @@ func TestDeliverOutbound_AcceptTransactionRollsBackAsAUnit(t *testing.T) {
 // with the send_job_id stamped, and does NOT yet emit email.sent. Running the real
 // SendWorker over the store adapter + a fake deliverer then flips the row to sent,
 // records the provider id, and emits email.sent.
-func TestDeliverOutbound_AsyncAccept(t *testing.T) {
+func TestDeliverOutbound_AsyncAcceptLifecycle(t *testing.T) {
 	api, store, outbox, enq := setupAsyncAPI(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "asyncacc")
@@ -233,6 +266,16 @@ func TestDeliverOutbound_AsyncAccept(t *testing.T) {
 	// No email.sent yet (the message isn't sent).
 	if n := countEvents(t, store, ag.UserID, webhookpub.EventEmailSent); n != 0 {
 		t.Errorf("email.sent events at accept = %d, want 0", n)
+	}
+	var acceptance, queued int
+	var lifecycleJobID string
+	if err := store.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE reason_code='acceptance.outbound_api'), count(*) FILTER (WHERE reason_code='queue.outbound_submission'), COALESCE(max(correlation_ids->>'job_id') FILTER (WHERE reason_code='queue.outbound_submission'),'') FROM message_lifecycle_transitions WHERE message_id=$1`, res.MessageID).Scan(&acceptance, &queued, &lifecycleJobID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if acceptance != 1 || queued != 1 || lifecycleJobID != "999" {
+		t.Fatalf("accept lifecycle acceptance=%d queued=%d job=%q", acceptance, queued, lifecycleJobID)
 	}
 
 	// Run the real SendWorker over the production store adapter + a fake submit.

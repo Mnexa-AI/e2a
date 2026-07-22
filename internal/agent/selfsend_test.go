@@ -13,6 +13,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/agent"
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/testutil"
 	"github.com/tokencanopy/e2a/internal/usage"
@@ -215,6 +216,7 @@ func TestSelfSend_HappyPath(t *testing.T) {
 	if sentEventHasProviderID {
 		t.Error("providerless loopback email.sent must omit provider_message_id")
 	}
+	assertLoopbackLifecycleParity(t, pool, res.MessageID, inboundID)
 	var durableEnvelope []byte
 	if err := pool.QueryRow(ctx,
 		`SELECT envelope FROM webhook_events WHERE message_id=$1 AND type='email.received'`, inboundID,
@@ -263,7 +265,7 @@ func TestSelfSend_HappyPath(t *testing.T) {
 // The idempotency completion hook must share the same transaction as both
 // loopback message rows and their lifecycle events. A completion failure is a
 // failure to commit the local delivery, not a partial Sent/Inbox pair.
-func TestSelfSend_IdempotencyCompletionFailureRollsBackDelivery(t *testing.T) {
+func TestSelfSend_IdempotencyCompletionFailureRollsBackDeliveryLifecycle(t *testing.T) {
 	api, store, pool := setupCoreAPI(t)
 	ctx := context.Background()
 	user, ag := selfAgent(t, store, "idemrollback")
@@ -292,7 +294,7 @@ func TestSelfSend_IdempotencyCompletionFailureRollsBackDelivery(t *testing.T) {
 		t.Fatalf("DeliverOutbound error=%v want internal_error", oerr)
 	}
 
-	var messages, events int
+	var messages, events, lifecycle int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM messages WHERE agent_id=$1 AND subject='atomic rollback'`, ag.ID,
 	).Scan(&messages); err != nil {
@@ -303,8 +305,119 @@ func TestSelfSend_IdempotencyCompletionFailureRollsBackDelivery(t *testing.T) {
 	).Scan(&events); err != nil {
 		t.Fatalf("count rolled-back events: %v", err)
 	}
-	if messages != 0 || events != 0 {
-		t.Fatalf("partial loopback commit: messages=%d events=%d; want both zero", messages, events)
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN (SELECT id FROM messages WHERE agent_id=$1 AND subject='atomic rollback')`, ag.ID).Scan(&lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if messages != 0 || events != 0 || lifecycle != 0 {
+		t.Fatalf("partial loopback commit: messages=%d events=%d lifecycle=%d; want all zero", messages, events, lifecycle)
+	}
+}
+
+func TestSelfSend_LifecycleFailureRollsBackDelivery(t *testing.T) {
+	api, store, pool := setupCoreAPI(t)
+	ctx := context.Background()
+	user, ag := selfAgent(t, store, "lifecyclerollback")
+	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_loopback_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='submission.local_loopback_accepted' THEN RAISE EXCEPTION 'forced loopback lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_loopback_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_loopback_lifecycle();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_loopback_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_loopback_lifecycle();`)
+	})
+	res, oerr := api.DeliverOutbound(ctx, user, ag, outbound.SendRequest{To: []string{ag.EmailAddress()}, Subject: "loopback lifecycle rollback", Body: "body"}, "send", "", nil, nil)
+	if res != nil || oerr == nil {
+		t.Fatalf("result=%+v error=%+v want failure", res, oerr)
+	}
+	var messages, events, lifecycle int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject='loopback lifecycle rollback'`, ag.ID).Scan(&messages)
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM webhook_events WHERE agent_id=$1 AND envelope->'data'->>'subject'='loopback lifecycle rollback'`, ag.ID).Scan(&events)
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN (SELECT id FROM messages WHERE agent_id=$1 AND subject='loopback lifecycle rollback')`, ag.ID).Scan(&lifecycle)
+	if messages != 0 || events != 0 || lifecycle != 0 {
+		t.Fatalf("partial loopback messages=%d events=%d lifecycle=%d", messages, events, lifecycle)
+	}
+}
+
+func assertLoopbackLifecycleParity(t *testing.T, pool *pgxpool.Pool, outboundID, inboundID string) {
+	t.Helper()
+	ctx := context.Background()
+	read := func(messageID string) []messagelifecycle.MessageLifecycleTransition {
+		rows, err := pool.Query(ctx, `SELECT id, message_id, direction, COALESCE(recipient,''), stage, outcome, reason_code, retryable, evidence, correlation_ids, occurred_at, reconstructed FROM message_lifecycle_transitions WHERE message_id=$1 ORDER BY occurred_at,id`, messageID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var got []messagelifecycle.MessageLifecycleTransition
+		for rows.Next() {
+			var tr messagelifecycle.MessageLifecycleTransition
+			var evidence, correlation []byte
+			if err := rows.Scan(&tr.ID, &tr.MessageID, &tr.Direction, &tr.Recipient, &tr.Stage, &tr.Outcome, &tr.ReasonCode, &tr.Retryable, &evidence, &correlation, &tr.OccurredAt, &tr.Reconstructed); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.Unmarshal(evidence, &tr.Evidence)
+			_ = json.Unmarshal(correlation, &tr.CorrelationIDs)
+			tr.OccurredAt = tr.OccurredAt.UTC()
+			got = append(got, tr)
+		}
+		return got
+	}
+	outboundTransitions, inboundTransitions := read(outboundID), read(inboundID)
+	if len(outboundTransitions) != 2 || outboundTransitions[0].ReasonCode != messagelifecycle.ReasonAcceptanceOutboundAPI || outboundTransitions[1].ReasonCode != messagelifecycle.ReasonSubmissionLocalLoopbackAccepted {
+		t.Fatalf("outbound loopback lifecycle=%+v", outboundTransitions)
+	}
+	if len(inboundTransitions) != 1 || inboundTransitions[0].ReasonCode != messagelifecycle.ReasonAcceptanceLocalLoopback {
+		t.Fatalf("inbound loopback lifecycle=%+v", inboundTransitions)
+	}
+	for _, tc := range []struct {
+		id, event string
+		want      []messagelifecycle.MessageLifecycleTransition
+	}{{outboundID, "email.sent", outboundTransitions}, {inboundID, "email.received", inboundTransitions}} {
+		var raw []byte
+		if err := pool.QueryRow(ctx, `SELECT envelope->'data'->'lifecycle_transitions' FROM webhook_events WHERE message_id=$1 AND type=$2`, tc.id, tc.event).Scan(&raw); err != nil {
+			t.Fatalf("%s lifecycle payload: %v", tc.event, err)
+		}
+		var got []messagelifecycle.MessageLifecycleTransition
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%s lifecycle differs\nevent=%+v\nstore=%+v", tc.event, got, tc.want)
+		}
+	}
+}
+
+func assertApprovedLoopbackLifecycleParity(t *testing.T, pool *pgxpool.Pool, outboundID, inboundID string) {
+	t.Helper()
+	ctx := context.Background()
+	for _, tc := range []struct {
+		id, event string
+		reasons   []string
+	}{
+		{outboundID, "email.sent", []string{"review.approved", "submission.local_loopback_accepted"}},
+		{inboundID, "email.received", []string{"acceptance.local_loopback"}},
+	} {
+		var raw []byte
+		if err := pool.QueryRow(ctx, `SELECT envelope->'data'->'lifecycle_transitions' FROM webhook_events WHERE message_id=$1 AND type=$2`, tc.id, tc.event).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var eventTransitions []messagelifecycle.MessageLifecycleTransition
+		if err := json.Unmarshal(raw, &eventTransitions); err != nil {
+			t.Fatal(err)
+		}
+		if len(eventTransitions) != len(tc.reasons) {
+			t.Fatalf("%s transitions=%+v", tc.event, eventTransitions)
+		}
+		for i, reason := range tc.reasons {
+			if string(eventTransitions[i].ReasonCode) != reason {
+				t.Fatalf("%s reason[%d]=%s want %s", tc.event, i, eventTransitions[i].ReasonCode, reason)
+			}
+			var storedID string
+			if err := pool.QueryRow(ctx, `SELECT id FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code=$2`, tc.id, reason).Scan(&storedID); err != nil {
+				t.Fatal(err)
+			}
+			if eventTransitions[i].ID != storedID {
+				t.Fatalf("%s transition id=%s store=%s", tc.event, eventTransitions[i].ID, storedID)
+			}
+		}
 	}
 }
 

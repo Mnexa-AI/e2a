@@ -19,6 +19,7 @@ import (
 	"github.com/tokencanopy/e2a/internal/eventpayload"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/internal/loopback"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/outbound"
 	"github.com/tokencanopy/e2a/internal/usage"
 	"github.com/tokencanopy/e2a/internal/webhookpub"
@@ -366,12 +367,12 @@ func (w *Worker) autoApproveLoopback(ctx context.Context, agent *identity.AgentI
 				Raw:               raw,
 			}, nil
 		},
-		func(ctx context.Context, tx pgx.Tx, outboundMsg, inboundMsg *identity.Message, result identity.SendResult) error {
+		func(ctx context.Context, tx pgx.Tx, outboundMsg, inboundMsg *identity.Message, result identity.SendResult, outboundTransitions, inboundTransitions []messagelifecycle.MessageLifecycleTransition) error {
 			if w.outbox == nil {
 				return nil
 			}
 			var eventErr error
-			receivedEvent, eventErr = w.publishLoopbackOutcomeEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, result)
+			receivedEvent, eventErr = w.publishLoopbackOutcomeEventsTx(ctx, tx, agent, outboundMsg, inboundMsg, req, result, outboundTransitions, inboundTransitions)
 			return eventErr
 		})
 	if err != nil {
@@ -419,19 +420,21 @@ func (w *Worker) publishLoopbackOutcomeEventsTx(
 	outboundMsg, inboundMsg *identity.Message,
 	req outbound.SendRequest,
 	result identity.SendResult,
+	outboundTransitions, inboundTransitions []messagelifecycle.MessageLifecycleTransition,
 ) (webhookpub.Event, error) {
 	sentData := eventpayload.EmailSentData{
-		MessageID:      outboundMsg.ID,
-		AgentEmail:     agent.EmailAddress(),
-		Direction:      "outbound",
-		ConversationID: outboundMsg.ConversationID,
-		Method:         "loopback",
-		From:           agent.EmailAddress(),
-		To:             []string{agent.EmailAddress()},
-		CC:             []string{},
-		BCC:            []string{},
-		Subject:        outboundMsg.Subject,
-		MessageType:    outboundMsg.Type,
+		MessageID:            outboundMsg.ID,
+		AgentEmail:           agent.EmailAddress(),
+		Direction:            "outbound",
+		ConversationID:       outboundMsg.ConversationID,
+		Method:               "loopback",
+		From:                 agent.EmailAddress(),
+		To:                   []string{agent.EmailAddress()},
+		CC:                   []string{},
+		BCC:                  []string{},
+		Subject:              outboundMsg.Subject,
+		MessageType:          outboundMsg.Type,
+		LifecycleTransitions: outboundTransitions,
 	}
 	sentEvent := webhookpub.NewEvent(webhookpub.EventEmailSent, agent.UserID, sentData)
 	sentEvent.ID = webhookpub.DeterministicEventID(outboundMsg.ID, webhookpub.EventEmailSent)
@@ -447,19 +450,20 @@ func (w *Worker) publishLoopbackOutcomeEventsTx(
 		replyTo = []string{req.ReplyTo}
 	}
 	receivedData := eventpayload.EmailReceivedData{
-		MessageID:      inboundMsg.ID,
-		AgentEmail:     agent.EmailAddress(),
-		Direction:      "inbound",
-		ConversationID: inboundMsg.ConversationID,
-		HeaderFrom:     stringPointer(agent.EmailAddress()),
-		VerifiedDomain: nil,
-		To:             []string{agent.EmailAddress()},
-		CC:             []string{},
-		ReplyTo:        replyTo,
-		DeliveredTo:    agent.EmailAddress(),
-		Subject:        inboundMsg.Subject,
-		ReceivedAt:     inboundMsg.CreatedAt.UTC(),
-		Attachments:    eventpayload.AttachmentMetadata(result.Raw),
+		MessageID:            inboundMsg.ID,
+		AgentEmail:           agent.EmailAddress(),
+		Direction:            "inbound",
+		ConversationID:       inboundMsg.ConversationID,
+		HeaderFrom:           stringPointer(agent.EmailAddress()),
+		VerifiedDomain:       nil,
+		To:                   []string{agent.EmailAddress()},
+		CC:                   []string{},
+		ReplyTo:              replyTo,
+		DeliveredTo:          agent.EmailAddress(),
+		Subject:              inboundMsg.Subject,
+		ReceivedAt:           inboundMsg.CreatedAt.UTC(),
+		Attachments:          eventpayload.AttachmentMetadata(result.Raw),
+		LifecycleTransitions: inboundTransitions,
 	}
 	receivedEvent := webhookpub.NewEvent(webhookpub.EventEmailReceived, agent.UserID, receivedData)
 	receivedEvent.ID = webhookpub.DeterministicEventID(inboundMsg.ID, webhookpub.EventEmailReceived)

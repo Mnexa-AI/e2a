@@ -104,14 +104,15 @@ type EmailSentData struct {
 	// from the e2a message_id, and the correlation key for the async
 	// delivered/bounced/complained feedback events. Omitted for providerless
 	// local loopback delivery.
-	ProviderMessageID string   `json:"provider_message_id,omitempty"`
-	Method            string   `json:"method" doc:"Transport used for the send. Open set; tolerate unknown values. Known values: smtp, loopback."`
-	From              string   `json:"from"`
-	To                []string `json:"to" nullable:"false"`
-	CC                []string `json:"cc,omitempty" nullable:"false"`
-	BCC               []string `json:"bcc,omitempty" nullable:"false"`
-	Subject           string   `json:"subject"`
-	MessageType       string   `json:"message_type" doc:"Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."`
+	ProviderMessageID    string                                        `json:"provider_message_id,omitempty"`
+	Method               string                                        `json:"method" doc:"Transport used for the send. Open set; tolerate unknown values. Known values: smtp, loopback."`
+	From                 string                                        `json:"from"`
+	To                   []string                                      `json:"to" nullable:"false"`
+	CC                   []string                                      `json:"cc,omitempty" nullable:"false"`
+	BCC                  []string                                      `json:"bcc,omitempty" nullable:"false"`
+	Subject              string                                        `json:"subject"`
+	MessageType          string                                        `json:"message_type" doc:"Send kind. Open set; tolerate unknown values. Known values: send, reply, forward."`
+	LifecycleTransitions []messagelifecycle.MessageLifecycleTransition `json:"lifecycle_transitions,omitempty" nullable:"false"`
 }
 
 // EmailFailedData is the `data` payload of an email.failed event — an

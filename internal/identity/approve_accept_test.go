@@ -2,13 +2,242 @@ package identity_test
 
 import (
 	"context"
+	"errors"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/tokencanopy/e2a/internal/identity"
+	"github.com/tokencanopy/e2a/internal/messagelifecycle"
 	"github.com/tokencanopy/e2a/internal/testutil"
 )
+
+func lifecycleReasons(t *testing.T, pool interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, messageID string) []messagelifecycle.ReasonCode {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT reason_code FROM message_lifecycle_transitions WHERE message_id=$1`, messageID)
+	if err != nil {
+		t.Fatalf("query lifecycle: %v", err)
+	}
+	defer rows.Close()
+	var got []messagelifecycle.ReasonCode
+	for rows.Next() {
+		var reason messagelifecycle.ReasonCode
+		if err := rows.Scan(&reason); err != nil {
+			t.Fatalf("scan lifecycle: %v", err)
+		}
+		got = append(got, reason)
+	}
+	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
+	return got
+}
+
+func TestApproveAndAcceptLifecycle(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, _ := store.CreateOrGetUser(ctx, "owner-lifecycle-aa@example.com", "Owner", "google-lifecycle-aa")
+	domain := "lifecycle-aa.example.com"
+	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	_ = store.VerifyDomain(ctx, domain, user.ID)
+	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
+	msg, err := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "Subj", "body", "", nil, "send", "conv-aa-lifecycle", "", "", 3600)
+	if err != nil {
+		t.Fatalf("create hold: %v", err)
+	}
+	wantHeld := []messagelifecycle.ReasonCode{messagelifecycle.ReasonAcceptanceOutboundAPI, messagelifecycle.ReasonReviewHoldCreated}
+	sort.Slice(wantHeld, func(i, j int) bool { return wantHeld[i] < wantHeld[j] })
+	if got := lifecycleReasons(t, pool, msg.ID); !reflect.DeepEqual(got, wantHeld) {
+		t.Fatalf("held lifecycle=%v want %v", got, wantHeld)
+	}
+
+	acc := identity.AcceptedSend{To: []string{"a@example.net"}, Subject: "Subj", Method: "smtp", EnvelopeFrom: ag.ID, SentAs: "own_address", Raw: []byte("raw")}
+	_, err = store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewApproved, false, acc,
+		func(context.Context, pgx.Tx, string) (int64, error) { return 4242, nil }, nil)
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	want := append(wantHeld, messagelifecycle.ReasonReviewApproved, messagelifecycle.ReasonQueueOutboundSubmission)
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	if got := lifecycleReasons(t, pool, msg.ID); !reflect.DeepEqual(got, want) {
+		t.Fatalf("approved lifecycle=%v want %v", got, want)
+	}
+	var jobID string
+	if err := pool.QueryRow(ctx, `SELECT correlation_ids->>'job_id' FROM message_lifecycle_transitions WHERE message_id=$1 AND reason_code='queue.outbound_submission'`, msg.ID).Scan(&jobID); err != nil {
+		t.Fatalf("queue correlation: %v", err)
+	}
+	if jobID != "4242" {
+		t.Fatalf("queue job_id=%q want 4242", jobID)
+	}
+	_, err = store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewApproved, false, acc,
+		func(context.Context, pgx.Tx, string) (int64, error) { return 4242, nil }, nil)
+	if !errors.Is(err, identity.ErrNotPendingApproval) {
+		t.Fatalf("duplicate approve=%v", err)
+	}
+	if got := lifecycleReasons(t, pool, msg.ID); !reflect.DeepEqual(got, want) {
+		t.Fatalf("duplicate lifecycle=%v want %v", got, want)
+	}
+}
+
+func TestApproveAndAcceptLifecycleFailureRollsBack(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, _ := store.CreateOrGetUser(ctx, "owner-lifecycle-rb@example.com", "Owner", "google-lifecycle-rb")
+	domain := "lifecycle-rb.example.com"
+	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	_ = store.VerifyDomain(ctx, domain, user.ID)
+	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
+	msg, _ := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "Subj", "body", "", nil, "send", "", "", "", 3600)
+	expiredMsg, _ := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "Expired subj", "body", "", nil, "send", "", "", "", 3600)
+	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_approved_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code IN ('review.approved','review.expired_approved') THEN RAISE EXCEPTION 'forced lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_approved_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_approved_lifecycle();`)
+	if err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_approved_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_approved_lifecycle();`)
+	})
+	acc := identity.AcceptedSend{To: []string{"a@example.net"}, Subject: "Subj", Method: "smtp", SentAs: "relay", Raw: []byte("raw")}
+	_, err = store.ApproveAndAccept(ctx, msg.ID, user.ID, identity.MessageStatusReviewApproved, false, acc, func(context.Context, pgx.Tx, string) (int64, error) { return 99, nil }, nil)
+	if err == nil {
+		t.Fatal("approve succeeded despite lifecycle failure")
+	}
+	_, err = store.ApproveAndAccept(ctx, expiredMsg.ID, "", identity.MessageStatusReviewExpiredApproved, false, acc, func(context.Context, pgx.Tx, string) (int64, error) { return 100, nil }, nil)
+	if err == nil {
+		t.Fatal("expired approve succeeded despite lifecycle failure")
+	}
+	var status string
+	var sendJobID *int64
+	if err := pool.QueryRow(ctx, `SELECT status, send_job_id FROM messages WHERE id=$1`, msg.ID).Scan(&status, &sendJobID); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusPendingReview || sendJobID != nil {
+		t.Fatalf("partial approval status=%s job=%v", status, sendJobID)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status, send_job_id FROM messages WHERE id=$1`, expiredMsg.ID).Scan(&status, &sendJobID); err != nil {
+		t.Fatal(err)
+	}
+	if status != identity.MessageStatusPendingReview || sendJobID != nil {
+		t.Fatalf("partial expired approval status=%s job=%v", status, sendJobID)
+	}
+}
+
+func TestCreatePendingOutboundLifecycleFailureRollsBack(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, _ := store.CreateOrGetUser(ctx, "owner-hold-rb@example.com", "Owner", "google-hold-rb")
+	domain := "hold-rb.example.com"
+	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	_ = store.VerifyDomain(ctx, domain, user.ID)
+	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
+	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_hold_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code='review.hold_created' THEN RAISE EXCEPTION 'forced hold lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_hold_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_hold_lifecycle();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_hold_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_hold_lifecycle();`)
+	})
+	if _, err := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, "forced hold rollback", "body", "", nil, "send", "", "", "", 3600); err == nil {
+		t.Fatal("hold succeeded despite lifecycle failure")
+	}
+	var messages, lifecycle int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE agent_id=$1 AND subject='forced hold rollback'`, ag.ID).Scan(&messages)
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM message_lifecycle_transitions WHERE message_id IN (SELECT id FROM messages WHERE agent_id=$1 AND subject='forced hold rollback')`, ag.ID).Scan(&lifecycle)
+	if messages != 0 || lifecycle != 0 {
+		t.Fatalf("partial hold messages=%d lifecycle=%d", messages, lifecycle)
+	}
+}
+
+func TestReviewRejectionLifecycleFailureRollsBack(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, _ := store.CreateOrGetUser(ctx, "owner-reject-rb@example.com", "Owner", "google-reject-rb")
+	domain := "reject-rb.example.com"
+	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	_ = store.VerifyDomain(ctx, domain, user.ID)
+	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
+	_, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION test_fail_rejected_lifecycle() RETURNS trigger AS $f$ BEGIN IF NEW.reason_code IN ('review.rejected','review.expired_rejected') THEN RAISE EXCEPTION 'forced rejected lifecycle failure'; END IF; RETURN NEW; END; $f$ LANGUAGE plpgsql; CREATE TRIGGER test_fail_rejected_lifecycle BEFORE INSERT ON message_lifecycle_transitions FOR EACH ROW EXECUTE FUNCTION test_fail_rejected_lifecycle();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_rejected_lifecycle ON message_lifecycle_transitions; DROP FUNCTION IF EXISTS test_fail_rejected_lifecycle();`)
+	})
+	newHold := func(subject string) *identity.Message {
+		m, err := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, subject, "body", "", nil, "send", "", "", "", 3600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	human, expired := newHold("human rejection rollback"), newHold("expiry rejection rollback")
+	if _, err := store.RejectPending(ctx, human.ID, user.ID, "no"); err == nil {
+		t.Fatal("human rejection succeeded despite lifecycle failure")
+	}
+	if _, err := store.ExpireReject(ctx, expired.ID, "ttl_expired"); err == nil {
+		t.Fatal("expiry rejection succeeded despite lifecycle failure")
+	}
+	for _, id := range []string{human.ID, expired.ID} {
+		var status string
+		if err := pool.QueryRow(ctx, `SELECT status FROM messages WHERE id=$1`, id).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if status != identity.MessageStatusPendingReview {
+			t.Fatalf("status after rollback=%s", status)
+		}
+	}
+}
+
+func TestRejectAndExpireLifecycle(t *testing.T) {
+	pool := testutil.TestDB(t)
+	ctx := context.Background()
+	store := identity.NewStore(pool)
+	user, _ := store.CreateOrGetUser(ctx, "owner-review-lifecycle@example.com", "Owner", "google-review-lifecycle")
+	domain := "review-lifecycle.example.com"
+	_, _ = store.ClaimOrCreateDomain(ctx, domain, user.ID)
+	_ = store.VerifyDomain(ctx, domain, user.ID)
+	ag, _ := store.CreateAgent(ctx, "bot@"+domain, domain, "", "", "local", user.ID)
+	newHold := func(subject string) *identity.Message {
+		m, err := store.CreatePendingOutboundMessage(ctx, ag.ID, []string{"a@example.net"}, nil, nil, subject, "body", "", nil, "send", "", "", "", 3600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	human := newHold("human reject")
+	if _, err := store.RejectPending(ctx, human.ID, user.ID, "no"); err != nil {
+		t.Fatal(err)
+	}
+	expiredReject := newHold("expired reject")
+	if _, err := store.ExpireReject(ctx, expiredReject.ID, "ttl_expired"); err != nil {
+		t.Fatal(err)
+	}
+	expiredApprove := newHold("expired approve")
+	acc := identity.AcceptedSend{To: []string{"a@example.net"}, Subject: "expired approve", Method: "smtp", SentAs: "relay", Raw: []byte("raw")}
+	if _, err := store.ApproveAndAccept(ctx, expiredApprove.ID, "", identity.MessageStatusReviewExpiredApproved, false, acc, func(context.Context, pgx.Tx, string) (int64, error) { return 77, nil }, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id     string
+		reason messagelifecycle.ReasonCode
+		queued bool
+	}{{human.ID, messagelifecycle.ReasonReviewRejected, false}, {expiredReject.ID, messagelifecycle.ReasonReviewExpiredRejected, false}, {expiredApprove.ID, messagelifecycle.ReasonReviewExpiredApproved, true}} {
+		got := lifecycleReasons(t, pool, tc.id)
+		found, queued := false, false
+		for _, reason := range got {
+			found = found || reason == tc.reason
+			queued = queued || reason == messagelifecycle.ReasonQueueOutboundSubmission
+		}
+		if !found || queued != tc.queued {
+			t.Fatalf("lifecycle %s=%v want reason=%s queued=%v", tc.id, got, tc.reason, tc.queued)
+		}
+	}
+}
 
 // TestApproveAndAccept transitions a pending_review outbound hold to
 // approved+accepted, enqueues via the callback, stamps the returned job id, and is
