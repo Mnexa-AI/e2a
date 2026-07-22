@@ -45,6 +45,10 @@ func StartContractServer(ctx context.Context, dbURL string) (*ContractServer, er
 		pool.Close()
 		return nil, err
 	}
+	if err := resetRiverOperationalState(ctx, pool); err != nil {
+		pool.Close()
+		return nil, err
+	}
 
 	store := identity.NewStore(pool)
 	managedUnsubscribeIssuer, err := unsubscribe.NewIssuer(TestHMACSecret, "http://127.0.0.1", false, store)

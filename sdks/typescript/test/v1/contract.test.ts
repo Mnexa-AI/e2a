@@ -15,7 +15,7 @@
  * cross-language scenarios.yaml migration (tracked separately); this runner is
  * gated behind live-server env vars and is not part of the unit build.
  */
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { parse as yamlParse } from "yaml";
@@ -97,10 +97,62 @@ it("keeps the managed-unsubscribe scenario self-cleaning and lifecycle-observabl
     },
   });
 
-  expect(scenario!.steps.slice(-2).map((step) => step.id)).toEqual([
+  expect(scenario!.steps.map((step) => step.id)).not.toContain("delete_agent_permanently");
+  expect(scenario!.cleanup?.map((step) => step.id)).toEqual([
     "delete_agent_permanently",
     "delete_domain",
   ]);
+});
+
+it("runs cleanup in order after a primary failure without masking it", async () => {
+  const paths: string[] = [];
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = new URL(String(input)).pathname;
+    paths.push(path);
+    if (path === "/fail") return new Response("primary", { status: 500 });
+    if (path === "/cleanup-agent") return new Response("cleanup", { status: 500 });
+    return new Response("", { status: 200 });
+  });
+  const scenario = {
+    name: "failure_cleanup",
+    description: "cleanup survives primary and cleanup failures",
+    steps: [{ id: "fail", action: "request", method: "GET", path: "/fail", expect: { status: 200 } }],
+    cleanup: [
+      { id: "cleanup_agent", action: "request", method: "DELETE", path: "/cleanup-agent", expect: { status: 200 } },
+      { id: "cleanup_domain", action: "request", method: "DELETE", path: "/cleanup-domain", expect: { status: 200 } },
+    ],
+  } satisfies Scenario;
+
+  try {
+    await expect(executeRunner(new Runner("https://contract.test", "key", scenario))).rejects.toThrow(
+      /step fail: status/,
+    );
+    expect(paths).toEqual(["/fail", "/cleanup-agent", "/cleanup-domain"]);
+  } finally {
+    fetchMock.mockRestore();
+  }
+});
+
+it("surfaces cleanup failure when the scenario itself succeeds", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response("cleanup", { status: 500 }),
+  );
+  const scenario = {
+    name: "cleanup_failure",
+    description: "cleanup failure is visible",
+    steps: [],
+    cleanup: [
+      { id: "cleanup", action: "request", method: "DELETE", path: "/cleanup", expect: { status: 200 } },
+    ],
+  } satisfies Scenario;
+
+  try {
+    await expect(executeRunner(new Runner("https://contract.test", "key", scenario))).rejects.toThrow(
+      /contract scenario cleanup failed/,
+    );
+  } finally {
+    fetchMock.mockRestore();
+  }
 });
 
 // Minimal raw-HTTP driver — the scenario runner needs a generic
@@ -147,6 +199,7 @@ interface Scenario {
   auth_override?: string;
   setup?: SetupStep[];
   steps: Step[];
+  cleanup?: Step[];
 }
 
 interface SetupStep {
@@ -395,11 +448,27 @@ class Runner {
   }
 
   async cleanup(): Promise<void> {
+    const errors: unknown[] = [];
     if (this.wsListener) {
       this.wsListener.close();
       this.wsListener = null;
     }
-    if (this.seeder) await this.seeder.cleanup();
+    for (const step of this.scenario.cleanup ?? []) {
+      try {
+        if (step.action !== "request") throw new Error(`cleanup step ${step.id}: only request actions are supported`);
+        await this.execRequest(step);
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    if (this.seeder) {
+      try {
+        await this.seeder.cleanup();
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, "contract scenario cleanup failed");
   }
 
   /** verify_and_retry: verify the (registered) domain, then run the request. */
@@ -592,6 +661,22 @@ class Runner {
   }
 }
 
+async function executeRunner(runner: Runner): Promise<void> {
+  let primary: unknown;
+  try {
+    const skipped = await runner.executeSetup();
+    if (!skipped) await runner.executeSteps();
+  } catch (err) {
+    primary = err;
+  }
+  try {
+    await runner.cleanup();
+  } catch (cleanupError) {
+    if (primary === undefined) throw cleanupError;
+  }
+  if (primary !== undefined) throw primary;
+}
+
 // ── Scenarios that require store-level setup ────────────────────
 
 const STORE_DEPENDENT_ACTIONS = new Set(["inject_message", "verify_and_retry"]);
@@ -629,14 +714,7 @@ describe.skipIf(!baseUrl || !apiKey)("Contract scenarios", () => {
     (skip ? it.skip : it)(
       sc.name,
       async () => {
-        const runner = new Runner(baseUrl!, apiKey!, sc);
-        try {
-          const skipped = await runner.executeSetup();
-          if (skipped) return;
-          await runner.executeSteps();
-        } finally {
-          await runner.cleanup();
-        }
+        await executeRunner(new Runner(baseUrl!, apiKey!, sc));
       },
       // Seeding mints + CF-verifies a real domain (variable DNS propagation), so
       // seeded scenarios need a generous budget with headroom over the worst-case

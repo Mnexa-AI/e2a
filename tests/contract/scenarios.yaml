@@ -24,6 +24,11 @@
 #   ws_read          — read and assert one WebSocket notification
 #   verify_and_retry — verify a domain in the store, then replay an HTTP request
 #
+# Optional cleanup blocks contain request steps. Every runner executes them in
+# declaration order after setup/steps, including after failures. Cleanup is
+# best-effort: every request runs, the primary failure wins, and otherwise a
+# cleanup failure fails the scenario.
+#
 # Placeholder tokens (resolved by runner at execution time):
 #   {base_url}      — test server URL
 #   {api_key}       — valid API key for the test user
@@ -771,6 +776,7 @@ scenarios:
               retryable: false
               reconstructed: false
 
+    cleanup:
       - id: delete_agent_permanently
         action: request
         method: DELETE

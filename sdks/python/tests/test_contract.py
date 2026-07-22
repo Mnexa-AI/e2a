@@ -179,6 +179,22 @@ class Runner:
             else:
                 raise ValueError(f"step {step['id']}: unknown action {action}")
 
+    def cleanup(self):
+        errors: list[BaseException] = []
+        for step in self.scenario.get("cleanup") or []:
+            try:
+                if step.get("action") != "request":
+                    raise ValueError(
+                        f"cleanup step {step['id']}: only request actions are supported"
+                    )
+                self._exec_request(step)
+            except BaseException as exc:
+                errors.append(exc)
+        if errors:
+            raise AssertionError(
+                f"contract scenario cleanup failed ({len(errors)} error(s)): {errors[0]}"
+            ) from errors[0]
+
     def _exec_request(self, step: dict[str, Any]):
         path = self.resolve(step["path"])
         body = self.resolve_value(step["body"]) if "body" in step else None
@@ -334,6 +350,25 @@ def _scenario_by_name(name: str) -> dict[str, Any]:
     raise ValueError(f"scenario {name!r} not found")
 
 
+def run_runner(runner: Runner) -> None:
+    primary: BaseException | None = None
+    traceback = None
+    try:
+        skipped = runner.execute_setup()
+        if not skipped:
+            runner.execute_steps()
+    except BaseException as exc:
+        primary = exc
+        traceback = exc.__traceback__
+    try:
+        runner.cleanup()
+    except BaseException:
+        if primary is None:
+            raise
+    if primary is not None:
+        raise primary.with_traceback(traceback)
+
+
 def test_runner_captures_response_values_for_later_paths(monkeypatch):
     scenario = {
         "name": "capture",
@@ -379,6 +414,89 @@ def test_runner_captures_response_values_for_later_paths(monkeypatch):
     assert paths == ["/messages", "/messages/msg_captured/lifecycle"]
 
 
+def test_runner_cleanup_preserves_primary_failure_and_runs_every_request(monkeypatch):
+    scenario = {
+        "name": "failure_cleanup",
+        "description": "cleanup survives primary and cleanup failures",
+        "steps": [
+            {
+                "id": "fail",
+                "action": "request",
+                "method": "GET",
+                "path": "/fail",
+                "expect": {"status": 200},
+            }
+        ],
+        "cleanup": [
+            {
+                "id": "cleanup_agent",
+                "action": "request",
+                "method": "DELETE",
+                "path": "/cleanup-agent",
+                "expect": {"status": 200},
+            },
+            {
+                "id": "cleanup_domain",
+                "action": "request",
+                "method": "DELETE",
+                "path": "/cleanup-domain",
+                "expect": {"status": 200},
+            },
+        ],
+    }
+    paths: list[str] = []
+    responses = iter(
+        [
+            httpx.Response(500, text="primary"),
+            httpx.Response(500, text="cleanup"),
+            httpx.Response(200),
+        ]
+    )
+    runner = Runner("https://contract.test", "key", scenario)
+
+    def fake_raw(method: str, path: str, body: Any = None) -> httpx.Response:
+        del method, body
+        paths.append(path)
+        return next(responses)
+
+    monkeypatch.setattr(runner, "_raw", fake_raw)
+    try:
+        with pytest.raises(AssertionError, match="step fail"):
+            run_runner(runner)
+    finally:
+        runner.close()
+
+    assert paths == ["/fail", "/cleanup-agent", "/cleanup-domain"]
+
+
+def test_runner_surfaces_cleanup_failure_without_primary_failure(monkeypatch):
+    scenario = {
+        "name": "cleanup_failure",
+        "description": "cleanup failure is visible",
+        "steps": [],
+        "cleanup": [
+            {
+                "id": "cleanup",
+                "action": "request",
+                "method": "DELETE",
+                "path": "/cleanup",
+                "expect": {"status": 200},
+            }
+        ],
+    }
+    runner = Runner("https://contract.test", "key", scenario)
+    monkeypatch.setattr(
+        runner,
+        "_raw",
+        lambda method, path, body=None: httpx.Response(500, text="cleanup"),
+    )
+    try:
+        with pytest.raises(AssertionError, match="contract scenario cleanup failed"):
+            run_runner(runner)
+    finally:
+        runner.close()
+
+
 def test_managed_unsubscribe_scenario_is_self_cleaning_and_lifecycle_observable():
     scenario = _scenario_by_name("agent_suppression_and_managed_unsubscribe")
     steps = {step["id"]: step for step in scenario["steps"]}
@@ -399,7 +517,8 @@ def test_managed_unsubscribe_scenario_is_self_cleaning_and_lifecycle_observable(
             "reconstructed": False,
         }
     }
-    assert [step["id"] for step in scenario["steps"][-2:]] == [
+    assert "delete_agent_permanently" not in {step["id"] for step in scenario["steps"]}
+    assert [step["id"] for step in scenario["cleanup"]] == [
         "delete_agent_permanently",
         "delete_domain",
     ]
@@ -417,9 +536,6 @@ def test_contract_scenario(scenario):
 
     runner = Runner(BASE_URL, API_KEY, scenario)
     try:
-        skipped = runner.execute_setup()
-        if skipped:
-            pytest.skip(f"scenario {scenario['name']}: setup requires store access")
-        runner.execute_steps()
+        run_runner(runner)
     finally:
         runner.close()
