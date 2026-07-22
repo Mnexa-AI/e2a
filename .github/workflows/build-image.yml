@@ -5,9 +5,9 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
-    # Re-run on PRs that could plausibly change either image. Two image
-    # variants (server + web) build in parallel via the matrix below;
-    # doc-only PRs are still skipped.
+    # Re-run on PRs that could plausibly change any image. The image
+    # variants build in parallel via the matrix below; doc-only PRs are
+    # still skipped.
     paths:
       - "Dockerfile"
       - "go.mod"
@@ -16,6 +16,7 @@ on:
       - "internal/**"
       - "web/**"
       - "design-system/**"
+      - "tests/sdk-monitor/**"
       - ".github/workflows/build-image.yml"
   workflow_dispatch:
 
@@ -64,6 +65,16 @@ jobs:
             # with the server so the hosted deploy pins it to the same tag.
             context: .
             dockerfile: Dockerfile.prober
+          - image: e2a-sdk-monitor
+            display_name: SDK monitor image
+            # Continuously exercises the *published* client surfaces (raw API,
+            # Python SDK, MCP, TypeScript SDK, CLI) against prod
+            # (tests/sdk-monitor). Context is deliberately the service directory,
+            # not the repo root: the build must not be able to see sdks/python,
+            # sdks/typescript, or cli/, so every dependency can only come from a
+            # real PyPI/npm install of the published package.
+            context: tests/sdk-monitor
+            dockerfile: tests/sdk-monitor/Dockerfile
     steps:
       - uses: actions/checkout@v7
 
