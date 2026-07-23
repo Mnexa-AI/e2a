@@ -78,6 +78,8 @@ e2a agents create bot@acme.com --name "Support bot"
 e2a agents get bot@acme.com
 ```
 
+`list`, `create`, and `get` all accept `--json` (print the raw JSON response).
+
 ### `e2a keys`
 
 Mint, list, and revoke API keys (requires an account-scoped key).
@@ -89,6 +91,8 @@ e2a keys list
 e2a keys delete <key-id>
 ```
 
+`create` and `list` accept `--json` (print the raw JSON response).
+
 ### `e2a protection`
 
 Show or update an agent's protection (screening/review) config.
@@ -99,6 +103,8 @@ e2a protection set bot@acme.com --outbound-review off   # sends go out unheld
 e2a protection set bot@acme.com --inbound-review off     # inbound delivered unheld
 e2a protection set bot@acme.com --suppress-notifications on
 ```
+
+`get` and `set` accept `--json` (print the raw JSON response).
 
 ### `e2a send` / `e2a reply`
 
@@ -128,12 +134,17 @@ List or fetch messages for an agent.
 e2a messages list --agent bot@acme.com --direction inbound --read-status unread
 e2a messages list --agent bot@acme.com --since 2026-07-01T00:00:00Z --json
 e2a messages get msg_abc123 --agent bot@acme.com --text
+e2a messages lifecycle msg_abc123 --agent bot@acme.com --json   # beta
 ```
 
 `list` flags: `--direction` (`inbound`/`outbound`/`all`), `--since` (inclusive
 ISO timestamp), `--conversation` (alias `--conversation-id`), `--read-status`
 (`unread`/`read`/`all`, default `all`), `--limit`, `--agent`, `--json` (NDJSON
-instead of TSV). `get` flags: `--text` (print parsed body text only), `--agent`.
+instead of TSV). `get` flags: `--text` (print parsed body text only),
+`--agent`, `--json` (print the full message as JSON). `lifecycle` (beta) shows
+a message's observed lifecycle transitions; flags: `--cursor` (continue from a
+prior page), `--limit` (page size, 1–100), `--agent`, `--json` (print the
+canonical lifecycle page as JSON).
 
 ### `e2a listen`
 
@@ -166,6 +177,9 @@ e2a listen --agent bot@acme.com --once --until 2026-07-18T13:00:00Z --text
 ```
 
 `--agent` falls back to the `agent_email` saved in config.
+
+Note: `listen --once --text` / `--json` fetches the message via the API GET,
+which marks it as read (same side effect as `messages get`).
 
 The server keeps **one WebSocket connection per agent**. If another listener
 for the same agent connects (a second `e2a listen`, or an SDK
