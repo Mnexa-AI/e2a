@@ -126,6 +126,6 @@ func TestProxyListenerUntrustedHeaderNeverParsed(t *testing.T) {
 	_ = c.SetReadDeadline(time.Now().Add(time.Second))
 	n, _ := c.Read(buf)
 	if n == 0 {
-		t.Fatal("connection was dropped; IGNORE policy must pass bytes through")
+		t.Fatal("connection was dropped; SKIP policy must pass bytes through")
 	}
 }
