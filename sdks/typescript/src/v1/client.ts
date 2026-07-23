@@ -118,6 +118,16 @@ export interface RequestOptions {
   idempotencyKey?: string;
 }
 
+/** Per-call options for send/reply/forward. */
+export interface SendOptions extends RequestOptions {
+  /** Optional bounded wait: `wait: "sent"` holds the request server-side until
+   *  the message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then
+   *  returns the observed state; on timeout the result stays `status:
+   *  "accepted"`. Default: no wait. Always branch on the result's `status`,
+   *  not the HTTP code. */
+  wait?: "sent";
+}
+
 /** Beta per-message opt-in to e2a-managed unsubscribe handling. This API and
  * its raw GET|POST /u/{token} confirmation flow may change before stable. */
 export interface ManagedUnsubscribeOptions {
@@ -287,11 +297,16 @@ class AgentsResource {
   replaceProtection(email: string, config: ProtectionConfigRequest): Promise<ProtectionConfigView> {
     return call(() => this.api.putAgentProtection(email, config));
   }
-  delete(email: string): Promise<DeleteAgentResult> {
-    // The typed .delete() call is itself the confirmation; the ?confirm=DELETE
-    // guard exists to protect raw/curl callers (AG-6). Returns the deletion
-    // receipt ({deleted:true, email, messages_deleted}).
-    return call(() => this.api.deleteAgent(email, "DELETE"));
+  /**
+   * Move an agent to the trash by default (restorable via `restore()` within
+   * the 30-day window). Pass `{ permanent: true }` to delete irreversibly
+   * right away instead — accepts live and trashed agents. The typed .delete()
+   * call is itself the confirmation; the ?confirm=DELETE guard exists to
+   * protect raw/curl callers (AG-6). Returns the deletion receipt
+   * ({deleted:true, email, messages_deleted}).
+   */
+  delete(email: string, opts: { permanent?: boolean } = {}): Promise<DeleteAgentResult> {
+    return call(() => this.api.deleteAgent(email, "DELETE", opts.permanent));
   }
   /** Restore an agent from the 30-day trash. Account-scoped credentials only. */
   restore(email: string): Promise<AgentView> {
@@ -390,14 +405,14 @@ class MessagesResource {
   getAttachment(email: string, id: string, index: number, opts: { inline?: boolean } = {}): Promise<AttachmentView> {
     return call(() => this.api.getAttachment(email, id, index, opts.inline));
   }
-  send(email: string, body: SendEmailInput, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.sendMessage(email, body as SendEmailRequest, opts.idempotencyKey));
+  send(email: string, body: SendEmailInput, opts: SendOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.sendMessage(email, body as SendEmailRequest, opts.idempotencyKey, opts.wait));
   }
-  reply(email: string, messageId: string, body: ReplyInput, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.replyToMessage(email, messageId, body as ReplyRequest, opts.idempotencyKey));
+  reply(email: string, messageId: string, body: ReplyInput, opts: SendOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.replyToMessage(email, messageId, body as ReplyRequest, opts.idempotencyKey, opts.wait));
   }
-  forward(email: string, messageId: string, body: ForwardInput, opts: RequestOptions = {}): Promise<SendResultView> {
-    return call(() => this.api.forwardMessage(email, messageId, body as ForwardRequest, opts.idempotencyKey));
+  forward(email: string, messageId: string, body: ForwardInput, opts: SendOptions = {}): Promise<SendResultView> {
+    return call(() => this.api.forwardMessage(email, messageId, body as ForwardRequest, opts.idempotencyKey, opts.wait));
   }
   // Approve/reject a held message live on the account-scoped review queue —
   // `client.reviews.approve(id, body)` / `client.reviews.reject(id, body)`. The
@@ -659,9 +674,11 @@ class APIKeysResource {
       return { items: page.items ?? [], next_cursor: page.nextCursor };
     });
   }
-  // create returns the one-time plaintext key in `.key` — store it now.
-  create(body: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
-    return call(() => this.api.createApiKey(body));
+  // create returns the one-time plaintext key in `.key` — store it now. The
+  // server replays the same credential for a keyed retry, so the SDK can safely
+  // retry an ambiguous transport failure without minting twice.
+  create(body: CreateAPIKeyRequest, opts: RequestOptions = {}): Promise<CreateAPIKeyResponse> {
+    return call(() => this.api.createApiKey(body, opts.idempotencyKey));
   }
   delete(id: string): Promise<DeleteApiKeyResult> {
     // The typed .delete() call is itself the confirmation; the SDK supplies the

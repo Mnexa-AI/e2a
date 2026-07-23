@@ -94,9 +94,11 @@ retries + idempotency, and async auto-pagination.
   `client.send(...)` → `client.messages.send(address, body)`. Per-agent calls
   take an explicit `address`.
 - **Webhook verification.** `client.parse` / `client.parse_webhook` /
-  `InboundEmail` are removed. Verify and parse a delivery with the standalone
+  `InboundEmail` were removed. Verify and parse a delivery with the standalone
   `construct_event(raw_body, header, secret)`, which returns a typed
   `WebhookEvent`. Signatures are per-webhook (`whsec_…`), Stripe-style.
+  (5.2 later re-introduced `InboundEmail` as a different thing: the sync
+  inbound facade returned by `client.inbound.from_event(event)`.)
 - **Typed errors.** Failures raise `E2AError` subclasses (`E2ANotFoundError`,
   `E2AConflictError`, `E2AValidationError`, `E2ARateLimitError`, …) carrying
   `.code`, `.status`, `.request_id`, and `.retryable`.
@@ -169,6 +171,26 @@ await client.messages.send(address, body, idempotency_key=derive_from(event))
 Request bodies accept a plain `dict` (shown above) or the generated model
 (`from e2a.v1 import SendEmailRequest`).
 
+### Bounded wait for delivery (`wait="sent"`)
+
+Sends are queue-first: by default `send` / `reply` / `forward` return as soon
+as the message is durably accepted (`status="accepted"`). Pass `wait="sent"`
+to hold the request server-side until the message reaches a terminal-or-held
+state or at most 20 seconds elapse (currently ~15s):
+
+```python
+result = await client.messages.send(
+    "sender@example.com",
+    {"to": ["recipient@example.net"], "subject": "Update", "text": "Hello"},
+    wait="sent",
+)
+if result.status == "sent":
+    ...  # delivered; on timeout the status stays "accepted"
+```
+
+Always branch on the result's `status`, not the HTTP code — a timeout is not
+a failure, the message is still queued for delivery.
+
 ### Managed unsubscribe (beta)
 
 Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe.
@@ -182,6 +204,18 @@ await client.messages.send("sender@example.com", {
     "text": "Hello",
     "unsubscribe": {"mode": "managed"},
 })
+```
+
+Equivalently, pass it as the `unsubscribe=` keyword on `send` / `reply` /
+`forward` (a plain dict or an `UnsubscribeOptions`; the keyword wins over any
+`unsubscribe` already in the body):
+
+```python
+await client.messages.send(
+    "sender@example.com",
+    {"to": ["recipient@example.net"], "subject": "Update", "text": "Hello"},
+    unsubscribe={"mode": "managed"},
+)
 ```
 
 Omitting `unsubscribe` means only that e2a does not add managed unsubscribe
@@ -260,7 +294,7 @@ again when sending. `email.flagged` is
 the inbound policy-gate flag, not a complete content-scan verdict. Treat all
 message content as untrusted. `attachment.get()` returns metadata plus a
 short-lived download URL by default; `inline=True` adds base64 data only for
-attachments within the server's 256 KiB inline cap.
+attachments within the server's 256 KB inline cap.
 
 ## Resources
 
@@ -270,7 +304,10 @@ attachments within the server's 256 KiB inline cap.
 `await client.info()`. Agent-scoped recipient blocks are managed through
 `client.agents.list_suppressions`, `create_suppression`, and
 `delete_suppression`. Each method maps to a `/v1` operation; per-agent
-methods take the agent `address` first.
+methods take the agent `address` first. Also on `client.messages`:
+`get_lifecycle(email, message_id, *, cursor=None, limit=None)` (beta) —
+page through a message's canonical lifecycle transitions (send, delivery,
+bounce, review, deletion, …).
 
 Two more, both account-scoped: `client.reviews` — the human-review queue for
 messages held in `pending_review` (outbound drafts awaiting send approval,
@@ -309,7 +346,9 @@ Every failure raises an `E2AError` (or subclass) with `.code`, `.status`,
 `E2AIdempotencyError`, `E2ALimitExceededError` (402 — a **quota** cap; not
 retryable), `E2ARateLimitError` (429 — a request-**rate** limit; retryable after
 `retry_after_seconds`), `E2AServerError` (5xx), `E2AConnectionError` (no
-response), `E2AWebhookSignatureError`. The 402/429 split is permanent — branch on
+response), `E2AConnectionReplacedError` (WebSocket close code 4000 — a newer
+listener for the same agent superseded this one; terminal, no auto-reconnect),
+`E2AWebhookSignatureError`. The 402/429 split is permanent — branch on
 the exception type: 402 → surface a quota/upgrade path, 429 → back off and retry.
 
 > e2a hides the existence of agents you don't own — `agents.get` of an unknown

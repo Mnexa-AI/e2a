@@ -523,6 +523,140 @@ async def test_send_uses_caller_idempotency_key(httpx_mock):
 
 
 @pytest.mark.anyio
+async def test_send_threads_managed_unsubscribe(httpx_mock):
+    # Beta: the unsubscribe kwarg lands on the generated request model and
+    # serializes onto the wire (parity with the TS SDK's
+    # ManagedUnsubscribeOptions).
+    httpx_mock.add_response(json={"message_id": "msg_u1", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send(
+            "bot@test.dev",
+            {"to": ["a@x.com"], "subject": "Hi", "text": "yo"},
+            unsubscribe={"mode": "managed"},
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert json.loads(req.content)["unsubscribe"] == {"mode": "managed"}
+
+
+@pytest.mark.anyio
+async def test_send_unsubscribe_kwarg_accepts_model_and_overrides_body(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u2", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send(
+            "bot@test.dev",
+            SendEmailRequest(
+                to=["a@x.com"],
+                subject="Hi",
+                text="yo",
+                unsubscribe=UnsubscribeOptions(mode="managed"),
+            ),
+            unsubscribe=UnsubscribeOptions(mode="managed"),
+        )
+    assert json.loads(httpx_mock.get_requests()[-1].content)["unsubscribe"] == {
+        "mode": "managed"
+    }
+
+
+@pytest.mark.anyio
+async def test_send_unsubscribe_kwarg_does_not_mutate_caller_model(httpx_mock):
+    # Regression: _coerce returns the caller's own model when body is already a
+    # SendEmailRequest — the kwarg must land on a copy, not on the caller's
+    # object, or reusing one model across sends leaks unsubscribe into later
+    # sends (and managed unsubscribe requires exactly one recipient
+    # server-side, so the leaked second send can fail).
+    httpx_mock.add_response(json={"message_id": "msg_u6", "status": "sent"})
+    request = SendEmailRequest(to=["a@x.com"], subject="Hi", text="yo")
+    async with _client() as c:
+        await c.messages.send("bot@test.dev", request, unsubscribe={"mode": "managed"})
+    assert json.loads(httpx_mock.get_requests()[-1].content)["unsubscribe"] == {
+        "mode": "managed"
+    }
+    assert request.unsubscribe is None
+
+
+@pytest.mark.anyio
+async def test_send_without_unsubscribe_omits_field(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u3", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "text": "yo"})
+    assert "unsubscribe" not in json.loads(httpx_mock.get_requests()[-1].content)
+
+
+@pytest.mark.anyio
+async def test_reply_threads_managed_unsubscribe(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u4", "status": "sent"})
+    async with _client() as c:
+        await c.messages.reply(
+            "bot@test.dev",
+            "msg_1",
+            {"text": "yo"},
+            unsubscribe={"mode": "managed"},
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/reply" in str(req.url)
+    assert json.loads(req.content)["unsubscribe"] == {"mode": "managed"}
+
+
+@pytest.mark.anyio
+async def test_forward_threads_managed_unsubscribe(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u5", "status": "sent"})
+    async with _client() as c:
+        await c.messages.forward(
+            "bot@test.dev",
+            "msg_1",
+            {"to": ["a@x.com"], "text": "yo"},
+            unsubscribe={"mode": "managed"},
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/forward" in str(req.url)
+    assert json.loads(req.content)["unsubscribe"] == {"mode": "managed"}
+
+
+@pytest.mark.anyio
+async def test_send_wait_sent_passes_query_param(httpx_mock):
+    # wait="sent" is the bounded-wait opt-in (parity with the TS SDK's
+    # SendOptions.wait): it must reach the wire as ?wait=sent.
+    httpx_mock.add_response(json={"message_id": "msg_w1", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send(
+            "bot@test.dev",
+            {"to": ["a@x.com"], "subject": "Hi", "text": "yo"},
+            wait="sent",
+        )
+    assert httpx_mock.get_requests()[-1].url.params["wait"] == "sent"
+
+
+@pytest.mark.anyio
+async def test_reply_wait_sent_passes_query_param(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_w2", "status": "sent"})
+    async with _client() as c:
+        await c.messages.reply("bot@test.dev", "msg_1", {"text": "yo"}, wait="sent")
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/reply" in str(req.url)
+    assert req.url.params["wait"] == "sent"
+
+
+@pytest.mark.anyio
+async def test_forward_wait_sent_passes_query_param(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_w3", "status": "sent"})
+    async with _client() as c:
+        await c.messages.forward(
+            "bot@test.dev", "msg_1", {"to": ["a@x.com"], "text": "yo"}, wait="sent"
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/forward" in str(req.url)
+    assert req.url.params["wait"] == "sent"
+
+
+@pytest.mark.anyio
+async def test_send_without_wait_omits_query_param(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_w4", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "text": "yo"})
+    assert "wait" not in httpx_mock.get_requests()[-1].url.params
+
+
+@pytest.mark.anyio
 async def test_create_api_key_retries_with_one_idempotency_key(httpx_mock):
     httpx_mock.add_response(
         status_code=503,

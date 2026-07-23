@@ -19,6 +19,7 @@ from __future__ import annotations
 import json as json_mod
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ import httpx
 import pytest
 import yaml
 
+from e2a.v1 import E2AClient
 from e2a.v1.generated.models import PageMessageLifecycleTransition
 
 # NOTE: the runner drives the server over raw HTTP (a thin scenario interpreter,
@@ -539,3 +541,78 @@ def test_contract_scenario(scenario):
         run_runner(runner)
     finally:
         runner.close()
+
+
+# ── High-level sync client contract tests ─────────────────────────
+#
+# The scenario runner above drives the server over raw HTTP by design, so the
+# ergonomic client's wrapper-only features (wait="sent", unsubscribe kwarg)
+# need their own live-server coverage here.
+#
+# Contract-server send topology (cmd/e2a-contract-server): no outbound River
+# worker is wired, so external sends fail closed (500 outbound queue
+# unavailable). The deterministic terminal path is the self-send LOOPBACK,
+# which delivers synchronously — wait="sent" on it observes status="sent"
+# immediately rather than polling to the server-side ceiling.
+
+
+def _slug(prefix: str) -> str:
+    """Shared-domain slug satisfying the server's ^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$
+    rule (2-40 chars, no underscores)."""
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+@requires_contract_server
+def test_client_send_wait_sent_returns_terminal_loopback_result():
+    with E2AClient(API_KEY, base_url=BASE_URL) as client:
+        email = f"{_slug('sdkc-wait')}@agents.e2a.dev"
+        client.agents.create({"email": email})
+        try:
+            res = client.messages.send(
+                email,
+                {"to": [email], "subject": "wait contract", "text": "self-send loopback"},
+                wait="sent",
+            )
+            assert res.status == "sent"
+            assert res.message_id.startswith("msg_")
+            assert res.method == "loopback"
+        finally:
+            # The Python wrapper exposes only the soft (trash) delete; the
+            # contract DB is truncated on server start, so trash is enough.
+            client.agents.delete(email)
+
+
+@requires_contract_server
+def test_client_send_managed_unsubscribe_is_accepted_and_held():
+    # Managed unsubscribe requires exactly one non-self recipient, and the
+    # contract server cannot deliver externally (no outbound worker) — so the
+    # deterministic accepted shape is the review hold, mirroring the
+    # managed_unsubscribe_send_held step of the Go/TS scenario runner.
+    with E2AClient(API_KEY, base_url=BASE_URL) as client:
+        email = f"{_slug('sdkc-unsub')}@agents.e2a.dev"
+        client.agents.create({"email": email})
+        try:
+            client.agents.replace_protection(
+                email,
+                {
+                    "inbound": {"gate": {}, "scan": {}},
+                    "outbound": {
+                        "gate": {"policy": "allowlist", "action": "review", "allowlist": []},
+                        "scan": {},
+                    },
+                    "holds": {},
+                },
+            )
+            res = client.messages.send(
+                email,
+                {
+                    "to": ["alice@example.com"],
+                    "subject": "managed unsubscribe contract",
+                    "text": "held for review",
+                },
+                unsubscribe={"mode": "managed"},
+            )
+            assert res.status == "pending_review"
+            assert res.message_id.startswith("msg_")
+        finally:
+            client.agents.delete(email)

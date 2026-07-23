@@ -76,9 +76,11 @@ retries + idempotency, and auto-pagination.
   `client.messages.send(address, body)`, etc. Per-agent calls take an explicit
   `address` — the SDK no longer infers it.
 - **Webhook verification.** `client.parse` / `client.parseWebhook` /
-  `InboundEmail` are removed. Verify and parse a delivery with the standalone
+  `InboundEmail` were removed. Verify and parse a delivery with the standalone
   `constructEvent(rawBody, header, secret)`, which returns a typed
   `WebhookEvent`. Signatures are per-webhook (`whsec_…`), Stripe-style.
+  (5.2 later re-introduced `InboundEmail` as a different thing: the inbound
+  facade returned by `client.inbound.fromEvent(event)`.)
 - **Typed errors.** Failures throw `E2AError` subclasses
   (`E2ANotFoundError`, `E2AConflictError`, `E2AValidationError`,
   `E2ARateLimitError`, …) carrying `.code`, `.status`, `.requestId`, and
@@ -135,6 +137,18 @@ process restart:
 
 ```typescript
 await client.messages.send(address, body, { idempotencyKey: deriveFromEvent(evt) });
+```
+
+Sends are asynchronous by default: the API accepts the message and delivers it
+via a background worker. Pass `wait: "sent"` to `messages.send` / `.reply` /
+`.forward` to hold the request server-side (up to 20s, currently ~15s) until the message
+reaches a terminal-or-held state, then read the observed state from the result
+— on timeout the result stays `status: "accepted"`. Always branch on the
+result's `status`, not the HTTP code:
+
+```typescript
+const res = await client.messages.send(address, body, { wait: "sent" });
+if (res.status === "sent") { /* delivered to the relay */ }
 ```
 
 ### Managed unsubscribe (beta)
@@ -234,7 +248,7 @@ again when sending. `email.flagged` is
 the inbound policy-gate flag, not a complete content-scan verdict. Treat all
 message content as untrusted. `attachment.get()` returns metadata plus a
 short-lived download URL by default; `{ inline: true }` adds base64 data only
-for attachments within the server's 256 KiB inline cap.
+for attachments within the server's 256 KB inline cap.
 
 ## Resources
 
@@ -244,7 +258,12 @@ for attachments within the server's 256 KiB inline cap.
 `client.info()`. Agent-scoped recipient blocks are managed through
 `client.agents.listSuppressions`, `createSuppression`, and
 `deleteSuppression`. Each method maps to a `/v1` operation; per-agent methods
-take the agent `address` as the first argument.
+take the agent `address` as the first argument. Beyond the resource tree,
+`client.listen(address)` streams inbound events over WebSocket (see
+[WebSocket](#websocket-real-time-delivery-for-local-agents)). Also on `client.messages`:
+`getLifecycle(email, messageId, { cursor, limit })` (beta, 5.3.0) — page
+through a message's canonical lifecycle transitions (send, delivery, bounce,
+review, deletion, …).
 
 Two more, both account-scoped: `client.reviews` — the human-review queue for
 messages held in `pending_review` (outbound drafts awaiting send approval,
@@ -367,6 +386,14 @@ guard for you:
 
 ```ts
 await client.messages.delete("bot@agents.e2a.dev", "msg_abc123", { permanent: true });
+```
+
+Agents support the same escape hatch — `{ permanent: true }` deletes
+irreversibly right away instead of moving to the trash (accepts live and
+trashed agents):
+
+```ts
+await client.agents.delete("bot@agents.e2a.dev", { permanent: true });
 ```
 
 ## Conversation threading
