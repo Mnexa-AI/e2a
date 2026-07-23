@@ -1,19 +1,20 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository. Assumes no prior
+Guidance for AI coding agents working in this repository (Claude Code reads
+this file via the `@AGENTS.md` import in `CLAUDE.md`). Assumes no prior
 knowledge of the project. For deeper prose, see `README.md` (product),
-`CONTRIBUTING.md` (contributor workflow), `CLAUDE.md` (architecture notes),
-`docs/` (API reference, deployment, design docs), and `SECURITY.md`.
+`CONTRIBUTING.md` (contributor workflow), `docs/` (API reference,
+deployment, design docs), and `SECURITY.md`.
 
 ## Project overview
 
-e2a is an **authenticated email gateway for AI agents**. It gives an agent a
-real email address: inbound mail is received over SMTP, sender-verified
-(SPF/DKIM/DMARC), and delivered to the agent as structured authentication
-evidence — via webhook, WebSocket, REST polling, or MCP tools.
-Outbound mail goes out through an HTTP API (SMTP relay agent-to-agent,
-upstream SMTP such as SES agent-to-human), with an optional human-in-the-loop
-(HITL) approval gate and opt-in prompt-injection content screening (piguard).
+e2a is an **authenticated email gateway for AI agents**: it gives an agent a
+real email address. Inbound mail arrives over SMTP, sender-verified
+(SPF/DKIM/DMARC), and reaches the agent as structured authentication evidence
+via webhook, WebSocket, REST polling, or MCP tools. Outbound mail goes out
+through an HTTP API (SMTP relay agent-to-agent, upstream SMTP such as SES
+agent-to-human), with an optional human-in-the-loop (HITL) approval gate and
+opt-in prompt-injection content screening (piguard).
 
 Polyglot monorepo, Apache-2.0, GitHub: `tokencanopy/e2a`. The `/v1` API and
 SDKs are release candidates; stable compatibility guarantees start at the
@@ -36,32 +37,29 @@ with Go 1.26. Node: engines `>=18`, CI runs on 22. Python: `requires-python
 
 ## Repository layout
 
-- `cmd/e2a/` — main server binary entry point (SMTP relay + HTTP API in one
-  process). Other binaries: `cmd/e2a-contract-server` (test instance for SDK
-  contract tests), `cmd/e2a-prober` (critical-path self-test runner),
-  `cmd/e2a-openapi-normalize`, `cmd/e2a-openapi-codegen-normalize`,
-  `cmd/e2a-openapi-sdk-check`, `cmd/e2a-openapi-security-check` (compat-gate/
-  codegen helpers), `cmd/piguard-eval`.
+- `cmd/e2a/` — main server binary (SMTP relay + HTTP API). Other binaries:
+  `e2a-contract-server` (SDK contract-test instance), `e2a-prober`
+  (critical-path self-test runner), `e2a-openapi-{normalize,codegen-normalize,
+  sdk-check,security-check}` (compat-gate/codegen helpers), `piguard-eval`.
 - `internal/` — all backend packages (see "Backend architecture").
-- `api/openapi.yaml` — committed OpenAPI 3.1 document, golden-tested against
-  the live Huma handlers. `api/testdata/oasdiff/` holds fixtures for the
-  compatibility-policy tests.
-- `migrations/` — sequential `0NN_*.sql` files, embedded into the binary via
-  `migrations/embed.go` and auto-applied at startup.
+- `api/openapi.yaml` — committed OpenAPI 3.1 doc, golden-tested against the
+  live Huma handlers; `api/testdata/oasdiff/` holds compat-policy fixtures.
+- `migrations/` — sequential `0NN_*.sql`, embedded via `migrations/embed.go`
+  and auto-applied at startup.
 - `tests/contract/` — Go contract tests driven by `scenarios.yaml`;
   `tests/e2e-prod/` — production smoke-test harness (TypeScript).
 - `docs/` — `api.md`, `deployment.md`, `events.md`, `templates.md`,
-  `data-handling.md`, `api-compatibility-gate.md`, plus `design/` (design
-  docs), `runbooks/` (ops procedures).
-- `scripts/` — CI guardrails (OpenAPI compat check, plugin validator, SDK
-  version-sync check, repo text-integrity check).
-- `examples/adk-cloud-webhook/` — Python webhook example.
-- Root config files: `go.mod`/`go.sum` (Go), `package.json` +
-  `package-lock.json` (npm workspaces: `cli`, `sdks/typescript`, `mcp`,
-  `design-system` — note `web/` and `sdks/python/` are NOT workspaces),
-  `Makefile` (all Go-side workflows), `config.example.yaml` (annotated server
-  config template), `docker-compose.yaml` (local dev), `Dockerfile` (server
-  image), `.testcoverage.yml` (per-package coverage floors), `VERSION`.
+  `data-handling.md`, `api-compatibility-gate.md`, `design/`, `runbooks/`.
+- `scripts/` — CI guardrails (OpenAPI compat check, plugin validator,
+  SDK version-sync check, repo text-integrity check).
+- `examples/adk-cloud-webhook/`, `examples/agent-framework-webhooks/` —
+  Python/TypeScript webhook examples, each tested by their own CI job.
+- Root config: `go.mod`/`go.sum`; `package.json`/`package-lock.json` (npm
+  workspaces `cli`, `sdks/typescript`, `mcp`, `design-system` — `web/` and
+  `sdks/python/` are NOT workspaces); `Makefile` (Go-side workflows);
+  `config.example.yaml` (annotated server config template);
+  `docker-compose.yaml` (local dev); `Dockerfile` (server image);
+  `.testcoverage.yml` (coverage floors); `VERSION`.
 
 ## Build and test commands
 
@@ -87,15 +85,25 @@ make generate-sdk       # regenerate TS + Python SDK bases from the spec (Docker
 make generate           # spec + generate-sdk
 make generate-sdk-check # regenerate + fail on git diff (CI freshness gate)
 make openapi-compat-check  # oasdiff backward-compat gate vs origin/main:api/openapi.yaml
+make openapi-compat-test   # runs the compat-gate's own test harness (scripts/test-openapi-compat.sh)
 ```
 
 DB-backed tests need
 `E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable"`.
 The test harness (`internal/testutil/db.go`) truncates tables between tests
 and auto-applies all migrations on connect. **Never share one test database
-between concurrent sessions/agents/worktrees** — create a separate database
-per runner and point `E2A_TEST_DATABASE_URL` at it. Always run DB-backed
-packages with `-p 1`.
+between concurrent sessions/agents/worktrees** — the shared truncate-between-
+tests behavior means two concurrent runs wipe each other's rows (a known
+local flake source). Give each runner its own database:
+
+```bash
+psql "postgres://e2a:e2a@localhost:5433/e2a" -c 'CREATE DATABASE e2a_test_<name>'
+export E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test_<name>?sslmode=disable"
+```
+
+A fresh database needs no manual setup — the harness applies all
+`migrations/*.sql` on connect. Always run DB-backed packages with `-p 1`
+(even within one database, parallel packages contend).
 
 ### TypeScript (npm workspaces — always use `--workspace` and `npm ci`)
 
@@ -144,9 +152,11 @@ make run           # API on :8080, SMTP relay on :2525; auto-applies migrations
 ./bin/e2a -config config.yaml -bootstrap-email you@example.com  # create user + API key
 ```
 
-Point `outbound_smtp` in `config.yaml` at Mailpit (`host: localhost`,
-`port: 1025`, `from_domain: e2a.localhost`) to exercise outbound flows without
-real SMTP credentials; captured mail appears at http://localhost:8025.
+Point `outbound_smtp` at Mailpit — `host: localhost`, `port: 1025`,
+`from_domain: e2a.localhost` in `config.yaml`, or the env vars
+`E2A_OUTBOUND_SMTP_{HOST,PORT,FROM_DOMAIN}` — to exercise outbound flows
+(HITL approval notifications, `/v1/agents/{email}/test`) without real SMTP
+creds; captured mail appears at http://localhost:8025.
 
 ## Backend architecture (`internal/`)
 
@@ -157,45 +167,44 @@ push. Outbound is **always queue-first**: the accept transaction atomically
 persists the message and enqueues a River job; a worker submits to the relay
 and records the terminal outcome.
 
-Key packages:
+Key packages, grouped (name — a few words each):
 
-- `relay` — SMTP server, inbound mail intake. `emailauth` + `dkim` — SPF/DKIM/
-  DMARC evaluation and alignment. `mailparse` — raw RFC 5322 → parsed view.
-- `httpapi` — the typed `/v1` Huma handlers (source of the OpenAPI document);
-  `apiserver` — assembles the process HTTP handler.
-- `agent` — agent CRUD, HITL, REST API. `agentauth` — agent-identity token
-  layer (JWKS/JWT).
-- `identity` / `senderidentity` — domain ownership verification/storage,
-  sender-identity resolution (incl. SES BYODKIM provisioning).
-- `ws` — WebSocket hub for real-time message push. `loopback` — agent-to-self
-  delivery without touching the network.
-- `outbound` / `outboundsend` — compose + send via upstream SMTP; the
-  queue-first River send worker.
-- `inboundprocess` / `inboundpolicy` — async inbound processing worker and
-  screening/policy decisions (allow / review / block).
-- `piguard` — prompt-injection / phishing content screening: dependency-free
-  heuristics detector, plus a Gemini LLM-as-detector layer enabled by
-  `GEMINI_API_KEY` (kill switch `E2A_GEMINI_DETECTOR_ENABLED=false`).
-- `hitlworker` / `hitlnotify` — human-in-the-loop review holds
-  (`pending_review`) and approval notifications.
-- `webhook` / `webhookdelivery` / `webhookpub` — webhook subscriptions,
-  durable fan-out, HTTP POST delivery with retry (SSRF-guarded).
-  `eventpayload` — canonical typed `data` payloads for webhook events.
-- `jobs` — River-backed durable job runtime (Postgres mandatory).
-  `janitor` — periodic TTL sweeps (trash expiry, expired holds).
-- `delivery` — SES delivery/bounce/complaint feedback via SNS
+- Intake/parsing: `relay` SMTP intake, `emailauth`/`dkim` SPF/DKIM/DMARC
+  eval+alignment, `mailparse` RFC 5322 parsing.
+- API surface: `httpapi` typed `/v1` Huma handlers (OpenAPI source of truth),
+  `apiserver` assembles the process HTTP handler.
+- Agent identity: `agent` CRUD/HITL/REST, `agentauth` agent-identity
+  JWKS/JWT, `identity`/`senderidentity` domain-ownership verification +
+  sender-identity resolution (incl. SES BYODKIM).
+- Delivery: `ws` WebSocket push hub, `loopback` agent-to-self (no network),
+  `outbound`/`outboundsend` compose+send via upstream SMTP (queue-first
+  River worker), `delivery` SES bounce/complaint feedback via SNS
   (`POST /webhooks/ses`, signature-verified, fail-closed).
-- `idempotency` — `Idempotency-Key` storage + replay.
-- `usage` / `limits` — usage metering and plan/account entitlement limits.
-- `sendramp` — per-domain recipient-volume ramping for new sender domains.
-- `auth` — API key authentication. `oauth` — fosite-based authorization
-  server (MCP OAuth). Google OAuth login + optional generic OIDC login.
-- `ratelimit`, `telemetry` (metrics interface), `emailtemplate` +
-  `startertemplates` (server-side `{{variable}}` templates + starter catalog),
-  `mailfrom` (custom MAIL FROM convention), `selftest` (critical-path
-  self-test used by `cmd/e2a-prober`), `openapicompat` (normalization for the
-  compat gate), `config` (YAML + `E2A_*` env overrides), `testutil` (test
-  harness), `e2e` (end-to-end suites).
+- Inbound screening: `inboundprocess`/`inboundpolicy` async worker +
+  allow/review/block decisions; `piguard` prompt-injection/phishing
+  screening — dependency-free heuristics plus optional Gemini
+  LLM-as-detector (`GEMINI_API_KEY`, kill switch
+  `E2A_GEMINI_DETECTOR_ENABLED=false`).
+- HITL & lifecycle: `hitlworker`/`hitlnotify` review holds (`pending_review`)
+  + approval notifications; `approvaltoken` signs/verifies their HMAC
+  magic-link tokens; `messagelifecycle` canonical lifecycle-event vocabulary
+  (stages/outcomes), durable storage+dedupe, and snapshot reconstruction of
+  a message's full history (~4.5k LOC: catalog/model/reconstruct/store).
+- Webhooks & jobs: `webhook`/`webhookdelivery`/`webhookpub` subscriptions,
+  durable fan-out, SSRF-guarded HTTP POST delivery+retry; `eventpayload`
+  typed webhook `data` payloads; `jobs` River-backed durable job runtime
+  (Postgres mandatory); `janitor` periodic TTL sweeps (trash, expired holds).
+- Send guards & accounting: `idempotency` `Idempotency-Key` storage+replay;
+  `unsubscribe` opaque per-recipient unsubscribe tokens/URLs
+  (List-Unsubscribe); `usage`/`limits` usage metering + plan/account
+  entitlements; `sendramp` per-domain recipient-volume ramping.
+- Auth: `auth` API key authentication; `oauth` fosite-based MCP OAuth
+  server; Google OAuth + optional generic OIDC login.
+- Misc/infra: `ratelimit`; `telemetry` (metrics interface); `emailtemplate`+
+  `startertemplates` (server templates + starter catalog); `mailfrom`
+  (custom MAIL FROM); `selftest` (prober's self-test); `openapicompat`
+  (compat-gate normalization); `config` (YAML+env); `testutil` (test
+  harness); `e2e` (end-to-end suites).
 
 Async-migration feature flags: inbound async processing is opt-in
 (`E2A_INBOUND_MODE=async`, default `sync`) and webhook fan-out on River is
@@ -225,10 +234,13 @@ the typed handlers — the handlers are the single source of truth.
 - The old swag-annotation pipeline is fully retired — do not reintroduce it.
   The dashboard renders the API reference live from `/v1/openapi.yaml`.
 
-Every API change is expected to maintain parity across **eight client
-surfaces**: Go handler, OpenAPI spec, TS SDK (raw + high-level), Python SDK
-sync (raw + high-level), Python SDK async (raw + high-level), CLI, MCP server,
-web dashboard. The PR template checklists them.
+Every API change is expected to maintain parity across all client surfaces:
+Go handler, OpenAPI spec, TS SDK, Python SDK, CLI, MCP server, and web
+dashboard. `.github/pull_request_template.md`'s "Client surface checklist"
+checklists most of these — Go handler + tests, migration, OpenAPI spec +
+generated types, TS SDK, Python SDK, CLI, MCP tool, tests at each surface —
+but it does **not** list the web dashboard, so that surface must be checked
+manually on every API change even though the template won't remind you.
 
 ## Client surfaces
 
@@ -271,11 +283,16 @@ web dashboard. The PR template checklists them.
   idempotent migration runner will not catch drifted runtime SQL.
 - TS uses vitest (+ `tsc` type tests), web uses Jest, Python uses pytest +
   mypy. CI workflow: `.github/workflows/test.yml` (jobs: Go, coverage gate,
-  Go e2e, web, ts-sdk, ts-contract, cli, mcp, spec gates, python-sdk,
-  python-contract, generated-code freshness, design-system dist freshness,
-  SDK-version-sync, plugin manifests, repo text integrity, SDK operation
-  coverage).
+  Go e2e, web, ts-sdk, agent-framework-examples, adk-cloud-webhook-example,
+  ts-contract, cli, mcp, spec gates, python-sdk, python-contract,
+  generated-code freshness, design-system dist freshness, SDK-version-sync,
+  plugin manifests, repo text integrity, SDK operation coverage).
 - `tests/e2e-prod/` is a production smoke harness — not part of local dev.
+- Two more CI workflows cover the `plugins/e2a/skills/agentify` framework:
+  `.github/workflows/agentify-test.yml` (deterministic script/addon/config
+  self-tests, every PR touching it) and `agentify-lane-fixtures.yml`
+  (golden-fixture lane tests driving `claude -p` over a mocked world; skips
+  without `CLAUDE_CODE_OAUTH_TOKEN`).
 
 ## Conventions
 
@@ -307,9 +324,9 @@ web dashboard. The PR template checklists them.
 ## Security considerations
 
 - The security model rests on: SPF/DKIM/DMARC evaluation, webhook endpoint
-  signing + SSRF guard, HITL approval
-  tokens, API keys (only hashes are stored), and fail-closed external
-  integrations (SNS signature verification, OIDC discovery).
+  signing + SSRF guard, HITL approval tokens, API keys (only hashes are
+  stored), and fail-closed external integrations (SNS signature
+  verification, OIDC discovery).
 - Never commit secrets. `.env` is gitignored; use it or env vars for
   `E2A_HMAC_SECRET`, OAuth secrets, SMTP credentials, `GEMINI_API_KEY`, etc.
   `docker-compose.yaml`'s baked-in `E2A_HMAC_SECRET` is demo-only.

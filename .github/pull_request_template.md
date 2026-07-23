@@ -22,7 +22,7 @@ to be in the Python SDK).
 -->
 
 - [ ] Go handler + integration tests
-- [ ] Migration written + idempotent + safe on prod-sized tables (see [CLAUDE.md](../CLAUDE.md))
+- [ ] Migration written + idempotent + safe on prod-sized tables (see [AGENTS.md](../AGENTS.md))
 - [ ] OpenAPI spec + generated types refreshed (`make generate` is clean)
 - [ ] TypeScript SDK — generated base regenerated (`make generate-sdk`) **and** resource added to the hand-written `E2AClient` (`sdks/typescript/src/v1/client.ts`)
 - [ ] Python SDK — generated base regenerated (`make generate-sdk`) **and** resource added to the hand-written `AsyncE2AClient` (`sdks/python/src/e2a/v1/client.py`)
