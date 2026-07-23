@@ -92,6 +92,11 @@ interface Runtime {
 
 const DEFAULT_RESOLVE_TIMEOUT_MS = 5_000;
 
+// Routes whose successful responses are counted in metrics but skipped by
+// the access log (orchestrator probes and scrapers hit them every few
+// seconds forever). Failures on these routes still log.
+const QUIET_ROUTES: ReadonlySet<RouteLabel> = new Set(["healthz", "readyz", "metrics"]);
+
 // classifyRoute maps a request path to its bounded metric/log label. Any
 // path outside the known set collapses to "other" so cardinality stays fixed.
 function classifyRoute(path: string): RouteLabel {
@@ -143,6 +148,11 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
   // classified NOW, before any mounted middleware strips the mount prefix
   // from req.url (a 421 from the /mcp host guard would otherwise label as
   // "other" at finish time).
+  //
+  // Probe/scrape routes are metered but not access-logged on success: a 10s
+  // healthcheck plus a 15s Prometheus scrape is ~14k INFO lines/day/replica
+  // of pure noise (and real log-ingest cost). Failures (>=400) on those
+  // routes still log — a 503 readyz is exactly what an operator greps for.
   app.use((req, res, next) => {
     const start = Date.now();
     const path = req.path;
@@ -152,6 +162,7 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
       const statusClass = `${Math.floor(res.statusCode / 100)}xx`;
       metrics.incHttpRequest(route, statusClass);
       metrics.observeRequestDuration(route, durationMs / 1000);
+      if (QUIET_ROUTES.has(route) && res.statusCode < 400) return;
       logger("INFO", "http_request", `${req.method} ${path} ${res.statusCode}`, {
         request_id: requestIdOf(res),
         route,
@@ -178,7 +189,8 @@ export function buildApp(opts: HttpServerOptions): BuiltApp {
       res.json({ ok: true, checks: { api: "ok" } });
       return;
     }
-    res.setHeader("Retry-After", "5");
+    // Match the failure-cache TTL: any sooner retry would hit the cached 503.
+    res.setHeader("Retry-After", String(prober.cacheTtlSeconds));
     res.status(503).json({
       ok: false,
       checks: { api: "unreachable" },

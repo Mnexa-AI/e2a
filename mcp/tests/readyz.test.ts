@@ -51,7 +51,9 @@ describe("GET /readyz", () => {
     const origin = await start({ fetcher });
     const res = await fetch(`${origin}/readyz`, { headers: { "X-Request-Id": "readyz-check-1" } });
     expect(res.status).toBe(503);
-    expect(res.headers.get("retry-after")).toBe("5");
+    // Retry-After matches the failure-cache TTL (default 10s): retrying
+    // sooner is guaranteed to hit the cached 503.
+    expect(res.headers.get("retry-after")).toBe("10");
     expect(res.headers.get("x-request-id")).toBe("readyz-check-1");
     expect(await res.json()).toEqual({
       ok: false,

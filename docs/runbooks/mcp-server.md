@@ -48,7 +48,7 @@ unauthenticated).
 | Endpoint | Meaning | Backend contact | Response |
 |---|---|---|---|
 | `GET /healthz` | Process liveness only | none, ever | 200 `{ "ok": true }` |
-| `GET /readyz` | Can reach the e2a API (and therefore resolve credentials — credential resolution whoami-probes the same API) | probes `{E2A_API_URL}/api/health`, 2s timeout | 200 `{ "ok": true, "checks": { "api": "ok" } }`, or 503 `{ "ok": false, "checks": { "api": "unreachable" }, "request_id": "…" }` + `Retry-After: 5` |
+| `GET /readyz` | Can reach the e2a API (and therefore resolve credentials — credential resolution whoami-probes the same API) | probes `{E2A_API_URL}/api/health`, 2s timeout | 200 `{ "ok": true, "checks": { "api": "ok" } }`, or 503 `{ "ok": false, "checks": { "api": "unreachable" }, "request_id": "…" }` + `Retry-After: 10` (the cache TTL) |
 | `GET /metrics` | Prometheus scrape | none | text exposition (`text/plain; version=0.0.4`) |
 
 All three are unauthenticated. The exposition carries only counters/gauges
@@ -84,7 +84,7 @@ design.
 ### Backend API unreachable
 
 - **Symptoms**: `GET /readyz` returns 503 with `checks.api = "unreachable"`
-  and `Retry-After: 5`; load balancer drains the MCP replica. Tool calls
+  and `Retry-After: 10`; load balancer drains the MCP replica. Tool calls
   that reach the server fail with `structuredContent.retryable: true`.
 - **Detection**: `mcp_readyz_checks_total{result="degraded"}` rising;
   `auth_resolution` log events with `result: "fallback"` at WARNING.
@@ -238,7 +238,10 @@ MCP log lines are single-line JSON on stderr (GCE-shaped: `severity`,
 - `auth_resolution` — `{request_id, result, duration_ms, scope?}`;
   `invalid` and `fallback` are logged at WARNING.
 - `http_request` — `{request_id, route, method, status, duration_ms}`;
-  one per request, emitted when the response finishes.
+  one per request, emitted when the response finishes. Successful (<400)
+  probe/scrape traffic (`healthz`, `readyz`, `metrics` routes) is metered
+  but not logged — it would be ~14k noise lines/day/replica; failures on
+  those routes still log.
 - `tool_execution` — `{request_id, tool, outcome, duration_ms, error_code?}`.
 - `terminal_error` — `{request_id, error}` for unhandled throws.
 

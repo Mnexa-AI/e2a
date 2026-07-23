@@ -43,6 +43,14 @@ export class ReadinessProber {
     this.fetcher = opts.fetcher ?? ((url) => defaultFetcher(url, this.timeoutMs));
   }
 
+  /**
+   * The cache TTL in whole seconds — what a 503's Retry-After should say.
+   * A shorter value would invite retries into a still-cached failure.
+   */
+  get cacheTtlSeconds(): number {
+    return Math.max(1, Math.ceil(this.cacheTtlMs / 1000));
+  }
+
   /** true when the backend API is reachable (possibly from the cache). */
   async check(): Promise<boolean> {
     const now = this.now();

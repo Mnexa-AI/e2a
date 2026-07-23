@@ -1355,6 +1355,42 @@ describe("HTTP MCP server", () => {
         spy.mockRestore();
       }
     });
+
+    it("meters but does not log successful probe/scrape routes; failures still log", async () => {
+      const { events, logger } = makeLogCapture();
+      const registry = new MetricsRegistry();
+      // readyz probe fails deterministically → 503 (the loggable case).
+      await restart({
+        logger,
+        metrics: registry,
+        readyz: {
+          fetcher: async () => {
+            throw new Error("backend down");
+          },
+        },
+      });
+      const origin = url.replace("/mcp", "");
+
+      for (const path of ["/healthz", "/metrics"]) {
+        const res = await fetch(`${origin}${path}`);
+        expect(res.status).toBe(200);
+        await res.text(); // drain so the server-side finish (and log) has fired
+      }
+      const quiet = events.filter((e) => e.event === "http_request");
+      expect(quiet).toEqual([]); // successful probe/scrape traffic is silent
+
+      const readyz = await fetch(`${origin}/readyz`);
+      expect(readyz.status).toBe(503);
+      await readyz.text();
+      const failure = events.filter((e) => e.event === "http_request");
+      expect(failure).toHaveLength(1); // ...but failures on those routes log
+      expect(failure[0]).toMatchObject({ route: "readyz", status: 503 });
+
+      // Metrics counted every request, logged or not.
+      const rendered = registry.render();
+      expect(rendered).toContain('mcp_http_requests_total{route="healthz",status_class="2xx"} 1');
+      expect(rendered).toContain('mcp_http_requests_total{route="readyz",status_class="5xx"} 1');
+    });
   });
 
   describe("bounded whoami probe (resolveTimeoutMs)", () => {

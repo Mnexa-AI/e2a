@@ -290,7 +290,7 @@ All three are unauthenticated:
   result cached 10s so a scraping fleet can't cause a probe storm). 200
   `{ "ok": true, "checks": { "api": "ok" } }` when reachable; 503
   `{ "ok": false, "checks": { "api": "unreachable" }, "request_id": "…" }`
-  + `Retry-After: 5` when not. Wire to your readiness probe.
+  + `Retry-After: 10` (the failure-cache TTL) when not. Wire to your readiness probe.
 - `GET /metrics` — Prometheus text exposition. Example lines:
 
   ```
@@ -310,7 +310,8 @@ Single-line JSON on stderr (GCE-shaped `severity` / `event` / `message`
 plus fields). Request-scoped events carry `request_id` (the response's
 `X-Request-Id`): `auth_resolution` (`result`, `duration_ms`, `scope?`;
 `invalid`/`fallback` at WARNING), `http_request` (`route`, `method`,
-`status`, `duration_ms`), `tool_execution` (`tool`, `outcome`,
+`status`, `duration_ms`; successful probe/scrape traffic on
+`healthz`/`readyz`/`metrics` is metered but not logged), `tool_execution` (`tool`, `outcome`,
 `duration_ms`, `error_code?`), `terminal_error`. Bearer tokens are never
 logged; the resolve cache is keyed by SHA-256 fingerprints. An inbound
 `X-Request-Id` matching `^[A-Za-z0-9_-]{1,64}$` is honored; otherwise the

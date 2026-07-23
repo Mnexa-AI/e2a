@@ -147,7 +147,7 @@ essentials:
   different, host-visible origin).
 - **Endpoints**: `GET /healthz` (liveness — never touches the backend),
   `GET /readyz` (readiness — probes `{E2A_API_URL}/api/health`, 2s timeout,
-  result cached 10s; 503 + `Retry-After: 5` when the API is unreachable),
+  result cached 10s; 503 + `Retry-After: 10` (the failure-cache TTL) when the API is unreachable),
   `GET /metrics` (Prometheus exposition). All unauthenticated. Wire
   liveness → `/healthz`, readiness → `/readyz` — never liveness →
   `/readyz`, or a backend outage restarts healthy MCP replicas.
