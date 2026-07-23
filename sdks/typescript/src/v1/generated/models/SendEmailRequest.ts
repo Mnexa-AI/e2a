@@ -16,7 +16,7 @@ import { HttpFile } from '../http/http.js';
 
 export class SendEmailRequest {
     /**
-    * File attachments (base64 in each item\'s data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
+    * File attachments (base64 in each item\'s data). Limits: at most 10 attachments, each ≤ 10 MiB decoded, and ≤ 25 MiB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
     */
     'attachments'?: Array<Attachment>;
     /**
@@ -44,7 +44,7 @@ export class SendEmailRequest {
     */
     'subject'?: string;
     /**
-    * Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.
+    * Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/text/html. Beta: templates are unstable — their shape may change before they are declared stable.
     */
     'templateAlias'?: string;
     /**
@@ -52,7 +52,7 @@ export class SendEmailRequest {
     */
     'templateData'?: { [key: string]: any; };
     /**
-    * Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable.
+    * Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/text/html. Beta: templates are unstable — their shape may change before they are declared stable.
     */
     'templateId'?: string;
     /**

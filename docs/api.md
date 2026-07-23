@@ -199,8 +199,8 @@ every `/v1` operation not listed here is covered by the GA freeze.
 | `createTemplate` | `POST /v1/templates` | Templates |
 | `deleteAgentSuppression` | `DELETE /v1/agents/{email}/suppressions/{address}` | Agent suppressions |
 | `deleteTemplate` | `DELETE /v1/templates/{id}` | Templates |
-| `get-message-lifecycle` | `GET /v1/agents/{email}/messages/{id}/lifecycle` | Message lifecycle |
 | `getAgentProtection` | `GET /v1/agents/{email}/protection` | Protection config |
+| `getMessageLifecycle` | `GET /v1/agents/{email}/messages/{id}/lifecycle` | Message lifecycle |
 | `getReview` | `GET /v1/reviews/{id}` | Reviews |
 | `getStarterTemplate` | `GET /v1/starter-templates/{alias}` | Starter templates |
 | `getTemplate` | `GET /v1/templates/{id}` | Templates |
@@ -285,7 +285,7 @@ account/key management are account-level.
 Workspace identity, plan limits, keys, suppressions, and data rights.
 
 - `GET /v1/account` — whoami: the authenticated principal (user + scope, plus
-  `agent_address` for agent-scoped keys), plan caps, and current usage. Works for
+  `agent_email` for agent-scoped keys), plan caps, and current usage. Works for
   both scopes. (Public *deployment* discovery is the separate `GET /v1/info`.)
 - `DELETE /v1/account?confirm=DELETE` — permanently delete the account and cascade
   all owned data; returns per-table row counts (GDPR Art. 17). Irreversible.
@@ -577,7 +577,7 @@ future send.
 
 **Outbound attachment limits** (send / reply / forward, enforced on the **decoded**
 bytes — not the base64 wire size): at most **10 attachments** per message, each
-**≤ 10 MB**, and **≤ 25 MB combined**. Too many attachments → `400 invalid_request`;
+**≤ 10 MiB**, and **≤ 25 MiB combined**. Too many attachments → `400 invalid_request`;
 an attachment or combined total over its size limit → `413 payload_too_large` (the
 limit and offending size are in `error.details`). On `forward`, the limits apply to
 the **combined** set — the original message's carried-over attachments plus any you

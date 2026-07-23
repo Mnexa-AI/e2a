@@ -342,7 +342,7 @@ components:
             - application/pdf
           type: string
         data:
-          description: Base64-encoded file content. Each attachment must be ≤ 10 MB decoded; a message may carry at most 10 attachments totaling ≤ 25 MB decoded.
+          description: Base64-encoded file content. Each attachment must be ≤ 10 MiB decoded; a message may carry at most 10 attachments totaling ≤ 25 MiB decoded.
           examples:
             - base64-encoded-content
           type: string
@@ -1859,7 +1859,7 @@ components:
       additionalProperties: false
       properties:
         attachments:
-          description: "Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."
+          description: "Additional attachments to include alongside the forwarded message's original attachments, which are carried over automatically. Limits apply to the combined set (originals + these): at most 10 attachments, each ≤ 10 MiB decoded, and ≤ 25 MiB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."
           items:
             $ref: "#/components/schemas/Attachment"
           type: array
@@ -3176,7 +3176,7 @@ components:
       additionalProperties: false
       properties:
         attachments:
-          description: "File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."
+          description: "File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MiB decoded, and ≤ 25 MiB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."
           items:
             $ref: "#/components/schemas/Attachment"
           type: array
@@ -3340,7 +3340,7 @@ components:
       additionalProperties: false
       properties:
         attachments:
-          description: "File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."
+          description: "File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MiB decoded, and ≤ 25 MiB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large."
           items:
             $ref: "#/components/schemas/Attachment"
           type: array
@@ -3373,7 +3373,7 @@ components:
           maxLength: 2000
           type: string
         template_alias:
-          description: "Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
+          description: "Send using a stored template resolved by its per-user alias. Mutually exclusive with template_id and with literal subject/text/html. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
           x-stability-level: beta
         template_data:
@@ -3382,7 +3382,7 @@ components:
           type: object
           x-stability-level: beta
         template_id:
-          description: "Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/body/html_body. Beta: templates are unstable — their shape may change before they are declared stable."
+          description: "Send using a stored template (rendered server-side, before any review hold). Mutually exclusive with template_alias and with literal subject/text/html. Beta: templates are unstable — their shape may change before they are declared stable."
           type: string
           x-stability-level: beta
         text:
@@ -4923,12 +4923,12 @@ paths:
           name: conversation_id
           schema:
             type: string
-        - description: Repeatable; AND-matched.
+        - description: Comma-separated list (e.g. labels=urgent,follow-up); AND-matched — a message must carry every given label.
           explode: false
           in: query
           name: labels
           schema:
-            description: Repeatable; AND-matched.
+            description: Comma-separated list (e.g. labels=urgent,follow-up); AND-matched — a message must carry every given label.
             items:
               type: string
             type:
@@ -5006,7 +5006,7 @@ paths:
       tags:
         - messages
     post:
-      description: "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry)."
+      description: "Send a new email from the agent named in the path (a new thread). The sender is the path agent — `reply`/`forward` are their own sub-resources. 202 + pending_review when the agent has HITL enabled. Honors Idempotency-Key. Attachment limits: at most 10 attachments, each ≤ 10 MiB decoded, ≤ 25 MiB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large. Two capacity limits apply and are permanently distinct — branch on the HTTP status: 402 limit_exceeded is a QUOTA (monthly-message / storage stock-or-flow cap; a retry will not clear it — surface an upgrade path), 429 rate_limited is a throughput/request-RATE cap (transient; back off Retry-After seconds and retry)."
       operationId: sendMessage
       parameters:
         - in: path
@@ -5020,12 +5020,12 @@ paths:
           schema:
             description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. If the response is lost after durable acceptance, retry with the same key and byte-identical body to recover the original 202 and message ID; retrying without a key can enqueue a duplicate. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort under idempotency-store degradation before atomic acceptance; accepted keyed sends commit their message, River job, and replay response together."
             type: string
-        - description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
+        - description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
           explode: false
           in: query
           name: wait
           schema:
-            description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
+            description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
             type: string
       requestBody:
         content:
@@ -5341,7 +5341,7 @@ paths:
         - messages
   /v1/agents/{email}/messages/{id}/forward:
     post:
-      description: "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Forwarding a message this agent sent that has not been submitted to the provider yet returns 409 message_not_yet_delivered — a forward requires the source message to have actually been sent; retry once it is sent, or use wait=sent on the original send. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large."
+      description: "Forward a message (inbound or outbound) to new recipients; the original is quoted and its attachments are carried over by default. Any attachments[] you supply are added on top of the originals. 202 when held for HITL. Forwarding a message this agent sent that has not been submitted to the provider yet returns 409 message_not_yet_delivered — a forward requires the source message to have actually been sent; retry once it is sent, or use wait=sent on the original send. Attachment limits apply to the combined set (carried-over originals + supplied): at most 10 attachments, each ≤ 10 MiB decoded, ≤ 25 MiB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large."
       operationId: forwardMessage
       parameters:
         - in: path
@@ -5360,12 +5360,12 @@ paths:
           schema:
             description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. If the response is lost after durable acceptance, retry with the same key and byte-identical body to recover the original 202 and message ID; retrying without a key can enqueue a duplicate. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort under idempotency-store degradation before atomic acceptance; accepted keyed sends commit their message, River job, and replay response together."
             type: string
-        - description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
+        - description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
           explode: false
           in: query
           name: wait
           schema:
-            description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
+            description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
             type: string
       requestBody:
         content:
@@ -5465,7 +5465,7 @@ paths:
   /v1/agents/{email}/messages/{id}/lifecycle:
     get:
       description: "Returns the observations e2a recorded for one inbound or outbound message in deterministic ascending (occurred_at, id) order. Delivery means recipient-server acceptance and does not claim inbox placement. Beta: message lifecycle may change before it is declared stable."
-      operationId: get-message-lifecycle
+      operationId: getMessageLifecycle
       parameters:
         - in: path
           name: email
@@ -5522,7 +5522,7 @@ paths:
       x-stability-level: beta
   /v1/agents/{email}/messages/{id}/reply:
     post:
-      description: "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Replying to a message this agent sent that has not been submitted to the provider yet returns 409 message_not_yet_delivered — it has no Message-ID to thread onto; retry once it is sent, or use wait=sent on the original send. Attachment limits: at most 10 attachments, each ≤ 10 MB decoded, ≤ 25 MB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large."
+      description: "Reply to a message (inbound or outbound); recipients and threading are derived from the original. Replying to a message the agent received targets its sender; replying to a message the agent sent continues the thread to its original recipients (`reply_all` also re-includes the original Cc). 202 when held for HITL. Replying to a message this agent sent that has not been submitted to the provider yet returns 409 message_not_yet_delivered — it has no Message-ID to thread onto; retry once it is sent, or use wait=sent on the original send. Attachment limits: at most 10 attachments, each ≤ 10 MiB decoded, ≤ 25 MiB decoded combined (over-count → 400 invalid_request; over-size → 413 payload_too_large). Composed-message ceiling: 10 MiB (10485760 bytes), measured as subject + text + html + decoded attachment bytes; exceeding it returns 413 payload_too_large."
       operationId: replyToMessage
       parameters:
         - in: path
@@ -5541,12 +5541,12 @@ paths:
           schema:
             description: "Optional idempotency key for safe retries (unique per logical request). A retry with the same key and byte-identical body replays the first request's response instead of re-executing it. If the response is lost after durable acceptance, retry with the same key and byte-identical body to recover the original 202 and message ID; retrying without a key can enqueue a duplicate. Completed keys are remembered for at least 24 hours (the published minimum dedup window). Within the window: same key + different body → 422 idempotency_key_reuse (do not retry as-is); same key while the first request is still executing → 409 idempotency_in_flight (wait, then retry unchanged). Dedup is best-effort under idempotency-store degradation before atomic acceptance; accepted keyed sends commit their message, River job, and replay response together."
             type: string
-        - description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
+        - description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
           explode: false
           in: query
           name: wait
           schema:
-            description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 20 seconds elapse, then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
+            description: "Optional bounded wait. wait=sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status=accepted. Default: no wait. Always branch on body.status, not the HTTP code."
             type: string
       requestBody:
         content:

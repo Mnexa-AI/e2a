@@ -18,21 +18,21 @@ def load_checker():
 
 
 class OperationIDToSDKMethodTest(unittest.TestCase):
-    def test_converts_hyphenated_operation_id_to_snake_case(self) -> None:
+    def test_converts_camel_cased_operation_id_to_snake_case(self) -> None:
         checker = load_checker()
 
         self.assertEqual(
             "get_message_lifecycle",
-            checker.snake("get-message-lifecycle"),
+            checker.snake("getMessageLifecycle"),
         )
 
-    def test_converts_hyphenated_operation_id_to_lower_camel_case(self) -> None:
+    def test_camel_cased_operation_id_is_already_lower_camel_case(self) -> None:
         checker = load_checker()
         typescript_method = getattr(checker, "typescript_method", lambda name: name)
 
         self.assertEqual(
             "getMessageLifecycle",
-            typescript_method("get-message-lifecycle"),
+            typescript_method("getMessageLifecycle"),
         )
 
 

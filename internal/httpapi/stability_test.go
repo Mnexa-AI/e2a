@@ -19,7 +19,7 @@ var betaOperationIDs = []string{
 	"deleteAgentSuppression",
 	"deleteTemplate",
 	"getAgentProtection",
-	"get-message-lifecycle",
+	"getMessageLifecycle",
 	"getReview",
 	"getStarterTemplate",
 	"getTemplate",
@@ -308,12 +308,12 @@ func TestSpecBetaMarkers(t *testing.T) {
 			t.Errorf("%s description must contain shared beta sentence, got %q", id, desc)
 		}
 	}
-	lifecycleOp := opFor("get-message-lifecycle")
+	lifecycleOp := opFor("getMessageLifecycle")
 	if summary, _ := lifecycleOp["summary"].(string); !strings.Contains(summary, "(beta)") {
-		t.Errorf("get-message-lifecycle summary must visibly say (beta), got %q", summary)
+		t.Errorf("getMessageLifecycle summary must visibly say (beta), got %q", summary)
 	}
 	if desc, _ := lifecycleOp["description"].(string); !strings.Contains(desc, "Beta: message lifecycle") {
-		t.Errorf("get-message-lifecycle description must describe its beta status, got %q", desc)
+		t.Errorf("getMessageLifecycle description must describe its beta status, got %q", desc)
 	}
 	for _, id := range []string{"sendMessage", "replyToMessage", "forwardMessage", "listSuppressions", "deleteSuppression", "createAgent", "listMessages", "createWebhook", "listEvents", "deleteMessage", "restoreMessage", "restoreAgent", "deleteAgent"} {
 		if got := opExt(id, "x-stability"); got != nil {

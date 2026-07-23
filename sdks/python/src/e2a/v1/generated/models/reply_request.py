@@ -29,7 +29,7 @@ class ReplyRequest(BaseModel):
     """
     ReplyRequest
     """ # noqa: E501
-    attachments: Optional[List[Attachment]] = Field(default=None, description="File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.")
+    attachments: Optional[List[Attachment]] = Field(default=None, description="File attachments (base64 in each item's data). Limits: at most 10 attachments, each ≤ 10 MiB decoded, and ≤ 25 MiB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.")
     bcc: Optional[List[Annotated[str, Field(strict=True, max_length=320)]]] = Field(default=None, description="Additional Bcc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.")
     cc: Optional[List[Annotated[str, Field(strict=True, max_length=320)]]] = Field(default=None, description="Additional Cc recipients. The final message is limited to 50 recipients across to, cc, and bcc combined. Each recipient string (display name + address combined) is limited to 320 characters.")
     conversation_id: Optional[Annotated[str, Field(strict=True, max_length=200)]] = Field(default=None, description="Caller-assigned conversation (thread) id override. At most 200 characters — deliberately the same cap as the webhook conversation_ids filter-value limit and the message-list conversation_id filter limit (both 200), so an accepted conversation_id is never too long to filter by. Must not contain CR or LF.")
