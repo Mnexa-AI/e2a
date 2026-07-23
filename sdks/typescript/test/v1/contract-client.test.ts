@@ -1,0 +1,82 @@
+/**
+ * High-level client contract tests — the ergonomic `E2AClient` surface against
+ * the live contract server, complementing contract.test.ts (which drives the
+ * same server over raw HTTP via the scenarios.yaml interpreter and deliberately
+ * never touches the ergonomic client).
+ *
+ * Covers the wrapper-only features that raw-HTTP scenarios cannot reach:
+ * `SendOptions.wait`, `agents.delete(email, { permanent: true })`, and
+ * caller-supplied `RequestOptions.idempotencyKey` replay.
+ *
+ * Requires env vars (same as contract.test.ts):
+ *   E2A_TEST_BASE_URL  — test server URL
+ *   E2A_TEST_API_KEY   — valid API key for the test user
+ *
+ * Contract-server send topology (cmd/e2a-contract-server): no outbound River
+ * worker is wired, so external sends fail closed (500 outbound queue
+ * unavailable). The deterministic terminal path is the self-send LOOPBACK,
+ * which delivers synchronously — `wait: "sent"` on it observes `status:
+ * "sent"` immediately rather than polling to the 15s ceiling.
+ */
+import { describe, it, expect } from "vitest";
+import { E2AClient } from "../../src/v1/client.js";
+import { E2ANotFoundError } from "../../src/v1/errors.js";
+
+const baseUrl = process.env.E2A_TEST_BASE_URL;
+const apiKey = process.env.E2A_TEST_API_KEY;
+
+/** Shared-domain slug — must satisfy the server's ^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$
+ *  rule (2–40 chars, no underscores). */
+function slug(prefix: string): string {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+describe.skipIf(!baseUrl || !apiKey)("E2AClient contract (high-level)", () => {
+  const client = new E2AClient({ apiKey: apiKey!, baseUrl: baseUrl! });
+
+  it("messages.send with wait: \"sent\" returns the terminal loopback result", async () => {
+    const email = `${slug("sdkc-wait")}@agents.e2a.dev`;
+    await client.agents.create({ email });
+    try {
+      const res = await client.messages.send(
+        email,
+        { to: [email], subject: "wait contract", text: "self-send loopback" },
+        { wait: "sent" },
+      );
+      expect(res.status).toBe("sent");
+      expect(res.messageId).toMatch(/^msg_/);
+      expect(res.method).toBe("loopback");
+    } finally {
+      await client.agents.delete(email, { permanent: true });
+    }
+  });
+
+  it("agents.delete with permanent: true removes the agent immediately", async () => {
+    const email = `${slug("sdkc-del")}@agents.e2a.dev`;
+    await client.agents.create({ email });
+
+    const receipt = await client.agents.delete(email, { permanent: true });
+    expect(receipt.deleted).toBe(true);
+
+    // No trash window on a permanent delete — the follow-up read is gone for
+    // good and must surface as the typed not-found error (404/410 family).
+    await expect(client.agents.get(email)).rejects.toBeInstanceOf(E2ANotFoundError);
+  });
+
+  it("account.apiKeys.create replays a caller-supplied idempotency key", async () => {
+    const idempotencyKey = `contract-${slug("sdkc-idem")}`;
+    const body = { name: "contract-idempotency-replay" };
+
+    const first = await client.account.apiKeys.create(body, { idempotencyKey });
+    try {
+      const replay = await client.account.apiKeys.create(body, { idempotencyKey });
+
+      // Same key + byte-identical body replays the cached response: no second
+      // key is minted, and the one-time plaintext comes back unchanged.
+      expect(replay.id).toBe(first.id);
+      expect(replay.key).toBe(first.key);
+    } finally {
+      await client.account.apiKeys.delete(first.id);
+    }
+  });
+});
