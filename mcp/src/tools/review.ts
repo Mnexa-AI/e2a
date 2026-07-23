@@ -1,8 +1,24 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "../client.js";
+import type { MessageView } from "@e2a/sdk/v1";
 import { z } from "zod";
 import { paginationInput, runTool, strictInputSchema } from "./util.js";
 import { attachmentsArraySchema } from "./attachments.js";
+import { messageViewForTool } from "./messages.js";
+
+// Review-surface view of a held message: get_message's context-safe
+// projection (raw MIME and attachment bytes stay out of context) PLUS
+// `hold_reason`. The server sets holdReason only on held messages, where it
+// is the primary explanation of why the message is held — and the sole
+// explanation when the best-effort `protection` enrichment degrades.
+// messageViewForTool deliberately omits it (get_message's output shape is
+// frozen), so the review tools wrap the projection instead of changing it.
+export function reviewViewForTool(view: MessageView) {
+  return {
+    ...messageViewForTool(view),
+    ...(view.holdReason !== undefined ? { hold_reason: view.holdReason } : {}),
+  };
+}
 
 export function registerReviewTools(server: McpServer, client: McpClient): void {
   server.registerTool(
@@ -33,12 +49,18 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       title: "Get a review (full detail)",
       annotations: { readOnlyHint: true },
       description:
-        "Account scope only. Fetch the full detail of one inbound screening hold or outbound send hold, including subject, recipients, body, attachments, and screening context. A review's `id` is the held message's id (msg_…) and is the same ID accepted by `approve_review` and `reject_review`. Body content is only present while the message is `pending_review`; after a terminal transition the server scrubs it.",
+        "Account scope only. Fetch the full detail of one inbound screening hold or outbound send hold, including subject, recipients, body, attachments, and screening context. A review's `id` is the held message's id (msg_…) and is the same ID accepted by `approve_review` and `reject_review`. Body content is only present while the message is `pending_review`; after a terminal transition the server scrubs it. Like `get_message`, raw MIME (`raw_message`) and attachment bytes are intentionally omitted to protect context — attachments surface as metadata only. Webhook delivery diagnostics (`webhook_error`/`webhook_status`) are also omitted; fetch the message via the REST API if you need them.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("The held message / review ID (msg_…)."),
       }),
     },
-    async (args) => runTool(() => client.getReview(args.message_id)),
+    // Strip raw_message / attachment bytes via the same context-safe
+    // projection get_message uses — an inbound hold's raw MIME can be a
+    // multi-MB base64 blob — while keeping hold_reason, the review surface's
+    // primary hold explanation. approve_review is unaffected: it builds its
+    // payload from the caller's own override fields, not the held body.
+    async (args) =>
+      runTool(async () => reviewViewForTool(await client.getReview(args.message_id))),
   );
 
   // Map the snake_case approve override args to the SDK's ApproveRequest
@@ -77,7 +99,7 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       annotations: { destructiveHint: false },
       description:
         "Release a message held in `pending_review` (a review). The server branches on the message's direction:\n" +
-        "- **Outbound** (a draft awaiting send approval): the draft is SENT via SES. Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / text / html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
+        "- **Outbound** (a draft awaiting send approval): the approval persists the send and it is queued for asynchronous submission (202 accepted — the terminal sent/failed outcome arrives later via webhook events or by polling; delivery may go via SMTP relay, upstream SMTP, or loopback, not SES specifically). Approve-as-is by passing only `message_id`, or apply reviewer edits via any subset of subject / text / html / to / cc / bcc / attachments (omit a field to keep the draft's value; pass it — including empty `attachments: []` to strip — to override).\n" +
         "- **Inbound** (a screening hold, available in `list_reviews` and also announced by the `email.review_requested` webhook): the message is RELEASED to the agent's inbox so it becomes readable. There is no send and no draft — any override fields are ignored.\n" +
         "Returns 409 if the message is no longer pending (a human or the TTL sweep already resolved it).",
       inputSchema: strictInputSchema({
@@ -93,7 +115,7 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
           .string()
           .optional()
           .describe(
-            "Stable key for retry-safe approves. Applies to **outbound** approves, which fire a real SES send — a retried call without this header could double-send. (Inbound releases are idempotent row updates and ignore this.) For approve-as-is, the pending `message_id` is a natural stable key — same review event, same key, retry replays. **If you change overrides between attempts** (e.g. tweak the subject after a 5xx and retry), pick a fresh key per attempt: same key + different body returns 422.",
+            "Stable key for retry-safe approves. Applies to **outbound** approves, which queue a real send — a retried call without this header could double-send. (Inbound releases are idempotent row updates and ignore this.) For approve-as-is, the pending `message_id` is a natural stable key — same review event, same key, retry replays. **If you change overrides between attempts** (e.g. tweak the subject after a 5xx and retry), pick a fresh key per attempt: same key + different body returns 422.",
           ),
       }),
     },

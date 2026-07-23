@@ -121,15 +121,15 @@ Hosts that support OAuth connectors can instead add `https://api.e2a.dev/mcp` as
 
 ## Tools
 
-The server exposes up to **59** tools spanning agents, messages, human-in-the-loop
+The server exposes up to **60** tools spanning agents, messages, human-in-the-loop
 approval, attachments, domains, events, webhooks, API keys, and email templates
 (beta).
 **The visible set depends on your credential's scope:** an **agent**-scoped
-credential sees the 15 runtime/inbox tools (read, send, reply, restore messages,
-and view its pending queue); an **account**-scoped credential also sees the 44 admin/setup
+credential sees the 16 runtime/inbox tools (read, send, reply, restore messages);
+an **account**-scoped credential also sees the 44 admin/setup
 tools (agent/domain/webhook/event/template/API-key management — **and HITL
-approve/reject, which is an account-owner action, never agent self-approval**)
-— all 59.
+review discovery plus approve/reject, which is an account-owner action, never
+agent self-approval**) — all 60.
 Every tool carries MCP annotations (`readOnlyHint`/`destructiveHint`/
 `idempotentHint`) so hosts can auto-approve reads and flag destructive actions.
 The tables below highlight the most commonly used ones — your MCP host's tool list

@@ -514,7 +514,7 @@ export class McpClient {
 
   listEvents(params: {
     type?: string;
-    agentId?: string;
+    agentEmail?: string;
     conversationId?: string;
     messageId?: string;
     since?: string;

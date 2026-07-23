@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient, SendOpts } from "../client.js";
+import type { MessageView } from "@e2a/sdk/v1";
 import { z } from "zod";
 import { runTool, strictInputSchema, paginationInput } from "./util.js";
 import { attachmentsArraySchema, type AttachmentInput } from "./attachments.js";
@@ -15,6 +16,52 @@ function mapAttachments(
     contentType: a.content_type,
     data: a.data,
   }));
+}
+
+// MessageView → the context-safe tool shape shared by `get_message` and
+// `get_review`. Attachment metadata comes from the server
+// (MessageView.attachments, parsed server-side) — the authoritative, stable
+// index the download route also uses. Attachment BYTES are NOT returned here;
+// call get_attachment for one. `raw_message` is likewise omitted so the LLM
+// never sees the full (potentially multi-MB) MIME blob.
+export function messageViewForTool(email: MessageView) {
+  return {
+    id: email.id,
+    conversation_id: email.conversationId,
+    direction: email.direction,
+    header_from: email.headerFrom,
+    envelope_from: email.envelopeFrom,
+    verified_domain: email.verifiedDomain,
+    authentication: email.authentication,
+    delivered_to: email.deliveredTo,
+    to: email.to,
+    cc: email.cc,
+    reply_to: email.replyTo,
+    subject: email.subject,
+    read_status: email.readStatus,
+    labels: email.labels,
+    flagged: email.flagged,
+    flag_reason: email.flagReason,
+    protection: email.protection,
+    truncated: email.parsed?.truncated,
+    // Inbound messages carry the decoded text in `parsed`; only outbound
+    // held drafts populate `body` (mirror the CLI's read fallback).
+    text: email.parsed?.text ?? email.body?.text,
+    html: email.parsed?.html ?? email.body?.html,
+    delivery_status: email.deliveryStatus,
+    delivery_detail: email.deliveryDetail,
+    review_status: email.reviewStatus,
+    sent_as: email.sentAs,
+    size_bytes: email.sizeBytes,
+    deleted_at: email.deletedAt,
+    received_at: email.createdAt,
+    attachments: (email.attachments ?? []).map((a) => ({
+      index: a.index,
+      filename: a.filename,
+      content_type: a.contentType,
+      size_bytes: a.sizeBytes,
+    })),
+  };
 }
 
 export function registerMessageTools(server: McpServer, client: McpClient): void {
@@ -490,47 +537,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
         // pinned default) and throws a directive error when neither is
         // available, so we don't pre-check here.
         const email = await client.getMessage(args.message_id, args.email);
-        // Attachment metadata comes from the server (MessageView.attachments,
-        // parsed server-side) — the authoritative, stable index the download
-        // route also uses. Bytes are NOT returned here; call get_attachment for
-        // one. `raw_message` is omitted so the LLM never sees the full MIME blob.
-        return {
-          id: email.id,
-          conversation_id: email.conversationId,
-          direction: email.direction,
-          header_from: email.headerFrom,
-          envelope_from: email.envelopeFrom,
-          verified_domain: email.verifiedDomain,
-          authentication: email.authentication,
-          delivered_to: email.deliveredTo,
-          to: email.to,
-          cc: email.cc,
-          reply_to: email.replyTo,
-          subject: email.subject,
-          read_status: email.readStatus,
-          labels: email.labels,
-          flagged: email.flagged,
-          flag_reason: email.flagReason,
-          protection: email.protection,
-          truncated: email.parsed?.truncated,
-          // Inbound messages carry the decoded text in `parsed`; only outbound
-          // held drafts populate `body` (mirror the CLI's read fallback).
-          text: email.parsed?.text ?? email.body?.text,
-          html: email.parsed?.html ?? email.body?.html,
-          delivery_status: email.deliveryStatus,
-          delivery_detail: email.deliveryDetail,
-          review_status: email.reviewStatus,
-          sent_as: email.sentAs,
-          size_bytes: email.sizeBytes,
-          deleted_at: email.deletedAt,
-          received_at: email.createdAt,
-          attachments: (email.attachments ?? []).map((a) => ({
-            index: a.index,
-            filename: a.filename,
-            content_type: a.contentType,
-            size_bytes: a.sizeBytes,
-          })),
-        };
+        return messageViewForTool(email);
       }),
   );
 
@@ -540,7 +547,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       title: "Get message lifecycle (beta)",
       annotations: { readOnlyHint: true, idempotentHint: true },
       description:
-        "Beta: returns the ordered transitions e2a observed for one persisted inbound or outbound message; the lifecycle contract may change before it is declared stable. SMTP acceptance, upstream submission, provider delivery feedback, and complaint feedback remain distinct; this does not claim inbox placement. Cursor-paginated with the canonical REST page envelope.",
+        "Beta: returns the ordered transitions e2a observed for one persisted inbound or outbound message; the lifecycle contract may change before it is declared stable. SMTP acceptance, upstream submission, provider delivery feedback, and complaint feedback remain distinct; this does not claim inbox placement. **Cursor-paginated:** returns one page in `transitions` plus `next_cursor` only when more pages remain; pass it back as `cursor` to continue, and stop when it is absent.",
       inputSchema: strictInputSchema({
         message_id: z.string(),
         email: z.string().optional(),
@@ -549,16 +556,23 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
       }),
     },
     async (args) =>
-      runTool(() =>
-        client.getMessageLifecycle(
+      runTool(async () => {
+        const page = await client.getMessageLifecycle(
           args.message_id,
           {
             ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
             ...(args.limit !== undefined ? { limit: args.limit } : {}),
           },
           args.email,
-        ),
-      ),
+        );
+        // Frozen MCP list envelope (see paginationInput in util.ts): a
+        // domain-named array + next_cursor OMITTED at the last page — not the
+        // raw REST page ({items, next_cursor: null}).
+        return {
+          transitions: page.items,
+          ...(page.nextCursor ? { next_cursor: page.nextCursor } : {}),
+        };
+      }),
   );
 
   server.registerTool(

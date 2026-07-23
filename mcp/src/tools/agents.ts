@@ -133,7 +133,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
       title: "Update an agent's protection config (beta)",
       annotations: { idempotentHint: true, destructiveHint: false },
       description:
-        "Set an agent's protection posture. Read-modify-write: only the fields you pass change; the rest keep their current value. Outbound policy semantics: open matches every recipient; allowlist matches exact addresses in outbound_gate_allowlist; domain matches recipients on the agent's own domain. The outbound gate action applies when any recipient does not match. To require human review for every outbound message, set outbound_gate_policy=allowlist, outbound_gate_allowlist=[], outbound_gate_action=review, and holds_on_expiry=reject — this guarantees the recipient GATE routes every message to review; when scanning is enabled, messages crossing the scan block threshold are refused outright (blocked, not held). Using open with review, the gate will hold nothing (every recipient matches); content scanning, when enabled, can still hold or block a message. The scan sensitivity (off|low|medium|high) tunes content screening; holds govern the review queue. BETA. Account scope only.",
+        "Set an agent's protection posture. Read-modify-write: only the fields you pass change; the rest keep their current value. Inbound allowlist/domain gates first require DMARC pass, then match the aligned RFC 5322 From address. Outbound policy semantics: open matches every recipient; allowlist matches exact addresses in outbound_gate_allowlist; domain matches recipients on the agent's own domain. The outbound gate action applies when any recipient does not match. To require human review for every outbound message, set outbound_gate_policy=allowlist, outbound_gate_allowlist=[], outbound_gate_action=review, and holds_on_expiry=reject — this guarantees the recipient GATE routes every message to review; when scanning is enabled, messages crossing the scan block threshold are refused outright (blocked, not held). Using open with review, the gate will hold nothing (every recipient matches); content scanning, when enabled, can still hold or block a message. The scan sensitivity (off|low|medium|high) tunes content screening; holds govern the review queue. BETA. Account scope only.",
       inputSchema: strictInputSchema({
         email: z
           .string()
@@ -147,7 +147,7 @@ export function registerAgentTools(server: McpServer, client: McpClient): void {
         inbound_gate_allowlist: z
           .array(z.string())
           .optional()
-          .describe("Inbound trusted addresses (allowlist) or domains (domain)."),
+          .describe("Inbound trusted addresses (allowlist) or domains (domain). These gates first require DMARC pass, then match the aligned RFC 5322 From address."),
         inbound_gate_action: z
           .enum(["flag", "review", "block"])
           .optional()
