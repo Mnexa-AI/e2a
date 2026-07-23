@@ -183,8 +183,8 @@ func assertMessageLifecycleContractSchema(t *testing.T, doc map[string]any) {
 		t.Fatal("GET /v1/agents/{email}/messages/{id}/lifecycle path missing")
 	}
 	op, ok := path["get"].(map[string]any)
-	if !ok || op["operationId"] != "get-message-lifecycle" {
-		t.Fatalf("lifecycle GET operation = %#v, want operationId get-message-lifecycle", op)
+	if !ok || op["operationId"] != "getMessageLifecycle" {
+		t.Fatalf("lifecycle GET operation = %#v, want operationId getMessageLifecycle", op)
 	}
 	description, _ := op["description"].(string)
 	if !strings.Contains(description, "ascending (occurred_at, id)") {

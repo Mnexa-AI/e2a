@@ -351,7 +351,7 @@ func TestMessageLifecycleOpenAPIOperationAndEnums(t *testing.T) {
 	s, _ := newLifecycleServer(t, nil)
 	doc := s.API.OpenAPI()
 	op := doc.Paths["/v1/agents/{email}/messages/{id}/lifecycle"].Get
-	if op == nil || op.OperationID != "get-message-lifecycle" {
+	if op == nil || op.OperationID != "getMessageLifecycle" {
 		t.Fatalf("lifecycle operation = %#v", op)
 	}
 	var limitSchemaFound bool

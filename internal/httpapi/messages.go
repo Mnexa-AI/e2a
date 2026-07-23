@@ -365,7 +365,7 @@ type ListMessagesInput struct {
 	From            string   `query:"from" doc:"Case-insensitive substring match on sender."`
 	SubjectContains string   `query:"subject_contains" doc:"Case-insensitive substring match on subject."`
 	ConversationID  string   `query:"conversation_id"`
-	Labels          []string `query:"labels" doc:"Repeatable; AND-matched."`
+	Labels          []string `query:"labels" doc:"Comma-separated list (e.g. labels=urgent,follow-up); AND-matched — a message must carry every given label."`
 	Since           string   `query:"since" doc:"RFC3339; created_at >= since."`
 	Until           string   `query:"until" doc:"RFC3339; created_at < until."`
 	Cursor          string   `query:"cursor"`
