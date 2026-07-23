@@ -501,6 +501,32 @@ func TestHTTP_Register_ErrorRequestID(t *testing.T) {
 			t.Errorf("minted request_id = %q, want req_ prefix", body.RequestID)
 		}
 	})
+
+	// Ids outside ^[A-Za-z0-9_-]{1,64}$ are reflected into log lines, so
+	// they must be replaced with a minted id, not honored.
+	t.Run("invalid inbound id replaced with minted", func(t *testing.T) {
+		for name, hostile := range map[string]string{
+			"field spoofing": `x client="victim" err=forged`,
+			"oversized":      strings.Repeat("a", 65),
+		} {
+			req, _ := http.NewRequest("POST", srv.URL+"/oauth2/register", badBody())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-Id", hostile)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+			assertRequestIDMatch(t, resp, body)
+			if body.RequestID == hostile {
+				t.Errorf("%s: hostile request_id %q was honored, want a minted replacement", name, hostile)
+			}
+			if !strings.HasPrefix(body.RequestID, "req_") {
+				t.Errorf("%s: request_id = %q, want a minted req_* id", name, body.RequestID)
+			}
+			resp.Body.Close()
+		}
+	})
 }
 
 // TestHTTP_Register_XFFCannotBypass: rotating X-Forwarded-For must

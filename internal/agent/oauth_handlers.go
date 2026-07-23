@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -118,19 +119,29 @@ type OAuthError struct {
 	RequestID        string `json:"request_id,omitempty"`
 }
 
+// validRequestID bounds the ids this package will reflect into [oauth] log
+// lines and error bodies. Client-supplied X-Request-Id values outside this
+// alphabet/length (field-spoofing text, multi-KB padding) are replaced with
+// a minted id rather than logged verbatim. Same rule as the MCP transport's
+// INBOUND_REQUEST_ID in mcp/src/correlation.ts.
+var validRequestID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
 // oauthRequestID returns the request id used to correlate error bodies and
 // [oauth] log lines with the X-Request-Id response header. The httpapi root
 // middleware sets X-Request-Id on the response writer before dispatching
 // (it wraps the legacy mux too), so downstream handlers can read back the
 // exact id the client will see. When no middleware ran (bare-mux test
 // servers), honor a client-supplied header, else mint one and set it on the
-// response — header, body, and logs stay consistent either way. Returns ""
-// only if crypto/rand fails; callers degrade gracefully (omit the id).
+// response — header, body, and logs stay consistent either way. Any id that
+// fails validRequestID (the middleware echoes client input unchecked) is
+// replaced with a minted one, overwriting the response header so header,
+// body, and logs still agree. Returns "" only if crypto/rand fails; callers
+// degrade gracefully (omit the id).
 func oauthRequestID(w http.ResponseWriter, r *http.Request) string {
-	if id := w.Header().Get("X-Request-Id"); id != "" {
+	if id := w.Header().Get("X-Request-Id"); validRequestID.MatchString(id) {
 		return id
 	}
-	if id := r.Header.Get("X-Request-Id"); id != "" {
+	if id := r.Header.Get("X-Request-Id"); validRequestID.MatchString(id) {
 		w.Header().Set("X-Request-Id", id)
 		return id
 	}
