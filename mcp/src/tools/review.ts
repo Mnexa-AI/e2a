@@ -1,9 +1,24 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient } from "../client.js";
+import type { MessageView } from "@e2a/sdk/v1";
 import { z } from "zod";
 import { paginationInput, runTool, strictInputSchema } from "./util.js";
 import { attachmentsArraySchema } from "./attachments.js";
 import { messageViewForTool } from "./messages.js";
+
+// Review-surface view of a held message: get_message's context-safe
+// projection (raw MIME and attachment bytes stay out of context) PLUS
+// `hold_reason`. The server sets holdReason only on held messages, where it
+// is the primary explanation of why the message is held — and the sole
+// explanation when the best-effort `protection` enrichment degrades.
+// messageViewForTool deliberately omits it (get_message's output shape is
+// frozen), so the review tools wrap the projection instead of changing it.
+export function reviewViewForTool(view: MessageView) {
+  return {
+    ...messageViewForTool(view),
+    ...(view.holdReason !== undefined ? { hold_reason: view.holdReason } : {}),
+  };
+}
 
 export function registerReviewTools(server: McpServer, client: McpClient): void {
   server.registerTool(
@@ -41,10 +56,11 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
     },
     // Strip raw_message / attachment bytes via the same context-safe
     // projection get_message uses — an inbound hold's raw MIME can be a
-    // multi-MB base64 blob. approve_review is unaffected: it builds its
+    // multi-MB base64 blob — while keeping hold_reason, the review surface's
+    // primary hold explanation. approve_review is unaffected: it builds its
     // payload from the caller's own override fields, not the held body.
     async (args) =>
-      runTool(async () => messageViewForTool(await client.getReview(args.message_id))),
+      runTool(async () => reviewViewForTool(await client.getReview(args.message_id))),
   );
 
   // Map the snake_case approve override args to the SDK's ApproveRequest

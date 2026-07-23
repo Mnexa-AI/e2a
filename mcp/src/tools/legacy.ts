@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpClient, SendOpts } from "../client.js";
 import { z } from "zod";
 import { attachmentsArraySchema, type AttachmentInput } from "./attachments.js";
-import { messageViewForTool } from "./messages.js";
+import { reviewViewForTool } from "./review.js";
 import { runTool, strictInputSchema } from "./util.js";
 
 function mapAttachments(
@@ -163,9 +163,10 @@ export function registerLegacyTools(server: McpServer, client: McpClient): void 
       }),
     },
     // Same context-safe projection as get_review: raw_message and attachment
-    // bytes stay out of the model's context.
+    // bytes stay out of the model's context; hold_reason is kept (it is the
+    // review surface's primary hold explanation).
     async (args) =>
-      runTool(async () => messageViewForTool(await client.getReview(args.message_id))),
+      runTool(async () => reviewViewForTool(await client.getReview(args.message_id))),
   );
 
   server.registerTool(
