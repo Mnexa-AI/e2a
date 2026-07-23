@@ -486,8 +486,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("config: trash.retention_days must be at least 1 (got %d) — the stable API promises soft-deleted resources stay restorable", c.Trash.RetentionDays)
 	}
 	for _, cidr := range c.SMTP.ProxyTrustedCIDRs {
-		if _, err := netip.ParsePrefix(cidr); err != nil {
+		p, err := netip.ParsePrefix(cidr)
+		if err != nil {
 			return fmt.Errorf("config: smtp.proxy_trusted_cidrs: malformed CIDR %q: %w", cidr, err)
+		}
+		if p.Bits() == 0 {
+			return fmt.Errorf("config: smtp.proxy_trusted_cidrs: %q trusts every peer, which lets anyone spoof source IPs for SPF and logging; list only the proxy's own address(es)", cidr)
 		}
 	}
 	if c.OIDC.Enabled {

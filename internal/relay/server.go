@@ -214,6 +214,11 @@ func (b *backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
 	var remoteIP net.IP
 	if addr, ok := c.Conn().RemoteAddr().(*net.TCPAddr); ok {
 		remoteIP = addr.IP
+	} else {
+		// Reachable only via a trusted proxy peer presenting a non-TCP-family
+		// PROXY header; the session degrades to SPF=none, so make the
+		// misbehaving front-end visible.
+		log.Printf("relay: non-TCP remote address %v (%T); SPF will be skipped for this session", c.Conn().RemoteAddr(), c.Conn().RemoteAddr())
 	}
 	sid := newSessionID()
 	log.Printf("[%s] new session from %s", sid, remoteIP)

@@ -12,8 +12,9 @@ import (
 // proxyHeaderTimeout bounds how long a trusted peer may take to present (or
 // omit) the PROXY header before the connection is dropped. go-smtp's
 // ReadTimeout only applies after the session starts, so an unwrapped
-// slow-loris on the header would otherwise be unbounded.
-const proxyHeaderTimeout = 5 * time.Second
+// slow-loris on the header would otherwise be unbounded. Variable only so
+// tests can shorten the headerless-connection wait.
+var proxyHeaderTimeout = 5 * time.Second
 
 // parseTrustedCIDRs compiles configured CIDR strings. config.Validate already
 // rejects malformed entries at startup; this is the relay's own fail-closed
@@ -24,6 +25,9 @@ func parseTrustedCIDRs(cidrs []string) ([]netip.Prefix, error) {
 		p, err := netip.ParsePrefix(c)
 		if err != nil {
 			return nil, fmt.Errorf("smtp proxy_trusted_cidrs: malformed CIDR %q: %w", c, err)
+		}
+		if p.Bits() == 0 {
+			return nil, fmt.Errorf("smtp proxy_trusted_cidrs: %q trusts every peer, which lets anyone spoof source IPs; list only the proxy's own address(es)", c)
 		}
 		out = append(out, p)
 	}
@@ -44,8 +48,8 @@ func wrapProxyListener(l net.Listener, trusted []netip.Prefix) net.Listener {
 	return &proxyproto.Listener{
 		Listener:          l,
 		ReadHeaderTimeout: proxyHeaderTimeout,
-		Policy: func(upstream net.Addr) (proxyproto.Policy, error) {
-			if addr, ok := upstream.(*net.TCPAddr); ok {
+		ConnPolicy: func(o proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
+			if addr, ok := o.Upstream.(*net.TCPAddr); ok {
 				if ip, ok := netip.AddrFromSlice(addr.IP); ok {
 					ip = ip.Unmap()
 					for _, p := range trusted {

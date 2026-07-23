@@ -24,6 +24,9 @@ smtp:
   # the ~5s banner delay), and direct SMTP clients connecting from a trusted
   # CIDR see a ~5s greeting delay. Proxied traffic (always has a header) is
   # unaffected.
+  # List only the proxy's own address(es) — ideally a /32. A catch-all like
+  # "0.0.0.0/0" or "::/0" would let any peer spoof source IPs and is
+  # rejected at startup.
   # proxy_trusted_cidrs: []
 
 http:
