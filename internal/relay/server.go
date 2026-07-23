@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net"
 	"net/mail"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -60,6 +61,10 @@ type Server struct {
 	inboundAsync bool
 	inboundEnq   InboundEnqueuer
 	authenticate AuthenticationChecker
+	// proxyTrusted is the compiled form of cfg.SMTP.ProxyTrustedCIDRs. When
+	// non-empty, ListenAndServe wraps the TCP listener so only peers in these
+	// CIDRs may present a PROXY protocol header (see proxy.go).
+	proxyTrusted []netip.Prefix
 }
 
 // AuthenticationChecker evaluates the connection and message identities used
@@ -130,6 +135,13 @@ func NewServer(cfg *config.Config, store *identity.Store, usage usage.UsageTrack
 	}
 
 	s.smtpServer = smtpSrv
+
+	// config.Load runs Validate, which rejects malformed CIDRs before NewServer
+	// can be reached; a parse failure here therefore just leaves proxyTrusted
+	// nil (PROXY parsing disabled) rather than changing NewServer's signature.
+	trusted, _ := parseTrustedCIDRs(cfg.SMTP.ProxyTrustedCIDRs)
+	s.proxyTrusted = trusted
+
 	return s
 }
 
@@ -172,8 +184,16 @@ func buildScreenEngine() *piguard.Engine {
 }
 
 func (s *Server) ListenAndServe() error {
+	l, err := net.Listen("tcp", s.smtpServer.Addr)
+	if err != nil {
+		return err
+	}
+	if len(s.proxyTrusted) > 0 {
+		log.Printf("SMTP PROXY protocol enabled for %d trusted CIDR(s)", len(s.proxyTrusted))
+		l = wrapProxyListener(l, s.proxyTrusted)
+	}
 	log.Printf("SMTP relay listening on %s", s.smtpServer.Addr)
-	return s.smtpServer.ListenAndServe()
+	return s.smtpServer.Serve(l)
 }
 
 func (s *Server) Close() error {

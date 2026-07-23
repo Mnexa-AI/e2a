@@ -17,6 +17,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/ory/fosite v0.49.0
+	github.com/pires/go-proxyproto v0.15.0
 	github.com/riverqueue/river v0.40.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.40.0
 	github.com/riverqueue/river/rivertype v0.40.0
