@@ -53,9 +53,10 @@ migrate:
 
 # spec regenerates the /v1 OpenAPI 3.1 document (api/openapi.yaml) directly
 # from the live Huma handlers — the single source of truth for SDK codegen and
-# the rendered API reference. (The dashboard's API-reference page copies
-# api/openapi.yaml into web/public/openapi.yaml at build time via the web
-# `sync-openapi` script. The old swag-annotation pipeline has been removed.)
+# the rendered API reference. (The dashboard's API-reference page, web/public
+# /scalar.html, fetches the spec live from /v1/openapi.yaml at request time —
+# there is no static web/public/openapi.yaml copy. The old swag-annotation
+# pipeline has been removed.)
 spec:
 	go test ./internal/httpapi/ -run TestSpecGoldenNoDrift -update-spec -count=1
 	@echo "==> Regenerated api/openapi.yaml from the /v1 handlers"
