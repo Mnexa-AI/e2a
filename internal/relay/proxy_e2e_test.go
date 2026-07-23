@@ -7,6 +7,7 @@ import (
 	"net/smtp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tokencanopy/e2a/internal/config"
 	"github.com/tokencanopy/e2a/internal/identity"
@@ -64,6 +65,10 @@ func sendSMTPOnConn(t *testing.T, conn net.Conn, host, from, to, body string) {
 // headerless direct connection from the same trusted loopback records the real
 // 127.* peer (the HAProxy health-check / diagnostic path).
 func TestE2E_ProxySourceReachesInboundIntake(t *testing.T) {
+	// The headerless subtest waits out the header-detection timeout before the
+	// banner; don't spend the production 5s on it.
+	defer relay.SetProxyHeaderTimeout(500 * time.Millisecond)()
+
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)
 	ctx := context.Background()

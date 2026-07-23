@@ -486,6 +486,22 @@ smtp:
 	}
 }
 
+func TestSMTPProxyTrustedCIDRsValidateRejectsCatchAll(t *testing.T) {
+	dir := t.TempDir()
+	for _, cidr := range []string{"0.0.0.0/0", "::/0"} {
+		cfgPath := filepath.Join(dir, "config.yaml")
+		os.WriteFile(cfgPath, []byte(`
+env: "development"
+smtp:
+  proxy_trusted_cidrs: ["`+cidr+`"]
+`), 0644)
+		_, err := Load(cfgPath)
+		if err == nil || !strings.Contains(err.Error(), cidr) {
+			t.Fatalf("Load error = %v, want rejection naming %q (trusting every peer enables source-IP spoofing)", err, cidr)
+		}
+	}
+}
+
 func TestLoadConfigRateLimitsDefault(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
