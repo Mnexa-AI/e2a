@@ -76,6 +76,7 @@ from .generated.models import (
     TemplateView,
     TestWebhookResponse,
     TestWebhookRequest,
+    UnsubscribeOptions,
     ProtectionConfigView,
     ProtectionConfigRequest,
     CreateTemplateRequest,
@@ -100,6 +101,9 @@ T = TypeVar("T")
 _Make = Callable[[Optional["dict[str, str]"]], Awaitable[Any]]
 # A request body accepted as the typed model or a plain dict.
 Body = Union[Any, dict]
+# The managed-unsubscribe opt-in (beta), accepted as the typed model or a plain
+# dict — mirrors the TS SDK's ManagedUnsubscribeOptions ({"mode": "managed"}).
+UnsubscribeInput = Union[UnsubscribeOptions, dict]
 
 
 class EventLike(Protocol):
@@ -544,29 +548,60 @@ class MessagesResource:
         )
 
     async def send(
-        self, email: str, body: Body, *, idempotency_key: Optional[str] = None
+        self,
+        email: str,
+        body: Body,
+        *,
+        unsubscribe: Optional[UnsubscribeInput] = None,
+        idempotency_key: Optional[str] = None,
     ) -> SendResultView:
-        """Send a message. The optional managed-unsubscribe field is beta."""
+        """Send a message. The optional managed-unsubscribe field is beta.
+
+        Pass ``unsubscribe={"mode": "managed"}`` (or an
+        :class:`UnsubscribeOptions`) to opt the message into e2a-managed
+        unsubscribe handling; when given, it wins over any ``unsubscribe``
+        already present in ``body``.
+        """
         req = _coerce(SendEmailRequest, body)
+        if unsubscribe is not None:
+            req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
             lambda h: self._api.send_message(email, req, _headers=h), idempotency_key
         )
 
     async def reply(
-        self, email: str, message_id: str, body: Body, *, idempotency_key: Optional[str] = None
+        self,
+        email: str,
+        message_id: str,
+        body: Body,
+        *,
+        unsubscribe: Optional[UnsubscribeInput] = None,
+        idempotency_key: Optional[str] = None,
     ) -> SendResultView:
-        """Reply to a message. The optional managed-unsubscribe field is beta."""
+        """Reply to a message. The optional managed-unsubscribe field is beta
+        (see :meth:`send`)."""
         req = _coerce(ReplyRequest, body)
+        if unsubscribe is not None:
+            req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
             lambda h: self._api.reply_to_message(email, message_id, req, _headers=h),
             idempotency_key,
         )
 
     async def forward(
-        self, email: str, message_id: str, body: Body, *, idempotency_key: Optional[str] = None
+        self,
+        email: str,
+        message_id: str,
+        body: Body,
+        *,
+        unsubscribe: Optional[UnsubscribeInput] = None,
+        idempotency_key: Optional[str] = None,
     ) -> SendResultView:
-        """Forward a message. The optional managed-unsubscribe field is beta."""
+        """Forward a message. The optional managed-unsubscribe field is beta
+        (see :meth:`send`)."""
         req = _coerce(ForwardRequest, body)
+        if unsubscribe is not None:
+            req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
             lambda h: self._api.forward_message(email, message_id, req, _headers=h),
             idempotency_key,

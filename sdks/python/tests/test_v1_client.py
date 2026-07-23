@@ -523,6 +523,79 @@ async def test_send_uses_caller_idempotency_key(httpx_mock):
 
 
 @pytest.mark.anyio
+async def test_send_threads_managed_unsubscribe(httpx_mock):
+    # Beta: the unsubscribe kwarg lands on the generated request model and
+    # serializes onto the wire (parity with the TS SDK's
+    # ManagedUnsubscribeOptions).
+    httpx_mock.add_response(json={"message_id": "msg_u1", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send(
+            "bot@test.dev",
+            {"to": ["a@x.com"], "subject": "Hi", "text": "yo"},
+            unsubscribe={"mode": "managed"},
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert json.loads(req.content)["unsubscribe"] == {"mode": "managed"}
+
+
+@pytest.mark.anyio
+async def test_send_unsubscribe_kwarg_accepts_model_and_overrides_body(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u2", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send(
+            "bot@test.dev",
+            SendEmailRequest(
+                to=["a@x.com"],
+                subject="Hi",
+                text="yo",
+                unsubscribe=UnsubscribeOptions(mode="managed"),
+            ),
+            unsubscribe=UnsubscribeOptions(mode="managed"),
+        )
+    assert json.loads(httpx_mock.get_requests()[-1].content)["unsubscribe"] == {
+        "mode": "managed"
+    }
+
+
+@pytest.mark.anyio
+async def test_send_without_unsubscribe_omits_field(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u3", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "text": "yo"})
+    assert "unsubscribe" not in json.loads(httpx_mock.get_requests()[-1].content)
+
+
+@pytest.mark.anyio
+async def test_reply_threads_managed_unsubscribe(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u4", "status": "sent"})
+    async with _client() as c:
+        await c.messages.reply(
+            "bot@test.dev",
+            "msg_1",
+            {"text": "yo"},
+            unsubscribe={"mode": "managed"},
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/reply" in str(req.url)
+    assert json.loads(req.content)["unsubscribe"] == {"mode": "managed"}
+
+
+@pytest.mark.anyio
+async def test_forward_threads_managed_unsubscribe(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_u5", "status": "sent"})
+    async with _client() as c:
+        await c.messages.forward(
+            "bot@test.dev",
+            "msg_1",
+            {"to": ["a@x.com"], "text": "yo"},
+            unsubscribe={"mode": "managed"},
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/forward" in str(req.url)
+    assert json.loads(req.content)["unsubscribe"] == {"mode": "managed"}
+
+
+@pytest.mark.anyio
 async def test_create_api_key_retries_with_one_idempotency_key(httpx_mock):
     httpx_mock.add_response(
         status_code=503,
