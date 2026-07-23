@@ -1306,7 +1306,7 @@ export interface MessagesApiForwardMessageRequest {
      */
     idempotencyKey?: string
     /**
-     * Optional bounded wait. wait&#x3D;sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 15 seconds elapse, then returns the observed state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code.
+     * Optional bounded wait. wait&#x3D;sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code.
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApiforwardMessage
@@ -1521,7 +1521,7 @@ export interface MessagesApiReplyToMessageRequest {
      */
     idempotencyKey?: string
     /**
-     * Optional bounded wait. wait&#x3D;sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 15 seconds elapse, then returns the observed state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code.
+     * Optional bounded wait. wait&#x3D;sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code.
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApireplyToMessage
@@ -1568,7 +1568,7 @@ export interface MessagesApiSendMessageRequest {
      */
     idempotencyKey?: string
     /**
-     * Optional bounded wait. wait&#x3D;sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or 15 seconds elapse, then returns the observed state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code.
+     * Optional bounded wait. wait&#x3D;sent holds the request until the asynchronously delivered message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed state; on timeout returns status&#x3D;accepted. Default: no wait. Always branch on body.status, not the HTTP code.
      * Defaults to: undefined
      * @type string
      * @memberof MessagesApisendMessage
