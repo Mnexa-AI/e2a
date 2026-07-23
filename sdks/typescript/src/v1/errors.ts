@@ -9,7 +9,7 @@
 // below) maps to its family regardless of the HTTP status it arrives on, so a
 // code that shows up on an unexpected status no longer degrades to the bare
 // base error. An unknown code falls back to the HTTP status bucket, which
-// preserves every status→class outcome (401→Auth, 403→Permission, 404→NotFound,
+// preserves every status→class outcome (401→Auth, 403→Permission, 404/410→NotFound,
 // 409→Conflict, 422→Validation, 429→RateLimit, 5xx/408→Server) so a NEW server
 // code still lands in the right family.
 
@@ -60,7 +60,7 @@ export class E2AError extends Error {
 
 export class E2AAuthError extends E2AError {}        // 401
 export class E2APermissionError extends E2AError {}  // 403
-export class E2ANotFoundError extends E2AError {}    // 404
+export class E2ANotFoundError extends E2AError {}    // 404 / 410
 export class E2AConflictError extends E2AError {}    // 409
 export class E2AValidationError extends E2AError {}  // 422 — input validation
 export class E2AIdempotencyError extends E2AError {} // idempotency_in_flight / _key_reuse
@@ -170,6 +170,10 @@ function resolve(status: number, code: string): { make: Make; retryable: boolean
     case 403:
       return { make: mkPermission, retryable: false };
     case 404:
+      return { make: mkNotFound, retryable: false };
+    case 410:
+      // Gone maps with NotFound — the same family the `gone` code takes in
+      // CODE_TABLE above.
       return { make: mkNotFound, retryable: false };
     case 409:
       return { make: mkConflict, retryable: false };
