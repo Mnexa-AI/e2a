@@ -15,8 +15,8 @@ Maps each exercised concrete path to the most-specific matching operationId, the
 compares the covered set to the full catalog (minus an explicit allowlist of
 operations the black-box suite legitimately must not call).
 
-SCOPE: this gate covers the 56 typed /v1 OpenAPI operations (the operationId
-catalog). Non-/v1 surface (billing, MCP, OAuth machine endpoints, /api/health,
+SCOPE: this gate covers the typed /v1 OpenAPI operations (the operationId
+catalog, counted dynamically from api/openapi.yaml). Non-/v1 surface (billing, MCP, OAuth machine endpoints, /api/health,
 /webhooks/*) and the webhook EVENT types are NOT operationIds and are out of scope
 here — they have their own dedicated suites (e.g. 21-webhook-events for event
 emission). Exercised paths that don't map to a /v1 operationId are reported (as
