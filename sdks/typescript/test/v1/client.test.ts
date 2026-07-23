@@ -200,6 +200,21 @@ describe("E2AClient", () => {
     expect(res.messagesDeleted).toBe(12);
   });
 
+  it("agents.delete({ permanent: true }) sends permanent=true; the default omits it", async () => {
+    globalThis.fetch = mockFetch(200, { deleted: true, email: "bot@test.dev", messages_deleted: 12 });
+    await client.agents.delete("bot@test.dev", { permanent: true });
+    const { url, init } = lastCall();
+    expect(init.method).toBe("DELETE");
+    const params = new URL(url).searchParams;
+    expect(params.get("permanent")).toBe("true");
+    // The typed call is the confirmation; the SDK supplies the raw-API guard.
+    expect(params.get("confirm")).toBe("DELETE");
+
+    // The trash path is reversible, so `permanent` is omitted entirely.
+    await client.agents.delete("bot@test.dev");
+    expect(new URL(lastCall().url).searchParams.get("permanent")).toBeNull();
+  });
+
   it("agents.list returns an AutoPager over the agents array", async () => {
     globalThis.fetch = mockFetch(200, { items: [{ id: "ag_1", email: "bot@test.dev" }], next_cursor: null });
     const items = await client.agents.list().toArray({ limit: 10 });
@@ -336,6 +351,28 @@ describe("E2AClient", () => {
       { idempotencyKey: "caller-key-123" },
     );
     expect(lastCall().headers["Idempotency-Key"]).toBe("caller-key-123");
+  });
+
+  it("messages.send/reply/forward forward wait=sent as the bounded-wait query param", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_w1", status: "sent" });
+    await client.messages.send(
+      "bot@test.dev",
+      { to: ["a@x.com"], subject: "Hi", text: "Hello" } as never,
+      { wait: "sent" },
+    );
+    expect(new URL(lastCall().url).searchParams.get("wait")).toBe("sent");
+
+    await client.messages.reply("bot@test.dev", "msg_1", { text: "Re" } as never, { wait: "sent" });
+    expect(new URL(lastCall().url).searchParams.get("wait")).toBe("sent");
+
+    await client.messages.forward("bot@test.dev", "msg_1", { to: ["b@x.com"] } as never, { wait: "sent" });
+    expect(new URL(lastCall().url).searchParams.get("wait")).toBe("sent");
+  });
+
+  it("messages.send omits the wait param by default", async () => {
+    globalThis.fetch = mockFetch(200, { message_id: "msg_w2", status: "accepted" });
+    await client.messages.send("bot@test.dev", { to: ["a@x.com"], subject: "Hi", text: "Hello" } as never);
+    expect(new URL(lastCall().url).searchParams.get("wait")).toBeNull();
   });
 
   it("messages.list threads next_cursor across pages", async () => {
@@ -763,6 +800,18 @@ describe("E2AClient", () => {
   });
 
   // ── account + suppressions smoke (thin passthroughs) ────────────
+
+  it("account.apiKeys.create sends a caller-supplied Idempotency-Key", async () => {
+    globalThis.fetch = mockFetch(201, { id: "key_1", key: "e2a_agt_secret" });
+    await client.account.apiKeys.create(
+      { agentEmail: "bot@test.dev", name: "ci" } as never,
+      { idempotencyKey: "key-req-123" },
+    );
+    const { url, init, headers } = lastCall();
+    expect(init.method).toBe("POST");
+    expect(url).toContain("/v1/account/api-keys");
+    expect(headers["Idempotency-Key"]).toBe("key-req-123");
+  });
 
   it("account.get / export / suppressions hit the right operations", async () => {
     globalThis.fetch = mockFetch(200, { plan: "free" });
