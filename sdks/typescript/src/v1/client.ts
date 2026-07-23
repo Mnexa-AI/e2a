@@ -121,7 +121,7 @@ export interface RequestOptions {
 /** Per-call options for send/reply/forward. */
 export interface SendOptions extends RequestOptions {
   /** Optional bounded wait: `wait: "sent"` holds the request server-side until
-   *  the message reaches a terminal-or-held state or 15 seconds elapse, then
+   *  the message reaches a terminal-or-held state or at most 20 seconds elapse (currently ~15s), then
    *  returns the observed state; on timeout the result stays `status:
    *  "accepted"`. Default: no wait. Always branch on the result's `status`,
    *  not the HTTP code. */

@@ -176,7 +176,7 @@ Request bodies accept a plain `dict` (shown above) or the generated model
 Sends are queue-first: by default `send` / `reply` / `forward` return as soon
 as the message is durably accepted (`status="accepted"`). Pass `wait="sent"`
 to hold the request server-side until the message reaches a terminal-or-held
-state or 15 seconds elapse:
+state or at most 20 seconds elapse (currently ~15s):
 
 ```python
 result = await client.messages.send(

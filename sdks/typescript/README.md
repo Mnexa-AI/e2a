@@ -141,7 +141,7 @@ await client.messages.send(address, body, { idempotencyKey: deriveFromEvent(evt)
 
 Sends are asynchronous by default: the API accepts the message and delivers it
 via a background worker. Pass `wait: "sent"` to `messages.send` / `.reply` /
-`.forward` to hold the request server-side (up to 15s) until the message
+`.forward` to hold the request server-side (up to 20s, currently ~15s) until the message
 reaches a terminal-or-held state, then read the observed state from the result
 — on timeout the result stays `status: "accepted"`. Always branch on the
 result's `status`, not the HTTP code:

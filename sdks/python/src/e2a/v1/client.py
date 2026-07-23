@@ -565,7 +565,7 @@ class MessagesResource:
 
         Pass ``wait="sent"`` for an optional bounded wait: the request is held
         server-side until the asynchronously delivered message reaches a
-        terminal-or-held state or 15 seconds elapse, then returns the observed
+        terminal-or-held state or at most 20 seconds elapse (currently ~15s), then returns the observed
         state; on timeout the result stays ``status="accepted"``. Default: no
         wait. Always branch on the result's ``status``, not the HTTP code.
         """
