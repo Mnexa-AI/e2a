@@ -596,6 +596,50 @@ async def test_forward_threads_managed_unsubscribe(httpx_mock):
 
 
 @pytest.mark.anyio
+async def test_send_wait_sent_passes_query_param(httpx_mock):
+    # wait="sent" is the bounded-wait opt-in (parity with the TS SDK's
+    # SendOptions.wait): it must reach the wire as ?wait=sent.
+    httpx_mock.add_response(json={"message_id": "msg_w1", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send(
+            "bot@test.dev",
+            {"to": ["a@x.com"], "subject": "Hi", "text": "yo"},
+            wait="sent",
+        )
+    assert httpx_mock.get_requests()[-1].url.params["wait"] == "sent"
+
+
+@pytest.mark.anyio
+async def test_reply_wait_sent_passes_query_param(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_w2", "status": "sent"})
+    async with _client() as c:
+        await c.messages.reply("bot@test.dev", "msg_1", {"text": "yo"}, wait="sent")
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/reply" in str(req.url)
+    assert req.url.params["wait"] == "sent"
+
+
+@pytest.mark.anyio
+async def test_forward_wait_sent_passes_query_param(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_w3", "status": "sent"})
+    async with _client() as c:
+        await c.messages.forward(
+            "bot@test.dev", "msg_1", {"to": ["a@x.com"], "text": "yo"}, wait="sent"
+        )
+    req = httpx_mock.get_requests()[-1]
+    assert "/v1/agents/bot%40test.dev/messages/msg_1/forward" in str(req.url)
+    assert req.url.params["wait"] == "sent"
+
+
+@pytest.mark.anyio
+async def test_send_without_wait_omits_query_param(httpx_mock):
+    httpx_mock.add_response(json={"message_id": "msg_w4", "status": "sent"})
+    async with _client() as c:
+        await c.messages.send("bot@test.dev", {"to": ["a@x.com"], "subject": "Hi", "text": "yo"})
+    assert "wait" not in httpx_mock.get_requests()[-1].url.params
+
+
+@pytest.mark.anyio
 async def test_create_api_key_retries_with_one_idempotency_key(httpx_mock):
     httpx_mock.add_response(
         status_code=503,

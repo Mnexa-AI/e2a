@@ -171,6 +171,26 @@ await client.messages.send(address, body, idempotency_key=derive_from(event))
 Request bodies accept a plain `dict` (shown above) or the generated model
 (`from e2a.v1 import SendEmailRequest`).
 
+### Bounded wait for delivery (`wait="sent"`)
+
+Sends are queue-first: by default `send` / `reply` / `forward` return as soon
+as the message is durably accepted (`status="accepted"`). Pass `wait="sent"`
+to hold the request server-side until the message reaches a terminal-or-held
+state or 15 seconds elapse:
+
+```python
+result = await client.messages.send(
+    "sender@example.com",
+    {"to": ["recipient@example.net"], "subject": "Update", "text": "Hello"},
+    wait="sent",
+)
+if result.status == "sent":
+    ...  # delivered; on timeout the status stays "accepted"
+```
+
+Always branch on the result's `status`, not the HTTP code — a timeout is not
+a failure, the message is still queued for delivery.
+
 ### Managed unsubscribe (beta)
 
 Opt a single-recipient send, reply, or forward into e2a-managed unsubscribe.

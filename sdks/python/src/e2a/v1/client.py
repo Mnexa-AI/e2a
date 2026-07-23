@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from typing import Any, Awaitable, Callable, List, Optional, Protocol, Sequence, Type, TypeVar, Union
+from typing import Any, Awaitable, Callable, List, Literal, Optional, Protocol, Sequence, Type, TypeVar, Union
 
 from pydantic import ValidationError
 
@@ -553,6 +553,7 @@ class MessagesResource:
         body: Body,
         *,
         unsubscribe: Optional[UnsubscribeInput] = None,
+        wait: Optional[Literal["sent"]] = None,
         idempotency_key: Optional[str] = None,
     ) -> SendResultView:
         """Send a message. The optional managed-unsubscribe field is beta.
@@ -561,12 +562,19 @@ class MessagesResource:
         :class:`UnsubscribeOptions`) to opt the message into e2a-managed
         unsubscribe handling; when given, it wins over any ``unsubscribe``
         already present in ``body``.
+
+        Pass ``wait="sent"`` for an optional bounded wait: the request is held
+        server-side until the asynchronously delivered message reaches a
+        terminal-or-held state or 15 seconds elapse, then returns the observed
+        state; on timeout the result stays ``status="accepted"``. Default: no
+        wait. Always branch on the result's ``status``, not the HTTP code.
         """
         req = _coerce(SendEmailRequest, body)
         if unsubscribe is not None:
             req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
-            lambda h: self._api.send_message(email, req, _headers=h), idempotency_key
+            lambda h: self._api.send_message(email, req, wait=wait, _headers=h),
+            idempotency_key,
         )
 
     async def reply(
@@ -576,15 +584,16 @@ class MessagesResource:
         body: Body,
         *,
         unsubscribe: Optional[UnsubscribeInput] = None,
+        wait: Optional[Literal["sent"]] = None,
         idempotency_key: Optional[str] = None,
     ) -> SendResultView:
-        """Reply to a message. The optional managed-unsubscribe field is beta
-        (see :meth:`send`)."""
+        """Reply to a message. The optional managed-unsubscribe field is beta,
+        and ``wait="sent"`` requests the same bounded wait (see :meth:`send`)."""
         req = _coerce(ReplyRequest, body)
         if unsubscribe is not None:
             req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
-            lambda h: self._api.reply_to_message(email, message_id, req, _headers=h),
+            lambda h: self._api.reply_to_message(email, message_id, req, wait=wait, _headers=h),
             idempotency_key,
         )
 
@@ -595,15 +604,16 @@ class MessagesResource:
         body: Body,
         *,
         unsubscribe: Optional[UnsubscribeInput] = None,
+        wait: Optional[Literal["sent"]] = None,
         idempotency_key: Optional[str] = None,
     ) -> SendResultView:
-        """Forward a message. The optional managed-unsubscribe field is beta
-        (see :meth:`send`)."""
+        """Forward a message. The optional managed-unsubscribe field is beta,
+        and ``wait="sent"`` requests the same bounded wait (see :meth:`send`)."""
         req = _coerce(ForwardRequest, body)
         if unsubscribe is not None:
             req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
-            lambda h: self._api.forward_message(email, message_id, req, _headers=h),
+            lambda h: self._api.forward_message(email, message_id, req, wait=wait, _headers=h),
             idempotency_key,
         )
 
