@@ -455,6 +455,53 @@ func TestTrashRetentionDefaultOverrideAndValidation(t *testing.T) {
 	}
 }
 
+func TestSMTPProxyTrustedCIDRsEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`env: "development"`), 0644)
+
+	t.Setenv("E2A_SMTP_PROXY_TRUSTED_CIDRS", "172.30.0.0/24, 10.0.0.0/8")
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if got := cfg.SMTP.ProxyTrustedCIDRs; len(got) != 2 || got[0] != "172.30.0.0/24" || got[1] != "10.0.0.0/8" {
+		t.Fatalf("ProxyTrustedCIDRs = %v", got)
+	}
+}
+
+func TestSMTPProxyTrustedCIDRsValidateRejectsMalformed(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`
+env: "development"
+smtp:
+  proxy_trusted_cidrs: ["172.30.0.0/24", "not-a-cidr"]
+`), 0644)
+
+	_, err := Load(cfgPath)
+	if err == nil || !strings.Contains(err.Error(), "not-a-cidr") {
+		t.Fatalf("Load error = %v, want error naming the malformed CIDR", err)
+	}
+}
+
+func TestSMTPProxyTrustedCIDRsValidateRejectsCatchAll(t *testing.T) {
+	dir := t.TempDir()
+	for _, cidr := range []string{"0.0.0.0/0", "::/0"} {
+		cfgPath := filepath.Join(dir, "config.yaml")
+		os.WriteFile(cfgPath, []byte(`
+env: "development"
+smtp:
+  proxy_trusted_cidrs: ["`+cidr+`"]
+`), 0644)
+		_, err := Load(cfgPath)
+		if err == nil || !strings.Contains(err.Error(), cidr) {
+			t.Fatalf("Load error = %v, want rejection naming %q (trusting every peer enables source-IP spoofing)", err, cidr)
+		}
+	}
+}
+
 func TestLoadConfigRateLimitsDefault(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")

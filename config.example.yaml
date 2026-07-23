@@ -15,6 +15,19 @@ smtp:
   domain: "example.com"  # the domain whose MX record points at this relay
   # tls_cert: "/path/to/cert.pem"
   # tls_key: "/path/to/key.pem"
+  # CIDRs whose peers may present a PROXY protocol header (e.g. HAProxy in
+  # front of this listener). Empty = PROXY parsing off. Untrusted peers are
+  # never parsed — their real IP is always used for SPF.
+  # Caveat: a trusted peer that connects WITHOUT a header is given up to 5s
+  # to present one before the SMTP banner is written — so health checks
+  # against a PROXY-enabled listener must be TCP-connect-only (or tolerate
+  # the ~5s banner delay), and direct SMTP clients connecting from a trusted
+  # CIDR see a ~5s greeting delay. Proxied traffic (always has a header) is
+  # unaffected.
+  # List only the proxy's own address(es) — ideally a /32. A catch-all like
+  # "0.0.0.0/0" or "::/0" would let any peer spoof source IPs and is
+  # rejected at startup.
+  # proxy_trusted_cidrs: []
 
 http:
   listen_addr: ":8080"

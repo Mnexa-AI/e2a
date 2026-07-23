@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net"
 	"net/mail"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -60,6 +61,10 @@ type Server struct {
 	inboundAsync bool
 	inboundEnq   InboundEnqueuer
 	authenticate AuthenticationChecker
+	// proxyTrusted is the compiled form of cfg.SMTP.ProxyTrustedCIDRs. When
+	// non-empty, ListenAndServe wraps the TCP listener so only peers in these
+	// CIDRs may present a PROXY protocol header (see proxy.go).
+	proxyTrusted []netip.Prefix
 }
 
 // AuthenticationChecker evaluates the connection and message identities used
@@ -130,6 +135,17 @@ func NewServer(cfg *config.Config, store *identity.Store, usage usage.UsageTrack
 	}
 
 	s.smtpServer = smtpSrv
+
+	// config.Load runs Validate, which rejects malformed CIDRs before NewServer
+	// can be reached; a parse failure here therefore just leaves proxyTrusted
+	// nil (PROXY parsing disabled) rather than changing NewServer's signature —
+	// but warn so a bypassed Validate doesn't silently drop the feature.
+	trusted, err := parseTrustedCIDRs(cfg.SMTP.ProxyTrustedCIDRs)
+	if err != nil {
+		log.Printf("smtp proxy_trusted_cidrs: %v — PROXY parsing disabled (config.Validate normally rejects this at startup)", err)
+	}
+	s.proxyTrusted = trusted
+
 	return s
 }
 
@@ -172,8 +188,16 @@ func buildScreenEngine() *piguard.Engine {
 }
 
 func (s *Server) ListenAndServe() error {
+	l, err := net.Listen("tcp", s.smtpServer.Addr)
+	if err != nil {
+		return err
+	}
+	if len(s.proxyTrusted) > 0 {
+		log.Printf("SMTP PROXY protocol enabled for %d trusted CIDR(s)", len(s.proxyTrusted))
+		l = wrapProxyListener(l, s.proxyTrusted)
+	}
 	log.Printf("SMTP relay listening on %s", s.smtpServer.Addr)
-	return s.smtpServer.ListenAndServe()
+	return s.smtpServer.Serve(l)
 }
 
 func (s *Server) Close() error {
@@ -190,6 +214,11 @@ func (b *backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
 	var remoteIP net.IP
 	if addr, ok := c.Conn().RemoteAddr().(*net.TCPAddr); ok {
 		remoteIP = addr.IP
+	} else {
+		// Reachable only via a trusted proxy peer presenting a non-TCP-family
+		// PROXY header; the session degrades to SPF=none, so make the
+		// misbehaving front-end visible.
+		log.Printf("relay: non-TCP remote address %v (%T); SPF will be skipped for this session", c.Conn().RemoteAddr(), c.Conn().RemoteAddr())
 	}
 	sid := newSessionID()
 	log.Printf("[%s] new session from %s", sid, remoteIP)

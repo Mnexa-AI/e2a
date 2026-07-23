@@ -243,6 +243,10 @@ processing is server-internal, so no spec/SDK regen.
    intake + prune after 3d** — a >3d resend is effectively a new message. OK?
 4. **`remote_ip` under proxy.** Confirm the sync path's IP source (direct vs PROXY
    protocol / XCLIENT) so the intake captures the same value SPF uses today.
+   — **RESOLVED (2026-07-22):** implemented via PROXY v1/v2 at the listener
+   (`internal/relay/proxy.go`), gated by `smtp.proxy_trusted_cidrs`; the parsed
+   source replaces the connection RemoteAddr, so it is what both SPF and
+   `inbound_intake.remote_ip` record.
 5. **Scope of slice 1.** Recommend slice 1 = the engine-agnostic honesty fix
    (`deliverToAgent` propagates the persist error → `Data` returns `451`), shippable
    immediately and independent of the queue — then slices 2+ build the intake table,

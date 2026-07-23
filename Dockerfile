@@ -14,6 +14,10 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /e2a ./cmd/e2a
 
 FROM alpine:3.24
+# Capability marker: this image speaks PROXY protocol v1/v2 on the SMTP
+# listener (smtp.proxy_trusted_cidrs). Deploy automation (e2a-ops) refuses to
+# put a release without this label behind HAProxy's send-proxy-v2.
+LABEL org.e2a.smtp-proxy="v1"
 RUN apk add --no-cache ca-certificates wget \
     && adduser -D -u 1001 -h /home/e2a e2a
 COPY --from=builder /e2a /usr/local/bin/e2a

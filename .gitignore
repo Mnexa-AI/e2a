@@ -45,3 +45,6 @@ docs/originals/
 
 # Go coverage profile (make cover)
 cover.out
+
+# Isolated feature worktrees.
+.worktrees/
