@@ -7,7 +7,7 @@ import { writeReport } from "../harness/report.ts";
 
 // Happy-path coverage for operations the rest of the suite only PROBES negatively
 // (updateAgent, updateMessage, forwardMessage, getConversation, replyToMessage,
-// approveReview). The operationId coverage gate records an op as covered only on
+// approveReview) or doesn't touch at all (getMessageLifecycle). The operationId coverage gate records an op as covered only on
 // a 2xx, so an op that elsewhere gets nothing but a 404/400 probe reads as
 // UNCOVERED. These tests close that gap by INVOKING each op successfully on fresh,
 // isolated agents — no dependency on shared-account state (which made the messaging
@@ -120,6 +120,55 @@ test("forwardMessage: forward an inbound message to the simulator (200)", async 
     expect: [200, 202],
   });
   assert.ok(r.body?.message_id, "forward returned a message id");
+});
+
+test("getMessageLifecycle: outbound send records an ascending acceptance-first lifecycle (200)", async () => {
+  const email = await freshAgent("covlc");
+  const send = await client.post<{ message_id: string }>(`/v1/agents/${encodeURIComponent(email)}/messages`, {
+    body: { to: [email], subject: uniqueSubject("cov lc"), text: "lifecycle coverage body" },
+    expect: [200, 202],
+  });
+  const id = send.body!.message_id;
+
+  // The acceptance transition is written in the accept transaction, so one item
+  // is visible immediately; later stages land asynchronously — poll briefly so a
+  // read-replica/queue lag can't flake the assertion.
+  type Transition = {
+    id: string;
+    message_id: string;
+    direction: string;
+    stage: string;
+    outcome: string;
+    reason_code: string;
+    occurred_at: string;
+  };
+  let items: Transition[] = [];
+  for (let i = 0; i < 8; i++) {
+    const r = await client.get<{ items: Transition[] }>(
+      `/v1/agents/${encodeURIComponent(email)}/messages/${id}/lifecycle`,
+      { expect: 200 },
+    );
+    items = r.body?.items ?? [];
+    if (items.length > 0) break;
+    await sleep(1500);
+  }
+
+  assert.ok(items.length > 0, "lifecycle has at least one transition");
+  const first = items[0];
+  assert.match(first.id, /^mlt_/, "transition ids are mlt_-prefixed");
+  assert.equal(first.message_id, id);
+  assert.equal(first.direction, "outbound");
+  assert.equal(first.stage, "accepted", "the first transition is the acceptance");
+  assert.equal(first.outcome, "accepted");
+  // Wire contract: deterministic ascending (occurred_at, id) order.
+  for (let i = 1; i < items.length; i++) {
+    const prev = items[i - 1];
+    const cur = items[i];
+    assert.ok(
+      prev.occurred_at < cur.occurred_at || (prev.occurred_at === cur.occurred_at && prev.id < cur.id),
+      `transitions sorted ascending (occurred_at, id): ${prev.id} before ${cur.id}`,
+    );
+  }
 });
 
 test("approveReview: approve a HITL-held outbound (200 terminal or 202 enqueued)", async () => {
