@@ -15,6 +15,10 @@ smtp:
   domain: "example.com"  # the domain whose MX record points at this relay
   # tls_cert: "/path/to/cert.pem"
   # tls_key: "/path/to/key.pem"
+  # CIDRs whose peers may present a PROXY protocol header (e.g. HAProxy in
+  # front of this listener). Empty = PROXY parsing off. Untrusted peers are
+  # never parsed — their real IP is always used for SPF.
+  # proxy_trusted_cidrs: []
 
 http:
   listen_addr: ":8080"

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -70,6 +71,10 @@ type SMTPConfig struct {
 	Domain     string `yaml:"domain"`
 	TLSCert    string `yaml:"tls_cert"`
 	TLSKey     string `yaml:"tls_key"`
+	// ProxyTrustedCIDRs gates PROXY protocol (v1/v2) parsing on the inbound
+	// listener: only connections whose source matches a listed CIDR may
+	// present a PROXY header. Empty (default) = PROXY parsing off.
+	ProxyTrustedCIDRs []string `yaml:"proxy_trusted_cidrs"`
 }
 
 type HTTPConfig struct {
@@ -433,6 +438,9 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_DELIVERY_SNS_TOPIC_ARNS"); v != "" {
 		cfg.DeliveryFeedback.SNSTopicARNs = splitAndTrim(v)
 	}
+	if v := os.Getenv("E2A_SMTP_PROXY_TRUSTED_CIDRS"); v != "" {
+		cfg.SMTP.ProxyTrustedCIDRs = splitAndTrim(v)
+	}
 
 	// Default outbound TLS enforcement to on in production when not set
 	// explicitly. SES on :587/:465 always advertises STARTTLS, so this is
@@ -476,6 +484,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Trash.RetentionDays < 1 {
 		return fmt.Errorf("config: trash.retention_days must be at least 1 (got %d) — the stable API promises soft-deleted resources stay restorable", c.Trash.RetentionDays)
+	}
+	for _, cidr := range c.SMTP.ProxyTrustedCIDRs {
+		if _, err := netip.ParsePrefix(cidr); err != nil {
+			return fmt.Errorf("config: smtp.proxy_trusted_cidrs: malformed CIDR %q: %w", cidr, err)
+		}
 	}
 	if c.OIDC.Enabled {
 		var missing []string
