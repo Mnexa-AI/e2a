@@ -49,7 +49,7 @@ export function registerReviewTools(server: McpServer, client: McpClient): void 
       title: "Get a review (full detail)",
       annotations: { readOnlyHint: true },
       description:
-        "Account scope only. Fetch the full detail of one inbound screening hold or outbound send hold, including subject, recipients, body, attachments, and screening context. A review's `id` is the held message's id (msg_…) and is the same ID accepted by `approve_review` and `reject_review`. Body content is only present while the message is `pending_review`; after a terminal transition the server scrubs it. Like `get_message`, raw MIME (`raw_message`) and attachment bytes are intentionally omitted to protect context — attachments surface as metadata only.",
+        "Account scope only. Fetch the full detail of one inbound screening hold or outbound send hold, including subject, recipients, body, attachments, and screening context. A review's `id` is the held message's id (msg_…) and is the same ID accepted by `approve_review` and `reject_review`. Body content is only present while the message is `pending_review`; after a terminal transition the server scrubs it. Like `get_message`, raw MIME (`raw_message`) and attachment bytes are intentionally omitted to protect context — attachments surface as metadata only. Webhook delivery diagnostics (`webhook_error`/`webhook_status`) are also omitted; fetch the message via the REST API if you need them.",
       inputSchema: strictInputSchema({
         message_id: z.string().describe("The held message / review ID (msg_…)."),
       }),
