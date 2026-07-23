@@ -18,6 +18,12 @@ smtp:
   # CIDRs whose peers may present a PROXY protocol header (e.g. HAProxy in
   # front of this listener). Empty = PROXY parsing off. Untrusted peers are
   # never parsed — their real IP is always used for SPF.
+  # Caveat: a trusted peer that connects WITHOUT a header is given up to 5s
+  # to present one before the SMTP banner is written — so health checks
+  # against a PROXY-enabled listener must be TCP-connect-only (or tolerate
+  # the ~5s banner delay), and direct SMTP clients connecting from a trusted
+  # CIDR see a ~5s greeting delay. Proxied traffic (always has a header) is
+  # unaffected.
   # proxy_trusted_cidrs: []
 
 http:

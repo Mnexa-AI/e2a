@@ -138,8 +138,12 @@ func NewServer(cfg *config.Config, store *identity.Store, usage usage.UsageTrack
 
 	// config.Load runs Validate, which rejects malformed CIDRs before NewServer
 	// can be reached; a parse failure here therefore just leaves proxyTrusted
-	// nil (PROXY parsing disabled) rather than changing NewServer's signature.
-	trusted, _ := parseTrustedCIDRs(cfg.SMTP.ProxyTrustedCIDRs)
+	// nil (PROXY parsing disabled) rather than changing NewServer's signature —
+	// but warn so a bypassed Validate doesn't silently drop the feature.
+	trusted, err := parseTrustedCIDRs(cfg.SMTP.ProxyTrustedCIDRs)
+	if err != nil {
+		log.Printf("smtp proxy_trusted_cidrs: %v — PROXY parsing disabled (config.Validate normally rejects this at startup)", err)
+	}
 	s.proxyTrusted = trusted
 
 	return s
