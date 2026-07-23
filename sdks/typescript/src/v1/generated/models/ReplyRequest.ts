@@ -16,7 +16,7 @@ import { HttpFile } from '../http/http.js';
 
 export class ReplyRequest {
     /**
-    * File attachments (base64 in each item\'s data). Limits: at most 10 attachments, each ≤ 10 MB decoded, and ≤ 25 MB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
+    * File attachments (base64 in each item\'s data). Limits: at most 10 attachments, each ≤ 10 MiB decoded, and ≤ 25 MiB decoded combined. Exceeding the count → 400 invalid_request; exceeding a size → 413 payload_too_large.
     */
     'attachments'?: Array<Attachment>;
     /**

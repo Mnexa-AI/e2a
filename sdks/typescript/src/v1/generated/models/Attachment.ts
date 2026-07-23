@@ -15,7 +15,7 @@ import { HttpFile } from '../http/http.js';
 export class Attachment {
     'contentType': string;
     /**
-    * Base64-encoded file content. Each attachment must be ≤ 10 MB decoded; a message may carry at most 10 attachments totaling ≤ 25 MB decoded.
+    * Base64-encoded file content. Each attachment must be ≤ 10 MiB decoded; a message may carry at most 10 attachments totaling ≤ 25 MiB decoded.
     */
     'data': string;
     'filename': string;

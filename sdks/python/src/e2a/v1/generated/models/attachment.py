@@ -27,7 +27,7 @@ class Attachment(BaseModel):
     Attachment
     """ # noqa: E501
     content_type: StrictStr
-    data: StrictStr = Field(description="Base64-encoded file content. Each attachment must be ≤ 10 MB decoded; a message may carry at most 10 attachments totaling ≤ 25 MB decoded.")
+    data: StrictStr = Field(description="Base64-encoded file content. Each attachment must be ≤ 10 MiB decoded; a message may carry at most 10 attachments totaling ≤ 25 MiB decoded.")
     filename: StrictStr
     additional_properties: Dict[str, Any] = {}
     __properties: ClassVar[List[str]] = ["content_type", "data", "filename"]
