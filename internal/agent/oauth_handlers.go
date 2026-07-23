@@ -48,6 +48,9 @@ func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	// Resolve the request id up front so error log lines (and the
+	// X-Request-Id header when no middleware ran) can carry it.
+	reqID := oauthRequestID(w, r)
 
 	// Hand fosite a fresh session pointer. NewAccessRequest will
 	// populate it from the stored auth-code / refresh-token row;
@@ -57,7 +60,7 @@ func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 
 	accessReq, err := a.oauthProvider.NewAccessRequest(ctx, r, session)
 	if err != nil {
-		logTokenError(accessReq, "new_access_request", err)
+		logTokenError(accessReq, "new_access_request", reqID, err)
 		// fosite writes the canonical RFC 6749 §5.2 JSON error body
 		// here: {"error":"invalid_grant",...} with correct status
 		// code and Cache-Control: no-store.
@@ -67,7 +70,7 @@ func (a *API) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 
 	accessResp, err := a.oauthProvider.NewAccessResponse(ctx, accessReq)
 	if err != nil {
-		logTokenError(accessReq, "new_access_response", err)
+		logTokenError(accessReq, "new_access_response", reqID, err)
 		a.oauthProvider.WriteAccessError(ctx, w, accessReq, err)
 		return
 	}
@@ -106,16 +109,53 @@ type OAuthRegisterResponse struct {
 
 // OAuthError is the RFC 7591 §3.2.2 / RFC 6749 §5.2 JSON error body.
 // Used for DCR-side errors and direct (non-redirected) authorize errors.
+// request_id is an extension member (both RFCs permit additional fields
+// in the error response) so a client can quote the id from the body when
+// reporting a failure; it always matches the X-Request-Id response header.
 type OAuthError struct {
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description,omitempty"`
+	RequestID        string `json:"request_id,omitempty"`
 }
 
-func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
+// oauthRequestID returns the request id used to correlate error bodies and
+// [oauth] log lines with the X-Request-Id response header. The httpapi root
+// middleware sets X-Request-Id on the response writer before dispatching
+// (it wraps the legacy mux too), so downstream handlers can read back the
+// exact id the client will see. When no middleware ran (bare-mux test
+// servers), honor a client-supplied header, else mint one and set it on the
+// response — header, body, and logs stay consistent either way. Returns ""
+// only if crypto/rand fails; callers degrade gracefully (omit the id).
+func oauthRequestID(w http.ResponseWriter, r *http.Request) string {
+	if id := w.Header().Get("X-Request-Id"); id != "" {
+		return id
+	}
+	if id := r.Header.Get("X-Request-Id"); id != "" {
+		w.Header().Set("X-Request-Id", id)
+		return id
+	}
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	id := "req_" + hex.EncodeToString(b)
+	w.Header().Set("X-Request-Id", id)
+	return id
+}
+
+func writeOAuthError(w http.ResponseWriter, r *http.Request, status int, code, desc string) {
+	// Resolve the id before WriteHeader: oauthRequestID may have to set
+	// X-Request-Id on the response (no-middleware case), which only works
+	// while headers are still mutable.
+	reqID := oauthRequestID(w, r)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(OAuthError{Error: code, ErrorDescription: desc})
+	_ = json.NewEncoder(w).Encode(OAuthError{
+		Error:            code,
+		ErrorDescription: desc,
+		RequestID:        reqID,
+	})
 }
 
 // dcrSourceIP returns the per-IP key for DCR rate-limiting. DCR is
@@ -322,24 +362,24 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 			secs = 1
 		}
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
-		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited",
+		writeOAuthError(w, r, http.StatusTooManyRequests, "rate_limited",
 			"too many registrations from this IP; try again later")
 		return
 	}
 
 	var req OAuthRegisterRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "request body must be JSON")
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_client_metadata", "request body must be JSON")
 		return
 	}
 
 	// client_name: required, length-bound.
 	if strings.TrimSpace(req.ClientName) == "" {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "client_name is required")
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_client_metadata", "client_name is required")
 		return
 	}
 	if len(req.ClientName) > 200 {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_client_metadata",
 			"client_name must be 200 characters or fewer")
 		return
 	}
@@ -348,12 +388,12 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	// custom URI, deduped to prevent a hostile DCR caller from
 	// padding the soft cap with identical URLs.
 	if len(req.RedirectURIs) == 0 {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri",
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_redirect_uri",
 			"at least one redirect_uri is required")
 		return
 	}
 	if len(req.RedirectURIs) > 10 {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri",
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_redirect_uri",
 			"too many redirect_uris (max 10)")
 		return
 	}
@@ -361,7 +401,7 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	deduped := req.RedirectURIs[:0]
 	for _, raw := range req.RedirectURIs {
 		if err := validateRedirectURI(raw); err != nil {
-			writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", err.Error())
+			writeOAuthError(w, r, http.StatusBadRequest, "invalid_redirect_uri", err.Error())
 			return
 		}
 		if _, ok := seen[raw]; ok {
@@ -388,20 +428,20 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	// instead of a confusing one at /token.
 	for _, gt := range req.GrantTypes {
 		if gt != "authorization_code" && gt != "refresh_token" {
-			writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+			writeOAuthError(w, r, http.StatusBadRequest, "invalid_client_metadata",
 				"unsupported grant_type: "+gt)
 			return
 		}
 	}
 	for _, rt := range req.ResponseTypes {
 		if rt != "code" {
-			writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+			writeOAuthError(w, r, http.StatusBadRequest, "invalid_client_metadata",
 				"unsupported response_type: "+rt)
 			return
 		}
 	}
 	if req.TokenEndpointAuthMethod != "none" {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata",
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_client_metadata",
 			`only token_endpoint_auth_method="none" (public clients with PKCE) is supported`)
 		return
 	}
@@ -460,8 +500,8 @@ func (a *API) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		VALUES ($1, $2, $3, $4, $5, $6, ARRAY[]::TEXT[], $7, TRUE, 'dcr')
 	`, clientID, req.ClientName, req.RedirectURIs, req.GrantTypes,
 		req.ResponseTypes, scopeCeiling, req.TokenEndpointAuthMethod); err != nil {
-		log.Printf("[oauth] DCR insert failed: %v", err)
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to register client")
+		log.Printf("[oauth] DCR insert failed: request_id=%s err=%v", oauthRequestID(w, r), err)
+		writeOAuthError(w, r, http.StatusInternalServerError, "server_error", "failed to register client")
 		return
 	}
 
@@ -528,7 +568,7 @@ func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
 			secs = 1
 		}
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
-		writeOAuthError(w, http.StatusTooManyRequests, "rate_limited",
+		writeOAuthError(w, r, http.StatusTooManyRequests, "rate_limited",
 			"too many client-metadata requests from this IP; try again later")
 		return
 	}
@@ -557,8 +597,9 @@ func (a *API) handleOAuthGetClient(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		log.Printf("[oauth] client metadata lookup failed: client=%q err=%v", clientID, err)
-		writeOAuthError(w, http.StatusInternalServerError, "server_error",
+		log.Printf("[oauth] client metadata lookup failed: request_id=%s client=%q err=%v",
+			oauthRequestID(w, r), clientID, err)
+		writeOAuthError(w, r, http.StatusInternalServerError, "server_error",
 			"client metadata lookup failed; try again")
 		return
 	}
@@ -759,10 +800,15 @@ func (a *API) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 // logTokenError emits a structured line for a failed /token exchange.
 // Captures enough to spot patterns (repeated invalid_grant from one
 // client, brute-force bad-PKCE attempts) without leaking anything
-// sensitive — fosite's error message is the only operator-visible
-// detail. fosite may hand us a nil requester or a partial one when
-// the request failed during parsing; we don't panic on either.
-func logTokenError(req fosite.AccessRequester, stage string, err error) {
+// sensitive. fosite's RFC6749Error.Error() returns only the code string
+// ("invalid_grant"), which can't distinguish expired-code from
+// PKCE-mismatch from replay — so we also log the hint (and debug, when
+// present). Safe to log: on every /token grant path (auth-code, refresh,
+// PKCE) fosite's hints are static category strings, and debug carries the
+// wrapped storage error text — never the code, verifier, or tokens.
+// fosite may hand us a nil requester or a partial one when the request
+// failed during parsing; we don't panic on either.
+func logTokenError(req fosite.AccessRequester, stage, reqID string, err error) {
 	clientID := ""
 	grantType := ""
 	if req != nil {
@@ -771,8 +817,9 @@ func logTokenError(req fosite.AccessRequester, stage string, err error) {
 		}
 		grantType = req.GetRequestForm().Get("grant_type")
 	}
-	log.Printf("[oauth] /token %s error: client=%q grant=%q err=%v",
-		stage, clientID, grantType, err)
+	rfcErr := fosite.ErrorToRFC6749Error(err)
+	log.Printf("[oauth] /token %s error: request_id=%s client=%q grant=%q code=%s hint=%q debug=%q",
+		stage, reqID, clientID, grantType, rfcErr.ErrorField, rfcErr.Reason(), rfcErr.Debug())
 }
 
 // ───────────────────────── /authorize ─────────────────────────
@@ -865,11 +912,16 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Resolved up front so every failure log line below can carry it;
+	// matches the X-Request-Id response header (middleware-set in prod).
+	reqID := oauthRequestID(w, r)
 	if a.userAuth == nil {
+		log.Printf("[oauth] /consent unavailable: user auth not configured: request_id=%s", reqID)
 		http.Error(w, "user auth not configured on this deployment", http.StatusServiceUnavailable)
 		return
 	}
 	if a.oauthStorage == nil {
+		log.Printf("[oauth] /consent unavailable: oauth storage not configured: request_id=%s", reqID)
 		http.Error(w, "oauth storage not configured on this deployment", http.StatusServiceUnavailable)
 		return
 	}
@@ -933,7 +985,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		// principal resolver maps (account, no agent) to an account principal,
 		// exactly like an e2a_acct_ key; any agent_choice is ignored.
 		if err := a.issueOAuthCode(ctx, w, r, ar, user.ID, "", identity.ScopeAccount); err != nil {
-			log.Printf("[oauth] /consent issue (account) failed: %v", err)
+			log.Printf("[oauth] /consent issue (account) failed: request_id=%s err=%v", reqID, err)
 			a.oauthProvider.WriteAuthorizeError(ctx, w, ar, err)
 		}
 		return
@@ -963,7 +1015,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		// No agent creation needed — drop straight into the code-
 		// issue path with the resolved email on the session.
 		if err := a.issueOAuthCode(ctx, w, r, ar, user.ID, email, identity.ScopeAgent); err != nil {
-			log.Printf("[oauth] /consent issue (existing agent) failed: %v", err)
+			log.Printf("[oauth] /consent issue (existing agent) failed: request_id=%s err=%v", reqID, err)
 			a.oauthProvider.WriteAuthorizeError(ctx, w, ar, err)
 		}
 
@@ -982,7 +1034,7 @@ func (a *API) handleOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		}
 		agentEmail := slug + "@" + a.sharedDomain
 		if err := a.issueOAuthCodeWithNewAgent(ctx, w, r, ar, user.ID, agentEmail, identity.ScopeAgent); err != nil {
-			log.Printf("[oauth] /consent issue (new agent) failed: %v", err)
+			log.Printf("[oauth] /consent issue (new agent) failed: request_id=%s err=%v", reqID, err)
 			a.oauthProvider.WriteAuthorizeError(ctx, w, ar, err)
 		}
 

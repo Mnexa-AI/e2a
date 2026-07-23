@@ -129,6 +129,50 @@ The Next.js dashboard ships as a static export, so its config is inlined at buil
 | `NEXT_PUBLIC_FEEDBACK_EMAIL` | Address shown on the feedback form. Empty hides the "or email us at …" line. |
 | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | Google Search Console token. Only emitted into `<head>` when set, so forks don't inherit upstream's property. |
 
+## MCP HTTP server
+
+The MCP transport (`ghcr.io/tokencanopy/e2a-mcp-http`, built from
+[`mcp/Dockerfile`](../mcp/Dockerfile)) is a separate stateless process that
+forwards client bearers to the API server. It listens on port **3000**
+(container-internal; compose maps host 8765). The full configuration and
+operations reference lives in [`mcp/README.md`](../mcp/README.md) and
+[`docs/runbooks/mcp-server.md`](runbooks/mcp-server.md); the deployment
+essentials:
+
+- **Required env**: `E2A_API_URL` must point at the API server (inside a
+  compose network that's the container hostname, e.g. `http://e2a:8080`).
+  `MCP_ALLOWED_HOSTS` must list every externally used hostname or clients
+  get 421. Behind a proxy, set `MCP_PUBLIC_URL` (and
+  `MCP_AUTHORIZATION_SERVER_URL` when the OAuth AS must be reached via a
+  different, host-visible origin).
+- **Endpoints**: `GET /healthz` (liveness — never touches the backend),
+  `GET /readyz` (readiness — probes `{E2A_API_URL}/api/health`, 2s timeout,
+  result cached 10s; 503 + `Retry-After: 5` when the API is unreachable),
+  `GET /metrics` (Prometheus exposition). All unauthenticated. Wire
+  liveness → `/healthz`, readiness → `/readyz` — never liveness →
+  `/readyz`, or a backend outage restarts healthy MCP replicas.
+- **Healthcheck examples** — the image ships one (`HEALTHCHECK` in
+  `mcp/Dockerfile`, node fetch against `/healthz`). For another
+  orchestrator:
+
+  ```yaml
+  # docker-compose
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://localhost:3000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+  ```
+
+  ```yaml
+  # kubernetes
+  livenessProbe:  { httpGet: { path: /healthz, port: 3000 } }
+  readinessProbe: { httpGet: { path: /readyz,  port: 3000 } }
+  ```
+
+- **Graceful shutdown**: SIGTERM/SIGINT stops the listener and drains with
+  a 30s ceiling; stateless, so there is nothing else to drain.
+
 ## Scaling and limitations
 
 **Most state is already DB-coordinated.** The HITL expiration worker, the webhook retry worker, and the periodic cleanup worker all use Postgres `SELECT … FOR UPDATE SKIP LOCKED` (or rely on `DELETE` idempotency for cleanup), so running multiple replicas concurrently is safe — only one worker claims a given pending message at a time, no duplicate sends. User sessions live in Postgres and the OAuth nonce travels in a cookie + the OAuth state parameter, so dashboard sign-in survives load-balancer rebalancing.

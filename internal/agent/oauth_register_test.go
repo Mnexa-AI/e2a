@@ -60,7 +60,7 @@ func postRegister(t *testing.T, srv *httptest.Server, body any) *http.Response {
 	return resp
 }
 
-func assertOAuthError(t *testing.T, resp *http.Response, wantStatus int, wantErrCode string) {
+func assertOAuthError(t *testing.T, resp *http.Response, wantStatus int, wantErrCode string) OAuthErrorBody {
 	t.Helper()
 	if resp.StatusCode != wantStatus {
 		t.Errorf("status = %d, want %d", resp.StatusCode, wantStatus)
@@ -71,6 +71,24 @@ func assertOAuthError(t *testing.T, resp *http.Response, wantStatus int, wantErr
 	}
 	if body.Error != wantErrCode {
 		t.Errorf("error code = %q, want %q (description: %q)", body.Error, wantErrCode, body.ErrorDescription)
+	}
+	return body
+}
+
+// assertRequestIDMatch asserts the response carries an X-Request-Id header
+// and that the error body's request_id extension member echoes it exactly —
+// the join clients quote when reporting a failure.
+func assertRequestIDMatch(t *testing.T, resp *http.Response, body OAuthErrorBody) {
+	t.Helper()
+	hdr := resp.Header.Get("X-Request-Id")
+	if hdr == "" {
+		t.Error("X-Request-Id response header must be set on error responses")
+	}
+	if body.RequestID == "" {
+		t.Error("error body must carry request_id")
+	}
+	if hdr != "" && body.RequestID != "" && body.RequestID != hdr {
+		t.Errorf("body request_id = %q, want it to match X-Request-Id header %q", body.RequestID, hdr)
 	}
 }
 
@@ -437,7 +455,52 @@ func TestHTTP_Register_RateLimited(t *testing.T) {
 	}
 	resp := postRegister(t, srv, good(11))
 	defer resp.Body.Close()
-	assertOAuthError(t, resp, http.StatusTooManyRequests, "rate_limited")
+	body := assertOAuthError(t, resp, http.StatusTooManyRequests, "rate_limited")
+	assertRequestIDMatch(t, resp, body)
+}
+
+// TestHTTP_Register_ErrorRequestID: every DCR JSON error body carries a
+// request_id extension member (RFC 7591/6749 permit extension fields) that
+// matches the X-Request-Id response header on the same response — a
+// client-supplied id is honored, and without one the server mints a req_* id
+// that is consistent between header and body.
+func TestHTTP_Register_ErrorRequestID(t *testing.T) {
+	srv := newDCRServer(t)
+	badBody := func() *bytes.Reader {
+		buf, _ := json.Marshal(agent.OAuthRegisterRequest{
+			RedirectURIs: []string{"https://example.com/cb"}, // no client_name → 400
+		})
+		return bytes.NewReader(buf)
+	}
+
+	t.Run("client-supplied id honored", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", srv.URL+"/oauth2/register", badBody())
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Request-Id", "req_client_supplied_001")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body := assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+		assertRequestIDMatch(t, resp, body)
+		if body.RequestID != "req_client_supplied_001" {
+			t.Errorf("request_id = %q, want the client-supplied id honored", body.RequestID)
+		}
+	})
+
+	t.Run("server-minted id without inbound header", func(t *testing.T) {
+		resp, err := http.Post(srv.URL+"/oauth2/register", "application/json", badBody())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body := assertOAuthError(t, resp, http.StatusBadRequest, "invalid_client_metadata")
+		assertRequestIDMatch(t, resp, body)
+		if !strings.HasPrefix(body.RequestID, "req_") {
+			t.Errorf("minted request_id = %q, want req_ prefix", body.RequestID)
+		}
+	})
 }
 
 // TestHTTP_Register_XFFCannotBypass: rotating X-Forwarded-For must

@@ -57,7 +57,7 @@ type identityAssertionResponse struct {
 // silently self-provisioned.)
 func (a *API) handleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 	if !a.agentAuthReady() {
-		writeOAuthError(w, http.StatusNotImplemented, "not_implemented",
+		writeOAuthError(w, r, http.StatusNotImplemented, "not_implemented",
 			"agent identity is not enabled on this deployment")
 		return
 	}
@@ -70,7 +70,7 @@ func (a *API) handleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.Scope != identity.ScopeAgent || p.AgentID == "" {
-		writeOAuthError(w, http.StatusForbidden, "forbidden",
+		writeOAuthError(w, r, http.StatusForbidden, "forbidden",
 			"agent identity requires an agent-scoped credential bound to one agent")
 		return
 	}
@@ -79,13 +79,13 @@ func (a *API) handleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 	// counter stamped into the token).
 	ag, err := a.store.GetAgentByID(r.Context(), p.AgentID)
 	if err != nil || ag == nil || ag.UserID != p.User.ID {
-		writeOAuthError(w, http.StatusForbidden, "forbidden", "agent not found")
+		writeOAuthError(w, r, http.StatusForbidden, "forbidden", "agent not found")
 		return
 	}
 
 	assertion, exp, err := a.signer.SignIdentityAssertion(ag.ID, identity.ScopeAgent, ag.AssertionVersion, a.agentAuthIssuer())
 	if err != nil {
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to mint identity assertion")
+		writeOAuthError(w, r, http.StatusInternalServerError, "server_error", "failed to mint identity assertion")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -111,35 +111,35 @@ type accessTokenResponse struct {
 // Returns RFC 6749 §5.2 error bodies.
 func (a *API) handleJWTBearerGrant(w http.ResponseWriter, r *http.Request) {
 	if !a.agentAuthReady() {
-		writeOAuthError(w, http.StatusNotImplemented, "unsupported_grant_type",
+		writeOAuthError(w, r, http.StatusNotImplemented, "unsupported_grant_type",
 			"agent identity is not enabled on this deployment")
 		return
 	}
 	assertion := strings.TrimSpace(r.PostForm.Get("assertion"))
 	if assertion == "" {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "assertion is required")
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_request", "assertion is required")
 		return
 	}
 	claims, err := a.signer.VerifyToken(assertion, agentauth.TypIdentityAssertion, a.agentAuthIssuer())
 	if err != nil {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "identity assertion is invalid or expired")
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_grant", "identity assertion is invalid or expired")
 		return
 	}
 	// Freshness / kill switch: the assertion's assertion_version must match the
 	// live agent row. A bump (revocation) makes every prior assertion stale.
 	ag, err := a.store.GetAgentByID(r.Context(), claims.Subject)
 	if err != nil || ag == nil {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "agent not found")
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_grant", "agent not found")
 		return
 	}
 	if ag.AssertionVersion != claims.AssertionVersion {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "assertion is stale; re-acquire an identity assertion")
+		writeOAuthError(w, r, http.StatusBadRequest, "invalid_grant", "assertion is stale; re-acquire an identity assertion")
 		return
 	}
 
 	token, exp, err := a.signer.SignAccessToken(ag.ID, identity.ScopeAgent, ag.AssertionVersion, a.agentAuthIssuer())
 	if err != nil {
-		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to mint access token")
+		writeOAuthError(w, r, http.StatusInternalServerError, "server_error", "failed to mint access token")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

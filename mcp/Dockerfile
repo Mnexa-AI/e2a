@@ -44,4 +44,10 @@ COPY --from=build /app/mcp/dist ./mcp/dist
 COPY VERSION ./VERSION
 EXPOSE 3000
 USER node
+# Liveness only: /healthz never touches the backend, so a backend outage
+# can't restart a healthy MCP process. Probe with node's built-in fetch
+# (always present; the image has no curl, only busybox wget). Readiness
+# (/readyz) is an orchestrator-level concern and deliberately not baked in.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+    CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 CMD ["node", "mcp/dist/bin/http.js"]

@@ -258,6 +258,75 @@ representations of the error**:
 Successful results are unaffected (JSON in a text block; list tools return a
 domain-named array plus `next_cursor` while more pages remain).
 
+## Operating the HTTP server
+
+Self-hosters run the HTTP transport via `mcp/Dockerfile` or the `mcp`
+service in the repo's `docker-compose.yaml`. Day-2 operations (SLOs,
+failure classes, correlation) are covered by
+[`docs/runbooks/mcp-server.md`](../docs/runbooks/mcp-server.md); this
+section is the reference for configuration and surface.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | Listen port. |
+| `E2A_API_URL` | `https://api.e2a.dev` | Base URL of the e2a API server this transport forwards bearers to (and probes for readiness). Canonical name; `E2A_URL` and `E2A_BASE_URL` are legacy aliases, still accepted with a deprecation warning. |
+| `MCP_ALLOWED_HOSTS` | `api.e2a.dev` | Comma-separated Host allowlist (DNS-rebinding guard). Requests to `/mcp` and the discovery document with a Host outside the list get 421. Ports are stripped before comparison. |
+| `MCP_PUBLIC_URL` | unset | Externally reachable URL of this MCP server, used verbatim in the RFC 9728 protected-resource metadata and the 401 `WWW-Authenticate` challenge. Set when the fronting proxy's view of the URL differs from the inbound Host (local dev: `http://localhost:8765`). |
+| `MCP_AUTHORIZATION_SERVER_URL` | `$E2A_API_URL` | Authorization-server URL advertised in protected-resource metadata. Override when the bearer-forwarding URL is container-internal but OAuth clients must reach the AS from the host. |
+| `E2A_TRUST_PROXY` | `loopback` | Express `trust proxy` setting — which hops' `X-Forwarded-*` headers are honored for discovery URLs. `true`/`false`, a hop count, or a preset/subnet list. |
+| `MCP_RESOLVE_TIMEOUT_MS` | `5000` | Positive-int bound (ms) on the whoami probe that resolves a bearer to its principal, with at most 1 retry. On timeout/backend 5xx the request is served fail-closed at least-privilege agent scope, uncached, and logged as `auth_resolution result=fallback`. |
+| `MCP_SESSION_IDLE_MS` | `300000` | **Legacy name — sizes the resolve cache, not sessions.** TTL (ms) of a cached bearer→principal resolution. The transport is stateless; there are no sessions to time out. |
+| `MCP_MAX_SESSIONS` | `500` | **Legacy name — sizes the resolve cache, not sessions.** Max cached bearer→principal entries; oldest evicted past the cap. A miss costs one `whoami`, never a disconnect. |
+
+### Health endpoints
+
+All three are unauthenticated:
+
+- `GET /healthz` — process liveness only, never touches the backend:
+  `{ "ok": true }`. Wire to your liveness probe.
+- `GET /readyz` — readiness: probes `{E2A_API_URL}/api/health` (2s timeout,
+  result cached 10s so a scraping fleet can't cause a probe storm). 200
+  `{ "ok": true, "checks": { "api": "ok" } }` when reachable; 503
+  `{ "ok": false, "checks": { "api": "unreachable" }, "request_id": "…" }`
+  + `Retry-After: 5` when not. Wire to your readiness probe.
+- `GET /metrics` — Prometheus text exposition. Example lines:
+
+  ```
+  mcp_http_requests_total{route="mcp",status_class="2xx"} 1523
+  mcp_http_request_duration_seconds_bucket{route="mcp",le="0.5"} 1480
+  mcp_auth_resolutions_total{result="cache_hit"} 1490
+  mcp_tool_executions_total{tool="list_messages",outcome="ok"} 412
+  mcp_readyz_checks_total{result="ok"} 60
+  mcp_resolve_cache_entries 7
+  ```
+
+  Route labels are bounded: `mcp | healthz | readyz | metrics | discovery | other`.
+
+### Structured logs
+
+Single-line JSON on stderr (GCE-shaped `severity` / `event` / `message`
+plus fields). Request-scoped events carry `request_id` (the response's
+`X-Request-Id`): `auth_resolution` (`result`, `duration_ms`, `scope?`;
+`invalid`/`fallback` at WARNING), `http_request` (`route`, `method`,
+`status`, `duration_ms`), `tool_execution` (`tool`, `outcome`,
+`duration_ms`, `error_code?`), `terminal_error`. Bearer tokens are never
+logged; the resolve cache is keyed by SHA-256 fingerprints. An inbound
+`X-Request-Id` matching `^[A-Za-z0-9_-]{1,64}$` is honored; otherwise the
+server mints `mcpreq_<12hex>`. The id is echoed on every response but is
+**not** forwarded to the backend API.
+
+### Client retry policy
+
+Failed tool calls return `structuredContent` (see [Errors](#errors)):
+branch on `code` / `retryable` / `retry_after_seconds`. Retry only
+`retryable: true` errors with exponential backoff + jitter, ~3 attempts
+max. Never retry 4xx (401 → re-authenticate; 421 → fix the URL).
+`pending_review` on send tools is a success outcome — do not retry it. The
+transport is stateless, so "reconnect" after an interruption is simply
+re-POSTing; MCP clients do this automatically.
+
 ## Links
 
 - [e2a docs](https://e2a.dev)
