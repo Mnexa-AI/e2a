@@ -558,6 +558,23 @@ async def test_send_unsubscribe_kwarg_accepts_model_and_overrides_body(httpx_moc
 
 
 @pytest.mark.anyio
+async def test_send_unsubscribe_kwarg_does_not_mutate_caller_model(httpx_mock):
+    # Regression: _coerce returns the caller's own model when body is already a
+    # SendEmailRequest — the kwarg must land on a copy, not on the caller's
+    # object, or reusing one model across sends leaks unsubscribe into later
+    # sends (and managed unsubscribe requires exactly one recipient
+    # server-side, so the leaked second send can fail).
+    httpx_mock.add_response(json={"message_id": "msg_u6", "status": "sent"})
+    request = SendEmailRequest(to=["a@x.com"], subject="Hi", text="yo")
+    async with _client() as c:
+        await c.messages.send("bot@test.dev", request, unsubscribe={"mode": "managed"})
+    assert json.loads(httpx_mock.get_requests()[-1].content)["unsubscribe"] == {
+        "mode": "managed"
+    }
+    assert request.unsubscribe is None
+
+
+@pytest.mark.anyio
 async def test_send_without_unsubscribe_omits_field(httpx_mock):
     httpx_mock.add_response(json={"message_id": "msg_u3", "status": "sent"})
     async with _client() as c:

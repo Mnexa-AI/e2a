@@ -571,6 +571,11 @@ class MessagesResource:
         """
         req = _coerce(SendEmailRequest, body)
         if unsubscribe is not None:
+            if req is body:
+                # _coerce returns the caller's own model when body is already a
+                # SendEmailRequest — copy before assigning so the kwarg doesn't
+                # leak into the caller's object (and into later reuses of it).
+                req = req.model_copy()
             req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
             lambda h: self._api.send_message(email, req, wait=wait, _headers=h),
@@ -591,6 +596,8 @@ class MessagesResource:
         and ``wait="sent"`` requests the same bounded wait (see :meth:`send`)."""
         req = _coerce(ReplyRequest, body)
         if unsubscribe is not None:
+            if req is body:
+                req = req.model_copy()
             req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
             lambda h: self._api.reply_to_message(email, message_id, req, wait=wait, _headers=h),
@@ -611,6 +618,8 @@ class MessagesResource:
         and ``wait="sent"`` requests the same bounded wait (see :meth:`send`)."""
         req = _coerce(ForwardRequest, body)
         if unsubscribe is not None:
+            if req is body:
+                req = req.model_copy()
             req.unsubscribe = _coerce(UnsubscribeOptions, unsubscribe)
         return await self._c._write_keyed(
             lambda h: self._api.forward_message(email, message_id, req, wait=wait, _headers=h),
