@@ -82,6 +82,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	// prod stack the authChallenge middleware also (re)asserts it on any 401.
 	token := bearerToken(r)
 	if token == "" {
+		h.metrics.WSHandshakeRejected("unauthorized")
 		w.Header().Set("WWW-Authenticate", `Bearer realm="e2a"`)
 		httpapi.WriteError(w, r, http.StatusUnauthorized, "unauthorized",
 			"missing credential — send Authorization: Bearer <api_key>")
@@ -90,6 +91,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 
 	principal, err := h.store.GetPrincipalByAPIKey(r.Context(), token)
 	if err != nil || principal == nil || principal.User == nil {
+		h.metrics.WSHandshakeRejected("unauthorized")
 		w.Header().Set("WWW-Authenticate", `Bearer realm="e2a"`)
 		httpapi.WriteError(w, r, http.StatusUnauthorized, "unauthorized", "invalid token")
 		return
@@ -101,6 +103,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	email := identity.NormalizeEmail(rawEmail)
 	agent, err := h.store.GetAgentByEmail(r.Context(), email)
 	if err != nil {
+		h.metrics.WSHandshakeRejected("not_found")
 		httpapi.WriteError(w, r, http.StatusNotFound, "not_found", "agent not found")
 		return
 	}
@@ -112,6 +115,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	// across tenants; collapsing both into 404 closes it (mirrors the REST
 	// resolveOwnedAgent, which likewise refuses to distinguish the two).
 	if agent.UserID != principal.User.ID {
+		h.metrics.WSHandshakeRejected("not_found")
 		httpapi.WriteError(w, r, http.StatusNotFound, "not_found", "agent not found")
 		return
 	}
@@ -119,6 +123,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	// its one bound agent — it may not open a different agent's stream even
 	// within the same account. Mirrors the REST resolveOwnedAgent pin.
 	if principal.Scope == identity.ScopeAgent && principal.AgentID != agent.ID {
+		h.metrics.WSHandshakeRejected("forbidden")
 		httpapi.WriteError(w, r, http.StatusForbidden, "forbidden", "not authorized for this agent")
 		return
 	}
@@ -134,6 +139,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
+		h.metrics.WSHandshakeRejected("upgrade_failed")
 		log.Printf("[ws] upgrade failed for %s: %v", email, err)
 		return
 	}
