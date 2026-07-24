@@ -2,10 +2,17 @@ import { E2AClient } from "@e2a/sdk/v1";
 import { loadConfig, requireApiKey } from "./config.js";
 import { EXIT, fail } from "./exit.js";
 
-export function createClient(): E2AClient {
+export interface CreateClientOptions {
+  /** Per-attempt request timeout in ms (SDK default 30000). */
+  timeoutMs?: number;
+  /** Retry budget (SDK default 2). `doctor` sets 0: it reports, not retries. */
+  maxRetries?: number;
+}
+
+export function createClient(options: CreateClientOptions = {}): E2AClient {
   const config = loadConfig();
   const apiKey = requireApiKey(config);
-  return new E2AClient({ apiKey, baseUrl: config.api_url });
+  return new E2AClient({ apiKey, baseUrl: config.api_url, ...options });
 }
 
 export function requireAgentEmail(fromOverride?: string): string {

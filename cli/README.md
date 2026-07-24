@@ -68,6 +68,81 @@ e2a whoami
 e2a whoami --json
 ```
 
+### `e2a doctor`
+
+Read-only diagnostics for the production email path. Doctor never sends mail
+and never mutates anything — no DNS changes, no webhook test deliveries, no
+domain re-verification — so it is safe to run against production at any time
+(including from CI and cron). Every network operation is bounded by a
+5-second timeout.
+
+```bash
+e2a doctor                     # human pass/warn/fail report
+e2a doctor --json              # versioned machine-readable report (e2a.doctor/v1)
+e2a doctor --agent bot@acme.com --domain acme.com
+```
+
+Checks, where applicable: CLI config and credential scope; API connectivity
+and server version (`GET /v1/info`); agent existence and access; for each
+registered custom domain, **live DNS lookups** of the server-prescribed
+records — ownership TXT, inbound MX, DKIM TXT, MAIL FROM MX, SPF TXT — plus
+an advisory DMARC check (warn-only; e2a does not prescribe a DMARC record)
+and the SES sending status; MCP endpoint reachability and advertised OAuth
+metadata; webhook configuration and recent delivery history; and outbound
+SMTP configuration visibility. Webhook *reachability* is reported as an
+explicit skip: the server's webhook test endpoint delivers a real event, so
+no safe non-delivering probe exists — recent delivery history is the
+observed signal instead.
+
+**Hosted (e2a.dev):**
+
+```bash
+e2a doctor --agent bot@acme.com
+# doctor: read-only diagnostics for https://e2a.dev (sends no mail; changes no DNS or webhooks)
+#
+# pass  cli.config            api key from ~/.e2a/config.json; deployment https://e2a.dev
+# pass  api.reachability      server version 1.0.0
+# pass  api.auth              key valid — scope account, plan scale
+# pass  agent.access          agent exists
+# pass  domain.mx             acme.com: MX record found (mx.e2a.dev)
+# warn  domain.dmarc          acme.com: no DMARC record
+#       fix: add TXT record _dmarc.acme.com with value "v=DMARC1; p=none;" …
+# pass  mcp.reachability      endpoint responded (HTTP 405)
+# …
+# 0 fail, 1 warn, 14 pass, 2 skip — warnings (exit 8)
+```
+
+The hosted MCP endpoint (`https://api.e2a.dev/mcp`) is probed automatically
+when the deployment root is `https://e2a.dev`.
+
+**Self-hosted:**
+
+```bash
+E2A_URL=https://mail.internal.example e2a doctor \
+  --mcp-url https://mail.internal.example/mcp
+```
+
+Self-hosted deployments skip the MCP checks unless `--mcp-url` names the MCP
+endpoint. Run doctor **on the server host** to also surface the outbound
+SMTP configuration (`smtp.config` reads `E2A_OUTBOUND_SMTP_HOST`, `_PORT`,
+and `_FROM_DOMAIN` from the environment; credentials are reported only as
+set/not set and never printed).
+
+With `--json`, doctor emits a stable, versioned report (`schema:
+"e2a.doctor/v1"`): top-level `status` (`healthy`/`warnings`/`failed`),
+`exit_code`, a `summary` count, and one entry per check with `id`, `status`
+(`pass`/`warn`/`fail`/`skip`), `reason_code`, optional `target`, a human
+`detail` line, structured `evidence`, and a `remediation` when something
+needs fixing. New check IDs and reason codes may be added over time; existing
+ones are never renamed.
+
+Doctor's exit code separates the failure classes so scripts and CI can
+branch without parsing the report: `0` healthy, `8` warnings only, `9` a
+definite configuration failure (missing DNS record, unregistered domain,
+auto-disabled webhook — retrying cannot fix it), `4` bad or rejected
+credentials, `1` transient connectivity failure (retry may help), `2` usage
+error.
+
 ### `e2a agents`
 
 Manage inboxes (requires an account-scoped key).
@@ -254,7 +329,7 @@ environment-only (`E2A_URL` and `E2A_SHARED_DOMAIN`).
 
 ## Exit codes
 
-`whoami`, `send`, `reply`, `messages`, and `listen` publish a stable, frozen
+`whoami`, `doctor`, `send`, `reply`, `messages`, and `listen` publish a stable, frozen
 exit-code contract (`cli/src/exit.ts`) so shell harnesses can branch on the
 process exit status instead of parsing JSON. Codes are never renumbered —
 only added to.
@@ -269,3 +344,5 @@ only added to.
 | `5` | Permanent request error (not found / invalid / conflict) — do not retry |
 | `6` | Bounded wait (`listen --once --until`) expired with no matching message |
 | `7` | A persisted send failed or returned an unrecognized outcome — do not retry; inspect the returned message id |
+| `8` | Diagnostics (`doctor`) completed with warnings only — nothing broken |
+| `9` | Diagnostics (`doctor`) found a definite configuration failure — do not retry; fix the reported configuration |

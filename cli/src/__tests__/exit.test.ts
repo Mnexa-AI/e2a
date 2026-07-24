@@ -12,3 +12,18 @@ describe("API error exit classification", () => {
     expect(exitCodeForAPIError({ code: "rate_limited", retryable: true })).toBe(EXIT.ERROR);
   });
 });
+
+describe("exit code contract", () => {
+  it("published values are frozen — add codes, never renumber", () => {
+    expect(EXIT.OK).toBe(0);
+    expect(EXIT.ERROR).toBe(1);
+    expect(EXIT.USAGE).toBe(2);
+    expect(EXIT.HELD).toBe(3);
+    expect(EXIT.AUTH).toBe(4);
+    expect(EXIT.REQUEST).toBe(5);
+    expect(EXIT.TIMEOUT).toBe(6);
+    expect(EXIT.SEND_OUTCOME).toBe(7);
+    expect(EXIT.WARN).toBe(8);
+    expect(EXIT.CONFIG).toBe(9);
+  });
+});

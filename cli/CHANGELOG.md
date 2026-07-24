@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**Added:** `e2a doctor` — read-only diagnostics for the production email path.
+Checks CLI config and credential scope, API connectivity (`GET /v1/info`),
+agent access, custom-domain DNS (live ownership TXT / MX / DKIM / SPF lookups
+against the server-prescribed records, plus an advisory DMARC check and the
+SES sending status), MCP reachability and advertised OAuth metadata, webhook
+configuration and delivery history, and outbound SMTP config visibility for
+self-hosted operators (credential presence only — values are never printed).
+It never sends mail and never mutates DNS, webhooks, or any other resource;
+in particular it does not call `POST /v1/domains/{domain}/verify` (which
+mutates verification state), `POST /v1/webhooks/{id}/test` (which delivers a
+real event), or `POST /v1/agents/{email}/test` (which sends real mail).
+`--json` emits a versioned `e2a.doctor/v1` report. Two exit codes were ADDED
+to the frozen contract (existing codes are unchanged): `8` — diagnostics
+completed with warnings only; `9` — diagnostics found a definite
+configuration failure. `0`/`1`/`4` keep their existing meanings for healthy,
+transient-connectivity, and authentication outcomes. Every network operation
+is bounded by a 5-second timeout.
+
 ## 2.0.0
 
 Current release. A major bump: the published 1.6.0 and this tree had diverged
