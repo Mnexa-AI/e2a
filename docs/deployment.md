@@ -66,6 +66,20 @@ The shared domain needs a row in the `domains` table — it's the FK target for 
 
 If you leave `shared_domain` empty, slug registration is disabled and every agent must use a custom domain the user verifies — no DNS setup required from you.
 
+### Observability
+
+Wire your orchestrator to the two probe endpoints — they answer different
+questions and must not be swapped: `GET /api/health` is shallow liveness
+(restart policy; never checks the DB), `GET /readyz` is instance-local
+readiness (DB reachable + migrations applied + not draining; use it for load
+balancer routing so instances leave rotation during deploys and graceful
+shutdown). Enable Prometheus metrics with the `metrics:` config block (or
+`E2A_METRICS_ENABLED=true`) — exposition binds a separate loopback-default
+listener, never the public API handler. For continuous black-box monitoring
+of the full critical path (SMTP round-trip, outbound, WebSocket push, MCP),
+run `e2a-prober serve` alongside the stack. Metric catalog, SLI/PromQL
+aggregation guidance, and initial SLO targets: [observability.md](observability.md).
+
 ## CLI user
 
 The CLI only needs the deployment URL — the rest is auto-discovered.
