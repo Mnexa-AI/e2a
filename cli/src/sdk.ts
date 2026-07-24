@@ -1,5 +1,5 @@
 import { E2AClient } from "@e2a/sdk/v1";
-import { loadConfig, requireApiKey } from "./config.js";
+import { loadConfig, requireApiKey, type Config } from "./config.js";
 import { EXIT, fail } from "./exit.js";
 
 export interface CreateClientOptions {
@@ -9,8 +9,13 @@ export interface CreateClientOptions {
   maxRetries?: number;
 }
 
-export function createClient(options: CreateClientOptions = {}): E2AClient {
-  const config = loadConfig();
+export function createClient(
+  options: CreateClientOptions = {},
+  // Callers that already loaded (and possibly normalized) the config pass it
+  // through so the client uses the exact same URL and the config file isn't
+  // parsed twice per invocation.
+  config: Config = loadConfig(),
+): E2AClient {
   const apiKey = requireApiKey(config);
   return new E2AClient({ apiKey, baseUrl: config.api_url, ...options });
 }

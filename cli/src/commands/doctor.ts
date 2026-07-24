@@ -81,6 +81,25 @@ export interface DoctorIO {
 
 const require = createRequire(import.meta.url);
 
+/** Absolute http(s) URL or undefined. Doctor must never crash on bad input. */
+export function parseHttpUrl(raw: string): URL | undefined {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** URL safe to embed in a report: credentials stripped, unparseable left as-is. */
+function redactUrl(raw: string): string {
+  const url = parseHttpUrl(raw);
+  if (!url || (!url.username && !url.password)) return raw;
+  url.username = "";
+  url.password = "";
+  return url.toString();
+}
+
 export function defaultIO(): DoctorIO {
   // ENOTFOUND/ENODATA mean "no such record" — a definite answer, not an
   // error. Anything else (timeout, SERVFAIL, refused) is inconclusive and
@@ -276,6 +295,23 @@ function checkCliConfig(ctx: Ctx): void {
 
 async function checkApiReachability(ctx: Ctx): Promise<void> {
   const { rec, io, config } = ctx;
+  if (!parseHttpUrl(config.api_url)) {
+    // A schemeless/garbled E2A_URL is a configuration problem, not a network
+    // one — without this, fetch's URL-parse rejection would masquerade as a
+    // retryable connection failure.
+    rec.fail(
+      "api.reachability",
+      "API reachability",
+      "invalid_deployment_url",
+      "config",
+      `${config.api_url} is not an absolute http(s) URL`,
+      {
+        target: config.api_url,
+        remediation: "set E2A_URL to the deployment root, e.g. https://e2a.dev or https://mail.internal.example",
+      },
+    );
+    return;
+  }
   const url = `${config.api_url}/v1/info`;
   let res: { status: number; body: string };
   try {
@@ -296,10 +332,11 @@ async function checkApiReachability(ctx: Ctx): Promise<void> {
     return;
   }
   if (res.status !== 200) {
-    // 5xx: the deployment exists but is unhealthy — retryable. Anything else
-    // (404 from some other website, 3xx chain ending badly) means E2A_URL
-    // doesn't point at an e2a deployment root — a configuration problem.
-    const transient = res.status >= 500;
+    // 5xx/408/429: the deployment exists but is unhealthy or throttling —
+    // retryable. Anything else (404 from some other website, 3xx chain
+    // ending badly) means E2A_URL doesn't point at an e2a deployment root —
+    // a configuration problem.
+    const transient = res.status >= 500 || res.status === 408 || res.status === 429;
     rec.fail(
       "api.reachability",
       "API reachability",
@@ -468,9 +505,21 @@ async function collect<T>(pager: AsyncIterable<T>, max: number): Promise<{ items
 }
 
 const normHost = (h: string): string => h.toLowerCase().replace(/\.$/, "");
-/** DKIM values are compared with quotes/whitespace stripped: providers split
- * and re-quote long TXT values, which is cosmetic, not a mismatch. */
-const normDkim = (s: string): string => s.replace(/["\s]/g, "");
+
+/**
+ * The p= payload of a DKIM TXT record, whitespace/quote-stripped — mirrors
+ * the server's dkim.ExtractPublicKeyFromTXT: only the key material is
+ * compared, so extra tags (s=, t=, …) and tag reordering that operators
+ * paste are tolerated exactly like the server's own verifier tolerates them.
+ */
+export function extractDkimKey(txt: string): string {
+  const i = txt.indexOf("p=");
+  if (i < 0) return "";
+  let tail = txt.slice(i + 2);
+  const j = tail.indexOf(";");
+  if (j >= 0) tail = tail.slice(0, j);
+  return tail.replace(/[\s"]/g, "");
+}
 
 async function checkTxtRecord(
   ctx: Ctx,
@@ -488,21 +537,26 @@ async function checkTxtRecord(
     rec.fail(id, title, "dns_lookup_failed", "transient", `TXT lookup for ${record.name} failed`, {
       target: record.name,
       evidence: { error: err instanceof Error ? err.message : String(err) },
-      remediation: "DNS lookup was inconclusive — retry, or check the record with `dig TXT " + record.name + "`",
+      remediation: `DNS lookup was inconclusive — retry, or check the record with \`dig TXT '${record.name}'\``,
     });
     return;
   }
-  // SPF uses inclusion semantics, matching the server's own live probe: a
-  // record that starts with v=spf1 and contains the prescribed include is
-  // valid even when the operator legitimately extended it with more
-  // mechanisms. Ownership tokens are exact; DKIM is normalized-exact.
-  const spf = record.value.trim().startsWith("v=spf1");
-  const spfInclude = spf ? record.value.split(/\s+/).find((t) => t.startsWith("include:")) : undefined;
+  // Match with the server's OWN probe semantics (internal/agent/api.go
+  // checkDomainRecords + classifyDKIM), so doctor never fails a record the
+  // server accepts: ownership is a substring match (any TXT containing the
+  // token), SPF is case-insensitive starts-with-v=spf1 plus contains the
+  // prescribed include, DKIM compares only the extracted p= payload.
+  const spf = record.value.trim().toLowerCase().startsWith("v=spf1");
+  const spfInclude = spf
+    ? record.value.toLowerCase().split(/\s+/).find((t) => t.startsWith("include:"))
+    : undefined;
   const matches = dkim
-    ? published.some((v) => normDkim(v) === normDkim(record.value))
+    ? published.some((v) => extractDkimKey(v) !== "" && extractDkimKey(v) === extractDkimKey(record.value))
     : spf && spfInclude
-      ? published.some((v) => v.trim().startsWith("v=spf1") && v.includes(spfInclude))
-      : published.some((v) => v.trim() === record.value.trim());
+      ? published.some((v) => v.trim().toLowerCase().startsWith("v=spf1") && v.toLowerCase().includes(spfInclude))
+      : record.purpose === "ownership"
+        ? published.some((v) => v.includes(record.value))
+        : published.some((v) => v.trim() === record.value.trim());
   if (matches) {
     rec.pass(id, title, `${domain}: TXT record found at ${record.name}`, {
       target: record.name,
@@ -510,10 +564,15 @@ async function checkTxtRecord(
     });
     return;
   }
-  // A same-purpose record with a different value is a mismatch (stale copy);
-  // otherwise the record is simply missing among unrelated TXT entries.
-  const prefix = dkim ? "v=DKIM1" : record.value.startsWith("v=spf1") ? "v=spf1" : undefined;
-  const conflicting = prefix ? published.filter((v) => v.trim().startsWith(prefix)) : [];
+  // A same-purpose record with a different value is a mismatch (usually a
+  // truncated or stale copy — the distinction tells the user to re-publish
+  // the full value rather than "add the record"); otherwise the record is
+  // simply missing among unrelated TXT entries.
+  const conflicting = dkim
+    ? published.filter((v) => extractDkimKey(v) !== "")
+    : spf
+      ? published.filter((v) => v.trim().toLowerCase().startsWith("v=spf1"))
+      : [];
   if (conflicting.length > 0) {
     rec.fail(id, title, "record_mismatch", "config", `${domain}: TXT at ${record.name} does not match`, {
       target: record.name,
@@ -545,7 +604,7 @@ async function checkMxRecord(
     rec.fail(id, title, "dns_lookup_failed", "transient", `MX lookup for ${record.name} failed`, {
       target: record.name,
       evidence: { error: err instanceof Error ? err.message : String(err), ...extraEvidence },
-      remediation: "DNS lookup was inconclusive — retry, or check the record with `dig MX " + record.name + "`",
+      remediation: `DNS lookup was inconclusive — retry, or check the record with \`dig MX '${record.name}'\``,
     });
     return;
   }
@@ -648,7 +707,9 @@ async function checkOneDomain(ctx: Ctx, domain: DomainLike): Promise<void> {
       });
     }
   } catch (err) {
-    rec.fail("domain.dmarc", "DMARC record (advisory)", "dns_lookup_failed", "transient", `TXT lookup for ${dmarcName} failed`, {
+    // Advisory check, advisory outcome: an inconclusive lookup here must not
+    // fail the run — DMARC can never fail doctor, per its warn-only contract.
+    rec.warn("domain.dmarc", "DMARC record (advisory)", "dns_lookup_failed", `TXT lookup for ${dmarcName} was inconclusive`, {
       target: dmarcName,
       evidence: { error: err instanceof Error ? err.message : String(err) },
     });
@@ -733,21 +794,18 @@ async function checkDomains(ctx: Ctx): Promise<void> {
     });
   }
   for (const domain of domains) {
-    await checkOneDomain(ctx, domain);
+    // One malformed domain object must not cost the rest of the report.
+    try {
+      await checkOneDomain(ctx, domain);
+    } catch (err) {
+      rec.fail("doctor.internal", "Doctor internal error", "internal_error", "transient", `${domain?.domain ?? "domain"}: unexpected error: ${err instanceof Error ? err.message : String(err)}`, {
+        target: domain?.domain,
+      });
+    }
   }
 }
 
 // --- MCP ---------------------------------------------------------------------
-
-/** Absolute http(s) URL or undefined. Doctor must never crash on flag input. */
-export function parseMcpUrl(raw: string): URL | undefined {
-  try {
-    const url = new URL(raw);
-    return url.protocol === "http:" || url.protocol === "https:" ? url : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 async function checkMcp(ctx: Ctx): Promise<void> {
   const { rec, io, opts, config } = ctx;
@@ -761,7 +819,7 @@ async function checkMcp(ctx: Ctx): Promise<void> {
   }
   // The doctor() wrapper rejects a malformed --mcp-url as a usage error;
   // this guard keeps runDoctor crash-free for programmatic callers too.
-  const parsed = parseMcpUrl(mcpUrl);
+  const parsed = parseHttpUrl(mcpUrl);
   if (!parsed) {
     const detail = `${mcpUrl} is not an absolute http(s) URL`;
     const remediation = "pass --mcp-url as an absolute URL, e.g. https://host.example/mcp";
@@ -786,6 +844,12 @@ async function checkMcp(ctx: Ctx): Promise<void> {
         target: mcpUrl,
         evidence: { http_status: res.status },
         remediation: "check the MCP path (hosted: https://api.e2a.dev/mcp; self-hosted: usually /mcp on the MCP server host)",
+      });
+    } else if (res.status >= 500) {
+      rec.fail("mcp.reachability", "MCP reachability", "http_error", "transient", `HTTP ${res.status} from ${mcpUrl}`, {
+        target: mcpUrl,
+        evidence: { http_status: res.status },
+        remediation: "the MCP endpoint is routed but erroring — retry, then check the MCP server logs",
       });
     } else {
       rec.pass("mcp.reachability", "MCP reachability", `endpoint responded (HTTP ${res.status})`, {
@@ -877,8 +941,11 @@ async function checkWebhooks(ctx: Ctx): Promise<void> {
     return;
   }
   let webhooks: WebhookLike[];
+  let truncated = false;
   try {
-    webhooks = (await collect(ctx.client!.webhooks.list({}) as AsyncIterable<WebhookLike>, MAX_WEBHOOKS)).items;
+    const collected = await collect(ctx.client!.webhooks.list({}) as AsyncIterable<WebhookLike>, MAX_WEBHOOKS);
+    webhooks = collected.items;
+    truncated = collected.truncated;
   } catch (err) {
     const { kind, message } = classifyError(err);
     rec.fail(
@@ -894,74 +961,20 @@ async function checkWebhooks(ctx: Ctx): Promise<void> {
     rec.skip("webhook.config", "Webhook configuration", "no_webhooks", "no webhooks configured — agents rely on WebSocket, polling, or MCP", {});
     return;
   }
+  if (truncated) {
+    rec.warn("webhook.config", "Webhook configuration", "too_many_webhooks", `only the first ${MAX_WEBHOOKS} webhooks were checked`, {
+      evidence: { checked: MAX_WEBHOOKS },
+    });
+  }
 
   for (const wh of webhooks) {
-    if (wh.autoDisabledAt) {
-      rec.fail("webhook.config", "Webhook configuration", "webhook_auto_disabled", "config", `${wh.id}: auto-disabled after repeated delivery failures`, {
-        target: wh.url,
-        evidence: { id: wh.id, auto_disabled_at: new Date(wh.autoDisabledAt).toISOString() },
-        remediation: "fix the receiving endpoint, then re-enable the webhook (dashboard or MCP `update_webhook`)",
-      });
-    } else if (!wh.enabled) {
-      rec.warn("webhook.config", "Webhook configuration", "webhook_disabled", `${wh.id}: disabled`, {
-        target: wh.url,
-        evidence: { id: wh.id },
-        remediation: "events are not being delivered — re-enable it if that is unintended",
-      });
-    } else if (!wh.url.startsWith("https://")) {
-      rec.warn("webhook.config", "Webhook configuration", "insecure_url", `${wh.id}: URL is not HTTPS`, {
-        target: wh.url,
-        evidence: { id: wh.id },
-        remediation: "use an HTTPS endpoint — production deployments reject plain HTTP webhook URLs",
-      });
-    } else {
-      rec.pass("webhook.config", "Webhook configuration", `${wh.id}: enabled, ${wh.events.length} event type(s)`, {
-        target: wh.url,
-        evidence: { id: wh.id, events: wh.events },
-      });
-    }
-
+    // One malformed webhook object must not cost the rest of the report.
     try {
-      // Deliveries come newest-first; only the latest outcome matters here,
-      // so fetch exactly one — never a second page.
-      const deliveries = (await collect(
-        ctx.client!.webhooks.deliveries(wh.id, { limit: 1 }) as AsyncIterable<DeliveryLike>,
-        1,
-      )).items;
-      const latest = deliveries[0];
-      if (!latest || (latest.status === "pending" && latest.attempts === 0)) {
-        rec.skip("webhook.delivery", "Webhook delivery history", "no_deliveries", `${wh.id}: no completed deliveries yet`, {
-          target: wh.id,
-        });
-      } else if (latest.status === "delivered") {
-        const evidence: Record<string, unknown> = { last_status: "delivered" };
-        if (latest.lastStatusCode !== undefined) evidence.last_status_code = latest.lastStatusCode;
-        rec.pass("webhook.delivery", "Webhook delivery history", `${wh.id}: latest delivery succeeded`, {
-          target: wh.id,
-          evidence,
-        });
-      } else {
-        rec.warn("webhook.delivery", "Webhook delivery history", "deliveries_failing", `${wh.id}: latest delivery ${latest.status}`, {
-          target: wh.id,
-          evidence: {
-            last_status: latest.status,
-            last_error: latest.lastError ?? "",
-            last_status_code: latest.lastStatusCode ?? 0,
-            attempts: latest.attempts,
-          },
-          remediation: "check the receiving endpoint's logs and TLS setup; deliveries retry with backoff",
-        });
-      }
+      await checkOneWebhook(ctx, wh);
     } catch (err) {
-      const { kind, message } = classifyError(err);
-      rec.fail(
-        "webhook.delivery",
-        "Webhook delivery history",
-        kind === "transient" ? "connection_failed" : "http_error",
-        kind === "transient" ? "transient" : "config",
-        `${wh.id}: ${message}`,
-        { target: wh.id },
-      );
+      rec.fail("doctor.internal", "Doctor internal error", "internal_error", "transient", `webhook ${wh.id}: unexpected error: ${err instanceof Error ? err.message : String(err)}`, {
+        target: wh.id,
+      });
     }
   }
 
@@ -972,6 +985,79 @@ async function checkWebhooks(ctx: Ctx): Promise<void> {
     "skipped: no safe non-delivering probe exists (POST /v1/webhooks/{id}/test delivers a real event) — webhook.delivery reflects observed reachability",
     {},
   );
+}
+
+async function checkOneWebhook(ctx: Ctx, wh: WebhookLike): Promise<void> {
+  const { rec } = ctx;
+  // Webhook URLs can carry basic-auth userinfo; never echo credentials.
+  const target = redactUrl(wh.url);
+  if (wh.autoDisabledAt) {
+    rec.fail("webhook.config", "Webhook configuration", "webhook_auto_disabled", "config", `${wh.id}: auto-disabled after repeated delivery failures`, {
+      target,
+      evidence: { id: wh.id, auto_disabled_at: new Date(wh.autoDisabledAt).toISOString() },
+      remediation: "fix the receiving endpoint, then re-enable the webhook (dashboard or MCP `update_webhook`)",
+    });
+  } else if (!wh.enabled) {
+    rec.warn("webhook.config", "Webhook configuration", "webhook_disabled", `${wh.id}: disabled`, {
+      target,
+      evidence: { id: wh.id },
+      remediation: "events are not being delivered — re-enable it if that is unintended",
+    });
+  } else if (!wh.url.startsWith("https://")) {
+    rec.warn("webhook.config", "Webhook configuration", "insecure_url", `${wh.id}: URL is not HTTPS`, {
+      target,
+      evidence: { id: wh.id },
+      remediation: "use an HTTPS endpoint — production deployments reject plain HTTP webhook URLs",
+    });
+  } else {
+    rec.pass("webhook.config", "Webhook configuration", `${wh.id}: enabled, ${wh.events.length} event type(s)`, {
+      target,
+      evidence: { id: wh.id, events: wh.events },
+    });
+  }
+
+  try {
+    // Deliveries come newest-first; only the latest outcome matters here,
+    // so fetch exactly one — never a second page.
+    const deliveries = (await collect(
+      ctx.client!.webhooks.deliveries(wh.id, { limit: 1 }) as AsyncIterable<DeliveryLike>,
+      1,
+    )).items;
+    const latest = deliveries[0];
+    if (!latest || (latest.status === "pending" && latest.attempts === 0)) {
+      rec.skip("webhook.delivery", "Webhook delivery history", "no_deliveries", `${wh.id}: no completed deliveries yet`, {
+        target: wh.id,
+      });
+    } else if (latest.status === "delivered") {
+      const evidence: Record<string, unknown> = { last_status: "delivered" };
+      if (latest.lastStatusCode !== undefined) evidence.last_status_code = latest.lastStatusCode;
+      rec.pass("webhook.delivery", "Webhook delivery history", `${wh.id}: latest delivery succeeded`, {
+        target: wh.id,
+        evidence,
+      });
+    } else {
+      rec.warn("webhook.delivery", "Webhook delivery history", "deliveries_failing", `${wh.id}: latest delivery ${latest.status}`, {
+        target: wh.id,
+        evidence: {
+          last_status: latest.status,
+          last_error: latest.lastError ?? "",
+          last_status_code: latest.lastStatusCode ?? 0,
+          attempts: latest.attempts,
+        },
+        remediation: "check the receiving endpoint's logs and TLS setup; deliveries retry with backoff",
+      });
+    }
+  } catch (err) {
+    const { kind, message } = classifyError(err);
+    rec.fail(
+      "webhook.delivery",
+      "Webhook delivery history",
+      kind === "transient" ? "connection_failed" : "http_error",
+      kind === "transient" ? "transient" : "config",
+      `${wh.id}: ${message}`,
+      { target: wh.id },
+    );
+  }
 }
 
 // --- outbound SMTP visibility ---------------------------------------------------
@@ -1022,7 +1108,9 @@ export async function runDoctor(opts: DoctorOptions, io: DoctorIO): Promise<Doct
   const rec = new Recorder();
   const ctx: Ctx = { io, rec, config, opts, apiReachable: false };
   if (config.api_key) {
-    ctx.client = createClient({ timeoutMs: DOCTOR_TIMEOUT_MS, maxRetries: 0 });
+    // Pass the normalized config through so the SDK client hits the exact
+    // same base URL the probes use (and the config file isn't parsed twice).
+    ctx.client = createClient({ timeoutMs: DOCTOR_TIMEOUT_MS, maxRetries: 0 }, config);
   }
 
   checkCliConfig(ctx);
@@ -1037,6 +1125,12 @@ export async function runDoctor(opts: DoctorOptions, io: DoctorIO): Promise<Doct
   return buildReport(io, config.api_url, rec);
 }
 
+// Details and remediations interpolate server- and DNS-derived strings; strip
+// control characters (including ANSI escapes) so a hostile record can't
+// inject terminal escapes into the report. JSON output is already safe via
+// JSON.stringify's escaping.
+const stripControl = (s: string): string => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
+
 function renderHuman(report: DoctorReport): string {
   const lines: string[] = [
     `doctor: read-only diagnostics for ${report.deployment_url} (sends no mail; changes no DNS or webhooks)`,
@@ -1044,7 +1138,9 @@ function renderHuman(report: DoctorReport): string {
   ];
   for (const c of report.checks) {
     lines.push(`${c.status.padEnd(4)}  ${c.id.padEnd(22)}${c.detail}`);
-    if (c.remediation && (c.status === "fail" || c.status === "warn")) {
+    // Skips carry guidance too (e.g. how to enable the MCP probe) — print
+    // every remediation, not just failing ones.
+    if (c.remediation) {
       lines.push(`      fix: ${c.remediation}`);
     }
   }
@@ -1053,11 +1149,11 @@ function renderHuman(report: DoctorReport): string {
     "",
     `${s.fail} fail, ${s.warn} warn, ${s.pass} pass, ${s.skip} skip — ${report.status} (exit ${report.exit_code})`,
   );
-  return lines.join("\n") + "\n";
+  return lines.map(stripControl).join("\n") + "\n";
 }
 
 export async function doctor(opts: DoctorOptions, io: DoctorIO = defaultIO()): Promise<void> {
-  if (opts.mcpUrl !== undefined && !parseMcpUrl(opts.mcpUrl)) {
+  if (opts.mcpUrl !== undefined && !parseHttpUrl(opts.mcpUrl)) {
     fail(EXIT.USAGE, "--mcp-url must be an absolute http(s) URL, e.g. https://host.example/mcp");
   }
   const report = await runDoctor(opts, io);

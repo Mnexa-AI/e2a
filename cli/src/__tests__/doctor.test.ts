@@ -137,20 +137,37 @@ async function* pager<T>(items: T[]): AsyncGenerator<T> {
   for (const item of items) yield item;
 }
 
+/**
+ * Traps any access to a method the fake doesn't define — the fakes define
+ * ONLY read methods, so doctor reaching for create/update/delete/test/verify
+ * (or anything else mutating) explodes loudly in every test, not just the
+ * dedicated read-only test.
+ */
+function readOnly<T extends object>(name: string, obj: T): T {
+  return new Proxy(obj, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && !(prop in target)) {
+        throw new Error(`doctor accessed a non-read method: ${name}.${prop}`);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 function fakeClient(overrides: Record<string, unknown> = {}) {
-  return {
-    account: { get: vi.fn(async () => makeAccount()) },
-    agents: { get: vi.fn(async () => makeAgent()) },
-    domains: {
+  return readOnly("client", {
+    account: readOnly("account", { get: vi.fn(async () => makeAccount()) }),
+    agents: readOnly("agents", { get: vi.fn(async () => makeAgent()) }),
+    domains: readOnly("domains", {
       list: vi.fn(() => pager([makeDomain()])),
       get: vi.fn(async () => makeDomain()),
-    },
-    webhooks: {
+    }),
+    webhooks: readOnly("webhooks", {
       list: vi.fn(() => pager([makeWebhook()])),
       deliveries: vi.fn(() => pager([makeDelivery()])),
-    },
+    }),
     ...overrides,
-  };
+  });
 }
 
 // DNS answers matching makeDomain()'s prescribed records, all present.
@@ -268,18 +285,27 @@ describe("doctor", () => {
     });
 
     it("never calls a mutating endpoint or sends mail", async () => {
+      // The fake client defines ONLY read methods behind a Proxy that throws
+      // on any other property access (send/create/delete/test/verify/...),
+      // so a full run completing IS the proof no mutating method was touched.
       const client = fakeClient();
       mockCreateClient.mockReturnValue(client);
       const io = fakeIO();
       const { runDoctor } = await import("../commands/doctor.js");
-      await runDoctor({}, io);
+      const report = await runDoctor({}, io);
+      expect(report.status).toBe("healthy");
 
-      // The client fake exposes ONLY read methods; any write call would throw.
-      // Assert the HTTP probes were GETs to known read-only URLs.
+      // And the raw HTTP probes never hit the side-effecting endpoints.
       for (const call of io.httpGet.mock.calls) {
         expect(String(call[0])).not.toContain("/test");
         expect(String(call[0])).not.toContain("/verify");
       }
+    });
+
+    it("never leaks the API key into the serialized report", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+      expect(JSON.stringify(report)).not.toContain("e2a_acct_testkey");
     });
   });
 
@@ -530,16 +556,16 @@ describe("doctor", () => {
       const dns = healthyDNS();
       dns.mx["acme.com"] = []; // config-class failure
       const io = fakeIO({ dns });
-      const realResolveTxt = io.resolveTxt.getMockImplementation()!;
-      io.resolveTxt = vi.fn(async (name: string) => {
-        if (name.startsWith("_dmarc.")) throw new Error("queryTxt ETIMEOUT"); // transient
-        return realResolveTxt(name);
+      const realResolveMx = io.resolveMx.getMockImplementation()!;
+      io.resolveMx = vi.fn(async (name: string) => {
+        if (name === "mail.acme.com") throw new Error("queryMx ETIMEOUT"); // transient
+        return realResolveMx(name);
       });
       const { runDoctor } = await import("../commands/doctor.js");
       const report = await runDoctor({}, io);
 
       expect(check(report, "domain.mx").reason_code).toBe("record_missing");
-      expect(check(report, "domain.dmarc").reason_code).toBe("dns_lookup_failed");
+      expect(check(report, "domain.mailfrom_mx").reason_code).toBe("dns_lookup_failed");
       expect(report.exit_code).toBe(9);
     });
 
@@ -548,10 +574,10 @@ describe("doctor", () => {
       client.webhooks.list = vi.fn(() => pager([makeWebhook({ enabled: false })])); // warn
       mockCreateClient.mockReturnValue(client);
       const io = fakeIO();
-      const realResolveTxt = io.resolveTxt.getMockImplementation()!;
-      io.resolveTxt = vi.fn(async (name: string) => {
-        if (name.startsWith("_dmarc.")) throw new Error("queryTxt ETIMEOUT"); // transient
-        return realResolveTxt(name);
+      const realResolveMx = io.resolveMx.getMockImplementation()!;
+      io.resolveMx = vi.fn(async (name: string) => {
+        if (name === "mail.acme.com") throw new Error("queryMx ETIMEOUT"); // transient
+        return realResolveMx(name);
       });
       const { runDoctor } = await import("../commands/doctor.js");
       const report = await runDoctor({}, io);
@@ -972,6 +998,232 @@ describe("doctor", () => {
       expect(parsed.schema).toBe("e2a.doctor/v1");
       expect(parsed.exit_code).toBe(0);
       expect(process.exitCode).toBe(0);
+    });
+  });
+
+  describe("hardening (review round 2)", () => {
+    it("accepts a DKIM record with extra tags and reordering (p= payload match)", async () => {
+      const dns = healthyDNS();
+      // Same key, different tag order plus extra tags — the server's own
+      // verifier (classifyDKIM) accepts this; doctor must too.
+      dns.txt["sel1._domainkey.acme.com"] = ["k=rsa; s=email; t=s; v=DKIM1; p=MIIBIjAN"];
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      expect(check(report, "domain.dkim").status).toBe("pass");
+    });
+
+    it("flags a DKIM record with a different p= payload as a mismatch", async () => {
+      const dns = healthyDNS();
+      dns.txt["sel1._domainkey.acme.com"] = ["v=DKIM1; k=rsa; p=TRUNCATEDKEY"];
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      const c = check(report, "domain.dkim");
+      expect(c.status).toBe("fail");
+      expect(c.reason_code).toBe("record_mismatch");
+      expect(report.exit_code).toBe(9);
+    });
+
+    it("accepts an ownership token embedded in a larger TXT record (substring, like the server)", async () => {
+      const dns = healthyDNS();
+      dns.txt["acme.com"] = ["registrar-wrapped e2a-verify-tok123 suffix"];
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      expect(check(report, "domain.ownership").status).toBe("pass");
+    });
+
+    it("matches SPF case-insensitively (like the server)", async () => {
+      const dns = healthyDNS();
+      dns.txt["mail.acme.com"] = ["V=SPF1 INCLUDE:AMAZONSES.COM ~ALL"];
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      expect(check(report, "domain.spf").status).toBe("pass");
+    });
+
+    it("checks each domain against its own records (per-domain isolation)", async () => {
+      const client = fakeClient();
+      const beta = makeDomain({
+        domain: "beta.io",
+        verificationToken: "e2a-verify-beta",
+        dnsRecords: [
+          { type: "TXT", name: "beta.io", value: "e2a-verify-beta", priority: null, purpose: "ownership", status: "pending" },
+          { type: "MX", name: "beta.io", value: "smtp.e2a.dev", priority: 10, purpose: "inbound_mx", status: "pending" },
+        ],
+      });
+      client.domains.list = vi.fn(() => pager([makeDomain(), beta]));
+      mockCreateClient.mockReturnValue(client);
+      const dns = healthyDNS();
+      dns.txt["beta.io"] = ["e2a-verify-beta"];
+      dns.mx["beta.io"] = []; // beta's MX missing; acme's intact
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      expect(check(report, "domain.mx", "acme.com").status).toBe("pass");
+      expect(check(report, "domain.mx", "beta.io").status).toBe("fail");
+      expect(check(report, "domain.ownership", "beta.io").status).toBe("pass");
+      expect(report.exit_code).toBe(9);
+    });
+
+    it("skips domain.sending when the identity is not provisioned (self-hosted)", async () => {
+      const client = fakeClient();
+      client.domains.list = vi.fn(() => pager([makeDomain({ sendingStatus: "none" })]));
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      expect(check(report, "domain.sending").reason_code).toBe("sending_not_provisioned");
+    });
+
+    it("a DMARC lookup error is a warn, never a fail (advisory contract)", async () => {
+      const io = fakeIO();
+      const realResolveTxt = io.resolveTxt.getMockImplementation()!;
+      io.resolveTxt = vi.fn(async (name: string) => {
+        if (name.startsWith("_dmarc.")) throw new Error("queryTxt ETIMEOUT");
+        return realResolveTxt(name);
+      });
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, io);
+
+      const c = check(report, "domain.dmarc");
+      expect(c.status).toBe("warn");
+      expect(c.reason_code).toBe("dns_lookup_failed");
+      expect(report.exit_code).toBe(8);
+    });
+
+    it("fails the run transiently when the delivery-history API errors", async () => {
+      const client = fakeClient();
+      client.webhooks.deliveries = vi.fn(() => {
+        throw new E2AError({
+          code: "internal_error", message: "boom", status: 500, retryable: true,
+        });
+      });
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      expect(check(report, "webhook.delivery").reason_code).toBe("connection_failed");
+      expect(report.exit_code).toBe(1);
+    });
+
+    it("classifies a connection-level agent lookup failure as transient", async () => {
+      const client = fakeClient();
+      client.agents.get = vi.fn(async () => {
+        throw new E2AError({
+          code: "connection_error", message: "socket hang up", status: 0, retryable: true,
+        });
+      });
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      expect(check(report, "agent.access").reason_code).toBe("connection_failed");
+      expect(report.exit_code).toBe(1);
+    });
+
+    it("warns when the webhook list is truncated at the cap", async () => {
+      const client = fakeClient();
+      const many = Array.from({ length: 51 }, (_, i) => makeWebhook({ id: `wh_${i}` }));
+      client.webhooks.list = vi.fn(() => pager(many));
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      const truncation = report.checks.find((c) => c.reason_code === "too_many_webhooks");
+      expect(truncation?.status).toBe("warn");
+    });
+
+    it("survives a malformed domain object and still emits the full report", async () => {
+      const client = fakeClient();
+      const broken = { domain: "broken.example", verified: true, sendingStatus: "verified" };
+      client.domains.list = vi.fn(() =>
+        pager([broken as unknown as ReturnType<typeof makeDomain>, makeDomain()]),
+      );
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      const internal = report.checks.find((c) => c.id === "doctor.internal");
+      expect(internal?.reason_code).toBe("internal_error");
+      // The healthy domain and all later phases still reported.
+      expect(check(report, "domain.mx", "acme.com").status).toBe("pass");
+      expect(check(report, "smtp.config").status).toBe("skip");
+    });
+
+    it("strips basic-auth userinfo from webhook targets in the report", async () => {
+      const client = fakeClient();
+      client.webhooks.list = vi.fn(() =>
+        pager([makeWebhook({ url: "https://user:hunter2@hooks.example.com/e2a" })]),
+      );
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      expect(check(report, "webhook.config").target).toBe("https://hooks.example.com/e2a");
+      expect(JSON.stringify(report)).not.toContain("hunter2");
+    });
+
+    it("fails api.reachability as config when E2A_URL is not an absolute http(s) URL", async () => {
+      mockLoadConfig.mockReturnValue(baseConfig({ api_url: "e2a.dev" }));
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      const c = check(report, "api.reachability");
+      expect(c.reason_code).toBe("invalid_deployment_url");
+      expect(report.exit_code).toBe(9);
+    });
+
+    it("treats 429 from /v1/info as transient, not config", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor(
+        {},
+        fakeIO({ http: { "https://e2a.dev/v1/info": { status: 429, body: "slow down" } } }),
+      );
+
+      expect(check(report, "api.reachability").reason_code).toBe("http_error");
+      expect(report.exit_code).toBe(1);
+    });
+
+    it("treats a 5xx from the MCP endpoint as transient, not a pass", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor(
+        {},
+        fakeIO({ http: { "https://api.e2a.dev/mcp": { status: 502, body: "" } } }),
+      );
+
+      const c = check(report, "mcp.reachability");
+      expect(c.status).toBe("fail");
+      expect(c.reason_code).toBe("http_error");
+      expect(report.exit_code).toBe(1);
+    });
+
+    it("normalizes a trailing-slash E2A_URL into the SDK client too", async () => {
+      mockLoadConfig.mockReturnValue(baseConfig({ api_url: "https://e2a.dev/" }));
+      const { runDoctor } = await import("../commands/doctor.js");
+      await runDoctor({}, fakeIO());
+
+      const [, configArg] = mockCreateClient.mock.calls[0] as [unknown, { api_url: string }];
+      expect(configArg.api_url).toBe("https://e2a.dev");
+    });
+
+    it("strips terminal control characters from human output", async () => {
+      const client = fakeClient();
+      client.webhooks.list = vi.fn(() =>
+        pager([makeWebhook({ id: "wh_\u001b[31mevil\u001b[0m" })]),
+      );
+      mockCreateClient.mockReturnValue(client);
+      const mockStdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const savedExit = process.exitCode as number | undefined;
+      const { doctor } = await import("../commands/doctor.js");
+      await doctor({}, fakeIO());
+      const output = mockStdout.mock.calls.map((c: unknown[]) => c[0]).join("");
+      mockStdout.mockRestore();
+      process.exitCode = savedExit;
+
+      expect(output).not.toContain("\u001b");
+      expect(output).toContain("wh_[31mevil[0m"); // escapes gone, text kept  
     });
   });
 

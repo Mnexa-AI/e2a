@@ -5,10 +5,16 @@
 **Added:** `e2a doctor` — read-only diagnostics for the production email path.
 Checks CLI config and credential scope, API connectivity (`GET /v1/info`),
 agent access, custom-domain DNS (live ownership TXT / MX / DKIM / SPF lookups
-against the server-prescribed records, plus an advisory DMARC check and the
-SES sending status), MCP reachability and advertised OAuth metadata, webhook
-configuration and delivery history, and outbound SMTP config visibility for
-self-hosted operators (credential presence only — values are never printed).
+against the server-prescribed records, plus an advisory warn-only DMARC check
+and the SES sending status), MCP reachability and advertised OAuth metadata,
+webhook configuration and delivery history, and outbound SMTP config
+visibility for self-hosted operators (credential presence only — values are
+never printed). Record matching mirrors the server's own probe semantics:
+ownership TXT is a substring match, SPF is case-insensitive and tolerates
+extended records that keep the prescribed include, and DKIM compares only the
+extracted `p=` payload (extra tags and reordering are fine). An unexpected
+internal error while checking one domain or webhook is reported as a
+`doctor.internal` check instead of aborting the report.
 It never sends mail and never mutates DNS, webhooks, or any other resource;
 in particular it does not call `POST /v1/domains/{domain}/verify` (which
 mutates verification state), `POST /v1/webhooks/{id}/test` (which delivers a
