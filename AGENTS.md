@@ -68,7 +68,7 @@ with Go 1.26. Node: engines `>=18`, CI runs on 22. Python: `requires-python
 ```bash
 make build              # go build -o bin/e2a ./cmd/e2a
 make run                # build + run with config.yaml (copy from config.example.yaml first)
-make test               # ALL Go tests, -tags integration -p 1 (needs Postgres on :5433)
+make test               # ALL Go tests, -tags integration, -p 4 parallel (needs Postgres on :5433)
 make test-unit          # unit tests only, no DB needed — fast
 make test-integration   # integration tests (needs Postgres on :5433)
 make test-e2e           # discovers every package with //go:build integration tests
@@ -91,19 +91,27 @@ make openapi-compat-test   # runs the compat-gate's own test harness (scripts/te
 DB-backed tests need
 `E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable"`.
 The test harness (`internal/testutil/db.go`) truncates tables between tests
-and auto-applies all migrations on connect. **Never share one test database
-between concurrent sessions/agents/worktrees** — the shared truncate-between-
-tests behavior means two concurrent runs wipe each other's rows (a known
-local flake source). Give each runner its own database:
+and auto-applies all migrations on connect. Each test binary automatically
+derives a **per-package database** (`<base>_pkg_<package>`, self-provisioned
+on first run) from the configured base URL, so parallel packages (`-p 4` in
+the Make targets) cannot truncate each other; `E2A_TEST_DB_SHARED=1` forces
+the old single-DB behavior. **Concurrent sessions/agents/worktrees running
+the SAME package still contend** — give each runner its own base database:
 
 ```bash
 psql "postgres://e2a:e2a@localhost:5433/e2a" -c 'CREATE DATABASE e2a_test_<name>'
 export E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test_<name>?sslmode=disable"
 ```
 
-A fresh database needs no manual setup — the harness applies all
-`migrations/*.sql` on connect. Always run DB-backed packages with `-p 1`
-(even within one database, parallel packages contend).
+A fresh base database needs no manual setup — the harness creates the
+per-package databases and applies all `migrations/*.sql` on connect (the
+BASE database itself must exist). Per-package databases accumulate on the
+local server; they are disposable — drop any `*_pkg_*` database at will,
+the next run recreates it. Note that dropping a BASE database does not drop
+its `_pkg_` siblings (harmless — migrate+truncate on connect — but a "reset"
+that only recreates the base leaves them behind). `-p 1` is no longer required for
+cross-package isolation; it remains useful only when reproducing ordering-
+sensitive failures.
 
 ### TypeScript (npm workspaces — always use `--workspace` and `npm ci`)
 
@@ -268,7 +276,7 @@ manually on every API change even though the template won't remind you.
 
 - **Go tiers**: `test-unit` (no DB), `test-integration` (Postgres),
   `test-e2e` (auto-discovers `//go:build integration` packages); `make test`
-  runs everything with `-tags integration -p 1`. CI additionally race-checks
+  runs everything with `-tags integration -p 4` (safe: per-package test DBs). CI additionally race-checks
   `./internal/sendramp` and `./internal/outboundsend` with `-race`.
 - **Coverage ratchet**: `.testcoverage.yml` sets per-package floors (currently
   webhook, webhookpub, webhookdelivery, httpapi, outboundsend, sendramp,

@@ -11,27 +11,32 @@ build:
 run: build
 	./bin/e2a -config config.yaml
 
+# -p 4 everywhere a DB is involved: the testutil harness gives each package
+# its own database (<base>_pkg_<package>, self-provisioned on first run), so
+# packages can run in parallel without truncating each other. Capped at 4 —
+# not the core count — so N × pgxpool connections stay under Postgres's
+# default max_connections=100 on many-core dev machines.
 test:
-	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 ./...
+	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 4 ./...
 
 test-unit:
 	go test -short ./internal/outbound/ ./internal/relay/ ./internal/config/ ./internal/webhook/ ./internal/approvaltoken/ ./internal/unsubscribe/ ./internal/limits/ ./internal/httpapi/ ./internal/ratelimit/
 
 test-integration:
-	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 ./internal/identity/ ./internal/agent/ ./internal/hitlworker/ ./internal/hitlnotify/ ./internal/limits/ ./internal/relay/ ./internal/sendramp/
+	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 4 ./internal/identity/ ./internal/agent/ ./internal/hitlworker/ ./internal/hitlnotify/ ./internal/limits/ ./internal/relay/ ./internal/sendramp/
 
 test-e2e:
 	@packages="$$(find ./cmd ./internal ./tests -name '*_test.go' -exec grep -l '^//go:build integration$$' {} + | xargs -n 1 dirname | sort -u)"; \
 	test -n "$$packages"; \
-	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 1 $$packages
+	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -tags integration -p 4 $$packages
 
 # cover writes a coverage profile across the internal packages (needs Postgres
-# on :5433, like `make test`; -p 1 avoids cross-package test-DB contention).
+# on :5433, like `make test`; per-package DBs make the -p 4 parallel run safe).
 # cover-check enforces the per-package floors in .testcoverage.yml. CI runs the
 # same gate via the vladopajic/go-test-coverage action.
 GO_TEST_COVERAGE_VERSION ?= v2.14.3
 cover:
-	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 1 -covermode=atomic -coverprofile=cover.out ./internal/...
+	E2A_TEST_DATABASE_URL="postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable" go test -p 4 -covermode=atomic -coverprofile=cover.out ./internal/...
 
 cover-check: cover
 	go run github.com/vladopajic/go-test-coverage/v2@$(GO_TEST_COVERAGE_VERSION) --config=.testcoverage.yml

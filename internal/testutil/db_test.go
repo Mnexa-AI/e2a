@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -179,4 +180,95 @@ func testDBChildEnv(testName, dbURL string) []string {
 		env = append(env, item)
 	}
 	return append(env, testDBErrorChildEnv+"="+testName, "E2A_TEST_DATABASE_URL="+dbURL)
+}
+
+func TestTestDBURLDerivesPerPackageDatabase(t *testing.T) {
+	// Inside a `go test` binary (os.Args[0] ends in ".test"), TestDBURL
+	// appends a per-package suffix to the base database name so packages
+	// running in parallel (-p N) cannot truncate each other's rows — the
+	// harness truncates between tests, which made a shared DB the
+	// documented cross-package flake source. This binary is testutil.test,
+	// so the derived name is <base>_pkg_testutil.
+	u, err := url.Parse(TestDBURL())
+	if err != nil {
+		t.Fatalf("parse TestDBURL: %v", err)
+	}
+	if got := strings.TrimPrefix(u.Path, "/"); !strings.HasSuffix(got, "_pkg_testutil") {
+		t.Errorf("TestDBURL dbname = %q, want *_pkg_testutil suffix", got)
+	}
+
+	// E2A_TEST_DB_SHARED=1 restores the verbatim single-DB behavior (escape
+	// hatch for tooling that must target one known database).
+	t.Setenv("E2A_TEST_DB_SHARED", "1")
+	u2, err := url.Parse(TestDBURL())
+	if err != nil {
+		t.Fatalf("parse shared TestDBURL: %v", err)
+	}
+	if got := strings.TrimPrefix(u2.Path, "/"); strings.Contains(got, "_pkg_") {
+		t.Errorf("shared-mode dbname = %q, want no _pkg_ suffix", got)
+	}
+}
+
+func TestOpenPreparedTestDBCreatesMissingDatabase(t *testing.T) {
+	// First use of a package database must self-provision: connect failure
+	// with SQLSTATE 3D000 creates the database from the base URL's server
+	// and retries. Drop the derived DB first so this exercises creation.
+	ctx := context.Background()
+	base, err := url.Parse(TestDBURL())
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	scratch := *base
+	scratch.Path = "/" + strings.TrimPrefix(base.Path, "/") + "_selfprov"
+
+	admin, err := pgxpool.New(ctx, TestDBURL())
+	if err != nil {
+		t.Fatalf("admin pool: %v", err)
+	}
+	defer admin.Close()
+	if err := admin.Ping(ctx); err != nil {
+		t.Skipf("test database not available: %v", err)
+	}
+	name := strings.TrimPrefix(scratch.Path, "/")
+	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+pgx.Identifier{name}.Sanitize()); err != nil {
+		t.Fatalf("drop scratch db: %v", err)
+	}
+	t.Cleanup(func() {
+		admin.Exec(context.Background(), `DROP DATABASE IF EXISTS `+pgx.Identifier{name}.Sanitize())
+	})
+
+	pool, err := OpenPreparedTestDB(ctx, scratch.String())
+	if err != nil {
+		t.Fatalf("OpenPreparedTestDB should create the missing database, got: %v", err)
+	}
+	pool.Close()
+
+	// Idempotent on the second open (database now exists and is migrated).
+	pool2, err := OpenPreparedTestDB(ctx, scratch.String())
+	if err != nil {
+		t.Fatalf("second OpenPreparedTestDB: %v", err)
+	}
+	pool2.Close()
+}
+
+func TestTestDBURLDerivationIsIdempotentAndURLOnly(t *testing.T) {
+	// Re-deriving an already-derived URL must be a no-op — the harness's
+	// child-exec tests hand TestDBURL() to a spawned .test process, which
+	// re-derives; double-suffixing would self-provision junk databases.
+	t.Setenv("E2A_TEST_DATABASE_URL", TestDBURL())
+	u, err := url.Parse(TestDBURL())
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := strings.TrimPrefix(u.Path, "/"); strings.Contains(got, "_pkg_testutil_pkg_") {
+		t.Errorf("double-derived dbname %q", got)
+	}
+
+	// DSN keyword/value form must pass through verbatim: url.Parse "accepts"
+	// it into u.Path, and appending a suffix there produces garbage.
+	dsn := "host=localhost port=5433 user=e2a dbname=e2a_test sslmode=disable"
+	t.Setenv("E2A_TEST_DATABASE_URL", dsn)
+	if got := TestDBURL(); got != dsn {
+		t.Errorf("DSN-form base mangled: %q", got)
+	}
 }

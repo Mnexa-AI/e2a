@@ -2,10 +2,9 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestContractServerRepeatedStartClearsRiverStateAndPreservesMigrations(t *testing.T) {
@@ -50,26 +49,28 @@ func TestContractServerRepeatedStartClearsRiverStateAndPreservesMigrations(t *te
 	}
 }
 
-// requireReachableContractTestDB is the test's only skip gate. Once this ping
-// succeeds, migration, River reset, and server startup errors are regressions
-// and the caller must fail rather than classifying them as DB unavailability.
+// requireReachableContractTestDB is the test's only skip gate. Once this
+// check succeeds, migration, River reset, and server startup errors are
+// regressions and the caller must fail rather than classifying them as DB
+// unavailability. It must go through OpenPreparedTestDB — a raw ping of the
+// derived per-package URL fails with 3D000 on every cold database (CI's
+// service container is always cold), which would silently skip this
+// regression gate forever instead of self-provisioning like every other
+// harness consumer.
 func requireReachableContractTestDB(t *testing.T) string {
 	t.Helper()
 	dbURL := TestDBURL()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	config, err := pgxpool.ParseConfig(dbURL)
+	pool, err := OpenPreparedTestDB(ctx, dbURL)
 	if err != nil {
-		t.Fatalf("parse E2A_TEST_DATABASE_URL: %v", err)
-	}
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatalf("open E2A_TEST_DATABASE_URL pool: %v", err)
-	}
-	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
+		var prepErr *testDBPreparationError
+		if errors.As(err, &prepErr) {
+			t.Fatalf("prepare contract test database: %v", err)
+		}
 		t.Skipf("private test database unavailable: %v", err)
 	}
+	pool.Close()
 	return dbURL
 }
