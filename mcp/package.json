@@ -1,7 +1,7 @@
 {
   "name": "@e2a/mcp-server",
   "version": "0.5.0",
-  "description": "MCP server for e2a \u2014 email for AI agents",
+  "description": "MCP server for e2a — email for AI agents",
   "mcpName": "io.github.Mnexa-AI/mcp-server",
   "type": "module",
   "main": "./dist/bin/http.js",
@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run && npm run test:types",
+    "test:coverage": "vitest run --coverage && npm run test:types",
     "test:types": "tsc -p tsconfig.type-tests.json",
     "prepublishOnly": "npm run build"
   },
@@ -51,8 +52,9 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^26.1.1",
-    "supertest": "^7.0.0",
     "@types/supertest": "^7.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "supertest": "^7.0.0",
     "typescript": "^7.0",
     "vitest": "^4.1.10"
   }

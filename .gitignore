@@ -46,5 +46,10 @@ docs/originals/
 # Go coverage profile (make cover)
 cover.out
 
+# Vitest coverage output (npm run test:coverage)
+cli/coverage/
+sdks/typescript/coverage/
+mcp/coverage/
+
 # Isolated feature worktrees.
 .worktrees/
