@@ -47,16 +47,26 @@ func (TerminalReconcileArgs) Kind() string { return "outbound_terminal_reconcile
 // email.failed.
 type TerminalReconcileWorker struct {
 	river.WorkerDefaults[TerminalReconcileArgs]
-	pool  *pgxpool.Pool
-	store Store
-	ramp  RampGate
+	pool    *pgxpool.Pool
+	store   Store
+	ramp    RampGate
+	metrics Metrics
 }
 
 // NewTerminalReconcileWorker builds the periodic safety-net worker.
 func NewTerminalReconcileWorker(pool *pgxpool.Pool, store Store, ramps ...RampGate) *TerminalReconcileWorker {
-	w := &TerminalReconcileWorker{pool: pool, store: store}
+	w := &TerminalReconcileWorker{pool: pool, store: store, metrics: noopMetrics{}}
 	if len(ramps) > 0 {
 		w.ramp = ramps[0]
+	}
+	return w
+}
+
+// WithMetrics injects the SLI recorder. Chainable; nil keeps the no-op
+// default so metrics stay optional wiring.
+func (w *TerminalReconcileWorker) WithMetrics(m Metrics) *TerminalReconcileWorker {
+	if m != nil {
+		w.metrics = m
 	}
 	return w
 }
@@ -156,11 +166,23 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		// fails it with provenance 'local' so later authoritative evidence can
 		// still correct it. The stored detail of a deferred final attempt is
 		// preferred over this generic sweep detail.
-		if err := w.store.MarkFailed(ctx, candidate.messageID, candidate.jobID, attempt, occurredAt, detail, source, reason, candidate.failureBlockedRecipients); err != nil {
+		settled, err := w.store.MarkFailed(ctx, candidate.messageID, candidate.jobID, attempt, occurredAt, detail, source, reason, candidate.failureBlockedRecipients)
+		if err != nil {
 			if processed > 0 {
 				log.Printf("[outbound-terminal-reconcile] processed %d candidates", processed)
 			}
 			return err
+		}
+		// One terminal outcome per settled stranded row — labeled by what the
+		// guarded write actually did. Evidence-settled rows (the reconciler's
+		// priority population: submitted, crashed before MarkSent) count as
+		// "sent", not as a false failure; a no-op (row already terminal)
+		// counts nothing.
+		switch settled {
+		case delivery.StatusFailed:
+			w.metrics.OutboundTerminal(terminalOutcome(source, reason, candidate.failureBlockedRecipients))
+		case delivery.StatusSent:
+			w.metrics.OutboundTerminal(terminalSent)
 		}
 		if w.ramp != nil {
 			if err := w.ramp.Resolve(ctx, candidate.messageID); err != nil {

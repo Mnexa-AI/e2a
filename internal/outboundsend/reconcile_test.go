@@ -344,7 +344,8 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	missingID := f.seed(t, "missing", "accepted", "", true)
 
 	gate := &fakeRampGate{}
-	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
+	rec := &recordingMetrics{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate).WithMetrics(rec)
 	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
 		t.Fatalf("Work: %v", err)
 	}
@@ -404,6 +405,18 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	}
 	if len(gate.resolved) != 4 {
 		t.Errorf("ramp resolutions = %v, want four terminal outcomes", gate.resolved)
+	}
+	// One terminal metric per settled row; all four sweeps here wrote a
+	// locally inferred failure (no provider provenance, no suppression list).
+	// One terminal per settled row, labeled by provenance: the cancelled-state
+	// job maps to failed_cancelled (policy cancel, not a retry give-up — it
+	// must not pollute the local-retries alert signal); the rest are local.
+	counts := map[string]int{}
+	for _, o := range rec.terminals {
+		counts[o]++
+	}
+	if len(rec.terminals) != 4 || counts["failed_local_retries"] != 3 || counts["failed_cancelled"] != 1 {
+		t.Errorf("reconciler terminal metrics = %v, want three failed_local_retries + one failed_cancelled", rec.terminals)
 	}
 	for _, id := range []string{retryableID, sentID} {
 		if got := f.failedEventCount(t, id); got != 0 {
@@ -984,8 +997,11 @@ func (s failingTerminalStore) ReleaseSend(context.Context, string, int64) error 
 func (s failingTerminalStore) MarkSent(context.Context, string, int64, int, time.Time, string, string) error {
 	return nil
 }
-func (s failingTerminalStore) MarkFailed(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) error {
-	return s.err
+func (s failingTerminalStore) MarkFailed(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) (delivery.Status, error) {
+	if s.err != nil {
+		return "", s.err
+	}
+	return delivery.StatusFailed, nil
 }
 func (s failingTerminalStore) PreserveTerminalFailure(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) error {
 	return nil

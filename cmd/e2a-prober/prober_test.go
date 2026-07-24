@@ -200,10 +200,31 @@ func TestHandleMetrics(t *testing.T) {
 		`e2a_selftest_scenario_success{scenario="liveness"} 1`,
 		`e2a_selftest_scenario_success{scenario="inbound_round_trip"} 1`,
 		"e2a_selftest_duration_seconds 0.210",
+		// Per-scenario latency is the raw material for the MCP/WS/inbound
+		// SLI aggregations in docs/observability.md.
+		`e2a_selftest_scenario_duration_seconds{scenario="liveness"} 0.010`,
+		`e2a_selftest_scenario_duration_seconds{scenario="inbound_round_trip"} 0.200`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics missing %q\n---\n%s", want, body)
 		}
+	}
+}
+
+func TestConfigRequireMCP(t *testing.T) {
+	t.Setenv("E2A_PROBE_REQUIRE_MCP", "true")
+	if cfg := configFromEnv(); !cfg.RequireMCP {
+		t.Error("E2A_PROBE_REQUIRE_MCP=true not honored")
+	}
+	t.Setenv("E2A_PROBE_REQUIRE_MCP", "")
+	if cfg := configFromEnv(); cfg.RequireMCP {
+		t.Error("RequireMCP should default to false")
+	}
+	// The flag must reach the Probe the scenarios actually run with.
+	t.Setenv("E2A_PROBE_REQUIRE_MCP", "1")
+	pr := newProber(configFromEnv())
+	if !pr.probe().RequireMCP {
+		t.Error("RequireMCP not threaded into selftest.Probe")
 	}
 }
 

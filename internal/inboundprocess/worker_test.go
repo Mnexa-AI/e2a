@@ -144,6 +144,77 @@ func TestJobs_ProcessIntakeLateBinding(t *testing.T) {
 	}
 }
 
+// ── Inbound-process SLI (docs/observability.md) ─────────────────
+
+// outcomeRec is one recorded InboundProcess call.
+type outcomeRec struct {
+	outcome string
+	seconds float64
+}
+
+// fakeMetrics records InboundProcess calls for assertion.
+type fakeMetrics struct{ outcomes []outcomeRec }
+
+func (f *fakeMetrics) InboundProcess(outcome string, seconds float64) {
+	f.outcomes = append(f.outcomes, outcomeRec{outcome, seconds})
+}
+
+// one asserts exactly one outcome was recorded and returns it.
+func (f *fakeMetrics) one(t *testing.T) outcomeRec {
+	t.Helper()
+	if len(f.outcomes) != 1 {
+		t.Fatalf("recorded %d outcomes, want 1: %+v", len(f.outcomes), f.outcomes)
+	}
+	return f.outcomes[0]
+}
+
+// TestWorker_Metrics pins the outcome label per seam: success → processed,
+// non-accepted status / ErrIntakeAlreadyProcessed → noop, ErrRecipientGone →
+// failed_recipient_gone, transient error → retryable, final attempt →
+// failed_exhausted.
+func TestWorker_Metrics(t *testing.T) {
+	processed := accepted()
+	processed.Status = identity.IntakeStatusProcessed
+
+	cases := []struct {
+		name    string
+		intake  *identity.InboundIntake
+		procErr error
+		attempt int
+		want    string
+	}{
+		{"success", accepted(), nil, 0, "processed"},
+		{"status not accepted", processed, nil, 0, "noop"},
+		{"already processed", accepted(), identity.ErrIntakeAlreadyProcessed, 0, "noop"},
+		{"recipient gone", accepted(), identity.ErrRecipientGone, 0, "failed_recipient_gone"},
+		{"transient", accepted(), errors.New("db blip"), 0, "retryable"},
+		{"exhausted", accepted(), errors.New("db blip"), inboundprocess.MaxInboundAttempts, "failed_exhausted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fm := &fakeMetrics{}
+			w := inboundprocess.NewInboundProcessWorker(&fakeStore{intake: tc.intake}, &fakeProcessor{err: tc.procErr}).WithMetrics(fm)
+			_ = w.Work(context.Background(), job(tc.attempt)) // outcome-error mapping is pinned by the tests above
+			if got := fm.one(t); got.outcome != tc.want {
+				t.Errorf("outcome = %q, want %q", got.outcome, tc.want)
+			}
+		})
+	}
+}
+
+// TestWorker_Metrics_GoneIntakeEmitsNothing: a pruned intake (nil row) is not an
+// instrumented seam — no outcome recorded, and no panic with a wired backend.
+func TestWorker_Metrics_GoneIntakeEmitsNothing(t *testing.T) {
+	fm := &fakeMetrics{}
+	w := inboundprocess.NewInboundProcessWorker(&fakeStore{intake: nil}, &fakeProcessor{}).WithMetrics(fm)
+	if err := w.Work(context.Background(), job(0)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(fm.outcomes) != 0 {
+		t.Errorf("pruned intake recorded %+v, want nothing", fm.outcomes)
+	}
+}
+
 func TestWorker_FinalAttemptMarksFailed(t *testing.T) {
 	st := &fakeStore{intake: accepted()}
 	pr := &fakeProcessor{err: errors.New("db blip")}

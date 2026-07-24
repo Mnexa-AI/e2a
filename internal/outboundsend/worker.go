@@ -183,7 +183,9 @@ type Store interface {
 	// with the given failure provenance + detail and emits email.failed — all
 	// in one transaction. Callers therefore invoke it to "finalize a terminal
 	// state", not to unconditionally fail.
-	MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error
+	// The returned status reports what the guarded write actually did:
+	// StatusFailed, StatusSent (evidence settle), or "" (no-op).
+	MarkFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) (delivery.Status, error)
 	PreserveTerminalFailure(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error
 	// DeferTerminalFailure records a final attempt's diagnostic + releases the
 	// I/O claim WITHOUT declaring failed: the terminal reconciler declares the
@@ -205,12 +207,22 @@ type SendWorker struct {
 	store     Store
 	deliverer Deliverer
 	ramp      RampGate
+	metrics   Metrics
 }
 
 func NewSendWorker(store Store, deliverer Deliverer, ramp ...RampGate) *SendWorker {
-	w := &SendWorker{store: store, deliverer: deliverer}
+	w := &SendWorker{store: store, deliverer: deliverer, metrics: noopMetrics{}}
 	if len(ramp) > 0 {
 		w.ramp = ramp[0]
+	}
+	return w
+}
+
+// WithMetrics injects the SLI recorder. Chainable; nil keeps the no-op
+// default so metrics stay optional wiring.
+func (w *SendWorker) WithMetrics(m Metrics) *SendWorker {
+	if m != nil {
+		w.metrics = m
 	}
 	return w
 }
@@ -228,6 +240,17 @@ func (w *SendWorker) NextRetry(job *river.Job[OutboundSendArgs]) time.Time {
 // River's 60s default JobTimeout. (Contrast the maintenance/sweep workers, which
 // override it because they can run for minutes.)
 func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs]) error {
+	// Queue-wait SLI: due→pickup latency for THIS attempt (River stamps
+	// scheduled_at at enqueue, at each retry's backoff target, and on snooze;
+	// attempted_at at claim). scheduled_at — NOT created_at — is the baseline:
+	// a retried/snoozed/ramp-deferred message would otherwise record its entire
+	// cumulative age as "queue wait" on every pass, poisoning the p95. Guarded
+	// against zero/negative deltas (clock skew, hand-built rows).
+	if job.AttemptedAt != nil && !job.ScheduledAt.IsZero() {
+		if wait := job.AttemptedAt.Sub(job.ScheduledAt); wait > 0 {
+			w.metrics.OutboundQueueWait(wait.Seconds())
+		}
+	}
 	observedAt := jobObservationTime(job)
 	j, err := w.store.ClaimSend(ctx, job.Args.MessageID, job.ID)
 	if err != nil {
@@ -264,6 +287,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, 0, observedAt, j.ProviderMessageID, j.SentAs); err != nil {
 			return err
 		}
+		// Terminal 'sent', but NOT an attempt — the submit happened on an
+		// earlier attempt; only the settle lands here.
+		w.metrics.OutboundTerminal(terminalSent)
 		if w.ramp != nil && j.rampEligible() {
 			return w.ramp.Confirm(ctx, j.MessageID)
 		}
@@ -356,13 +382,32 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return river.JobCancel(supErr)
 	}
 
+	deliverStart := time.Now()
 	out := w.deliverer.Deliver(ctx, j)
 	observedAt = time.Now().UTC()
+	// Every Deliver call is exactly one submission attempt; classify it here
+	// so no downstream branch (outage, horizon, deferral) can drop the sample.
+	deliverSeconds := time.Since(deliverStart).Seconds()
+	switch {
+	case out.Err == nil:
+		w.metrics.OutboundAttempt(attemptSuccess, deliverSeconds)
+	case out.Permanent:
+		w.metrics.OutboundAttempt(attemptPermanentFailure, deliverSeconds)
+	default:
+		w.metrics.OutboundAttempt(attemptTemporaryFailure, deliverSeconds)
+	}
 	if out.Err == nil {
 		// Success — one tx (in the store): mark sent + provider id + email.sent.
 		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.ProviderMessageID, out.SentAs); err != nil {
 			return err
 		}
+		// Emitted even when MarkSent was a no-op (the row was already
+		// finalized sent by a racing SNS delivery notification): that path is
+		// NOT instrumented, so this is still the message's ONLY sent count.
+		// If FinalizeProviderAcceptedTx is ever given its own emission, this
+		// site must become status-aware (like MarkFailed) or the race
+		// double-counts.
+		w.metrics.OutboundTerminal(terminalSent)
 		if w.ramp != nil && j.rampEligible() {
 			if err := w.ramp.Confirm(ctx, j.MessageID); err != nil {
 				return fmt.Errorf("confirm sending ramp: %w", err)
@@ -415,6 +460,10 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		if err := w.store.DeferTerminalFailure(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error()); err != nil {
 			log.Printf("[outbound-send] defer terminal failure for %s: %v", j.MessageID, err)
 		}
+		// Not counted as terminal: the reconciler declares the real outcome
+		// (sent on evidence, failed otherwise) after the grace window and
+		// emits it then — counting the deferral too would double-count the
+		// message in e2a_outbound_terminal_total.
 		return fmt.Errorf("outbound send failed (final attempt %d; outcome deferred to terminal reconciler): %w", job.Attempt, out.Err)
 	}
 	// Retryable — River reschedules per NextRetry.
@@ -458,7 +507,20 @@ const (
 func (w *SendWorker) markFailed(ctx context.Context, messageID string, jobID int64, attempt int, occurredAt time.Time, detail string, source delivery.FailureSource, reason messagelifecycle.ReasonCode, blockedRecipients []string) error {
 	var err error
 	for i := 0; i < terminalWriteRetries; i++ {
-		if err = w.store.MarkFailed(ctx, messageID, jobID, attempt, occurredAt, detail, source, reason, blockedRecipients); err == nil {
+		var settled delivery.Status
+		if settled, err = w.store.MarkFailed(ctx, messageID, jobID, attempt, occurredAt, detail, source, reason, blockedRecipients); err == nil {
+			// Emit what the guarded write actually did, exactly once, only
+			// after the durable write: a failure with the caller's provenance,
+			// or "sent" when provider evidence settled the row. A no-op write
+			// (row gone/already terminal) records nothing. The
+			// PreserveTerminalFailure fallback below deliberately does NOT
+			// emit — the reconciler declares (and counts) that row later.
+			switch settled {
+			case delivery.StatusFailed:
+				w.metrics.OutboundTerminal(terminalOutcome(source, reason, blockedRecipients))
+			case delivery.StatusSent:
+				w.metrics.OutboundTerminal(terminalSent)
+			}
 			return nil
 		}
 		select {

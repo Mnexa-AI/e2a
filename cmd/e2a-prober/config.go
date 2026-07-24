@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type config struct {
 	APIKey        string
 	WebhookSecret string
 	MCPBaseURL    string        // deployed streamable-HTTP MCP endpoint; empty ⇒ mcp scenario skips
+	RequireMCP    bool          // E2A_PROBE_REQUIRE_MCP: empty MCPBaseURL fails the mcp scenario instead of skipping
 	SinkURL       string        // what the probe webhook targets (== Listen's public addr + /sink)
 	Listen        string        // serve/run-once bind addr for the sink + status server
 	Interval      time.Duration // serve loop period
@@ -30,11 +32,23 @@ func configFromEnv() config {
 		APIKey:        os.Getenv("E2A_PROBE_API_KEY"),
 		WebhookSecret: os.Getenv("E2A_PROBE_WEBHOOK_SECRET"),
 		MCPBaseURL:    os.Getenv("E2A_PROBE_MCP_URL"),
+		RequireMCP:    envBool("E2A_PROBE_REQUIRE_MCP"),
 		SinkURL:       os.Getenv("E2A_PROBE_SINK_URL"),
 		Listen:        envOr("E2A_PROBE_LISTEN", ":8090"),
 		Interval:      envDuration("E2A_PROBE_INTERVAL", 30*time.Second),
 		Timeout:       envDuration("E2A_PROBE_TIMEOUT", 30*time.Second),
 	}
+}
+
+// envBool treats "1"/"true"/"yes" (any case) as true; everything else,
+// including unset, is false — the skip-as-pass default stays unless an
+// operator opts in explicitly.
+func envBool(key string) bool {
+	switch strings.ToLower(os.Getenv(key)) {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
 }
 
 func envOr(key, def string) string {

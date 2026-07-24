@@ -65,6 +65,19 @@ type Server struct {
 	// non-empty, ListenAndServe wraps the TCP listener so only peers in these
 	// CIDRs may present a PROXY protocol header (see proxy.go).
 	proxyTrusted []netip.Prefix
+	// metrics records the SMTP acceptance SLI (docs/observability.md). Optional;
+	// nil (the default) disables recording. The cmd/e2a runtime always sets it.
+	metrics Metrics
+}
+
+// Metrics is the narrow slice of telemetry.Metrics the relay emits. Injectable
+// so tests don't need a real backend; satisfied by *telemetry.Log / telemetry.NoOp.
+type Metrics interface {
+	// SMTPInbound records the terminal outcome of one SMTP intake decision.
+	// outcome ∈ {accepted, accepted_dedup, tempfail, rejected_unknown_recipient,
+	// rejected_unverified_domain, rejected_quota}; seconds is DATA processing
+	// time (0 for RCPT-stage rejections, which have no DATA phase).
+	SMTPInbound(outcome string, seconds float64)
 }
 
 // AuthenticationChecker evaluates the connection and message identities used
@@ -103,6 +116,20 @@ func (s *Server) SetAuthenticationChecker(check AuthenticationChecker) {
 // operators who run without limits enabled. The cmd/e2a runtime always
 // sets it.
 func (s *Server) SetEnforcer(e limits.Enforcer) { s.enforcer = e }
+
+// SetMetrics wires in the SLI recorder. When nil (the default) recording is a
+// no-op — handy for tests and self-host operators running without telemetry.
+func (s *Server) SetMetrics(m Metrics) { s.metrics = m }
+
+// recordSMTPInbound is the nil-safe recording seam every intake outcome goes
+// through. Units: exactly one accepted/accepted_dedup/tempfail call per DATA
+// transaction (never per recipient); rejected_* calls are per rejected RCPT
+// command — one transaction can emit several rejections and still accept.
+func (s *Server) recordSMTPInbound(outcome string, seconds float64) {
+	if s.metrics != nil {
+		s.metrics.SMTPInbound(outcome, seconds)
+	}
+}
 
 func NewServer(cfg *config.Config, store *identity.Store, usage usage.UsageTracker, hub *ws.Hub) *Server {
 	s := &Server{
@@ -259,10 +286,12 @@ func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	agent, err := s.relay.resolveAgent(ctx, to)
 	if err != nil {
 		log.Printf("[%s] [%s] rejecting %s: no agent found", s.id, s.from, to)
+		s.relay.recordSMTPInbound("rejected_unknown_recipient", 0)
 		return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "recipient not found"}
 	}
 	if !agent.DomainVerified {
 		log.Printf("[%s] [%s] rejecting %s: domain not verified", s.id, s.from, to)
+		s.relay.recordSMTPInbound("rejected_unverified_domain", 0)
 		return &smtp.SMTPError{Code: 550, EnhancedCode: smtp.EnhancedCode{5, 1, 1}, Message: "recipient not found"}
 	}
 
@@ -276,6 +305,7 @@ func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
 		if err := s.relay.enforcer.CheckMessageSend(ctx, agent.UserID); err != nil {
 			if le, ok := limits.IsLimitExceeded(err); ok {
 				log.Printf("[%s] [%s] rejecting %s: limit exceeded (%s)", s.id, s.from, to, le.Resource)
+				s.relay.recordSMTPInbound("rejected_quota", 0)
 				return &smtp.SMTPError{Code: 552, EnhancedCode: smtp.EnhancedCode{5, 2, 2}, Message: "mailbox quota exceeded"}
 			}
 			log.Printf("[%s] [%s] limits check error (failing open): %v", s.id, s.from, err)
@@ -288,6 +318,9 @@ func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
 
 func (s *session) Data(r io.Reader) error {
 	ctx := context.Background()
+	// SLI clock: DATA processing time, measured from DATA entry to the terminal
+	// accept/tempfail decision (recorded in deliverMessages / acceptInbound).
+	start := time.Now()
 	body, err := io.ReadAll(r)
 	if err != nil {
 		return err
@@ -307,16 +340,19 @@ func (s *session) Data(r io.Reader) error {
 	// happens off the SMTP critical path. Falls back to the synchronous inline path
 	// when the enqueuer isn't wired (fail-safe).
 	if s.relay.inboundAsync && s.relay.inboundEnq != nil {
-		return s.acceptInbound(ctx, body, threadInfo)
+		return s.acceptInbound(ctx, body, threadInfo, start)
 	}
-	return s.deliverMessages(ctx, body)
+	return s.deliverMessages(ctx, body, start)
 }
 
 // deliverMessages resolves each recipient and processes the message synchronously
 // (the E2A_INBOUND_MODE=sync path): it calls processInbound inline with no
 // post-persist hook. A persist failure surfaces as a 451 so the sending MTA retries
 // (never a silent 250). The async path enqueues to River instead (see the accept-tx).
-func (s *session) deliverMessages(ctx context.Context, body []byte) error {
+//
+// start is the DATA-entry time; the terminal accept/tempfail decision records ONE
+// SMTPInbound observation per transaction (never per recipient — the loop is fan-out).
+func (s *session) deliverMessages(ctx context.Context, body []byte, start time.Time) error {
 	for _, rcpt := range s.recipients {
 		in := inboundInput{
 			Body:         body,
@@ -336,9 +372,11 @@ func (s *session) deliverMessages(ctx context.Context, body []byte) error {
 			// already-succeeded recipients (the sync path has no dedup) — duplicate
 			// beats loss, and the queue-first path (E2A_INBOUND_MODE=async) dedups.
 			log.Printf("[%s] persist failed for %s → 451 (sender will retry): %v", s.id, rcpt, derr)
+			s.relay.recordSMTPInbound("tempfail", time.Since(start).Seconds())
 			return &smtp.SMTPError{Code: 451, EnhancedCode: smtp.EnhancedCode{4, 3, 0}, Message: "temporary failure storing message; please retry"}
 		}
 	}
+	s.relay.recordSMTPInbound("accepted", time.Since(start).Seconds())
 	return nil
 }
 

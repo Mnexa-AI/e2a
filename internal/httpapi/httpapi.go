@@ -395,6 +395,11 @@ type Deps struct {
 	// to it for every route not yet ported onto Huma (the strangler), so
 	// the service stays fully functional through the multi-sub-slice port.
 	Legacy http.Handler
+
+	// Metrics receives one HTTPRequest sample per served request (the
+	// availability + latency SLI, docs/observability.md). Optional — nil
+	// disables the instrumentation middleware.
+	Metrics RequestMetrics
 }
 
 // Server is the v1 HTTP surface: a chi root router with the Huma API mounted
@@ -414,6 +419,9 @@ func New(deps Deps) *Server {
 
 	root := chi.NewRouter()
 	root.Use(requestID)
+	// After requestID so the sample times everything below it (auth, Huma,
+	// handlers, legacy fallback). No-op when deps.Metrics is nil.
+	root.Use(requestMetrics(deps.Metrics))
 	root.Use(securityHeaders)
 	root.Use(authChallenge(deps.AuthChallenge))
 	root.Use(withRawRequest)

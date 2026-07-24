@@ -40,6 +40,11 @@ var All = []Scenario{
 	// metering), then confirms the email.sent event is delivered + HMAC-signed.
 	{Name: "outbound_send", SmokeSafe: true, Run: scenarioOutboundSend},
 	{Name: "self_send_loopback", SmokeSafe: true, Run: scenarioSelfSendLoopback},
+	// websocket_round_trip exercises the /v1 WebSocket live-tail transport —
+	// the only push channel no other scenario touches: Bearer handshake, a
+	// nonce'd loopback self-send, then the email.received push frame on the
+	// socket. Loopback ⇒ no egress, no HITL, no metering.
+	{Name: "websocket_round_trip", SmokeSafe: true, Run: scenarioWebSocketRoundTrip},
 	// agent_lifecycle MUTATES prod (creates then deletes an ephemeral agent on
 	// the probe's verified domain) but is self-cleaning — no email, no owner
 	// notification, no metering (system-class account). SmokeSafe, but the
@@ -371,6 +376,13 @@ func (p *Probe) do(ctx context.Context, method, u string, body []byte) (int, []b
 // asserts the scenario actually ran (didn't skip) on staging.
 func scenarioMCPHTTPRoundTrip(ctx context.Context, p *Probe) Result {
 	if p.MCPBaseURL == "" {
+		if p.RequireMCP {
+			// A prod prober that silently skips MCP would report green while
+			// never probing the surface the 99.9% MCP availability target is
+			// measured on. RequireMCP (E2A_PROBE_REQUIRE_MCP) makes the
+			// misconfiguration loud instead.
+			return fail("E2A_PROBE_MCP_URL unset but E2A_PROBE_REQUIRE_MCP=true")
+		}
 		return pass("skipped: E2A_PROBE_MCP_URL unset")
 	}
 

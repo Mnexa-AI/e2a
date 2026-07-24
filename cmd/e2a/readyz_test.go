@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -44,7 +45,7 @@ func TestLatestMigration(t *testing.T) {
 func TestReadyzHandler_Ready(t *testing.T) {
 	pool := migratedTestDB(t)
 	rec := httptest.NewRecorder()
-	readyzHandler(pool)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	readyzHandler(pool, nil)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -69,7 +70,7 @@ func TestReadyzHandler_DBUnreachable(t *testing.T) {
 	pool.Close()
 
 	rec := httptest.NewRecorder()
-	readyzHandler(pool)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	readyzHandler(pool, nil)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
 	}
@@ -77,5 +78,31 @@ func TestReadyzHandler_DBUnreachable(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out.Status != "not_ready" {
 		t.Errorf("status = %q, want not_ready (reason=%q)", out.Status, out.Reason)
+	}
+}
+
+func TestReadyzHandler_Draining(t *testing.T) {
+	// Once shutdown begins, /readyz must flip to 503 "draining" BEFORE any
+	// dependency check — a draining instance must leave the LB rotation even
+	// while its DB is perfectly healthy. Liveness (/api/health) stays green
+	// throughout so orchestrators don't kill the instance mid-drain.
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, testutil.TestDBURL())
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	pool.Close() // deliberately unusable: drain must short-circuit ahead of Ping
+
+	var drain atomic.Bool
+	drain.Store(true)
+	rec := httptest.NewRecorder()
+	readyzHandler(pool, &drain)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	var out struct{ Status, Reason string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Status != "not_ready" || out.Reason != "draining" {
+		t.Errorf("got status=%q reason=%q, want not_ready/draining", out.Status, out.Reason)
 	}
 }

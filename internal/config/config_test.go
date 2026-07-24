@@ -541,3 +541,48 @@ rate_limits:
 		t.Errorf("RateLimits.PollPerMinute = %d, want 600", got)
 	}
 }
+
+func TestLoadConfigMetricsDefaultsDisabled(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`env: "development"`), 0644)
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Metrics.Enabled {
+		t.Error("Metrics.Enabled should default to false")
+	}
+	if cfg.Metrics.ListenAddr != "127.0.0.1:9091" {
+		t.Errorf("Metrics.ListenAddr default = %q, want 127.0.0.1:9091", cfg.Metrics.ListenAddr)
+	}
+}
+
+func TestLoadConfigMetricsYAMLAndEnvOverrides(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte("env: \"development\"\nmetrics:\n  enabled: true\n  listen_addr: \"127.0.0.1:9999\"\n"), 0644)
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !cfg.Metrics.Enabled || cfg.Metrics.ListenAddr != "127.0.0.1:9999" {
+		t.Errorf("yaml metrics block not honored: %+v", cfg.Metrics)
+	}
+
+	// Env wins over yaml (repo convention).
+	t.Setenv("E2A_METRICS_ENABLED", "false")
+	t.Setenv("E2A_METRICS_LISTEN_ADDR", "127.0.0.1:9092")
+	cfg, err = Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Metrics.Enabled {
+		t.Error("E2A_METRICS_ENABLED=false should override yaml true")
+	}
+	if cfg.Metrics.ListenAddr != "127.0.0.1:9092" {
+		t.Errorf("Metrics.ListenAddr = %q, want env override", cfg.Metrics.ListenAddr)
+	}
+}

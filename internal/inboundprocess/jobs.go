@@ -20,8 +20,9 @@ import (
 // Processor (the relay Server) via SetProcessor, because the relay is built after
 // jobs.New. Jobs itself is the worker's Processor, late-binding to the concrete one.
 type Jobs struct {
-	store Store
-	enq   jobs.Enqueuer
+	store   Store
+	enq     jobs.Enqueuer
+	metrics Metrics // nil ⇒ the InboundProcessWorker emits nothing (nil-safe)
 
 	mu        sync.RWMutex
 	processor Processor
@@ -34,6 +35,13 @@ func NewJobs(store Store) *Jobs {
 
 // SetEnqueuer injects the shared client so EnqueueInboundProcessTx can insert jobs.
 func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
+
+// WithMetrics wires the observability backend the InboundProcessWorker emits
+// the inbound-process SLI on. Nil-safe; call before RegisterJobs.
+func (j *Jobs) WithMetrics(m Metrics) *Jobs {
+	j.metrics = m
+	return j
+}
 
 // SetProcessor injects the concrete Processor (the relay Server), built after
 // jobs.New. Guarded so the River worker goroutines read it race-free.
@@ -61,7 +69,7 @@ func (j *Jobs) ProcessIntake(ctx context.Context, it *identity.InboundIntake) er
 // Processor) + the RetentionWorker, and schedules the retention sweep as a periodic
 // on QueueMaintenance. Implements jobs.Registrar.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, NewInboundProcessWorker(j.store, j))
+	river.AddWorker(w, NewInboundProcessWorker(j.store, j).WithMetrics(j.metrics))
 	river.AddWorker(w, &RetentionWorker{pruner: j.store})
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(

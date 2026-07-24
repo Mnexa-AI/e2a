@@ -3,6 +3,7 @@ package webhookdelivery_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -197,6 +198,123 @@ func TestReconcilePending(t *testing.T) {
 	}
 	if n2 != 0 {
 		t.Errorf("cutover re-run enqueued %d, want 0 (idempotent)", n2)
+	}
+}
+
+// ── Webhook-attempt SLI (docs/observability.md) ─────────────────
+
+// attemptRec is one recorded WebhookAttempt call.
+type attemptRec struct {
+	outcome     string
+	statusClass string
+	seconds     float64
+}
+
+// fakeMetrics records WebhookAttempt calls for assertion.
+type fakeMetrics struct{ attempts []attemptRec }
+
+func (f *fakeMetrics) WebhookAttempt(outcome, statusClass string, seconds float64) {
+	f.attempts = append(f.attempts, attemptRec{outcome, statusClass, seconds})
+}
+
+// one asserts exactly one attempt was recorded and returns it.
+func (f *fakeMetrics) one(t *testing.T) attemptRec {
+	t.Helper()
+	if len(f.attempts) != 1 {
+		t.Fatalf("recorded %d attempts, want 1: %+v", len(f.attempts), f.attempts)
+	}
+	return f.attempts[0]
+}
+
+func TestDeliverWorker_Metrics_Delivered(t *testing.T) {
+	id, sub, _, wh := seed(t, "wd-m-ok")
+	fm := &fakeMetrics{}
+	w := webhookdelivery.NewDeliverWorker(sub, fakeDeliverer{out: webhook.DeliveryOutcome{Success: true, StatusCode: 200}}, fakeWebhooks{wh: wh}).WithMetrics(fm)
+	if err := w.Work(context.Background(), job(id, 1)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	got := fm.one(t)
+	if got.outcome != "delivered" || got.statusClass != "2xx" {
+		t.Errorf("attempt = %+v, want delivered/2xx", got)
+	}
+}
+
+func TestDeliverWorker_Metrics_RetryableFailure(t *testing.T) {
+	id, sub, _, wh := seed(t, "wd-m-retry")
+	fm := &fakeMetrics{}
+	w := webhookdelivery.NewDeliverWorker(sub, fakeDeliverer{out: webhook.DeliveryOutcome{Success: false, StatusCode: 503, Error: "boom"}}, fakeWebhooks{wh: wh}).WithMetrics(fm)
+	if err := w.Work(context.Background(), job(id, 1)); err == nil {
+		t.Fatal("Work returned nil on a retryable failure")
+	}
+	got := fm.one(t)
+	if got.outcome != "retryable_failure" || got.statusClass != "5xx" {
+		t.Errorf("attempt = %+v, want retryable_failure/5xx", got)
+	}
+}
+
+func TestDeliverWorker_Metrics_Exhausted(t *testing.T) {
+	id, sub, _, wh := seed(t, "wd-m-final")
+	fm := &fakeMetrics{}
+	w := webhookdelivery.NewDeliverWorker(sub, fakeDeliverer{out: webhook.DeliveryOutcome{Success: false, StatusCode: 500, Error: "boom"}}, fakeWebhooks{wh: wh}).WithMetrics(fm)
+	if err := w.Work(context.Background(), job(id, webhookdelivery.MaxDeliveryAttempts)); err == nil {
+		t.Fatal("Work returned nil on final failed attempt")
+	}
+	got := fm.one(t)
+	if got.outcome != "exhausted" || got.statusClass != "5xx" {
+		t.Errorf("attempt = %+v, want exhausted/5xx", got)
+	}
+}
+
+func TestDeliverWorker_Metrics_DisabledSkip(t *testing.T) {
+	id, sub, _, wh := seed(t, "wd-m-disabled")
+	wh.Enabled = false
+	fm := &fakeMetrics{}
+	w := webhookdelivery.NewDeliverWorker(sub, fakeDeliverer{out: webhook.DeliveryOutcome{Success: true}}, fakeWebhooks{wh: wh}).WithMetrics(fm)
+	if err := w.Work(context.Background(), job(id, 1)); err == nil {
+		t.Fatal("disabled webhook should return a snooze error, got nil")
+	}
+	got := fm.one(t)
+	if got.outcome != "skipped_disabled" || got.statusClass != "none" || got.seconds >= 0 {
+		t.Errorf("attempt = %+v, want skipped_disabled/none/negative (no POST → no duration sample)", got)
+	}
+}
+
+func TestDeliverWorker_Metrics_DeletedWebhook(t *testing.T) {
+	id, sub, _, _ := seed(t, "wd-m-deleted")
+	fm := &fakeMetrics{}
+	w := webhookdelivery.NewDeliverWorker(sub, fakeDeliverer{out: webhook.DeliveryOutcome{Success: true}}, fakeWebhooks{err: errors.New("not found")}).WithMetrics(fm)
+	if err := w.Work(context.Background(), job(id, 1)); err == nil {
+		t.Fatal("deleted webhook should return a cancel error")
+	}
+	got := fm.one(t)
+	if got.outcome != "webhook_deleted" || got.statusClass != "none" || got.seconds >= 0 {
+		t.Errorf("attempt = %+v, want webhook_deleted/none/negative (no POST → no duration sample)", got)
+	}
+}
+
+// TestDeliverWorker_Metrics_StatusClassMapping pins the code→class label
+// mapping through the retryable seam, including 0 → "none" (no HTTP
+// response: connect/DNS/SSRF-blocked).
+func TestDeliverWorker_Metrics_StatusClassMapping(t *testing.T) {
+	cases := []struct {
+		code int
+		want string
+	}{
+		{0, "none"},
+		{199, "1xx"},
+		{404, "4xx"},
+		{503, "5xx"},
+	}
+	for _, tc := range cases {
+		id, sub, _, wh := seed(t, fmt.Sprintf("wd-m-class-%d", tc.code))
+		fm := &fakeMetrics{}
+		w := webhookdelivery.NewDeliverWorker(sub, fakeDeliverer{out: webhook.DeliveryOutcome{Success: false, StatusCode: tc.code, Error: "boom"}}, fakeWebhooks{wh: wh}).WithMetrics(fm)
+		if err := w.Work(context.Background(), job(id, 1)); err == nil {
+			t.Fatalf("code %d: Work returned nil on a failure", tc.code)
+		}
+		if got := fm.one(t); got.statusClass != tc.want {
+			t.Errorf("code %d: statusClass = %q, want %q", tc.code, got.statusClass, tc.want)
+		}
 	}
 }
 

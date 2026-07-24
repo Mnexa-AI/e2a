@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -215,10 +217,16 @@ func main() {
 	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll, enqueuing a
 	// River delivery job in the same tx (WithDeliveryEnqueuer, below).
 	//
-	// Telemetry backend: log-based by default — operators can swap to a real
-	// backend by changing this one line; every instrumented call site reads
+	// Telemetry backend: log-based by default; metrics.enabled in config (or
+	// E2A_METRICS_ENABLED) swaps in the Prometheus backend and binds the
+	// separate exposition listener below. Every instrumented call site reads
 	// through this interface so the switch is non-invasive.
-	metrics := telemetry.NewLog()
+	var metrics telemetry.Metrics = telemetry.NewLog()
+	var promBackend *telemetry.Prom
+	if cfg.Metrics.Enabled {
+		promBackend = telemetry.NewProm()
+		metrics = promBackend
+	}
 	outboxWorker := webhookpub.NewOutboxWorker(pool, store).WithMetrics(metrics)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
 	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
@@ -274,9 +282,12 @@ func main() {
 		agent.NewOutboundDeliverer(sender),
 		pool,
 		outboundRamp,
-	)
+	).WithMetrics(metrics)
 	registrars = append(registrars, outboundJobs)
 	registrars = append(registrars, sendramp.NewMaintenanceJobs(rampStore))
+	// Queue depth/age gauges: a 30s maintenance periodic sampling river_job
+	// per queue+state (docs/observability.md).
+	registrars = append(registrars, jobs.NewQueueStatsJobs(pool, metrics))
 
 	// Async inbound pipeline (inbound-message-pipeline-river.md), gated by
 	// E2A_INBOUND_MODE=async. The InboundProcessWorker registers on the shared River
@@ -286,7 +297,7 @@ func main() {
 	// synchronous inline path (unchanged).
 	var inboundJobs *inboundprocess.Jobs
 	if cfg.Inbound.Mode == "async" {
-		inboundJobs = inboundprocess.NewJobs(store)
+		inboundJobs = inboundprocess.NewJobs(store).WithMetrics(metrics)
 		registrars = append(registrars, inboundJobs)
 	}
 
@@ -324,7 +335,7 @@ func main() {
 	// unconditionally, the outbox drain enqueues delivery jobs transactionally,
 	// and a one-shot cutover drains any pre-existing pending rows. The legacy
 	// hand-rolled SubscriberRetryWorker is gone.
-	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store, pool)
+	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store, pool).WithMetrics(metrics)
 	registrars = append(registrars, webhookDeliveryJobs)
 
 	// Webhook fan-out (webhook_events → webhook_subscriber_deliveries) on River,
@@ -623,10 +634,13 @@ func main() {
 
 	api.RegisterRoutes(router)
 
+	// draining flips at the start of graceful shutdown (see the signal block
+	// below): /readyz reports 503 while /api/health stays green.
+	var draining atomic.Bool
 	// /readyz — instance-local readiness (DB reachable + migrations applied).
 	// Distinct from /api/health (shallow liveness); operational, not part of the
 	// /v1 contract, so it lives on this mux and never enters api/openapi.yaml.
-	router.HandleFunc("/readyz", readyzHandler(pool)).Methods(http.MethodGet)
+	router.HandleFunc("/readyz", readyzHandler(pool, &draining)).Methods(http.MethodGet)
 	// /selftest — deep dependency diagnostics (health+json), auth-gated by the
 	// internal API secret. Operational, not part of the /v1 contract. The full
 	// SMTP→webhook round-trip lives in the external e2a-prober, not here.
@@ -649,9 +663,11 @@ func main() {
 	// handler are constructed here and threaded in.
 	wsHub := ws.NewHub()
 	defer wsHub.Close()
+	wsHub.SetMetrics(metrics)
 	api.SetWebSocketHub(wsHub)
 	hitlWorker.SetWebSocketHub(wsHub)
 	wsHandler := ws.NewHandler(wsHub, store)
+	wsHandler.SetMetrics(metrics)
 
 	// v1 contract layer (api-v1-redesign Slice 1). The new chi + Huma surface
 	// owns the `/v1` prefix (OpenAPI-as-source-of-truth, standardized error
@@ -678,6 +694,7 @@ func main() {
 		Production:                cfg.IsProduction(),
 		Legacy:                    router,
 		WSHandle:                  wsHandler.ServeWithEmail,
+		Metrics:                   metrics,
 		SenderIdentity:            senderEnqueuer,
 		ManagedUnsubscribeIssuer:  managedUnsubscribeIssuer,
 		AgentSuppressionAddedHook: agent.AgentSuppressionAddedHook(webhookOutbox),
@@ -695,6 +712,7 @@ func main() {
 	smtpServer := relay.NewServer(cfg, store, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
 	smtpServer.SetOutbox(webhookOutbox)
+	smtpServer.SetMetrics(metrics)
 
 	// Wire the async inbound pipeline into the relay (E2A_INBOUND_MODE=async): the
 	// Processor is the relay Server itself; the accept-tx enqueues via the shared
@@ -720,6 +738,31 @@ func main() {
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Metrics exposition listener (Prometheus backend only). A SEPARATE
+	// listener — never the public API handler — so /metrics can't be exposed
+	// through the API host; default bind is loopback-only (config metrics:).
+	var metricsServer *http.Server
+	if promBackend != nil {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promBackend.Handler())
+		metricsServer = &http.Server{
+			Addr:              cfg.Metrics.ListenAddr,
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		if host, _, err := net.SplitHostPort(cfg.Metrics.ListenAddr); err == nil {
+			if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+				log.Printf("WARNING: metrics listener bound to non-loopback %s — GET /metrics is UNAUTHENTICATED; ensure network policy restricts access", cfg.Metrics.ListenAddr)
+			}
+		}
+		go func() {
+			log.Printf("metrics listening on %s", cfg.Metrics.ListenAddr)
+			if err := metricsServer.ListenAndServe(); err != http.ErrServerClosed {
+				log.Fatalf("metrics server error: %v", err)
+			}
+		}()
+	}
 
 	go func() {
 		log.Printf("HTTP API listening on %s", cfg.HTTP.ListenAddr)
@@ -782,6 +825,10 @@ func main() {
 	<-sigCh
 	log.Println("Shutting down...")
 
+	// Flip /readyz to 503 immediately so load balancers stop routing to this
+	// instance while in-flight work drains below. Liveness stays green.
+	draining.Store(true)
+
 	// Stop OIDC issuer discovery promptly, including an in-flight attempt.
 	oidcCancel()
 
@@ -829,6 +876,13 @@ func main() {
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
+	}
+	// The metrics listener outlives the API server deliberately: the drain
+	// window is exactly when the gauges matter most to an observer.
+	if metricsServer != nil {
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("metrics server shutdown error: %v", err)
+		}
 	}
 
 	// Wait for workers' current iteration to settle, bounded by the

@@ -31,6 +31,7 @@ type Jobs struct {
 	webhooks  WebhookReader
 	pool      *pgxpool.Pool
 	enq       jobs.Enqueuer
+	metrics   Metrics // nil ⇒ the DeliverWorker emits nothing (nil-safe)
 }
 
 // NewJobs builds the integration with its dependencies (no client yet). pool backs
@@ -42,10 +43,17 @@ func NewJobs(subStore *webhook.SubscriberStore, deliverer Deliverer, webhooks We
 // SetEnqueuer injects the shared client so EnqueueDeliveryTx can insert jobs.
 func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 
+// WithMetrics wires the observability backend the DeliverWorker emits the
+// webhook-attempt SLI on. Nil-safe; call before RegisterJobs.
+func (j *Jobs) WithMetrics(m Metrics) *Jobs {
+	j.metrics = m
+	return j
+}
+
 // RegisterJobs adds the DeliverWorker + the reconcile worker, and returns the
 // reconcile periodic. Implements jobs.Registrar.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, NewDeliverWorker(j.subStore, j.deliverer, j.webhooks))
+	river.AddWorker(w, NewDeliverWorker(j.subStore, j.deliverer, j.webhooks).WithMetrics(j.metrics))
 	river.AddWorker(w, &ReconcileWorker{jobs: j})
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
