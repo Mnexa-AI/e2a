@@ -22,7 +22,7 @@
     "build": "tsc",
     "test": "npm run typecheck && npm run test:unit && npm run test:types",
     "typecheck": "tsc --project tsconfig.test.json",
-    "test:unit": "vitest run test/v1/client.test.ts test/v1/inbound.test.ts test/v1/ws.test.ts test/v1/webhook-signature.test.ts test/v1/webhook-payloads.test.ts test/v1/errors.test.ts test/v1/retry.test.ts test/v1/pagination.test.ts",
+    "test:unit": "vitest run test/v1 --exclude '**/contract*.test.ts'",
     "test:coverage": "npm run typecheck && npm run test:unit -- --coverage && npm run test:types",
     "test:types": "tsc -p tsconfig.type-tests.json",
     "test:contract": "vitest run test/v1/contract.test.ts test/v1/contract-client.test.ts",

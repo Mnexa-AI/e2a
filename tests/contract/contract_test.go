@@ -1,3 +1,5 @@
+//go:build integration
+
 // Package contract contains behavioral contract tests for the public /v1 API.
 //
 // These tests verify that the Go API server behaves as documented: correct

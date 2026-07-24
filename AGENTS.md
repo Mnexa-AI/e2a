@@ -287,7 +287,8 @@ manually on every API change even though the template won't remind you.
   Go e2e, web, ts-sdk, agent-framework-examples, adk-cloud-webhook-example,
   ts-contract, cli, mcp, spec gates, python-sdk, python-contract,
   generated-code freshness, design-system dist freshness, SDK-version-sync,
-  plugin manifests, repo text integrity, SDK operation coverage).
+  plugin manifests, repo text integrity, SDK operation coverage, test
+  harnesses).
 - `tests/e2e-prod/` is a production smoke harness — not part of local dev.
 - Two more CI workflows cover the `plugins/e2a/skills/agentify` framework:
   `.github/workflows/agentify-test.yml` (deterministic script/addon/config
