@@ -250,3 +250,25 @@ func TestOpenPreparedTestDBCreatesMissingDatabase(t *testing.T) {
 	}
 	pool2.Close()
 }
+
+func TestTestDBURLDerivationIsIdempotentAndURLOnly(t *testing.T) {
+	// Re-deriving an already-derived URL must be a no-op — the harness's
+	// child-exec tests hand TestDBURL() to a spawned .test process, which
+	// re-derives; double-suffixing would self-provision junk databases.
+	t.Setenv("E2A_TEST_DATABASE_URL", TestDBURL())
+	u, err := url.Parse(TestDBURL())
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := strings.TrimPrefix(u.Path, "/"); strings.Contains(got, "_pkg_testutil_pkg_") {
+		t.Errorf("double-derived dbname %q", got)
+	}
+
+	// DSN keyword/value form must pass through verbatim: url.Parse "accepts"
+	// it into u.Path, and appending a suffix there produces garbage.
+	dsn := "host=localhost port=5433 user=e2a dbname=e2a_test sslmode=disable"
+	t.Setenv("E2A_TEST_DATABASE_URL", dsn)
+	if got := TestDBURL(); got != dsn {
+		t.Errorf("DSN-form base mangled: %q", got)
+	}
+}

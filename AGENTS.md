@@ -107,7 +107,9 @@ A fresh base database needs no manual setup — the harness creates the
 per-package databases and applies all `migrations/*.sql` on connect (the
 BASE database itself must exist). Per-package databases accumulate on the
 local server; they are disposable — drop any `*_pkg_*` database at will,
-the next run recreates it. `-p 1` is no longer required for
+the next run recreates it. Note that dropping a BASE database does not drop
+its `_pkg_` siblings (harmless — migrate+truncate on connect — but a "reset"
+that only recreates the base leaves them behind). `-p 1` is no longer required for
 cross-package isolation; it remains useful only when reproducing ordering-
 sensitive failures.
 

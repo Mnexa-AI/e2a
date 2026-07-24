@@ -61,8 +61,17 @@ func TestDBURL() string {
 		return base
 	}
 	u, err := url.Parse(base)
-	if err != nil || strings.TrimPrefix(u.Path, "/") == "" {
-		return base // unparseable/unnamed base: leave it alone
+	// Only derive on genuine postgres:// URLs. DSN keyword/value form
+	// ("host=… dbname=…") "parses" into u.Path and would be mangled into
+	// garbage; pass anything unrecognizable through verbatim.
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") ||
+		strings.TrimPrefix(u.Path, "/") == "" {
+		return base
+	}
+	// Idempotent: a child .test process handed an already-derived URL (the
+	// harness's own re-exec tests do this) must not double-suffix it.
+	if strings.HasSuffix(strings.TrimSuffix(u.Path, "/"), suffix) {
+		return base
 	}
 	u.Path = u.Path + suffix
 	return u.String()
@@ -71,7 +80,8 @@ func TestDBURL() string {
 // packageDBSuffix derives the per-package database suffix, or "" when the
 // process is not a test binary or sharing is forced.
 func packageDBSuffix() string {
-	if os.Getenv("E2A_TEST_DB_SHARED") != "" {
+	switch strings.ToLower(os.Getenv("E2A_TEST_DB_SHARED")) {
+	case "1", "true", "yes":
 		return ""
 	}
 	bin := filepath.Base(os.Args[0])
@@ -167,16 +177,25 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 }
 
 // createTestDatabase creates dbURL's database via the base URL's server.
-// A concurrent creator racing us (SQLSTATE 42P04 duplicate_database) is
-// success — the database exists either way.
+// A concurrent creator racing us is success — the database exists either
+// way. Postgres reports that race two ways: 42P04 (duplicate_database, the
+// already-committed case) and 23505 (unique violation on
+// pg_database_datname_index, the losing side of a true concurrent race —
+// empirically what 8 parallel same-name creates produce on PG16).
+//
+// Error classification is load-bearing for skip-vs-fail: a failure to
+// CONNECT to the base URL keeps the caller's "DB unavailable → skip"
+// semantics, but a failure to CREATE on a reachable server (e.g. a role
+// without CREATEDB) is a preparation error — TestDB must FAIL loudly, not
+// silently skip the entire DB tier green.
 func createTestDatabase(ctx context.Context, dbURL string) error {
 	target, err := url.Parse(dbURL)
 	if err != nil {
-		return fmt.Errorf("parse target db url: %w", err)
+		return &testDBPreparationError{stage: "parse target db url", err: err}
 	}
 	name := strings.TrimPrefix(target.Path, "/")
 	if name == "" {
-		return fmt.Errorf("target db url has no database name: %s", dbURL)
+		return &testDBPreparationError{stage: "derive database name", err: fmt.Errorf("no database name in %s", dbURL)}
 	}
 	conn, err := pgx.Connect(ctx, baseTestDBURL())
 	if err != nil {
@@ -185,10 +204,10 @@ func createTestDatabase(ctx context.Context, dbURL string) error {
 	defer conn.Close(ctx)
 	if _, err := conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "42P04" {
+		if errors.As(err, &pgErr) && (pgErr.Code == "42P04" || pgErr.Code == "23505") {
 			return nil
 		}
-		return fmt.Errorf("create database %s: %w", name, err)
+		return &testDBPreparationError{stage: "create database " + name, err: err}
 	}
 	return nil
 }
