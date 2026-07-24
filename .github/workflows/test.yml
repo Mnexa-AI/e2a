@@ -60,10 +60,8 @@ jobs:
   go-coverage:
     name: Go coverage gate
     runs-on: ubuntu-latest
-    # 18, not 12: `make cover` runs every DB-backed package serialized (-p 1)
-    # and sits at ~12m after the SLO-instrumentation suites landed — the old
-    # cap canceled a fully-passing run 16s over budget, after the last
-    # package but before floor enforcement. Keep ~50% headroom over observed.
+    # Headroom over observed: the parallel (-p 4, per-package DBs) cover run
+    # is well under this; the cap exists so a hung suite can't burn an hour.
     timeout-minutes: 18
     services:
       postgres:
@@ -85,15 +83,16 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-      # Generate the coverage profile with the test DB available (the webhook
-      # delivery/publish + httpapi suites are DB-backed; -p 1 avoids cross-
-      # package test-DB contention). Floors live in .testcoverage.yml.
+      # Generate the coverage profile with the test DB available. Packages
+      # run in parallel (-p 4): the testutil harness gives each package its
+      # own database, self-provisioned from the service's e2a_test base.
+      # Floors live in .testcoverage.yml.
       - name: Generate coverage profile
         run: make cover
       - name: Race-check ramp and outbound worker
         env:
           E2A_TEST_DATABASE_URL: postgres://e2a:e2a@localhost:5433/e2a_test?sslmode=disable
-        run: go test -race -p 1 ./internal/sendramp ./internal/outboundsend
+        run: go test -race -p 2 ./internal/sendramp ./internal/outboundsend
       - name: Enforce per-package coverage floors
         uses: vladopajic/go-test-coverage@v2
         with:

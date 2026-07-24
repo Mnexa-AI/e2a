@@ -4,9 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tokencanopy/e2a/internal/identity"
 	"github.com/tokencanopy/e2a/migrations"
@@ -27,12 +32,63 @@ func (e *testDBPreparationError) Unwrap() error {
 	return e.err
 }
 
-func TestDBURL() string {
-	dbURL := os.Getenv("E2A_TEST_DATABASE_URL")
-	if dbURL == "" {
-		dbURL = defaultTestDBURL
+// baseTestDBURL is the configured URL before per-package derivation: the
+// E2A_TEST_DATABASE_URL override or the local-dev default. Also the admin
+// connection target for creating missing package databases.
+func baseTestDBURL() string {
+	if dbURL := os.Getenv("E2A_TEST_DATABASE_URL"); dbURL != "" {
+		return dbURL
 	}
-	return dbURL
+	return defaultTestDBURL
+}
+
+// TestDBURL returns the database URL tests should use. Inside a `go test`
+// binary it derives a PER-PACKAGE database name (<base>_pkg_<package>) so
+// packages can run in parallel: the harness truncates tables between tests,
+// which made one shared database the documented cross-package flake source
+// and forced -p 1 on every DB-backed run. The suffix comes from the test
+// binary's name (os.Args[0] = <package>.test — unique per package in this
+// repo), so every URL consumer in one test binary — TestDB, hand-built
+// pools, the in-process contract server — lands on the same database.
+// Non-test binaries (cmd/e2a-contract-server) and E2A_TEST_DB_SHARED=1 get
+// the base URL verbatim. Missing databases self-provision on first open
+// (see OpenPreparedTestDB); concurrent SESSIONS running the SAME package
+// still contend, so per-session base URLs remain the guidance in AGENTS.md.
+func TestDBURL() string {
+	base := baseTestDBURL()
+	suffix := packageDBSuffix()
+	if suffix == "" {
+		return base
+	}
+	u, err := url.Parse(base)
+	if err != nil || strings.TrimPrefix(u.Path, "/") == "" {
+		return base // unparseable/unnamed base: leave it alone
+	}
+	u.Path = u.Path + suffix
+	return u.String()
+}
+
+// packageDBSuffix derives the per-package database suffix, or "" when the
+// process is not a test binary or sharing is forced.
+func packageDBSuffix() string {
+	if os.Getenv("E2A_TEST_DB_SHARED") != "" {
+		return ""
+	}
+	bin := filepath.Base(os.Args[0])
+	if !strings.HasSuffix(bin, ".test") {
+		return ""
+	}
+	name := strings.ToLower(strings.TrimSuffix(bin, ".test"))
+	sanitized := make([]rune, 0, len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			sanitized = append(sanitized, r)
+		default:
+			sanitized = append(sanitized, '_')
+		}
+	}
+	return "_pkg_" + string(sanitized)
 }
 
 func OpenPreparedTestDB(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
@@ -47,7 +103,25 @@ func OpenPreparedTestDB(ctx context.Context, dbURL string) (*pgxpool.Pool, error
 
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, err
+		// SQLSTATE 3D000 (invalid_catalog_name): the server is up but this
+		// per-package database doesn't exist yet — self-provision it from
+		// the base URL's server and retry once. Any other error (server
+		// down, bad credentials) keeps the caller's skip-vs-fail semantics.
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "3D000" {
+			return nil, err
+		}
+		if cerr := createTestDatabase(ctx, dbURL); cerr != nil {
+			return nil, cerr
+		}
+		pool, err = pgxpool.New(ctx, dbURL)
+		if err != nil {
+			return nil, err
+		}
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			return nil, err
+		}
 	}
 
 	if err := runMigrations(ctx, pool); err != nil {
@@ -90,6 +164,33 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 	if err != nil {
 		t.Fatalf("failed to truncate tables: %v", err)
 	}
+}
+
+// createTestDatabase creates dbURL's database via the base URL's server.
+// A concurrent creator racing us (SQLSTATE 42P04 duplicate_database) is
+// success — the database exists either way.
+func createTestDatabase(ctx context.Context, dbURL string) error {
+	target, err := url.Parse(dbURL)
+	if err != nil {
+		return fmt.Errorf("parse target db url: %w", err)
+	}
+	name := strings.TrimPrefix(target.Path, "/")
+	if name == "" {
+		return fmt.Errorf("target db url has no database name: %s", dbURL)
+	}
+	conn, err := pgx.Connect(ctx, baseTestDBURL())
+	if err != nil {
+		return fmt.Errorf("connect base db to create %s: %w", name, err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P04" {
+			return nil
+		}
+		return fmt.Errorf("create database %s: %w", name, err)
+	}
+	return nil
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
