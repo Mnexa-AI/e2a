@@ -203,6 +203,18 @@ rate_limits:
 trash:
   retention_days: 30
 
+# — Metrics (Prometheus) ——————————————————————————————————————————————————————
+# Off by default. When enabled, the server swaps its telemetry backend from
+# structured log lines to Prometheus and binds a SEPARATE listener serving
+# GET /metrics — deliberately never mounted on the public API handler. The
+# default bind is loopback-only; point your Prometheus scraper (or the
+# e2a-prober host) at it over a private network of your choosing. Metric
+# catalog, aggregation guidance, and SLO targets: docs/observability.md.
+# Override with E2A_METRICS_ENABLED / E2A_METRICS_LISTEN_ADDR.
+metrics:
+  enabled: false
+  listen_addr: "127.0.0.1:9091"
+
 
 
 # — Content screening (piguard) ——————————————————————————————————————————————

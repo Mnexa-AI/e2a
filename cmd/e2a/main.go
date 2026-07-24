@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -215,10 +216,16 @@ func main() {
 	// webhook_subscriber_deliveries via LISTEN + 1s fallback poll, enqueuing a
 	// River delivery job in the same tx (WithDeliveryEnqueuer, below).
 	//
-	// Telemetry backend: log-based by default — operators can swap to a real
-	// backend by changing this one line; every instrumented call site reads
+	// Telemetry backend: log-based by default; metrics.enabled in config (or
+	// E2A_METRICS_ENABLED) swaps in the Prometheus backend and binds the
+	// separate exposition listener below. Every instrumented call site reads
 	// through this interface so the switch is non-invasive.
-	metrics := telemetry.NewLog()
+	var metrics telemetry.Metrics = telemetry.NewLog()
+	var promBackend *telemetry.Prom
+	if cfg.Metrics.Enabled {
+		promBackend = telemetry.NewProm()
+		metrics = promBackend
+	}
 	outboxWorker := webhookpub.NewOutboxWorker(pool, store).WithMetrics(metrics)
 	smtpRelay := outbound.NewSMTPRelay(&cfg.OutboundSMTP)
 	sender := outbound.NewSenderWithDKIM(smtpRelay, cfg.OutboundSMTP.FromDomain, store)
@@ -623,10 +630,13 @@ func main() {
 
 	api.RegisterRoutes(router)
 
+	// draining flips at the start of graceful shutdown (see the signal block
+	// below): /readyz reports 503 while /api/health stays green.
+	var draining atomic.Bool
 	// /readyz — instance-local readiness (DB reachable + migrations applied).
 	// Distinct from /api/health (shallow liveness); operational, not part of the
 	// /v1 contract, so it lives on this mux and never enters api/openapi.yaml.
-	router.HandleFunc("/readyz", readyzHandler(pool)).Methods(http.MethodGet)
+	router.HandleFunc("/readyz", readyzHandler(pool, &draining)).Methods(http.MethodGet)
 	// /selftest — deep dependency diagnostics (health+json), auth-gated by the
 	// internal API secret. Operational, not part of the /v1 contract. The full
 	// SMTP→webhook round-trip lives in the external e2a-prober, not here.
@@ -721,6 +731,26 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	// Metrics exposition listener (Prometheus backend only). A SEPARATE
+	// listener — never the public API handler — so /metrics can't be exposed
+	// through the API host; default bind is loopback-only (config metrics:).
+	var metricsServer *http.Server
+	if promBackend != nil {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promBackend.Handler())
+		metricsServer = &http.Server{
+			Addr:              cfg.Metrics.ListenAddr,
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			log.Printf("metrics listening on %s", cfg.Metrics.ListenAddr)
+			if err := metricsServer.ListenAndServe(); err != http.ErrServerClosed {
+				log.Fatalf("metrics server error: %v", err)
+			}
+		}()
+	}
+
 	go func() {
 		log.Printf("HTTP API listening on %s", cfg.HTTP.ListenAddr)
 		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
@@ -782,6 +812,10 @@ func main() {
 	<-sigCh
 	log.Println("Shutting down...")
 
+	// Flip /readyz to 503 immediately so load balancers stop routing to this
+	// instance while in-flight work drains below. Liveness stays green.
+	draining.Store(true)
+
 	// Stop OIDC issuer discovery promptly, including an in-flight attempt.
 	oidcCancel()
 
@@ -827,6 +861,9 @@ func main() {
 		close(riverDone)
 	}()
 
+	if metricsServer != nil {
+		_ = metricsServer.Shutdown(shutdownCtx)
+	}
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
 	}

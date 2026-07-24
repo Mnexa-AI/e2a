@@ -52,6 +52,7 @@ type Config struct {
 	Limits           LimitsConfig           `yaml:"limits"`
 	RateLimits       RateLimitsConfig       `yaml:"rate_limits"`
 	Trash            TrashConfig            `yaml:"trash"`
+	Metrics          MetricsConfig          `yaml:"metrics"`
 	Env              string                 `yaml:"env"` // "development" or "production"
 	// SharedDomain enables slug-based agent registration. When set
 	// (e.g. "agents.example.com"), users can register agents with just a
@@ -94,6 +95,21 @@ type HTTPConfig struct {
 	// with the API). Defaults to PublicURL when unset, so single-host
 	// deployments and self-hosters need not set it.
 	APIURL string `yaml:"api_url"`
+}
+
+// MetricsConfig controls the Prometheus exposition listener. Disabled by
+// default (zero behavior change for existing deployments); when enabled the
+// server binds a SEPARATE listener for GET /metrics so the exposition
+// surface is never reachable through the public API host. The default bind
+// is loopback-only — operators scraping from another host front it with
+// their own network policy, deliberately.
+type MetricsConfig struct {
+	// Enabled turns the Prometheus backend + /metrics listener on.
+	// Override with E2A_METRICS_ENABLED.
+	Enabled bool `yaml:"enabled"`
+	// ListenAddr is the bind address for the metrics listener.
+	// Override with E2A_METRICS_LISTEN_ADDR.
+	ListenAddr string `yaml:"listen_addr"`
 }
 
 type DatabaseConfig struct {
@@ -328,6 +344,7 @@ func Load(path string) (*Config, error) {
 			RampDays:    30,
 		},
 		RateLimits: RateLimitsConfig{PollPerMinute: 240},
+		Metrics:    MetricsConfig{ListenAddr: "127.0.0.1:9091"},
 		Trash:      TrashConfig{RetentionDays: 30},
 		Env:        "development",
 	}
@@ -400,6 +417,14 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("E2A_OUTBOUND_SMTP_MESSAGE_ID_DOMAIN"); v != "" {
 		cfg.OutboundSMTP.MessageIDDomain = v
+	}
+	if v := os.Getenv("E2A_METRICS_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Metrics.Enabled = b
+		}
+	}
+	if v := os.Getenv("E2A_METRICS_LISTEN_ADDR"); v != "" {
+		cfg.Metrics.ListenAddr = v
 	}
 	if v := os.Getenv("E2A_INBOUND_MODE"); v != "" {
 		cfg.Inbound.Mode = v

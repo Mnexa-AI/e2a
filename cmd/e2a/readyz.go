@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,9 +21,18 @@ import (
 // is the direct guard against the deploy-but-migration-didn't-apply failure
 // mode. It must NOT exercise downstream/round-trip dependencies — that is
 // /selftest's job (see docs/design/prober-selftest.md).
-func readyzHandler(pool *pgxpool.Pool) http.HandlerFunc {
+//
+// draining (nil-safe) flips readiness to 503 the moment shutdown begins, ahead
+// of every dependency check: a terminating instance must leave the LB rotation
+// even though its DB is healthy — while /api/health stays green so the
+// orchestrator doesn't hard-kill it mid-drain.
+func readyzHandler(pool *pgxpool.Pool, draining *atomic.Bool) http.HandlerFunc {
 	latest := latestMigration()
 	return func(w http.ResponseWriter, r *http.Request) {
+		if draining != nil && draining.Load() {
+			writeNotReady(w, "draining")
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
