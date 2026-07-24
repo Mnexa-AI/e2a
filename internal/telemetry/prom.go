@@ -73,7 +73,7 @@ var (
 	smtpSet   = set("accepted", "accepted_dedup", "tempfail",
 		"rejected_unknown_recipient", "rejected_unverified_domain", "rejected_quota")
 	outTermSet = set("sent", "failed_suppressed", "failed_provider",
-		"failed_local_retries")
+		"failed_local_retries", "failed_cancelled")
 	outAttemptSet = set("success", "temporary_failure", "permanent_failure")
 	whSet         = set("delivered", "retryable_failure", "exhausted",
 		"webhook_deleted", "skipped_disabled")

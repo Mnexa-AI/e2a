@@ -180,7 +180,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		// counts nothing.
 		switch settled {
 		case delivery.StatusFailed:
-			w.metrics.OutboundTerminal(terminalOutcome(source, candidate.failureBlockedRecipients))
+			w.metrics.OutboundTerminal(terminalOutcome(source, reason, candidate.failureBlockedRecipients))
 		case delivery.StatusSent:
 			w.metrics.OutboundTerminal(terminalSent)
 		}

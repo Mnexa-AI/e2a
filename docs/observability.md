@@ -79,7 +79,7 @@ acceptance SLI below deliberately excludes them.
 | `e2a_outbound_queue_wait_seconds` | histogram | — | Due→pickup wait per attempt (River `attempted_at − scheduled_at`). Measures worker keep-up, deliberately not cumulative message age: a retry's backoff or a ramp deferral does not count as queue wait. |
 | `e2a_outbound_attempts_total` | counter | `outcome` | Upstream submission attempts: `success`, `temporary_failure`, `permanent_failure`. |
 | `e2a_outbound_attempt_duration_seconds` | histogram | — | Upstream (SES/SMTP relay) submission duration. |
-| `e2a_outbound_terminal_total` | counter | `outcome` | Messages reaching a terminal submission outcome, **exactly once per message**: `sent`, `failed_suppressed`, `failed_provider`, `failed_local_retries`. A deferred final attempt is counted when the terminal reconciler settles it — as `sent` when provider-accept evidence arrived (never a false failure), else as a failure. |
+| `e2a_outbound_terminal_total` | counter | `outcome` | Messages reaching a terminal submission outcome, **exactly once per message**: `sent`, `failed_suppressed`, `failed_provider`, `failed_local_retries`, `failed_cancelled` (policy cancel settled by the reconciler — kept out of `failed_local_retries` so cancellations can't mask a retries-exhausted regression). A deferred final attempt is counted when the terminal reconciler settles it — as `sent` when provider-accept evidence arrived (never a false failure), else as a failure. |
 
 ### Webhook delivery
 
@@ -197,11 +197,11 @@ provider:
 
 ```promql
 sum(rate(e2a_outbound_terminal_total{outcome="sent"}[1h]))
-/ sum(rate(e2a_outbound_terminal_total{outcome!~"failed_suppressed"}[1h]))
+/ sum(rate(e2a_outbound_terminal_total{outcome!~"failed_suppressed|failed_cancelled"}[1h]))
 ```
 
-`failed_suppressed` is excluded: suppression is policy protecting sender
-reputation, not a delivery failure.
+`failed_suppressed` and `failed_cancelled` are excluded: suppression and
+policy cancellation are e2a protecting the sender, not delivery failures.
 
 **Outbound queue wait** — p95 pickup latency and backlog age:
 

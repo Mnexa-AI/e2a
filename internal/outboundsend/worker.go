@@ -401,6 +401,12 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.ProviderMessageID, out.SentAs); err != nil {
 			return err
 		}
+		// Emitted even when MarkSent was a no-op (the row was already
+		// finalized sent by a racing SNS delivery notification): that path is
+		// NOT instrumented, so this is still the message's ONLY sent count.
+		// If FinalizeProviderAcceptedTx is ever given its own emission, this
+		// site must become status-aware (like MarkFailed) or the race
+		// double-counts.
 		w.metrics.OutboundTerminal(terminalSent)
 		if w.ramp != nil && j.rampEligible() {
 			if err := w.ramp.Confirm(ctx, j.MessageID); err != nil {
@@ -511,7 +517,7 @@ func (w *SendWorker) markFailed(ctx context.Context, messageID string, jobID int
 			// emit — the reconciler declares (and counts) that row later.
 			switch settled {
 			case delivery.StatusFailed:
-				w.metrics.OutboundTerminal(terminalOutcome(source, blockedRecipients))
+				w.metrics.OutboundTerminal(terminalOutcome(source, reason, blockedRecipients))
 			case delivery.StatusSent:
 				w.metrics.OutboundTerminal(terminalSent)
 			}

@@ -408,8 +408,15 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	}
 	// One terminal metric per settled row; all four sweeps here wrote a
 	// locally inferred failure (no provider provenance, no suppression list).
-	if !stringsEqual(rec.terminals, []string{"failed_local_retries", "failed_local_retries", "failed_local_retries", "failed_local_retries"}) {
-		t.Errorf("reconciler terminal metrics = %v, want four failed_local_retries", rec.terminals)
+	// One terminal per settled row, labeled by provenance: the cancelled-state
+	// job maps to failed_cancelled (policy cancel, not a retry give-up — it
+	// must not pollute the local-retries alert signal); the rest are local.
+	counts := map[string]int{}
+	for _, o := range rec.terminals {
+		counts[o]++
+	}
+	if len(rec.terminals) != 4 || counts["failed_local_retries"] != 3 || counts["failed_cancelled"] != 1 {
+		t.Errorf("reconciler terminal metrics = %v, want three failed_local_retries + one failed_cancelled", rec.terminals)
 	}
 	for _, id := range []string{retryableID, sentID} {
 		if got := f.failedEventCount(t, id); got != 0 {

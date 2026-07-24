@@ -97,8 +97,9 @@ type Metrics interface {
 
 	// OutboundTerminal records a terminal outcome for an outbound
 	// message. outcome ∈ {sent, failed_suppressed, failed_provider,
-	// failed_local_retries}. Exactly one per message: a deferred final
-	// attempt is counted by the terminal reconciler when it settles.
+	// failed_local_retries, failed_cancelled}. Exactly one per message:
+	// a deferred final attempt is counted by the terminal reconciler
+	// when it settles.
 	OutboundTerminal(outcome string)
 
 	// OutboundAttempt records one submission attempt to the upstream
