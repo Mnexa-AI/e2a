@@ -60,7 +60,11 @@ jobs:
   go-coverage:
     name: Go coverage gate
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # 18, not 12: `make cover` runs every DB-backed package serialized (-p 1)
+    # and sits at ~12m after the SLO-instrumentation suites landed — the old
+    # cap canceled a fully-passing run 16s over budget, after the last
+    # package but before floor enforcement. Keep ~50% headroom over observed.
+    timeout-minutes: 18
     services:
       postgres:
         image: postgres:16-alpine
