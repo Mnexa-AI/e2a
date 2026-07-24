@@ -31,6 +31,20 @@ export const EXIT = {
   TIMEOUT: 6,
   /** A persisted send failed or returned an unknown outcome; do not retry. */
   SEND_OUTCOME: 7,
+  /**
+   * Diagnostics (`doctor`) completed with warnings only — nothing is broken,
+   * but something deserves attention. Distinct from OK so CI can gate on a
+   * fully clean environment without parsing the report.
+   */
+  WARN: 8,
+  /**
+   * Diagnostics found a definite configuration failure (missing DNS record,
+   * unregistered domain, auto-disabled webhook, wrong deployment URL).
+   * Distinct from ERROR (1) so retry-on-transient wrappers don't loop on a
+   * problem that only a human fixing configuration can resolve, and from
+   * REQUEST (5) because nothing about the invocation itself was wrong.
+   */
+  CONFIG: 9,
 } as const;
 
 export function exitCodeForAPIError(error: { code: string; retryable: boolean }): number {

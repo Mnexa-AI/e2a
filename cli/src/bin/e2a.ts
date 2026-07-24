@@ -16,6 +16,7 @@ import { login } from "../commands/login.js";
 import { config } from "../commands/config.js";
 import { listen } from "../commands/listen.js";
 import { whoami } from "../commands/whoami.js";
+import { doctor } from "../commands/doctor.js";
 import { send, reply } from "../commands/send.js";
 import { messagesList, messagesGet, messagesLifecycle } from "../commands/messages.js";
 import { agentsList, agentsCreate, agentsGet } from "../commands/agents.js";
@@ -38,6 +39,14 @@ management (domains, webhooks, review queues) lives in the MCP tools, the SDKs
 Usage:
   e2a login                         Log in via browser (account-scoped key)
   e2a whoami [--json]               Show key identity: user, scope, bound agent, plan
+  e2a doctor [options]              Read-only diagnostics: config, API, agent access,
+                                   custom-domain DNS, MCP, webhooks, outbound SMTP.
+                                   Never sends mail or changes DNS/webhooks.
+        --agent <email>            Inbox to check (or config agent_email)
+        --domain <domain>          Check one custom domain (default: all registered)
+        --mcp-url <url>            MCP endpoint to probe (default: the hosted
+                                   endpoint when using https://e2a.dev, else skipped)
+        --json                     Versioned machine-readable report (e2a.doctor/v1)
   e2a agents list                   List owned inboxes (account key)
   e2a agents create <email> [--name <n>]   Create an inbox (account key)
   e2a agents get <email>            Show one inbox
@@ -103,6 +112,8 @@ Exit codes (stable scripting contract):
   5  permanent request error (not found / invalid / conflict) — do NOT retry
   6  bounded wait (listen --once --until) expired with no matching message
   7  failed or unrecognized persisted send outcome — do NOT retry; inspect its id
+  8  diagnostics (doctor) completed with warnings only
+  9  diagnostics (doctor) found a configuration failure — fix config, do NOT retry
 `;
 
 function parseArgs(argv: string[]): { command: string; args: string[] } {
@@ -404,6 +415,16 @@ async function main() {
       checkFlags(args, ["--json"]);
       getPositionals(args, 0, "usage: e2a whoami [--json]");
       await whoami({ json: hasFlag(args, "--json") });
+      break;
+    case "doctor":
+      checkFlags(args, ["--agent", "--domain", "--mcp-url", "--json"]);
+      getPositionals(args, 0, "usage: e2a doctor [options]");
+      await doctor({
+        agent: getFlagChecked(args, "--agent"),
+        domain: getFlagChecked(args, "--domain"),
+        mcpUrl: getFlagChecked(args, "--mcp-url"),
+        json: hasFlag(args, "--json"),
+      });
       break;
     case "send":
       checkFlags(args, [
