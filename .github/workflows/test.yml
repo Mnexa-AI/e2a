@@ -44,6 +44,24 @@ jobs:
         with:
           node-version: "22"
       - run: scripts/check-repository-text-integrity.sh
+      - run: node --test scripts/sync-agent-docs.test.mjs
+
+  harness-tests:
+    name: Test harnesses (e2e-prod unit, sdk-monitor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Network-free unit tests only — the e2e-prod suites against a live
+      # deployment stay manual. No npm ci needed: node --test type-strips.
+      - run: node --test tests/e2e-prod/harness/*.test.ts
+      - run: python3 tests/sdk-monitor/test_monitor.py
 
   go:
     name: Go tests
