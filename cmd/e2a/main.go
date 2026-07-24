@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -750,6 +751,11 @@ func main() {
 			Handler:           mux,
 			ReadHeaderTimeout: 5 * time.Second,
 		}
+		if host, _, err := net.SplitHostPort(cfg.Metrics.ListenAddr); err == nil {
+			if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+				log.Printf("WARNING: metrics listener bound to non-loopback %s — GET /metrics is UNAUTHENTICATED; ensure network policy restricts access", cfg.Metrics.ListenAddr)
+			}
+		}
 		go func() {
 			log.Printf("metrics listening on %s", cfg.Metrics.ListenAddr)
 			if err := metricsServer.ListenAndServe(); err != http.ErrServerClosed {
@@ -868,11 +874,15 @@ func main() {
 		close(riverDone)
 	}()
 
-	if metricsServer != nil {
-		_ = metricsServer.Shutdown(shutdownCtx)
-	}
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
+	}
+	// The metrics listener outlives the API server deliberately: the drain
+	// window is exactly when the gauges matter most to an observer.
+	if metricsServer != nil {
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("metrics server shutdown error: %v", err)
+		}
 	}
 
 	// Wait for workers' current iteration to settle, bounded by the

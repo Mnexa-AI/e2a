@@ -122,7 +122,9 @@ func (s *Server) SetEnforcer(e limits.Enforcer) { s.enforcer = e }
 func (s *Server) SetMetrics(m Metrics) { s.metrics = m }
 
 // recordSMTPInbound is the nil-safe recording seam every intake outcome goes
-// through — exactly one call per SMTP transaction outcome (never per recipient).
+// through. Units: exactly one accepted/accepted_dedup/tempfail call per DATA
+// transaction (never per recipient); rejected_* calls are per rejected RCPT
+// command — one transaction can emit several rejections and still accept.
 func (s *Server) recordSMTPInbound(outcome string, seconds float64) {
 	if s.metrics != nil {
 		s.metrics.SMTPInbound(outcome, seconds)

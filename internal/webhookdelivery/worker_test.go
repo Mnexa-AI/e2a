@@ -274,8 +274,8 @@ func TestDeliverWorker_Metrics_DisabledSkip(t *testing.T) {
 		t.Fatal("disabled webhook should return a snooze error, got nil")
 	}
 	got := fm.one(t)
-	if got.outcome != "skipped_disabled" || got.statusClass != "none" || got.seconds != 0 {
-		t.Errorf("attempt = %+v, want skipped_disabled/none/0", got)
+	if got.outcome != "skipped_disabled" || got.statusClass != "none" || got.seconds >= 0 {
+		t.Errorf("attempt = %+v, want skipped_disabled/none/negative (no POST → no duration sample)", got)
 	}
 }
 
@@ -287,8 +287,8 @@ func TestDeliverWorker_Metrics_DeletedWebhook(t *testing.T) {
 		t.Fatal("deleted webhook should return a cancel error")
 	}
 	got := fm.one(t)
-	if got.outcome != "webhook_deleted" || got.statusClass != "none" || got.seconds != 0 {
-		t.Errorf("attempt = %+v, want webhook_deleted/none/0", got)
+	if got.outcome != "webhook_deleted" || got.statusClass != "none" || got.seconds >= 0 {
+		t.Errorf("attempt = %+v, want webhook_deleted/none/negative (no POST → no duration sample)", got)
 	}
 }
 

@@ -84,7 +84,7 @@ func scenarioWebSocketRoundTrip(ctx context.Context, p *Probe) Result {
 		return fail("ws self-send: HTTP %d", resp.StatusCode)
 	}
 	var sent struct {
-		ID string `json:"id"`
+		MessageID string `json:"message_id"` // SendResultView: the e2a msg_ id (there is no "id" field)
 	}
 	_ = json.Unmarshal(sendRaw, &sent)
 	// Best-effort residue cleanup (mirrors agent_lifecycle's deferred
@@ -92,7 +92,7 @@ func scenarioWebSocketRoundTrip(ctx context.Context, p *Probe) Result {
 	// 30s run leaves one more unread inbound row, and each future connect
 	// re-drains the oldest 100 of them forever — the drained-messages
 	// metric and the drain query would be ~100% prober noise.
-	defer p.trashMessage(sent.ID)
+	defer p.trashMessage(sent.MessageID)
 
 	// Await the frame carrying the nonce, skipping drain backlog. Bounded by
 	// the shared round-trip timeout so a dead push path fails, never hangs.

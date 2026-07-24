@@ -150,16 +150,16 @@ func TestHandleLogin_RejectsReturnToOutsideAllowList(t *testing.T) {
 	ua, _, _ := setupUserAuth(t)
 
 	bad := []string{
-		"/dashboard",                         // wrong prefix
-		"/api/v1/agents",                     // wrong prefix
-		"https://evil.com/oauth2/authorize",  // absolute
-		"//evil.com/oauth2/authorize",        // protocol-relative
-		"/oauth2/authorize\nSet-Cookie: x=y", // header injection
-		"\\api\\oauth\\authorize",            // backslash bypass
-		"http://localhost/oauth2/authorize",  // scheme present
-		"/oauth2/../../dashboard",            // path traversal escaping the allow-list
-		"/oauth2/../v1/agents",               // path traversal into another API surface
-		"/oauth2//evil.com/path",             // empty segment after prefix
+		"/dashboard",                                    // wrong prefix
+		"/api/v1/agents",                                // wrong prefix
+		"https://evil.com/oauth2/authorize",          // absolute
+		"//evil.com/oauth2/authorize",                // protocol-relative
+		"/oauth2/authorize\nSet-Cookie: x=y",         // header injection
+		"\\api\\oauth\\authorize",                       // backslash bypass
+		"http://localhost/oauth2/authorize",          // scheme present
+		"/oauth2/../../dashboard",                    // path traversal escaping the allow-list
+		"/oauth2/../v1/agents",                       // path traversal into another API surface
+		"/oauth2//evil.com/path",                     // empty segment after prefix
 	}
 	for _, rt := range bad {
 		t.Run(rt, func(t *testing.T) {

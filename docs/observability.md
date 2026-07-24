@@ -11,9 +11,12 @@ server), `config.example.yaml` (the `metrics:` block).
 
 ## Enabling metrics
 
-Metrics are **off by default** (the server emits structured `[metrics]` log
-lines instead, suitable for log-based aggregators). Enable Prometheus
-exposition with:
+Metrics are **off by default**: the API surface is unchanged and the server
+emits structured `[metrics]` log lines for moderate-rate outcome events
+(SMTP, outbound, webhook, WS), suitable for log-based aggregators — but the
+per-request SLIs (HTTP, queue wait) and all gauges exist only on the
+Prometheus backend. The 30s queue-stats sampler runs in both modes (two
+cheap `river_job` GROUP BY reads). Enable Prometheus exposition with:
 
 ```yaml
 metrics:
@@ -22,8 +25,9 @@ metrics:
 ```
 
 `GET /metrics` is served on a **separate listener**, never on the public API
-handler, and binds loopback by default. Expose it to your scraper over a
-private network of your own choosing.
+handler, and binds loopback by default. The endpoint is unauthenticated —
+binding a non-loopback address logs a warning; front it with your own
+network policy before exposing it to a scraper on another host.
 
 ### Label-cardinality contract
 
@@ -160,11 +164,15 @@ pick windows to match your alerting burn rates.
 **HTTP availability** — fraction of non-5xx responses:
 
 ```promql
-1 - (sum(rate(e2a_http_requests_total{status_class="5xx"}[5m]))
-     / sum(rate(e2a_http_requests_total[5m])))
+1 - (sum(rate(e2a_http_requests_total{status_class="5xx",route!="/legacy"}[5m]))
+     / sum(rate(e2a_http_requests_total{route!="/legacy"}[5m])))
 ```
 
-4xx responses are client errors and count as *available*.
+4xx responses are client errors and count as *available*. `route="/legacy"`
+is excluded: it aggregates the non-`/v1` operational surface **plus** all
+unmatched paths — LB health probes and internet scanner noise — which would
+dilute the denominator. Panicking handlers DO count (recorded as 5xx by the
+middleware's deferred sample), so a crash loop cannot hide from this SLI.
 
 **HTTP latency** — p99 across `/v1`:
 
@@ -202,9 +210,12 @@ histogram_quantile(0.95, sum by (le) (rate(e2a_outbound_queue_wait_seconds_bucke
 max(e2a_queue_oldest_age_seconds{queue="outbound"})
 ```
 
-**Webhook first-attempt health** — attempt success to responsive endpoints
-(an unhealthy customer endpoint is not an e2a failure, but a rising `none` /
-`5xx` share across *all* tenants is):
+**Webhook attempt health** — per-attempt success to responsive endpoints,
+across all attempt indexes (there is no attempt-number label; an unhealthy
+customer endpoint is not an e2a failure, but a rising `none` / `5xx` share
+across *all* tenants is). `skipped_disabled` is deliberately outside both
+numerator and denominator — a disabled webhook re-emits it on every hourly
+snooze, and no POST happens:
 
 ```promql
 sum(rate(e2a_webhook_attempts_total{outcome="delivered"}[5m]))
@@ -239,13 +250,23 @@ after M ≥ 2 consecutive failed probes).
 | HTTP API | p99 latency (`/v1`, excluding WS upgrades) | < 750 ms |
 | SMTP intake | acceptance (non-policy) | ≥ 99.9% |
 | SMTP intake | DATA processing p95 | < 2 s |
-| Outbound | terminal outcome within 5 min of acceptance | ≥ 99% |
+| Outbound | terminal outcome within 5 min of acceptance ¹ | ≥ 99% |
 | Outbound | queue wait p95 | < 30 s |
-| Webhooks | event → first delivery attempt | < 60 s (p95) |
+| Webhooks | event → first delivery attempt ¹ | < 60 s (p95) |
 | Webhooks | eventual delivery to responsive endpoints (≤ 8 attempts) | ≥ 99% |
-| WebSocket | handshake success (valid credentials) | ≥ 99.9% |
+| WebSocket | handshake success (valid credentials) ¹ | ≥ 99.9% |
 | WebSocket | prober round-trip (connect → live push) | ≥ 99.9% of probes |
 | MCP | prober connection + tool-call success | ≥ 99.9% of probes |
+
+¹ **Target adopted; instrument pending.** These three rows cannot yet be
+computed from shipped metrics: acceptance→terminal latency needs a per-
+message duration histogram (terminal counters and the queue-wait histogram
+don't compose into one), event→first-attempt needs the delivery row's age
+observed at attempt time, and handshake success needs a rejected-handshake
+counter (today only successful registrations increment `e2a_ws_connects_total`;
+rejections appear in the HTTP metrics as 4xx on the WS route). They are
+listed so the targets are on record; the instruments land in a follow-up,
+and until then these rows must not be reported as measured.
 
 ## Product SLOs vs. inbox placement
 

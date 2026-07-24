@@ -139,7 +139,7 @@ func NewProm() *Prom {
 		}),
 		outQueueWait: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "e2a_outbound_queue_wait_seconds",
-			Help:    "Outbound send enqueue→worker-pickup wait (River attempted_at - created_at).",
+			Help:    "Outbound send due→pickup wait per attempt (River attempted_at - scheduled_at).",
 			Buckets: waitBuckets,
 		}),
 		outTerminal: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -309,7 +309,11 @@ func (p *Prom) OutboundAttempt(outcome string, seconds float64) {
 
 func (p *Prom) WebhookAttempt(outcome, statusClass string, seconds float64) {
 	p.whAttempts.WithLabelValues(enum(whSet, outcome), enum(classSet, statusClass)).Inc()
-	p.whAttemptDur.Observe(seconds)
+	// seconds < 0 = "no duration sample" (outcomes with no HTTP POST —
+	// webhook_deleted / skipped_disabled — must not drag quantiles to 0).
+	if seconds >= 0 {
+		p.whAttemptDur.Observe(seconds)
+	}
 }
 
 func (p *Prom) WSConnected()      { p.wsConnects.Inc() }

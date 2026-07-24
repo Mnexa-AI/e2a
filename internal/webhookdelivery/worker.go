@@ -57,6 +57,10 @@ type Metrics interface {
 	// WebhookAttempt records one delivery attempt. outcome ∈ {delivered,
 	// retryable_failure, exhausted, webhook_deleted, skipped_disabled};
 	// statusClass is "1xx".."5xx" or "none" (no HTTP response).
+	// A negative seconds means "count the attempt, record no duration
+	// sample" — used for outcomes with no HTTP POST (webhook_deleted,
+	// skipped_disabled), which would otherwise drag the duration
+	// quantiles toward zero.
 	WebhookAttempt(outcome, statusClass string, seconds float64)
 }
 
@@ -147,12 +151,12 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 		if merr := w.markFailedReliably(ctx, d.ID, job.Attempt, "webhook not found", 0); merr != nil {
 			return merr
 		}
-		w.emitAttempt("webhook_deleted", "none", 0)
+		w.emitAttempt("webhook_deleted", "none", -1) // no POST happened — no duration sample
 		return river.JobCancel(fmt.Errorf("webhook %s not found: %w", d.WebhookID, err))
 	}
 	if !wh.Enabled {
 		// Disabled — reschedule without burning an attempt (matches legacy defer).
-		w.emitAttempt("skipped_disabled", "none", 0)
+		w.emitAttempt("skipped_disabled", "none", -1) // no POST happened — no duration sample
 		return river.JobSnooze(disabledSnooze)
 	}
 

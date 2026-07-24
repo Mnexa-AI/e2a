@@ -8,7 +8,8 @@ import "github.com/tokencanopy/e2a/internal/delivery"
 // normalized by the backend — never pass message ids or addresses.
 type Metrics interface {
 	// OutboundQueueWait is the enqueue→worker-pickup latency of one send
-	// attempt (River attempted_at − created_at).
+	// attempt (River attempted_at − scheduled_at — due→pickup, never
+	// cumulative message age).
 	OutboundQueueWait(seconds float64)
 	// OutboundTerminal records one terminal outcome for an outbound message.
 	// outcome ∈ {sent, failed_suppressed, failed_provider,

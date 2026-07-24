@@ -33,29 +33,46 @@ func requestMetrics(m RequestMetrics) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sw := &statusWriter{ResponseWriter: w}
 			start := time.Now()
-			next.ServeHTTP(sw, r)
-			seconds := time.Since(start).Seconds()
-			// A hijacked connection's handler runtime is the CONNECTION
-			// lifetime (the WS handler blocks in its read loop until
-			// disconnect) — hours, not a request latency. Count the request,
-			// skip the duration sample (negative = no-observe contract).
-			if sw.hijacked {
-				seconds = -1
-			}
-
-			// The route pattern must be read AFTER serving — chi populates
-			// it once it has matched. An empty pattern means chi never
-			// matched (routeNotFound answered directly or fell through to
-			// the legacy gorilla mux); those collapse into the "/legacy"
-			// bucket. The raw path is never used as the label: it has
-			// unbounded cardinality and /v1 paths embed email addresses.
-			route := "/legacy"
-			if rc := chi.RouteContext(r.Context()); rc != nil {
-				if p := rc.RoutePattern(); p != "" {
-					route = p
+			// The sample is emitted from a defer so a PANICKING handler still
+			// lands in the availability SLI: there is no recover middleware in
+			// this chain, so an on-return emit would drop panics from both
+			// numerator and denominator — a crash-looping endpoint would look
+			// MORE available. A panic records as 5xx and is re-raised, leaving
+			// upstream behavior (net/http's connection teardown) unchanged.
+			defer func() {
+				panicked := recover()
+				seconds := time.Since(start).Seconds()
+				// A hijacked connection's handler runtime is the CONNECTION
+				// lifetime (the WS handler blocks in its read loop until
+				// disconnect) — hours, not a request latency. Count the
+				// request, skip the duration sample (negative = no-observe).
+				if sw.hijacked {
+					seconds = -1
 				}
-			}
-			m.HTTPRequest(r.Method, route, sw.statusClass(), seconds)
+
+				// The route pattern must be read AFTER serving — chi
+				// populates it once it has matched. An empty pattern means
+				// chi never matched (routeNotFound answered directly or fell
+				// through to the legacy gorilla mux); those collapse into the
+				// "/legacy" bucket. The raw path is never used as the label:
+				// it has unbounded cardinality and /v1 paths embed email
+				// addresses.
+				route := "/legacy"
+				if rc := chi.RouteContext(r.Context()); rc != nil {
+					if p := rc.RoutePattern(); p != "" {
+						route = p
+					}
+				}
+				class := sw.statusClass()
+				if panicked != nil {
+					class = "5xx" // the connection dies mid-response; no status line reaches the client
+				}
+				m.HTTPRequest(r.Method, route, class, seconds)
+				if panicked != nil {
+					panic(panicked)
+				}
+			}()
+			next.ServeHTTP(sw, r)
 		})
 	}
 }

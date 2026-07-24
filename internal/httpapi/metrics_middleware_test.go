@@ -203,3 +203,35 @@ func TestMetricsMiddlewareNilMetricsDoesNotPanic(t *testing.T) {
 		t.Errorf("status = %d, want 200", rw.Code)
 	}
 }
+
+func TestMetricsMiddlewarePanicRecordsFiveXX(t *testing.T) {
+	// A panicking handler must still land in the availability SLI as a 5xx —
+	// emitting only on normal return would make a crash-looping endpoint
+	// look MORE available (it vanishes from numerator and denominator). The
+	// middleware records the sample from a defer and re-panics so upstream
+	// behavior (net/http's connection teardown / any outer recoverer) is
+	// unchanged.
+	rec := &fakeRequestMetrics{}
+	r := metricsTestRouter(rec)
+	r.Get("/v1/boom", func(http.ResponseWriter, *http.Request) {
+		panic("handler exploded")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/boom", nil)
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("middleware swallowed the panic; it must re-panic after sampling")
+			}
+		}()
+		r.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+
+	got := rec.single(t)
+	if got.statusClass != "5xx" {
+		t.Errorf("statusClass = %q, want %q for a panicking handler", got.statusClass, "5xx")
+	}
+	if got.route != "/v1/boom" {
+		t.Errorf("route = %q, want %q", got.route, "/v1/boom")
+	}
+}
