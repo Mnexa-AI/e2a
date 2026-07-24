@@ -47,16 +47,26 @@ func (TerminalReconcileArgs) Kind() string { return "outbound_terminal_reconcile
 // email.failed.
 type TerminalReconcileWorker struct {
 	river.WorkerDefaults[TerminalReconcileArgs]
-	pool  *pgxpool.Pool
-	store Store
-	ramp  RampGate
+	pool    *pgxpool.Pool
+	store   Store
+	ramp    RampGate
+	metrics Metrics
 }
 
 // NewTerminalReconcileWorker builds the periodic safety-net worker.
 func NewTerminalReconcileWorker(pool *pgxpool.Pool, store Store, ramps ...RampGate) *TerminalReconcileWorker {
-	w := &TerminalReconcileWorker{pool: pool, store: store}
+	w := &TerminalReconcileWorker{pool: pool, store: store, metrics: noopMetrics{}}
 	if len(ramps) > 0 {
 		w.ramp = ramps[0]
+	}
+	return w
+}
+
+// WithMetrics injects the SLI recorder. Chainable; nil keeps the no-op
+// default so metrics stay optional wiring.
+func (w *TerminalReconcileWorker) WithMetrics(m Metrics) *TerminalReconcileWorker {
+	if m != nil {
+		w.metrics = m
 	}
 	return w
 }
@@ -162,6 +172,10 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 			}
 			return err
 		}
+		// One terminal outcome per settled stranded row, labeled from the
+		// failure provenance this sweep wrote (provider → failed_provider,
+		// local → failed_local_retries, preserved suppression → suppressed).
+		w.metrics.OutboundTerminal(terminalOutcome(source, candidate.failureBlockedRecipients))
 		if w.ramp != nil {
 			if err := w.ramp.Resolve(ctx, candidate.messageID); err != nil {
 				return fmt.Errorf("resolve sending ramp for %s: %w", candidate.messageID, err)

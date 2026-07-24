@@ -205,12 +205,22 @@ type SendWorker struct {
 	store     Store
 	deliverer Deliverer
 	ramp      RampGate
+	metrics   Metrics
 }
 
 func NewSendWorker(store Store, deliverer Deliverer, ramp ...RampGate) *SendWorker {
-	w := &SendWorker{store: store, deliverer: deliverer}
+	w := &SendWorker{store: store, deliverer: deliverer, metrics: noopMetrics{}}
 	if len(ramp) > 0 {
 		w.ramp = ramp[0]
+	}
+	return w
+}
+
+// WithMetrics injects the SLI recorder. Chainable; nil keeps the no-op
+// default so metrics stay optional wiring.
+func (w *SendWorker) WithMetrics(m Metrics) *SendWorker {
+	if m != nil {
+		w.metrics = m
 	}
 	return w
 }
@@ -228,6 +238,14 @@ func (w *SendWorker) NextRetry(job *river.Job[OutboundSendArgs]) time.Time {
 // River's 60s default JobTimeout. (Contrast the maintenance/sweep workers, which
 // override it because they can run for minutes.)
 func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs]) error {
+	// Queue-wait SLI: enqueue→pickup latency, once per attempt (River stamps
+	// attempted_at at claim). Guarded against zero/negative deltas — clock
+	// skew or a hand-built job row must not record a bogus sample.
+	if job.AttemptedAt != nil && !job.CreatedAt.IsZero() {
+		if wait := job.AttemptedAt.Sub(job.CreatedAt); wait > 0 {
+			w.metrics.OutboundQueueWait(wait.Seconds())
+		}
+	}
 	observedAt := jobObservationTime(job)
 	j, err := w.store.ClaimSend(ctx, job.Args.MessageID, job.ID)
 	if err != nil {
@@ -264,6 +282,9 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, 0, observedAt, j.ProviderMessageID, j.SentAs); err != nil {
 			return err
 		}
+		// Terminal 'sent', but NOT an attempt — the submit happened on an
+		// earlier attempt; only the settle lands here.
+		w.metrics.OutboundTerminal(terminalSent)
 		if w.ramp != nil && j.rampEligible() {
 			return w.ramp.Confirm(ctx, j.MessageID)
 		}
@@ -356,13 +377,26 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 		return river.JobCancel(supErr)
 	}
 
+	deliverStart := time.Now()
 	out := w.deliverer.Deliver(ctx, j)
 	observedAt = time.Now().UTC()
+	// Every Deliver call is exactly one submission attempt; classify it here
+	// so no downstream branch (outage, horizon, deferral) can drop the sample.
+	deliverSeconds := time.Since(deliverStart).Seconds()
+	switch {
+	case out.Err == nil:
+		w.metrics.OutboundAttempt(attemptSuccess, deliverSeconds)
+	case out.Permanent:
+		w.metrics.OutboundAttempt(attemptPermanentFailure, deliverSeconds)
+	default:
+		w.metrics.OutboundAttempt(attemptTemporaryFailure, deliverSeconds)
+	}
 	if out.Err == nil {
 		// Success — one tx (in the store): mark sent + provider id + email.sent.
 		if err := w.store.MarkSent(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.ProviderMessageID, out.SentAs); err != nil {
 			return err
 		}
+		w.metrics.OutboundTerminal(terminalSent)
 		if w.ramp != nil && j.rampEligible() {
 			if err := w.ramp.Confirm(ctx, j.MessageID); err != nil {
 				return fmt.Errorf("confirm sending ramp: %w", err)
@@ -414,6 +448,10 @@ func (w *SendWorker) Work(ctx context.Context, job *river.Job[OutboundSendArgs])
 	if job.Attempt >= MaxSendAttempts {
 		if err := w.store.DeferTerminalFailure(ctx, j.MessageID, job.ID, job.Attempt, observedAt, out.Err.Error()); err != nil {
 			log.Printf("[outbound-send] defer terminal failure for %s: %v", j.MessageID, err)
+		} else {
+			// Not sent/failed yet — the reconciler declares the real terminal
+			// after the evidence grace, and emits its own outcome then.
+			w.metrics.OutboundTerminal(terminalDeferred)
 		}
 		return fmt.Errorf("outbound send failed (final attempt %d; outcome deferred to terminal reconciler): %w", job.Attempt, out.Err)
 	}
@@ -459,6 +497,12 @@ func (w *SendWorker) markFailed(ctx context.Context, messageID string, jobID int
 	var err error
 	for i := 0; i < terminalWriteRetries; i++ {
 		if err = w.store.MarkFailed(ctx, messageID, jobID, attempt, occurredAt, detail, source, reason, blockedRecipients); err == nil {
+			// Emitting here covers every terminal-failure seam (suppression,
+			// provider rejection, ramp/outage horizon) exactly once, and only
+			// after the durable write. The PreserveTerminalFailure fallback
+			// below deliberately does NOT emit — the reconciler declares (and
+			// counts) that row's terminal outcome later.
+			w.metrics.OutboundTerminal(terminalOutcome(source, blockedRecipients))
 			return nil
 		}
 		select {

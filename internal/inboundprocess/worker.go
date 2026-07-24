@@ -59,6 +59,16 @@ type Processor interface {
 	ProcessIntake(ctx context.Context, intake *identity.InboundIntake) error
 }
 
+// Metrics is the narrow slice of telemetry.Metrics the worker emits (same
+// pattern as internal/janitor.Metrics). Injectable so tests use a fake
+// recorder; satisfied by any telemetry backend.
+type Metrics interface {
+	// InboundProcess records one async inbound-worker outcome. outcome ∈
+	// {processed, noop, failed_recipient_gone, failed_exhausted, retryable};
+	// seconds is the time spent in ProcessIntake (0 when it never ran).
+	InboundProcess(outcome string, seconds float64)
+}
+
 // Store is the intake surface the worker + reconciler need. Implemented over
 // internal/identity.
 type Store interface {
@@ -78,10 +88,25 @@ type InboundProcessWorker struct {
 	river.WorkerDefaults[InboundProcessArgs]
 	store     Store
 	processor Processor
+	metrics   Metrics // nil ⇒ no emission (nil-safe via emit)
 }
 
 func NewInboundProcessWorker(store Store, processor Processor) *InboundProcessWorker {
 	return &InboundProcessWorker{store: store, processor: processor}
+}
+
+// WithMetrics swaps in a metrics backend. Nil-safe: unset (or nil) means no
+// emission, so tests don't have to wire anything.
+func (w *InboundProcessWorker) WithMetrics(m Metrics) *InboundProcessWorker {
+	w.metrics = m
+	return w
+}
+
+// emit records one InboundProcess outcome, tolerating an unwired backend.
+func (w *InboundProcessWorker) emit(outcome string, seconds float64) {
+	if w.metrics != nil {
+		w.metrics.InboundProcess(outcome, seconds)
+	}
 }
 
 // NextRetry overrides River's default backoff with the decided inbound envelope.
@@ -106,11 +131,15 @@ func (w *InboundProcessWorker) Work(ctx context.Context, job *river.Job[InboundP
 		return nil // intake pruned — nothing to do
 	}
 	if it.Status != identity.IntakeStatusAccepted {
+		w.emit("noop", 0)
 		return nil // already processed/failed — idempotent re-drive no-op
 	}
 
+	start := time.Now()
 	if err := w.processor.ProcessIntake(ctx, it); err != nil {
+		dur := time.Since(start).Seconds()
 		if errors.Is(err, identity.ErrIntakeAlreadyProcessed) {
+			w.emit("noop", 0)
 			return nil // a concurrent/prior attempt already processed it — done
 		}
 		if errors.Is(err, identity.ErrRecipientGone) {
@@ -120,6 +149,7 @@ func (w *InboundProcessWorker) Work(ctx context.Context, job *river.Job[InboundP
 			if ferr := w.store.MarkInboundIntakeFailed(ctx, it.ID, "recipient agent no longer exists"); ferr != nil {
 				log.Printf("[inbound-process] mark-gone for %s: %v", it.ID, ferr)
 			}
+			w.emit("failed_recipient_gone", 0)
 			return nil
 		}
 		// Processing errors are transient (DB persist / agent resolve). Retry within
@@ -131,10 +161,13 @@ func (w *InboundProcessWorker) Work(ctx context.Context, job *river.Job[InboundP
 			if ferr := w.store.MarkInboundIntakeFailed(ctx, it.ID, err.Error()); ferr != nil {
 				log.Printf("[inbound-process] CRITICAL: mark-failed for %s errored: %v", it.ID, ferr)
 			}
+			w.emit("failed_exhausted", dur)
 			return fmt.Errorf("inbound processing failed (final attempt %d): %w", job.Attempt, err)
 		}
+		w.emit("retryable", dur)
 		return fmt.Errorf("inbound processing attempt %d failed: %w", job.Attempt, err)
 	}
 	// Success — ProcessIntake flipped intake.status to 'processed' in its own tx.
+	w.emit("processed", time.Since(start).Seconds())
 	return nil
 }

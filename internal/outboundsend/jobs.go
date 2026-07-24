@@ -21,12 +21,13 @@ type Jobs struct {
 	ramp      RampGate
 	pool      *pgxpool.Pool
 	enq       jobs.Enqueuer
+	metrics   Metrics
 }
 
 // NewJobs builds the integration with its dependencies (no client yet). pool
 // backs the periodic terminal-state reconciler's scan.
 func NewJobs(store Store, deliverer Deliverer, pool *pgxpool.Pool, ramp ...RampGate) *Jobs {
-	j := &Jobs{store: store, deliverer: deliverer, pool: pool}
+	j := &Jobs{store: store, deliverer: deliverer, pool: pool, metrics: noopMetrics{}}
 	if len(ramp) > 0 {
 		j.ramp = ramp[0]
 	}
@@ -36,11 +37,21 @@ func NewJobs(store Store, deliverer Deliverer, pool *pgxpool.Pool, ramp ...RampG
 // SetEnqueuer injects the shared client so EnqueueSendTx can insert jobs.
 func (j *Jobs) SetEnqueuer(e jobs.Enqueuer) { j.enq = e }
 
+// WithMetrics injects the outbound SLI recorder, threaded to both workers at
+// RegisterJobs. Chainable so the cmd wiring stays one expression; nil keeps
+// the no-op default.
+func (j *Jobs) WithMetrics(m Metrics) *Jobs {
+	if m != nil {
+		j.metrics = m
+	}
+	return j
+}
+
 // RegisterJobs adds the SendWorker and terminal-state safety net to the shared
 // client's bundle. Implements jobs.Registrar.
 func (j *Jobs) RegisterJobs(w *river.Workers) []*river.PeriodicJob {
-	river.AddWorker(w, NewSendWorker(j.store, j.deliverer, j.ramp))
-	river.AddWorker(w, NewTerminalReconcileWorker(j.pool, j.store, j.ramp))
+	river.AddWorker(w, NewSendWorker(j.store, j.deliverer, j.ramp).WithMetrics(j.metrics))
+	river.AddWorker(w, NewTerminalReconcileWorker(j.pool, j.store, j.ramp).WithMetrics(j.metrics))
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(terminalReconcileInterval),

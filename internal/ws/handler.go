@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/tokencanopy/e2a/internal/eventpayload"
@@ -32,12 +33,23 @@ type eventEnvelopeStore interface {
 // Handler upgrades HTTP connections to WebSocket. Open to any agent the
 // caller owns — the legacy local-mode gate was removed (migration 029).
 type Handler struct {
-	hub   *Hub
-	store HandlerStore
+	hub     *Hub
+	store   HandlerStore
+	metrics Metrics
 }
 
 func NewHandler(hub *Hub, store HandlerStore) *Handler {
-	return &Handler{hub: hub, store: store}
+	return &Handler{hub: hub, store: store, metrics: noopMetrics{}}
+}
+
+// SetMetrics wires the observability backend. Default is a no-op; nil resets
+// to it. The handler owns the per-connection disconnect reasons + drain
+// counts; connect/gauge/send-failure/shutdown live on the Hub (see Metrics).
+func (h *Handler) SetMetrics(m Metrics) {
+	if m == nil {
+		m = noopMetrics{}
+	}
+	h.metrics = m
 }
 
 // ServeWithEmail handles the WebSocket upgrade for an explicitly-provided
@@ -143,10 +155,23 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, rawEmail string)
 	h.drainUnread(agent)
 
 	// Read loop: keepalive + disconnect detection
-	h.readLoop(conn, agent)
+	reason := h.readLoop(conn, agent)
 
-	// Cleanup on disconnect
-	h.hub.Unregister(agent.ID, conn)
+	// Cleanup on disconnect. If the unregister didn't remove us we were no
+	// longer the current connection: a newer one superseded us ("replaced" —
+	// override whatever the read loop saw, since its error is just our own
+	// takeover close), or the hub already dropped us at shutdown (counted
+	// there as "shutdown" — stay silent).
+	if !h.hub.Unregister(agent.ID, conn) {
+		if h.hub.IsConnected(agent.ID) {
+			reason = "replaced"
+		} else {
+			reason = ""
+		}
+	}
+	if reason != "" {
+		h.metrics.WSDisconnected(reason)
+	}
 	conn.Close(websocket.StatusNormalClosure, "")
 	log.Printf("[ws] disconnected: %s", email)
 }
@@ -180,12 +205,14 @@ func (h *Handler) drainUnread(agent *identity.AgentIdentity) {
 		return
 	}
 
+	sent := 0
 	for _, msg := range messages {
 		notification := NotificationForMessage(ctx, h.store, &msg)
-		if len(notification) > 0 {
-			h.hub.Send(agent.ID, notification)
+		if len(notification) > 0 && h.hub.Send(agent.ID, notification) {
+			sent++
 		}
 	}
+	h.metrics.WSDrained(sent)
 
 	if len(messages) > 0 {
 		log.Printf("[ws] drained %d unread messages for %s", len(messages), agent.ID)
@@ -276,12 +303,17 @@ func nullableString(value string) *string {
 }
 
 // readLoop blocks until the client disconnects or sends a close frame.
-// It ignores client messages and sends periodic pings.
-func (h *Handler) readLoop(conn *websocket.Conn, agent *identity.AgentIdentity) {
+// It ignores client messages and sends periodic pings. Returns the metric
+// disconnect reason it observed — "ping_timeout" when the keepalive dropped
+// the connection, "client_close" on a clean client close frame (1000/1001),
+// "error" otherwise; the caller overrides it for the replaced/shutdown cases
+// it alone can see.
+func (h *Handler) readLoop(conn *websocket.Conn, agent *identity.AgentIdentity) (reason string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Ping goroutine: send a ping every 30 seconds, fail if no pong within 10 seconds.
+	var pingFailed atomic.Bool
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -299,6 +331,9 @@ func (h *Handler) readLoop(conn *websocket.Conn, agent *identity.AgentIdentity) 
 					// the stable "ping_timeout" token: a transient condition —
 					// clients reconnect with backoff (the peer is usually
 					// already gone and sees a 1006 abnormal close instead).
+					// The flag is set BEFORE the close so the Read below
+					// attributes its error to the keepalive, not the client.
+					pingFailed.Store(true)
 					conn.Close(websocket.StatusGoingAway, ReasonPingTimeout)
 					return
 				}
@@ -310,7 +345,15 @@ func (h *Handler) readLoop(conn *websocket.Conn, agent *identity.AgentIdentity) 
 	for {
 		_, _, err := conn.Read(ctx)
 		if err != nil {
-			return
+			if pingFailed.Load() {
+				return "ping_timeout"
+			}
+			switch websocket.CloseStatus(err) {
+			case websocket.StatusNormalClosure, websocket.StatusGoingAway:
+				return "client_close" // clean close frame from the client
+			default:
+				return "error" // abnormal drop (no close frame / network error)
+			}
 		}
 	}
 }

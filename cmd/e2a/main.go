@@ -281,9 +281,12 @@ func main() {
 		agent.NewOutboundDeliverer(sender),
 		pool,
 		outboundRamp,
-	)
+	).WithMetrics(metrics)
 	registrars = append(registrars, outboundJobs)
 	registrars = append(registrars, sendramp.NewMaintenanceJobs(rampStore))
+	// Queue depth/age gauges: a 30s maintenance periodic sampling river_job
+	// per queue+state (docs/observability.md).
+	registrars = append(registrars, jobs.NewQueueStatsJobs(pool, metrics))
 
 	// Async inbound pipeline (inbound-message-pipeline-river.md), gated by
 	// E2A_INBOUND_MODE=async. The InboundProcessWorker registers on the shared River
@@ -293,7 +296,7 @@ func main() {
 	// synchronous inline path (unchanged).
 	var inboundJobs *inboundprocess.Jobs
 	if cfg.Inbound.Mode == "async" {
-		inboundJobs = inboundprocess.NewJobs(store)
+		inboundJobs = inboundprocess.NewJobs(store).WithMetrics(metrics)
 		registrars = append(registrars, inboundJobs)
 	}
 
@@ -331,7 +334,7 @@ func main() {
 	// unconditionally, the outbox drain enqueues delivery jobs transactionally,
 	// and a one-shot cutover drains any pre-existing pending rows. The legacy
 	// hand-rolled SubscriberRetryWorker is gone.
-	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store, pool)
+	webhookDeliveryJobs := webhookdelivery.NewJobs(subscriberStore, subscriberDeliverer, store, pool).WithMetrics(metrics)
 	registrars = append(registrars, webhookDeliveryJobs)
 
 	// Webhook fan-out (webhook_events → webhook_subscriber_deliveries) on River,
@@ -659,9 +662,11 @@ func main() {
 	// handler are constructed here and threaded in.
 	wsHub := ws.NewHub()
 	defer wsHub.Close()
+	wsHub.SetMetrics(metrics)
 	api.SetWebSocketHub(wsHub)
 	hitlWorker.SetWebSocketHub(wsHub)
 	wsHandler := ws.NewHandler(wsHub, store)
+	wsHandler.SetMetrics(metrics)
 
 	// v1 contract layer (api-v1-redesign Slice 1). The new chi + Huma surface
 	// owns the `/v1` prefix (OpenAPI-as-source-of-truth, standardized error
@@ -688,6 +693,7 @@ func main() {
 		Production:                cfg.IsProduction(),
 		Legacy:                    router,
 		WSHandle:                  wsHandler.ServeWithEmail,
+		Metrics:                   metrics,
 		SenderIdentity:            senderEnqueuer,
 		ManagedUnsubscribeIssuer:  managedUnsubscribeIssuer,
 		AgentSuppressionAddedHook: agent.AgentSuppressionAddedHook(webhookOutbox),
@@ -705,6 +711,7 @@ func main() {
 	smtpServer := relay.NewServer(cfg, store, usageTracker, wsHub)
 	smtpServer.SetEnforcer(enforcer)
 	smtpServer.SetOutbox(webhookOutbox)
+	smtpServer.SetMetrics(metrics)
 
 	// Wire the async inbound pipeline into the relay (E2A_INBOUND_MODE=async): the
 	// Processor is the relay Server itself; the accept-tx enqueues via the shared

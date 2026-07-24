@@ -50,6 +50,25 @@ type WebhookReader interface {
 	GetWebhookByIDInternal(ctx context.Context, webhookID string) (*identity.Webhook, error)
 }
 
+// Metrics is the narrow slice of telemetry.Metrics the delivery worker emits
+// (same pattern as internal/janitor.Metrics). Injectable so tests use a fake
+// recorder; satisfied by any telemetry backend.
+type Metrics interface {
+	// WebhookAttempt records one delivery attempt. outcome ∈ {delivered,
+	// retryable_failure, exhausted, webhook_deleted, skipped_disabled};
+	// statusClass is "1xx".."5xx" or "none" (no HTTP response).
+	WebhookAttempt(outcome, statusClass string, seconds float64)
+}
+
+// statusClassOf maps an HTTP status code to its metrics label ("1xx".."5xx"),
+// or "none" when no response was received (connect/DNS/SSRF-blocked → code 0).
+func statusClassOf(code int) string {
+	if code <= 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%dxx", code/100)
+}
+
 // Deliverer is the POST surface. *webhook.SubscriberDeliverer satisfies it.
 type Deliverer interface {
 	Deliver(ctx context.Context, url string, body []byte, secret, secretPrev, eventType, schemaVersion string) webhook.DeliveryOutcome
@@ -72,11 +91,26 @@ type DeliverWorker struct {
 	subStore  *webhook.SubscriberStore
 	deliverer Deliverer
 	webhooks  WebhookReader
+	metrics   Metrics // nil ⇒ no emission (nil-safe via emitAttempt)
 }
 
 // NewDeliverWorker constructs the worker. Used by the Registrar and by tests.
 func NewDeliverWorker(subStore *webhook.SubscriberStore, deliverer Deliverer, webhooks WebhookReader) *DeliverWorker {
 	return &DeliverWorker{subStore: subStore, deliverer: deliverer, webhooks: webhooks}
+}
+
+// WithMetrics swaps in a metrics backend. Nil-safe: unset (or nil) means no
+// emission, so tests don't have to wire anything.
+func (w *DeliverWorker) WithMetrics(m Metrics) *DeliverWorker {
+	w.metrics = m
+	return w
+}
+
+// emitAttempt records one WebhookAttempt, tolerating an unwired backend.
+func (w *DeliverWorker) emitAttempt(outcome, statusClass string, seconds float64) {
+	if w.metrics != nil {
+		w.metrics.WebhookAttempt(outcome, statusClass, seconds)
+	}
 }
 
 // NextRetry overrides River's client-wide policy for webhook jobs only, returning
@@ -113,10 +147,12 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 		if merr := w.markFailedReliably(ctx, d.ID, job.Attempt, "webhook not found", 0); merr != nil {
 			return merr
 		}
+		w.emitAttempt("webhook_deleted", "none", 0)
 		return river.JobCancel(fmt.Errorf("webhook %s not found: %w", d.WebhookID, err))
 	}
 	if !wh.Enabled {
 		// Disabled — reschedule without burning an attempt (matches legacy defer).
+		w.emitAttempt("skipped_disabled", "none", 0)
 		return river.JobSnooze(disabledSnooze)
 	}
 
@@ -129,13 +165,17 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 	// Schema version is stamped from the current constant at delivery time (not read
 	// from the stored envelope bytes) so a redelivered pre-schema_version event still
 	// carries it; the event type comes from the Layer 2 delivery row.
+	start := time.Now()
 	out := w.deliverer.Deliver(ctx, wh.URL, d.EventPayload, wh.SigningSecret, prevSecret,
 		d.EventType, strconv.Itoa(webhookpub.SchemaVersion))
+	dur := time.Since(start).Seconds()
 	if out.Success {
+		w.emitAttempt("delivered", statusClassOf(out.StatusCode), dur)
 		return w.subStore.MarkDelivered(ctx, d.ID, out.StatusCode) // nil → River completes the job
 	}
 
 	if job.Attempt >= MaxDeliveryAttempts {
+		w.emitAttempt("exhausted", statusClassOf(out.StatusCode), dur)
 		// Last attempt — River discards after this regardless of return value, so the
 		// terminal 'failed' write is the row's last chance. markFailedReliably retries
 		// it; only a sustained DB outage in this exact window leaves the row stranded
@@ -147,6 +187,7 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 	}
 	// Retryable failure — record the attempt (status stays pending) and return an
 	// error so River retries per NextRetry.
+	w.emitAttempt("retryable_failure", statusClassOf(out.StatusCode), dur)
 	if rerr := w.subStore.RecordSubscriberAttempt(ctx, d.ID, job.Attempt, out.Error, out.StatusCode); rerr != nil {
 		return rerr
 	}

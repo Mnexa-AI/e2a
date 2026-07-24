@@ -344,7 +344,8 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	missingID := f.seed(t, "missing", "accepted", "", true)
 
 	gate := &fakeRampGate{}
-	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate)
+	rec := &recordingMetrics{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter, gate).WithMetrics(rec)
 	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
 		t.Fatalf("Work: %v", err)
 	}
@@ -404,6 +405,11 @@ func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	}
 	if len(gate.resolved) != 4 {
 		t.Errorf("ramp resolutions = %v, want four terminal outcomes", gate.resolved)
+	}
+	// One terminal metric per settled row; all four sweeps here wrote a
+	// locally inferred failure (no provider provenance, no suppression list).
+	if !stringsEqual(rec.terminals, []string{"failed_local_retries", "failed_local_retries", "failed_local_retries", "failed_local_retries"}) {
+		t.Errorf("reconciler terminal metrics = %v, want four failed_local_retries", rec.terminals)
 	}
 	for _, id := range []string{retryableID, sentID} {
 		if got := f.failedEventCount(t, id); got != 0 {

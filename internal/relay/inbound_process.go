@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net"
+	"time"
 
 	"github.com/emersion/go-smtp"
 	"github.com/jackc/pgx/v5"
@@ -23,7 +24,10 @@ import (
 // losing it. The dedup key (recipient, message_id, content_hash) makes a lost-ack
 // retry an idempotent no-op accept — the duplicate re-uses the row and enqueues no
 // second job.
-func (s *session) acceptInbound(ctx context.Context, body []byte, info threadInfo) error {
+// start is the DATA-entry time; the terminal accept/tempfail decision records ONE
+// SMTPInbound observation per transaction — "accepted_dedup" when EVERY recipient
+// hit the dedup (a pure lost-ack retry), "accepted" when anything new was enqueued.
+func (s *session) acceptInbound(ctx context.Context, body []byte, info threadInfo, start time.Time) error {
 	contentHash := contentHashHex(body)
 	envelopeFrom := extractEmail(s.from)
 	remoteIP := ""
@@ -32,7 +36,9 @@ func (s *session) acceptInbound(ctx context.Context, body []byte, info threadInf
 	}
 	messageID := info.MessageID // sender's RFC 5322 Message-ID (may be "")
 
+	var newRows int // NEW intake rows committed; reset per attempt in case WithTx re-runs
 	err := s.relay.store.WithTx(ctx, func(tx pgx.Tx) error {
+		newRows = 0
 		for _, rcpt := range s.recipients {
 			intakeID := identity.NewInboundIntakeID()
 			inserted, e := s.relay.store.InsertInboundIntakeTx(ctx, tx, intakeID, rcpt, envelopeFrom, s.heloDomain, remoteIP, messageID, contentHash, body)
@@ -52,15 +58,22 @@ func (s *session) acceptInbound(ctx context.Context, body []byte, info threadInf
 			if e := s.relay.store.StampInboundIntakeJobIDTx(ctx, tx, intakeID, jobID); e != nil {
 				return e
 			}
+			newRows++
 		}
 		return nil
 	})
 	if err != nil {
 		// Nothing committed (one tx, all-or-nothing) — 451 so the sender retries.
 		log.Printf("[%s] inbound accept-tx failed → 451 (sender will retry): %v", s.id, err)
+		s.relay.recordSMTPInbound("tempfail", time.Since(start).Seconds())
 		return &smtp.SMTPError{Code: 451, EnhancedCode: smtp.EnhancedCode{4, 3, 0}, Message: "temporary failure accepting message; please retry"}
 	}
 	log.Printf("[%s] inbound accepted (async) recipients=%d msgid=%q", s.id, len(s.recipients), messageID)
+	outcome := "accepted"
+	if newRows == 0 && len(s.recipients) > 0 {
+		outcome = "accepted_dedup" // every recipient deduped: a pure lost-ack MTA retry
+	}
+	s.relay.recordSMTPInbound(outcome, time.Since(start).Seconds())
 	return nil
 }
 

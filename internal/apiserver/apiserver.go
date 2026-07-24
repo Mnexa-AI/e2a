@@ -70,6 +70,10 @@ type Params struct {
 	Legacy   http.Handler
 	WSHandle func(w http.ResponseWriter, r *http.Request, address string)
 
+	// Metrics feeds the per-request HTTP SLI middleware (availability +
+	// latency). Optional — nil leaves the /v1 surface uninstrumented.
+	Metrics httpapi.RequestMetrics
+
 	// SenderIdentity (decision 4 / Slice 4) schedules SES sending-identity
 	// provisioning on domain verify and teardown on domain delete. Optional —
 	// nil when SES is not configured (dev/self-host), leaving sending_status
@@ -267,6 +271,7 @@ func BuildDeps(p Params) httpapi.Deps {
 		PublicURL:    p.PublicURL,
 		WSHandle:     p.WSHandle,
 		Legacy:       p.Legacy,
+		Metrics:      p.Metrics,
 	}
 	deps.ResolveUnsubscribeToken = p.Store.ResolveUnsubscribeToken
 	deps.AddAgentSuppressionFromTokenScope = p.Store.AddAgentSuppressionFromTokenScope
