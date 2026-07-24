@@ -64,6 +64,75 @@ type Metrics interface {
 	// pending webhook_events row. Should be set on every Tick. Alert
 	// if it stays > 30s.
 	SetPublisherLag(seconds float64)
+
+	// --- SLI instruments (docs/observability.md) ---
+	//
+	// Label arguments are normalized by the backend: values outside the
+	// documented enum collapse to "other", so callers can pass what they
+	// know without minting unbounded series. Never pass message content,
+	// addresses, URLs, or credentials — even though the backend would
+	// collapse them, the call site must not depend on that.
+
+	// HTTPRequest records one served HTTP request. route is the chi
+	// route pattern (e.g. "/v1/agents/{email}"), NEVER the raw path.
+	// statusClass is "1xx".."5xx".
+	HTTPRequest(method, route, statusClass string, seconds float64)
+
+	// SMTPInbound records the terminal outcome of one SMTP intake
+	// decision. outcome ∈ {accepted, accepted_dedup, tempfail,
+	// rejected_unknown_recipient, rejected_unverified_domain,
+	// rejected_quota}. seconds is DATA processing time (0 for
+	// RCPT-stage rejections, which have no DATA phase).
+	SMTPInbound(outcome string, seconds float64)
+
+	// OutboundQueueWait records enqueue→worker-pickup latency for one
+	// outbound send attempt (River attempted_at − created_at).
+	OutboundQueueWait(seconds float64)
+
+	// OutboundTerminal records a terminal outcome for an outbound
+	// message. outcome ∈ {sent, failed_suppressed, failed_provider,
+	// failed_local_retries, deferred_terminal}.
+	OutboundTerminal(outcome string)
+
+	// OutboundAttempt records one submission attempt to the upstream
+	// relay. outcome ∈ {success, temporary_failure, permanent_failure}.
+	// seconds is the submission duration.
+	OutboundAttempt(outcome string, seconds float64)
+
+	// WebhookAttempt records one webhook delivery attempt. outcome ∈
+	// {delivered, retryable_failure, exhausted, webhook_deleted,
+	// skipped_disabled}. statusClass is the HTTP status class of the
+	// endpoint's response, or "none" when no response was received
+	// (connect/DNS/SSRF-blocked).
+	WebhookAttempt(outcome, statusClass string, seconds float64)
+
+	// WSConnected / WSDisconnected count WebSocket connection
+	// lifecycle events. reason ∈ {replaced, ping_timeout,
+	// client_close, error, shutdown}.
+	WSConnected()
+	WSDisconnected(reason string)
+
+	// WSDrained counts unread messages pushed during connect-drain.
+	WSDrained(count int)
+
+	// WSSendFailure counts failed pushes to a registered connection.
+	WSSendFailure()
+
+	// SetWSActive is a gauge: current registered WS connections.
+	SetWSActive(n int)
+
+	// InboundProcess records an async inbound-worker outcome. outcome
+	// ∈ {processed, noop, failed_recipient_gone, failed_exhausted,
+	// retryable}.
+	InboundProcess(outcome string, seconds float64)
+
+	// SetQueueDepth / SetQueueOldestAge are gauges sampled by the
+	// queue-stats maintenance job. queue ∈ jobs.Queue* names; state ∈
+	// {available, running, retryable, scheduled}. Oldest age is for
+	// runnable (available) jobs only — a growing value means workers
+	// are not keeping up.
+	SetQueueDepth(queue, state string, n int)
+	SetQueueOldestAge(queue string, seconds float64)
 }
 
 // NoOp swallows every call. Default for tests that don't care.
@@ -77,6 +146,21 @@ func (NoOp) RedeliverRequests(string)       {}
 func (NoOp) JanitorRowsDeleted(string, int) {}
 func (NoOp) NotifyMissed()                  {}
 func (NoOp) SetPublisherLag(float64)        {}
+
+func (NoOp) HTTPRequest(string, string, string, float64) {}
+func (NoOp) SMTPInbound(string, float64)                 {}
+func (NoOp) OutboundQueueWait(float64)                   {}
+func (NoOp) OutboundTerminal(string)                     {}
+func (NoOp) OutboundAttempt(string, float64)             {}
+func (NoOp) WebhookAttempt(string, string, float64)      {}
+func (NoOp) WSConnected()                                {}
+func (NoOp) WSDisconnected(string)                       {}
+func (NoOp) WSDrained(int)                               {}
+func (NoOp) WSSendFailure()                              {}
+func (NoOp) SetWSActive(int)                             {}
+func (NoOp) InboundProcess(string, float64)              {}
+func (NoOp) SetQueueDepth(string, string, int)           {}
+func (NoOp) SetQueueOldestAge(string, float64)           {}
 
 // Log emits a structured log line for every metric call. Cheap and
 // portable; production aggregators (Loki, CloudWatch, Datadog) can
@@ -131,6 +215,74 @@ func (l *Log) SetPublisherLag(seconds float64) {
 	if n%60 == 0 || seconds > 30 {
 		log.Printf("[metrics] gauge=publisher.lag_seconds value=%.2f", seconds)
 	}
+}
+
+// --- SLI instruments on the Log backend ---
+//
+// The Log backend exists for aggregator-based operations (Loki, CloudWatch)
+// where one line per event is acceptable. Per-request/high-rate instruments
+// (HTTPRequest, OutboundQueueWait) are intentionally silent here — a log
+// line per HTTP request would swamp the stream; operators who want those
+// SLIs enable the Prometheus backend (metrics.enabled in config).
+// Moderate-rate outcome events still log so a log-only deployment keeps
+// SMTP/outbound/webhook visibility.
+
+func (l *Log) HTTPRequest(string, string, string, float64) {} // high-rate: Prom only
+func (l *Log) OutboundQueueWait(float64)                   {} // high-rate: Prom only
+
+func (l *Log) SMTPInbound(outcome string, seconds float64) {
+	log.Printf("[metrics] event=smtp.inbound outcome=%s duration=%.3f", outcome, seconds)
+}
+
+func (l *Log) OutboundTerminal(outcome string) {
+	log.Printf("[metrics] event=outbound.terminal outcome=%s", outcome)
+}
+
+func (l *Log) OutboundAttempt(outcome string, seconds float64) {
+	log.Printf("[metrics] event=outbound.attempt outcome=%s duration=%.3f", outcome, seconds)
+}
+
+func (l *Log) WebhookAttempt(outcome, statusClass string, seconds float64) {
+	log.Printf("[metrics] event=webhook.attempt outcome=%s status_class=%s duration=%.3f", outcome, statusClass, seconds)
+}
+
+func (l *Log) WSConnected() {
+	log.Printf("[metrics] event=ws.connected")
+}
+
+func (l *Log) WSDisconnected(reason string) {
+	log.Printf("[metrics] event=ws.disconnected reason=%s", reason)
+}
+
+func (l *Log) WSDrained(count int) {
+	if count == 0 {
+		return
+	}
+	log.Printf("[metrics] event=ws.drained count=%d", count)
+}
+
+func (l *Log) WSSendFailure() {
+	log.Printf("[metrics] event=ws.send_failure")
+}
+
+func (l *Log) SetWSActive(int) {} // gauge churns on every connect/disconnect; Prom only
+
+func (l *Log) InboundProcess(outcome string, seconds float64) {
+	log.Printf("[metrics] event=inbound.process outcome=%s duration=%.3f", outcome, seconds)
+}
+
+func (l *Log) SetQueueDepth(queue, state string, n int) {
+	if n == 0 {
+		return // skip noise: empty queues are the healthy steady state
+	}
+	log.Printf("[metrics] gauge=queue.depth queue=%s state=%s value=%d", queue, state, n)
+}
+
+func (l *Log) SetQueueOldestAge(queue string, seconds float64) {
+	if seconds < 30 {
+		return // same alert-threshold discipline as SetPublisherLag
+	}
+	log.Printf("[metrics] gauge=queue.oldest_age_seconds queue=%s value=%.2f", queue, seconds)
 }
 
 // Compile guard.
