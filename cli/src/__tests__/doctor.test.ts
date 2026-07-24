@@ -507,6 +507,210 @@ describe("doctor", () => {
     });
   });
 
+  describe("exit precedence ladder (each rung individually)", () => {
+    it("auth beats config: forbidden agent + missing MX exits 4", async () => {
+      const client = fakeClient();
+      client.agents.get = vi.fn(async () => {
+        throw new E2AError({
+          code: "forbidden", message: "forbidden", status: 403, retryable: false,
+        });
+      });
+      mockCreateClient.mockReturnValue(client);
+      const dns = healthyDNS();
+      dns.mx["acme.com"] = []; // config-class failure alongside the auth one
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      expect(check(report, "agent.access").status).toBe("fail");
+      expect(check(report, "domain.mx").status).toBe("fail");
+      expect(report.exit_code).toBe(4);
+    });
+
+    it("config beats transient: missing MX + DNS timeout exits 9", async () => {
+      const dns = healthyDNS();
+      dns.mx["acme.com"] = []; // config-class failure
+      const io = fakeIO({ dns });
+      const realResolveTxt = io.resolveTxt.getMockImplementation()!;
+      io.resolveTxt = vi.fn(async (name: string) => {
+        if (name.startsWith("_dmarc.")) throw new Error("queryTxt ETIMEOUT"); // transient
+        return realResolveTxt(name);
+      });
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, io);
+
+      expect(check(report, "domain.mx").reason_code).toBe("record_missing");
+      expect(check(report, "domain.dmarc").reason_code).toBe("dns_lookup_failed");
+      expect(report.exit_code).toBe(9);
+    });
+
+    it("transient beats warn: DNS timeout + disabled webhook exits 1", async () => {
+      const client = fakeClient();
+      client.webhooks.list = vi.fn(() => pager([makeWebhook({ enabled: false })])); // warn
+      mockCreateClient.mockReturnValue(client);
+      const io = fakeIO();
+      const realResolveTxt = io.resolveTxt.getMockImplementation()!;
+      io.resolveTxt = vi.fn(async (name: string) => {
+        if (name.startsWith("_dmarc.")) throw new Error("queryTxt ETIMEOUT"); // transient
+        return realResolveTxt(name);
+      });
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, io);
+
+      expect(check(report, "webhook.config").status).toBe("warn");
+      expect(report.exit_code).toBe(1);
+    });
+  });
+
+  describe("hardening (review findings)", () => {
+    it("a malformed --mcp-url never crashes runDoctor and classifies as config", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({ mcpUrl: "api.e2a.dev/mcp" }, fakeIO());
+
+      expect(check(report, "mcp.reachability").reason_code).toBe("invalid_mcp_url");
+      expect(check(report, "mcp.auth_metadata").reason_code).toBe("invalid_mcp_url");
+      expect(report.exit_code).toBe(9);
+    });
+
+    it("doctor rejects a malformed --mcp-url as a usage error (exit 2)", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit");
+      });
+      const mockStderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const { doctor } = await import("../commands/doctor.js");
+      await expect(doctor({ mcpUrl: "not a url" }, fakeIO())).rejects.toThrow("process.exit");
+      expect(mockExit).toHaveBeenCalledWith(2);
+      mockExit.mockRestore();
+      mockStderr.mockRestore();
+    });
+
+    it("HTTP 404 at the MCP URL is a routing failure, not a pass", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor(
+        {},
+        fakeIO({ http: { "https://api.e2a.dev/mcp": { status: 404, body: "" } } }),
+      );
+
+      const c = check(report, "mcp.reachability");
+      expect(c.status).toBe("fail");
+      expect(c.reason_code).toBe("not_routed");
+      expect(report.exit_code).toBe(9);
+    });
+
+    it("fails mcp.reachability transiently when the endpoint is unreachable", async () => {
+      const io = fakeIO();
+      const realHttpGet = io.httpGet.getMockImplementation()!;
+      io.httpGet = vi.fn(async (url: string) => {
+        if (url === "https://api.e2a.dev/mcp") throw new Error("connect ETIMEDOUT");
+        return realHttpGet(url);
+      });
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, io);
+
+      expect(check(report, "mcp.reachability").reason_code).toBe("connection_failed");
+      expect(report.exit_code).toBe(1);
+    });
+
+    it("warns on invalid MCP auth metadata (no authorization_servers)", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor(
+        {},
+        fakeIO({
+          http: {
+            "https://api.e2a.dev/.well-known/oauth-protected-resource": { status: 200, body: "{}" },
+          },
+        }),
+      );
+
+      expect(check(report, "mcp.auth_metadata").reason_code).toBe("metadata_invalid");
+    });
+
+    it("a trailing slash on the deployment URL still detects hosted and probes cleanly", async () => {
+      mockLoadConfig.mockReturnValue(baseConfig({ api_url: "https://e2a.dev/" }));
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      expect(check(report, "api.reachability").status).toBe("pass");
+      expect(check(report, "mcp.reachability").status).toBe("pass");
+      expect(report.deployment_url).toBe("https://e2a.dev");
+    });
+
+    it("accepts a legitimately extended SPF record (inclusion, not equality)", async () => {
+      const dns = healthyDNS();
+      dns.txt["mail.acme.com"] = ["v=spf1 include:amazonses.com include:_spf.corp.example ~all"];
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      expect(check(report, "domain.spf").status).toBe("pass");
+    });
+
+    it("flags an SPF record that lost the prescribed include as a mismatch", async () => {
+      const dns = healthyDNS();
+      dns.txt["mail.acme.com"] = ["v=spf1 include:other.example ~all"];
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ dns }));
+
+      const c = check(report, "domain.spf");
+      expect(c.status).toBe("fail");
+      expect(c.reason_code).toBe("record_mismatch");
+    });
+
+    it("treats a 200 non-JSON /v1/info body as a config failure (wrong E2A_URL)", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor(
+        {},
+        fakeIO({ http: { "https://e2a.dev/v1/info": { status: 200, body: "<html>welcome</html>" } } }),
+      );
+
+      const c = check(report, "api.reachability");
+      expect(c.reason_code).toBe("unexpected_response");
+      expect(report.exit_code).toBe(9);
+    });
+
+    it("warns on a plain-HTTP webhook URL", async () => {
+      const client = fakeClient();
+      client.webhooks.list = vi.fn(() => pager([makeWebhook({ url: "http://hooks.example.com/e2a" })]));
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      expect(check(report, "webhook.config").reason_code).toBe("insecure_url");
+      expect(report.exit_code).toBe(8);
+    });
+
+    it("skips webhook.delivery when no delivery has completed yet", async () => {
+      const client = fakeClient();
+      client.webhooks.deliveries = vi.fn(() => pager([]));
+      mockCreateClient.mockReturnValue(client);
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO());
+
+      expect(check(report, "webhook.delivery").reason_code).toBe("no_deliveries");
+    });
+
+    it("reports the key source as E2A_API_KEY when set via environment", async () => {
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, fakeIO({ env: { E2A_API_KEY: "e2a_acct_envkey" } }));
+
+      const c = check(report, "cli.config");
+      expect((c.evidence as Record<string, unknown>).key_source).toBe("E2A_API_KEY");
+    });
+
+    it("warns when the domain list is truncated at the cap", async () => {
+      const client = fakeClient();
+      const many = Array.from({ length: 51 }, (_, i) => makeDomain({ domain: `d${i}.example` }));
+      client.domains.list = vi.fn(() => pager(many));
+      mockCreateClient.mockReturnValue(client);
+      const io = fakeIO();
+      // Domain names beyond acme.com have no DNS fixtures; resolve empty is fine —
+      // this test only asserts the truncation warning exists.
+      const { runDoctor } = await import("../commands/doctor.js");
+      const report = await runDoctor({}, io);
+
+      const truncation = report.checks.find((c) => c.reason_code === "too_many_domains");
+      expect(truncation?.status).toBe("warn");
+    });
+  });
+
   describe("warnings (exit 8)", () => {
     it("warns on a missing DMARC record without failing the run", async () => {
       const dns = healthyDNS();

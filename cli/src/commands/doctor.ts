@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { E2AError } from "@e2a/sdk/v1";
 import { loadConfig } from "../config.js";
 import { createClient } from "../sdk.js";
-import { EXIT } from "../exit.js";
+import { EXIT, fail } from "../exit.js";
 
 // `doctor` diagnoses the production email path WITHOUT creating, deleting, or
 // mutating anything: it only issues GETs (plus client-side DNS lookups) and
@@ -24,7 +24,6 @@ const HOSTED_MCP_URL = "https://api.e2a.dev/mcp";
 /** Enumeration caps — noted in the report evidence when hit, never silent. */
 const MAX_DOMAINS = 50;
 const MAX_WEBHOOKS = 50;
-const MAX_DELIVERIES = 5;
 
 export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 
@@ -91,6 +90,22 @@ export function defaultIO(): DoctorIO {
   const resolver = new Resolver({ timeout: DOCTOR_TIMEOUT_MS, tries: 1 });
   const noRecord = (err: unknown): boolean =>
     NO_RECORD.has((err as NodeJS.ErrnoException)?.code ?? "");
+  // The Resolver `timeout` option is per-server, per-try: with several
+  // nameservers configured one lookup could stack multiples of it. This race
+  // enforces DOCTOR_TIMEOUT_MS as a hard per-operation bound regardless.
+  const deadline = <T>(p: Promise<T>): Promise<T> => {
+    let timer: NodeJS.Timeout;
+    return Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`DNS lookup timed out after ${DOCTOR_TIMEOUT_MS}ms`)),
+          DOCTOR_TIMEOUT_MS,
+        );
+        timer.unref();
+      }),
+    ]).finally(() => clearTimeout(timer));
+  };
   return {
     now: () => new Date(),
     cliVersion: () => (require("../../package.json") as { version: string }).version,
@@ -104,7 +119,7 @@ export function defaultIO(): DoctorIO {
     },
     resolveTxt: async (name) => {
       try {
-        return (await resolver.resolveTxt(name)).map((chunks) => chunks.join(""));
+        return (await deadline(resolver.resolveTxt(name))).map((chunks) => chunks.join(""));
       } catch (err) {
         if (noRecord(err)) return [];
         throw err;
@@ -112,7 +127,7 @@ export function defaultIO(): DoctorIO {
     },
     resolveMx: async (name) => {
       try {
-        return await resolver.resolveMx(name);
+        return await deadline(resolver.resolveMx(name));
       } catch (err) {
         if (noRecord(err)) return [];
         throw err;
@@ -477,9 +492,17 @@ async function checkTxtRecord(
     });
     return;
   }
+  // SPF uses inclusion semantics, matching the server's own live probe: a
+  // record that starts with v=spf1 and contains the prescribed include is
+  // valid even when the operator legitimately extended it with more
+  // mechanisms. Ownership tokens are exact; DKIM is normalized-exact.
+  const spf = record.value.trim().startsWith("v=spf1");
+  const spfInclude = spf ? record.value.split(/\s+/).find((t) => t.startsWith("include:")) : undefined;
   const matches = dkim
     ? published.some((v) => normDkim(v) === normDkim(record.value))
-    : published.some((v) => v.trim() === record.value.trim());
+    : spf && spfInclude
+      ? published.some((v) => v.trim().startsWith("v=spf1") && v.includes(spfInclude))
+      : published.some((v) => v.trim() === record.value.trim());
   if (matches) {
     rec.pass(id, title, `${domain}: TXT record found at ${record.name}`, {
       target: record.name,
@@ -716,6 +739,16 @@ async function checkDomains(ctx: Ctx): Promise<void> {
 
 // --- MCP ---------------------------------------------------------------------
 
+/** Absolute http(s) URL or undefined. Doctor must never crash on flag input. */
+export function parseMcpUrl(raw: string): URL | undefined {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function checkMcp(ctx: Ctx): Promise<void> {
   const { rec, io, opts, config } = ctx;
   const mcpUrl = opts.mcpUrl ?? (config.api_url === HOSTED_URL ? HOSTED_MCP_URL : undefined);
@@ -726,15 +759,40 @@ async function checkMcp(ctx: Ctx): Promise<void> {
     rec.skip("mcp.auth_metadata", "MCP auth metadata", "no_mcp_url", detail, { remediation });
     return;
   }
-  try {
-    // Any HTTP response (405 for GET on a POST-only endpoint, 401 without a
-    // token) proves the endpoint is routed and alive; only a network-level
-    // failure is a problem. GET carries no JSON-RPC payload → no side effects.
-    const res = await io.httpGet(mcpUrl);
-    rec.pass("mcp.reachability", "MCP reachability", `endpoint responded (HTTP ${res.status})`, {
+  // The doctor() wrapper rejects a malformed --mcp-url as a usage error;
+  // this guard keeps runDoctor crash-free for programmatic callers too.
+  const parsed = parseMcpUrl(mcpUrl);
+  if (!parsed) {
+    const detail = `${mcpUrl} is not an absolute http(s) URL`;
+    const remediation = "pass --mcp-url as an absolute URL, e.g. https://host.example/mcp";
+    rec.fail("mcp.reachability", "MCP reachability", "invalid_mcp_url", "config", detail, {
       target: mcpUrl,
-      evidence: { http_status: res.status },
+      remediation,
     });
+    rec.fail("mcp.auth_metadata", "MCP auth metadata", "invalid_mcp_url", "config", detail, {
+      target: mcpUrl,
+      remediation,
+    });
+    return;
+  }
+  try {
+    // 405 (GET on the POST-only JSON-RPC endpoint) and 401 (no token) both
+    // prove the endpoint is routed and alive; 404/410 mean the path is NOT
+    // routed — the exact misconfiguration this check exists to catch. GET
+    // carries no JSON-RPC payload → no side effects.
+    const res = await io.httpGet(mcpUrl);
+    if (res.status === 404 || res.status === 410) {
+      rec.fail("mcp.reachability", "MCP reachability", "not_routed", "config", `HTTP ${res.status} — no MCP endpoint at ${mcpUrl}`, {
+        target: mcpUrl,
+        evidence: { http_status: res.status },
+        remediation: "check the MCP path (hosted: https://api.e2a.dev/mcp; self-hosted: usually /mcp on the MCP server host)",
+      });
+    } else {
+      rec.pass("mcp.reachability", "MCP reachability", `endpoint responded (HTTP ${res.status})`, {
+        target: mcpUrl,
+        evidence: { http_status: res.status },
+      });
+    }
   } catch (err) {
     rec.fail("mcp.reachability", "MCP reachability", "connection_failed", "transient", `cannot reach ${mcpUrl}`, {
       target: mcpUrl,
@@ -743,7 +801,7 @@ async function checkMcp(ctx: Ctx): Promise<void> {
     });
   }
 
-  const metadataUrl = `${new URL(mcpUrl).origin}/.well-known/oauth-protected-resource`;
+  const metadataUrl = `${parsed.origin}/.well-known/oauth-protected-resource`;
   try {
     const res = await io.httpGet(metadataUrl);
     if (res.status !== 200) {
@@ -864,9 +922,11 @@ async function checkWebhooks(ctx: Ctx): Promise<void> {
     }
 
     try {
+      // Deliveries come newest-first; only the latest outcome matters here,
+      // so fetch exactly one — never a second page.
       const deliveries = (await collect(
-        ctx.client!.webhooks.deliveries(wh.id, { limit: MAX_DELIVERIES }) as AsyncIterable<DeliveryLike>,
-        MAX_DELIVERIES,
+        ctx.client!.webhooks.deliveries(wh.id, { limit: 1 }) as AsyncIterable<DeliveryLike>,
+        1,
       )).items;
       const latest = deliveries[0];
       if (!latest || (latest.status === "pending" && latest.attempts === 0)) {
@@ -956,7 +1016,9 @@ function checkSmtpConfig(ctx: Ctx): void {
 // ---------------------------------------------------------------------------
 
 export async function runDoctor(opts: DoctorOptions, io: DoctorIO): Promise<DoctorReport> {
-  const config = loadConfig();
+  const config = { ...loadConfig() };
+  // A trailing slash on E2A_URL must not break probe URLs or hosted detection.
+  config.api_url = config.api_url.replace(/\/+$/, "") || config.api_url;
   const rec = new Recorder();
   const ctx: Ctx = { io, rec, config, opts, apiReachable: false };
   if (config.api_key) {
@@ -995,6 +1057,9 @@ function renderHuman(report: DoctorReport): string {
 }
 
 export async function doctor(opts: DoctorOptions, io: DoctorIO = defaultIO()): Promise<void> {
+  if (opts.mcpUrl !== undefined && !parseMcpUrl(opts.mcpUrl)) {
+    fail(EXIT.USAGE, "--mcp-url must be an absolute http(s) URL, e.g. https://host.example/mcp");
+  }
   const report = await runDoctor(opts, io);
   if (opts.json) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
