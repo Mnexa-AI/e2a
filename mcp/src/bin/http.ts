@@ -7,6 +7,7 @@ interface BinConfig {
   allowedHosts: string[];
   sessionIdleMs: number;
   maxSessions: number;
+  resolveTimeoutMs: number;
   publicUrl?: string;
   authorizationServerUrl?: string;
   trustProxy: boolean | number | string;
@@ -110,6 +111,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BinConfig {
     allowedHosts: parseHostList(env.MCP_ALLOWED_HOSTS ?? "", "api.e2a.dev"),
     sessionIdleMs: parsePositiveInt("MCP_SESSION_IDLE_MS", env.MCP_SESSION_IDLE_MS ?? "", 5 * 60_000),
     maxSessions: parsePositiveInt("MCP_MAX_SESSIONS", env.MCP_MAX_SESSIONS ?? "", 500),
+    resolveTimeoutMs: parsePositiveInt("MCP_RESOLVE_TIMEOUT_MS", env.MCP_RESOLVE_TIMEOUT_MS ?? "", 5000),
     publicUrl: env.MCP_PUBLIC_URL || undefined,
     authorizationServerUrl: env.MCP_AUTHORIZATION_SERVER_URL || undefined,
     trustProxy: parseTrustProxy(env.E2A_TRUST_PROXY ?? ""),
@@ -138,9 +140,14 @@ async function main(): Promise<void> {
     // kept so existing deploy manifests keep working.
     resolveCacheTtlMs: cfg.sessionIdleMs,
     resolveCacheMaxEntries: cfg.maxSessions,
+    resolveTimeoutMs: cfg.resolveTimeoutMs,
     publicUrl: cfg.publicUrl,
     authorizationServerUrl: cfg.authorizationServerUrl,
     trustProxy: cfg.trustProxy,
+    // Route all request-scoped events (http_request, auth_resolution,
+    // tool_execution, terminal_error) through the same writer as the
+    // process-lifecycle events.
+    logger: logJson,
   });
   logJson("INFO", "listening", `e2a-mcp-http listening on :${bound}`, {
     port: bound,

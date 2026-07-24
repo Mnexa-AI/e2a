@@ -5,8 +5,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpClient } from "../src/client.js";
-import { startHttpServer } from "../src/http-server.js";
+import { startHttpServer, type HttpServerOptions } from "../src/http-server.js";
 import { ResolveCache } from "../src/resolve.js";
+import { MetricsRegistry } from "../src/metrics.js";
+import type { Logger } from "../src/logging.js";
 
 const frozenToolNames = JSON.parse(
   readFileSync(new URL("../tool-names.v1.json", import.meta.url), "utf8"),
@@ -123,6 +125,8 @@ describe("HTTP MCP server", () => {
       // Loopback hostnames vary with the random port; allow them all.
       allowedHosts: ["127.0.0.1", "localhost"],
       clientFactory: () => stub,
+      // Keep test output quiet; logging behavior has dedicated tests below.
+      logger: () => {},
     });
     close = c;
     url = `http://127.0.0.1:${port}/mcp`;
@@ -1083,5 +1087,383 @@ describe("HTTP MCP server", () => {
       }),
     });
     expect(res.status).toBe(421);
+  });
+
+  // ── Correlation ids, structured logging, bounded probe ──────────────
+
+  const initializeBody = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "x", version: "0" } },
+  };
+
+  function postMcp(body: unknown, headers: Record<string, string> = {}) {
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  type CapturedEvent = Record<string, unknown> & {
+    severity: string;
+    event: string;
+    message: string;
+  };
+
+  function makeLogCapture(): { events: CapturedEvent[]; logger: Logger } {
+    const events: CapturedEvent[] = [];
+    const logger: Logger = (severity, event, message, fields = {}) => {
+      events.push({ severity, event, message, ...fields });
+    };
+    return { events, logger };
+  }
+
+  // restart replaces the shared server with one built from the given opts
+  // (mirrors the ad-hoc teardown pattern used by the tests above).
+  async function restart(opts: Partial<HttpServerOptions> = {}) {
+    await close();
+    const { close: c, port } = await startHttpServer(0, {
+      baseUrl: "http://e2a.local",
+      allowedHosts: ["127.0.0.1", "localhost"],
+      clientFactory: () => stub,
+      logger: () => {},
+      ...opts,
+    });
+    close = c;
+    url = `http://127.0.0.1:${port}/mcp`;
+  }
+
+  describe("correlation ids", () => {
+    it("honors a valid inbound X-Request-Id on the header and the 401 error body", async () => {
+      const res = await postMcp(initializeBody, { "X-Request-Id": "abc-DEF_123" });
+      expect(res.status).toBe(401);
+      expect(res.headers.get("x-request-id")).toBe("abc-DEF_123");
+      const body = await res.json();
+      expect(body.error.message).toBe("missing bearer token"); // unchanged
+      expect(body.error.data).toEqual({ request_id: "abc-DEF_123" });
+    });
+
+    it("mints mcpreq_<12 hex> when the inbound id has invalid characters", async () => {
+      const res = await postMcp(initializeBody, { "X-Request-Id": "bad id with spaces!" });
+      expect(res.status).toBe(401);
+      const id = res.headers.get("x-request-id");
+      expect(id).toMatch(/^mcpreq_[0-9a-f]{12}$/);
+      const body = await res.json();
+      expect(body.error.data.request_id).toBe(id);
+    });
+
+    it("mints a fresh id when no inbound id is present", async () => {
+      const res = await postMcp(initializeBody);
+      expect(res.headers.get("x-request-id")).toMatch(/^mcpreq_[0-9a-f]{12}$/);
+    });
+
+    it("sets X-Request-Id on 405 responses with request_id in the body", async () => {
+      const res = await fetch(url, { method: "GET" });
+      expect(res.status).toBe(405);
+      const id = res.headers.get("x-request-id");
+      expect(id).toMatch(/^mcpreq_[0-9a-f]{12}$/);
+      const body = await res.json();
+      expect(body.error.message).toMatch(/stateless/); // unchanged
+      expect(body.error.data).toEqual({ request_id: id });
+    });
+
+    it("sets X-Request-Id on 500 responses with request_id in the body", async () => {
+      await restart({
+        clientFactory: () => {
+          throw new Error("synthetic factory failure");
+        },
+      });
+      const res = await postMcp(initializeBody, {
+        Authorization: "Bearer e2a_test",
+        "X-Request-Id": "err-500-correlation",
+      });
+      expect(res.status).toBe(500);
+      expect(res.headers.get("x-request-id")).toBe("err-500-correlation");
+      const body = await res.json();
+      expect(body.error.message).toBe("internal server error"); // unchanged
+      expect(body.error.data).toEqual({ request_id: "err-500-correlation" });
+    });
+
+    it("includes request_id in the invalid_token challenge body (expired credential)", async () => {
+      const invalidStub = makeStubClient();
+      invalidStub.whoami = vi.fn(async () => {
+        throw makeHttpError(401);
+      }) as McpClient["whoami"];
+      await restart({ clientFactory: () => invalidStub });
+      const res = await postMcp(initializeBody, {
+        Authorization: "Bearer bogus_token",
+        "X-Request-Id": "expired-cred-1",
+      });
+      expect(res.status).toBe(401);
+      expect(res.headers.get("www-authenticate")).toMatch(/error="invalid_token"/);
+      expect(res.headers.get("x-request-id")).toBe("expired-cred-1");
+      const body = await res.json();
+      expect(body.error.message).toBe("invalid bearer token"); // unchanged
+      expect(body.error.data).toEqual({ request_id: "expired-cred-1" });
+    });
+  });
+
+  describe("structured request logging", () => {
+    it("emits auth_resolution + http_request events sharing one request_id", async () => {
+      const { events, logger } = makeLogCapture();
+      await restart({ logger });
+      const res = await postMcp(
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { Authorization: "Bearer e2a_test" },
+      );
+      expect(res.status).toBe(200);
+      await res.text();
+
+      const auth = events.find((e) => e.event === "auth_resolution");
+      expect(auth).toMatchObject({ severity: "INFO", result: "resolved", scope: "account" });
+      expect(typeof auth!.duration_ms).toBe("number");
+      expect(auth!.request_id).toBe(res.headers.get("x-request-id"));
+
+      const httpEvent = events.find((e) => e.event === "http_request");
+      expect(httpEvent).toMatchObject({
+        severity: "INFO",
+        route: "mcp",
+        method: "POST",
+        status: 200,
+      });
+      expect(typeof httpEvent!.duration_ms).toBe("number");
+      expect(httpEvent!.request_id).toBe(res.headers.get("x-request-id"));
+      // The bearer itself must never appear in any log field.
+      expect(JSON.stringify(events)).not.toContain("e2a_test");
+    });
+
+    it("logs cache_hit on a repeat request from the same bearer", async () => {
+      const { events, logger } = makeLogCapture();
+      await restart({ logger });
+      for (const id of [1, 2]) {
+        const res = await postMcp(
+          { jsonrpc: "2.0", id, method: "tools/list" },
+          { Authorization: "Bearer repeat_token" },
+        );
+        expect(res.status).toBe(200);
+        await res.text();
+      }
+      const results = events.filter((e) => e.event === "auth_resolution").map((e) => e.result);
+      expect(results).toEqual(["resolved", "cache_hit"]);
+    });
+
+    it("emits tool_execution events for ok and error outcomes", async () => {
+      const { events, logger } = makeLogCapture();
+      const registry = new MetricsRegistry();
+      await restart({ logger, metrics: registry });
+      const { client, transport } = await connect();
+
+      await client.callTool({ name: "list_agents", arguments: {} });
+      vi.mocked(stub.listAgents).mockRejectedValueOnce(new Error("boom"));
+      const failed = await client.callTool({ name: "list_agents", arguments: {} });
+      expect((failed as { isError?: boolean }).isError).toBe(true);
+      await transport.close();
+
+      const toolEvents = events.filter((e) => e.event === "tool_execution");
+      expect(toolEvents).toHaveLength(2);
+      expect(toolEvents[0]).toMatchObject({
+        severity: "INFO",
+        tool: "list_agents",
+        outcome: "ok",
+      });
+      expect(toolEvents[1]).toMatchObject({
+        severity: "WARNING",
+        tool: "list_agents",
+        outcome: "error",
+        error_code: "invalid_request",
+      });
+      // Each callTool is its own POST (stateless), so each carries its own
+      // minted request id.
+      expect(toolEvents[0]!.request_id).toMatch(/^mcpreq_[0-9a-f]{12}$/);
+      expect(toolEvents[1]!.request_id).toMatch(/^mcpreq_[0-9a-f]{12}$/);
+      expect(typeof toolEvents[0]!.duration_ms).toBe("number");
+      // Same seam feeds the metric.
+      const rendered = registry.render();
+      expect(rendered).toContain('mcp_tool_executions_total{outcome="ok",tool="list_agents"} 1');
+      expect(rendered).toContain('mcp_tool_executions_total{outcome="error",tool="list_agents"} 1');
+    });
+
+    it("emits terminal_error (structured, with request_id) on the 500 path", async () => {
+      const { events, logger } = makeLogCapture();
+      await restart({
+        logger,
+        clientFactory: () => {
+          throw new Error("synthetic factory failure");
+        },
+      });
+      const res = await postMcp(initializeBody, { Authorization: "Bearer e2a_test" });
+      expect(res.status).toBe(500);
+      await res.text();
+      const terminal = events.find((e) => e.event === "terminal_error");
+      expect(terminal).toMatchObject({ severity: "ERROR", error: "Error" });
+      expect(terminal!.request_id).toBe(res.headers.get("x-request-id"));
+    });
+
+    it("logs the fail-closed fallback resolution as a WARNING", async () => {
+      const { events, logger } = makeLogCapture();
+      const downStub = makeStubClient();
+      downStub.whoami = vi.fn(async () => {
+        throw new Error("upstream 500");
+      }) as McpClient["whoami"];
+      await restart({ logger, clientFactory: () => downStub });
+      const res = await postMcp(
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { Authorization: "Bearer e2a_test" },
+      );
+      expect(res.status).toBe(200);
+      await res.text();
+      const auth = events.find((e) => e.event === "auth_resolution");
+      expect(auth).toMatchObject({ severity: "WARNING", result: "fallback", scope: "agent" });
+      expect(typeof auth!.duration_ms).toBe("number");
+    });
+
+    it("the default logger writes single-line JSON events to stderr", async () => {
+      // Explicit undefined overrides restart's silent-logger default, so the
+      // server falls back to its built-in stderr JSON logger.
+      await restart({ logger: undefined });
+      const lines: string[] = [];
+      const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+        lines.push(String(chunk));
+        return true;
+      });
+      try {
+        const res = await postMcp(initializeBody); // 401 missing bearer
+        expect(res.status).toBe(401);
+        await res.text();
+        const httpLine = lines.find((l) => l.includes('"http_request"'));
+        expect(httpLine).toBeDefined();
+        // Single line: trailing newline, no embedded newlines.
+        expect(httpLine!.endsWith("\n")).toBe(true);
+        expect(httpLine!.trimEnd()).not.toContain("\n");
+        const parsed = JSON.parse(httpLine!);
+        expect(parsed).toMatchObject({
+          severity: "INFO",
+          event: "http_request",
+          route: "mcp",
+          method: "POST",
+          status: 401,
+          request_id: res.headers.get("x-request-id"),
+        });
+        expect(typeof parsed.duration_ms).toBe("number");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("meters but does not log successful probe/scrape routes; failures still log", async () => {
+      const { events, logger } = makeLogCapture();
+      const registry = new MetricsRegistry();
+      // readyz probe fails deterministically → 503 (the loggable case).
+      await restart({
+        logger,
+        metrics: registry,
+        readyz: {
+          fetcher: async () => {
+            throw new Error("backend down");
+          },
+        },
+      });
+      const origin = url.replace("/mcp", "");
+
+      for (const path of ["/healthz", "/metrics"]) {
+        const res = await fetch(`${origin}${path}`);
+        expect(res.status).toBe(200);
+        await res.text(); // drain so the server-side finish (and log) has fired
+      }
+      const quiet = events.filter((e) => e.event === "http_request");
+      expect(quiet).toEqual([]); // successful probe/scrape traffic is silent
+
+      const readyz = await fetch(`${origin}/readyz`);
+      expect(readyz.status).toBe(503);
+      await readyz.text();
+      const failure = events.filter((e) => e.event === "http_request");
+      expect(failure).toHaveLength(1); // ...but failures on those routes log
+      expect(failure[0]).toMatchObject({ route: "readyz", status: 503 });
+
+      // Metrics counted every request, logged or not.
+      const rendered = registry.render();
+      expect(rendered).toContain('mcp_http_requests_total{route="healthz",status_class="2xx"} 1');
+      expect(rendered).toContain('mcp_http_requests_total{route="readyz",status_class="5xx"} 1');
+    });
+  });
+
+  describe("bounded whoami probe (resolveTimeoutMs)", () => {
+    it("a hung whoami falls back fast (fail-closed, logged, metered) instead of holding the POST", async () => {
+      const { events, logger } = makeLogCapture();
+      const registry = new MetricsRegistry();
+      const hungStub = {
+        agentEmail: "",
+        scope: "agent" as const,
+        whoami: vi.fn(() => new Promise<never>(() => {})), // never settles
+      } as unknown as McpClient;
+      // 25ms bound: deterministic — the probe never resolves, so the request
+      // can only complete via the timeout path. Asserts the old ~90s
+      // (30s x 3 SDK attempts) worst case is gone.
+      await restart({
+        resolveTimeoutMs: 25,
+        clientFactory: () => hungStub,
+        logger,
+        metrics: registry,
+      });
+
+      const started = Date.now();
+      const res = await postMcp(
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { Authorization: "Bearer e2a_test" },
+      );
+      expect(res.status).toBe(200); // fail-closed fallback still serves
+      await res.text();
+      expect(Date.now() - started).toBeLessThan(5_000);
+
+      const auth = events.find((e) => e.event === "auth_resolution");
+      expect(auth).toMatchObject({ severity: "WARNING", result: "fallback", scope: "agent" });
+      expect(registry.render()).toContain('mcp_auth_resolutions_total{result="fallback"} 1');
+    });
+  });
+
+  describe("backend recovery", () => {
+    it("down → fallback served uncached; recovered → next request resolves the real scope", async () => {
+      let down = true;
+      const probe = {
+        agentEmail: "",
+        scope: "account" as const,
+        whoami: vi.fn(async () => {
+          if (down) throw new Error("upstream 500");
+          return { user: "owner@example.com", scope: "account", agentEmail: undefined };
+        }),
+        listMessages: vi.fn(async () => ({ items: [], next_cursor: undefined })),
+      } as unknown as McpClient;
+      const factory = vi.fn(() => probe);
+      await restart({ clientFactory: factory });
+
+      const first = await postMcp(
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { Authorization: "Bearer e2a_test" },
+      );
+      expect(first.status).toBe(200);
+      await first.text();
+      // Fallback: probe (bearer only), then per-request client pinned to the
+      // least-privilege tier, and NOT cached.
+      expect(factory.mock.calls[0]).toEqual(["e2a_test"]);
+      expect(factory.mock.calls[1]).toEqual(["e2a_test", { scope: "agent" }]);
+
+      down = false;
+      const second = await postMcp(
+        { jsonrpc: "2.0", id: 2, method: "tools/list" },
+        { Authorization: "Bearer e2a_test" },
+      );
+      expect(second.status).toBe(200);
+      await second.text();
+      // The fallback didn't stick: re-probed, now resolved to the real scope.
+      expect(probe.whoami).toHaveBeenCalledTimes(2);
+      expect(factory.mock.calls[2]).toEqual(["e2a_test"]);
+      expect(factory.mock.calls[3]).toEqual(["e2a_test", { scope: "account" }]);
+    });
   });
 });

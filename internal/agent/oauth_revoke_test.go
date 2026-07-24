@@ -171,8 +171,10 @@ func TestHTTP_Revoke_WrongClient(t *testing.T) {
 
 // OAuthErrorBody mirrors the RFC 6749 §5.2 error JSON shape for
 // asserting error bodies. Renamed to avoid clashing with the
-// production OAuthError type in oauth_handlers.go.
+// production OAuthError type in oauth_handlers.go. RequestID is the
+// e2a extension member that echoes the X-Request-Id response header.
 type OAuthErrorBody struct {
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
+	RequestID        string `json:"request_id"`
 }

@@ -298,6 +298,64 @@ func TestHTTP_Token_BadPKCE(t *testing.T) {
 	}
 }
 
+// TestHTTP_Token_ErrorRequestID: a failed /token exchange carries the
+// X-Request-Id header so operators can join the RFC 6749 §5.2 response to
+// the server-side [oauth] /token log line (fosite writes the error body,
+// so the id travels on the header only). A client-supplied id is honored;
+// without one the handler mints a req_* id.
+func TestHTTP_Token_ErrorRequestID(t *testing.T) {
+	server, provider, _, clientID, userID := setupOAuthAPI(t)
+	redirectURI := "http://localhost:8765/callback"
+
+	badPKCEPost := func(t *testing.T, suppliedID string) *http.Response {
+		t.Helper()
+		_, challenge := newPKCE(t)
+		code := mintAuthCode(t, provider, clientID, userID, redirectURI, challenge)
+		form := url.Values{}
+		form.Set("grant_type", "authorization_code")
+		form.Set("code", code)
+		form.Set("client_id", clientID)
+		form.Set("redirect_uri", redirectURI)
+		form.Set("code_verifier", "not-the-right-verifier-not-the-right-verifier")
+		req, err := http.NewRequest("POST", server.URL+"/oauth2/token",
+			strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if suppliedID != "" {
+			req.Header.Set("X-Request-Id", suppliedID)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	t.Run("client-supplied id honored", func(t *testing.T) {
+		resp := badPKCEPost(t, "req_token_supplied_01")
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 invalid_grant", resp.StatusCode)
+		}
+		if got := resp.Header.Get("X-Request-Id"); got != "req_token_supplied_01" {
+			t.Errorf("X-Request-Id = %q, want the client-supplied id honored", got)
+		}
+	})
+
+	t.Run("server-minted id without inbound header", func(t *testing.T) {
+		resp := badPKCEPost(t, "")
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 invalid_grant", resp.StatusCode)
+		}
+		if got := resp.Header.Get("X-Request-Id"); !strings.HasPrefix(got, "req_") {
+			t.Errorf("X-Request-Id = %q, want a minted req_* id", got)
+		}
+	})
+}
+
 // TestHTTP_Token_CodeReplay drives the code-reuse path: exchange
 // once (success), then re-present the same code (rejection + the
 // originally issued tokens get revoked per RFC 6749 §10.5).

@@ -12,6 +12,7 @@ describe("bin/http loadConfig", () => {
       allowedHosts: ["api.e2a.dev"],
       sessionIdleMs: 5 * 60_000,
       maxSessions: 500,
+      resolveTimeoutMs: 5000,
       trustProxy: "loopback",
     });
   });
@@ -23,6 +24,7 @@ describe("bin/http loadConfig", () => {
       MCP_ALLOWED_HOSTS: "api.e2a.dev,mcp-staging.e2a.dev",
       MCP_SESSION_IDLE_MS: "60000",
       MCP_MAX_SESSIONS: "100",
+      MCP_RESOLVE_TIMEOUT_MS: "2500",
     });
     expect(cfg).toEqual({
       port: 8080,
@@ -30,6 +32,7 @@ describe("bin/http loadConfig", () => {
       allowedHosts: ["api.e2a.dev", "mcp-staging.e2a.dev"],
       sessionIdleMs: 60_000,
       maxSessions: 100,
+      resolveTimeoutMs: 2500,
       trustProxy: "loopback",
     });
   });
@@ -83,6 +86,18 @@ describe("bin/http loadConfig", () => {
   it("rejects non-integer MCP_SESSION_IDLE_MS", () => {
     expect(() => loadConfig({ MCP_SESSION_IDLE_MS: "3.14" })).toThrowError(ConfigError);
   });
+
+  it("defaults MCP_RESOLVE_TIMEOUT_MS to 5000", () => {
+    expect(loadConfig({}).resolveTimeoutMs).toBe(5000);
+  });
+
+  it.each([["0"], ["-100"], ["abc"], ["3.14"]])(
+    "rejects invalid MCP_RESOLVE_TIMEOUT_MS=%s",
+    (raw) => {
+      expect(() => loadConfig({ MCP_RESOLVE_TIMEOUT_MS: raw })).toThrowError(ConfigError);
+      expect(() => loadConfig({ MCP_RESOLVE_TIMEOUT_MS: raw })).toThrow(/MCP_RESOLVE_TIMEOUT_MS/);
+    },
+  );
 
   it("rejects empty MCP_ALLOWED_HOSTS after filtering", () => {
     // "," and ", ,," both filter down to []. Must fail loudly to avoid
