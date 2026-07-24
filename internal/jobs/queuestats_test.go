@@ -180,3 +180,28 @@ func TestQueueStatsJobs_RegistersPeriodicSampler(t *testing.T) {
 		t.Fatalf("RegisterJobs periodics = %d, want 1", len(periodics))
 	}
 }
+
+func TestQueueStatsWorker_WorkIsBestEffort(t *testing.T) {
+	pool := testutil.TestDB(t)
+
+	// Healthy pass: Work delegates to Sample and reports success.
+	w := jobs.NewQueueStatsWorker(pool, nil) // nil metrics must degrade to no-op, not panic
+	if err := w.Work(context.Background(), &river.Job[jobs.QueueStatsArgs]{}); err != nil {
+		t.Fatalf("Work with healthy DB: %v", err)
+	}
+
+	// Failed pass: Work must swallow the error (log-only) instead of feeding
+	// River's retry loop — the 30s periodic IS the retry, and a DB outage
+	// must not error-spam river_job while gauges are frozen anyway.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := w.Work(cancelled, &river.Job[jobs.QueueStatsArgs]{}); err != nil {
+		t.Fatalf("Work with failing sample = %v, want nil (best-effort)", err)
+	}
+
+	// The underlying Sample DOES surface the error — tests and callers that
+	// want the failure signal read it there, not from Work.
+	if err := w.Sample(cancelled); err == nil {
+		t.Fatal("Sample with cancelled context = nil, want error")
+	}
+}
