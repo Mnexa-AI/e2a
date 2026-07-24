@@ -62,6 +62,11 @@ type Metrics interface {
 	// skipped_disabled), which would otherwise drag the duration
 	// quantiles toward zero.
 	WebhookAttempt(outcome, statusClass string, seconds float64)
+	// WebhookFirstAttemptLatency records event→first-attempt latency for
+	// one subscriber delivery (attempt start − webhook_events.created_at).
+	// Observed only on a first-delivery row's FIRST HTTP attempt — retries,
+	// replays, and the no-POST outcomes never observe.
+	WebhookFirstAttemptLatency(seconds float64)
 }
 
 // statusClassOf maps an HTTP status code to its metrics label ("1xx".."5xx"),
@@ -114,6 +119,14 @@ func (w *DeliverWorker) WithMetrics(m Metrics) *DeliverWorker {
 func (w *DeliverWorker) emitAttempt(outcome, statusClass string, seconds float64) {
 	if w.metrics != nil {
 		w.metrics.WebhookAttempt(outcome, statusClass, seconds)
+	}
+}
+
+// emitFirstAttemptLatency records the event→first-attempt latency, tolerating
+// an unwired backend.
+func (w *DeliverWorker) emitFirstAttemptLatency(seconds float64) {
+	if w.metrics != nil {
+		w.metrics.WebhookFirstAttemptLatency(seconds)
 	}
 }
 
@@ -173,6 +186,21 @@ func (w *DeliverWorker) Work(ctx context.Context, job *river.Job[WebhookDeliverA
 	out := w.deliverer.Deliver(ctx, wh.URL, d.EventPayload, wh.SigningSecret, prevSecret,
 		d.EventType, strconv.Itoa(webhookpub.SchemaVersion))
 	dur := time.Since(start).Seconds()
+	// Event→first-attempt latency SLI: observed ONLY on this delivery row's
+	// first HTTP attempt — River job attempt 1 with no previously recorded
+	// attempt — and only for first-delivery rows. A replay row (replay_id
+	// set) is excluded: its baseline would be the ORIGINAL event's
+	// created_at, recording the customer's replay lag as a giant false
+	// outlier. The no-POST outcomes (webhook_deleted, skipped_disabled)
+	// returned above and never reach here; the SLO measures the first
+	// attempt regardless of its outcome. At-most-once: a crash between the
+	// POST and the attempt record means the sample is taken (below) but
+	// never re-taken — the retried job runs at attempt ≥ 2.
+	if job.Attempt == 1 && d.Attempts == 0 && d.ReplayID == nil && d.EventCreatedAt != nil {
+		if latency := start.Sub(*d.EventCreatedAt).Seconds(); latency > 0 {
+			w.emitFirstAttemptLatency(latency)
+		}
+	}
 	if out.Success {
 		w.emitAttempt("delivered", statusClassOf(out.StatusCode), dur)
 		return w.subStore.MarkDelivered(ctx, d.ID, out.StatusCode) // nil → River completes the job

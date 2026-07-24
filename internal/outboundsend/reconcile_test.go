@@ -329,6 +329,56 @@ func (f *terminalFixture) assertEventCarriesOnly(t *testing.T, messageID, eventT
 	}
 }
 
+func TestTerminalReconcileWorker_RecordsTerminalLatencyPerSettledRow(t *testing.T) {
+	pool := testutil.TestDB(t)
+	store := identity.NewStore(pool)
+	adapter := agent.NewOutboundSendStore(store,
+		webhookpub.NewOutbox(pool, webhookpub.StaticFlag(true)), usage.NewNoopUsageTracker())
+
+	f := newTerminalFixture(t, pool, store, adapter)
+	discardedID := f.seed(t, "lat-discarded", "accepted", "discarded", false)
+	missingID := f.seed(t, "lat-missing", "accepted", "", true)
+	// Pin acceptance 20 minutes in the past so the latency values are
+	// deterministic: the discarded row settles at its finalized_at (16 min
+	// ago → ~4 min latency); the missing-job row settles at sweep time
+	// (~20 min latency).
+	for _, id := range []string{discardedID, missingID} {
+		if _, err := f.pool.Exec(context.Background(),
+			`UPDATE messages SET created_at = now() - interval '20 minutes' WHERE id=$1`, id); err != nil {
+			t.Fatalf("age acceptance for %s: %v", id, err)
+		}
+	}
+
+	rec := &recordingMetrics{}
+	worker := outboundsend.NewTerminalReconcileWorker(pool, adapter).WithMetrics(rec)
+	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	// Latency parity with the terminal counter: exactly one sample per
+	// settled row, co-located with the e2a_outbound_terminal_total emission.
+	if len(rec.terminals) != 2 {
+		t.Fatalf("terminals = %v, want two settled rows", rec.terminals)
+	}
+	if len(rec.latencies) != 2 {
+		t.Fatalf("latencies = %v, want one per settled row", rec.latencies)
+	}
+	for _, got := range rec.latencies {
+		// 4 min (discarded, settled at finalized_at) and 20 min (missing,
+		// settled at sweep time); generous band covers sweep scheduling.
+		if got < 3*time.Minute.Seconds() || got > 21*time.Minute.Seconds() {
+			t.Errorf("terminal latency = %.0fs outside the expected 3–21 min band", got)
+		}
+	}
+
+	// A second pass settles nothing — no terminal, no latency (exactly-once).
+	if err := worker.Work(context.Background(), &river.Job[outboundsend.TerminalReconcileArgs]{}); err != nil {
+		t.Fatalf("second Work: %v", err)
+	}
+	if len(rec.terminals) != 2 || len(rec.latencies) != 2 {
+		t.Errorf("after idempotent re-pass: terminals=%v latencies=%v, want no new samples", rec.terminals, rec.latencies)
+	}
+}
+
 func TestTerminalReconcileWorker_ReconcilesOnlyTerminalJobs(t *testing.T) {
 	pool := testutil.TestDB(t)
 	store := identity.NewStore(pool)

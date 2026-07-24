@@ -77,6 +77,7 @@ type terminalCandidate struct {
 	attempt                  int
 	state                    string
 	finalizedAt              *time.Time
+	acceptedAt               time.Time // messages.created_at — the latency SLI baseline
 	failureSource            delivery.FailureSource
 	detail                   string
 	failureReason            string
@@ -97,6 +98,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		        COALESCE(r.attempt, 0),
 		        CASE WHEN r.id IS NULL THEN 'missing' ELSE r.state::text END,
 		        r.finalized_at,
+		        m.created_at,
 		        COALESCE(m.delivery_failure_source,''),COALESCE(m.delivery_detail,''),COALESCE(m.delivery_failure_reason_code,''),
 		        m.delivery_failure_occurred_at,m.delivery_failure_attempt,m.delivery_failure_blocked_recipients
 		   FROM messages m
@@ -120,7 +122,7 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 	candidates := make([]terminalCandidate, 0)
 	for rows.Next() {
 		var candidate terminalCandidate
-		if err := rows.Scan(&candidate.messageID, &candidate.jobID, &candidate.attempt, &candidate.state, &candidate.finalizedAt, &candidate.failureSource, &candidate.detail, &candidate.failureReason, &candidate.failureOccurredAt, &candidate.failureAttempt, &candidate.failureBlockedRecipients); err != nil {
+		if err := rows.Scan(&candidate.messageID, &candidate.jobID, &candidate.attempt, &candidate.state, &candidate.finalizedAt, &candidate.acceptedAt, &candidate.failureSource, &candidate.detail, &candidate.failureReason, &candidate.failureOccurredAt, &candidate.failureAttempt, &candidate.failureBlockedRecipients); err != nil {
 			return err
 		}
 		candidates = append(candidates, candidate)
@@ -177,12 +179,18 @@ func (w *TerminalReconcileWorker) Work(ctx context.Context, _ *river.Job[Termina
 		// guarded write actually did. Evidence-settled rows (the reconciler's
 		// priority population: submitted, crashed before MarkSent) count as
 		// "sent", not as a false failure; a no-op (row already terminal)
-		// counts nothing.
+		// counts nothing. The latency observation is co-located with the
+		// terminal count and uses the same occurred_at the write used
+		// (finalized/failure time, else sweep time) against the row's
+		// acceptance time carried on the candidate.
 		switch settled {
 		case delivery.StatusFailed:
 			w.metrics.OutboundTerminal(terminalOutcome(source, reason, candidate.failureBlockedRecipients))
 		case delivery.StatusSent:
 			w.metrics.OutboundTerminal(terminalSent)
+		}
+		if settled == delivery.StatusFailed || settled == delivery.StatusSent {
+			observeTerminalLatency(w.metrics, candidate.acceptedAt, occurredAt)
 		}
 		if w.ramp != nil {
 			if err := w.ramp.Resolve(ctx, candidate.messageID); err != nil {
