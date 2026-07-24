@@ -44,3 +44,14 @@ override:
   # reconciler every queue-first flow relies on.
   - threshold: 82
     path: ^internal/jobs$
+  # API-key auth + user/dashboard session handlers — the authentication
+  # boundary for every /v1 request.
+  - threshold: 88
+    path: ^internal/auth$
+  # Process assembly — HTTP handler wiring, dep construction, delete-domain
+  # transactional hooks. Remainder is DNS/external-provider closures.
+  - threshold: 70
+    path: ^internal/apiserver$
+  # Agent-to-self loopback delivery — self-send detection and MIME compose.
+  - threshold: 95
+    path: ^internal/loopback$
