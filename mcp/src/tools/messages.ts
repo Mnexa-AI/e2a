@@ -52,6 +52,7 @@ export function messageViewForTool(email: MessageView) {
     delivery_detail: email.deliveryDetail,
     review_status: email.reviewStatus,
     sent_as: email.sentAs,
+    scheduled_at: email.scheduledAt,
     size_bytes: email.sizeBytes,
     deleted_at: email.deletedAt,
     received_at: email.createdAt,
@@ -63,6 +64,17 @@ export function messageViewForTool(email: MessageView) {
     })),
   };
 }
+
+// Shared scheduled-send input. A future send_at defers submission to that
+// instant (status "scheduled"); the tool passes it through as a Date so the SDK
+// serializes it as a date-time. Same field on send/reply/forward.
+const sendAtField = z
+  .string()
+  .datetime({ offset: true })
+  .optional()
+  .describe(
+    'Optional scheduled-send time (RFC 3339 with a UTC offset, e.g. "2026-08-01T09:00:00Z"). When set to a future instant, the message is accepted immediately with status "scheduled" and submitted at approximately that time ("not before", accurate to seconds). A value at or before now sends immediately; more than 90 days ahead is rejected. Scheduling does NOT survive a review hold (send_at is dropped and it sends on approval). Cancel a scheduled send with delete_message (move to trash) — reversible: restoring it before the send time re-arms it.',
+  );
 
 export function registerMessageTools(server: McpServer, client: McpClient): void {
   server.registerTool(
@@ -116,6 +128,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Stable key for retry-safe sends. Set to deduplicate when the caller has its own retry loop (e.g. a stable triggering event id). When omitted the SDK mints a fresh UUIDv4 per call — protects against network-layer retries only, not user-driven retries.",
           ),
+        send_at: sendAtField,
         email: z
           .string()
           .optional()
@@ -151,6 +164,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
               ? { conversationId: args.conversation_id }
               : {}),
             ...(args.reply_to !== undefined ? { replyTo: args.reply_to } : {}),
+            ...(args.send_at !== undefined ? { sendAt: new Date(args.send_at) } : {}),
           },
           opts,
           args.email,
@@ -194,6 +208,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Stable key for retry-safe replies. A natural choice is the inbound `message_id` you're replying to — the same triggering event yields the same key, so a retry replays the original response instead of double-sending. Omit to let the SDK mint a fresh UUIDv4 per call.",
           ),
+        send_at: sendAtField,
         email: z.string().optional(),
       }),
     },
@@ -218,6 +233,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
               ? { conversationId: args.conversation_id }
               : {}),
             ...(args.reply_to !== undefined ? { replyTo: args.reply_to } : {}),
+            ...(args.send_at !== undefined ? { sendAt: new Date(args.send_at) } : {}),
           },
           opts,
           args.email,
@@ -263,6 +279,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
           .describe(
             "Stable key for retry-safe forwards. The inbound `message_id` plus target list is a natural choice.",
           ),
+        send_at: sendAtField,
         email: z.string().optional(),
       }),
     },
@@ -289,6 +306,7 @@ export function registerMessageTools(server: McpServer, client: McpClient): void
               ? { conversationId: args.conversation_id }
               : {}),
             ...(args.reply_to !== undefined ? { replyTo: args.reply_to } : {}),
+            ...(args.send_at !== undefined ? { sendAt: new Date(args.send_at) } : {}),
           },
           opts,
           args.email,
