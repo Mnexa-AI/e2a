@@ -61,7 +61,11 @@ jobs:
       # Network-free unit tests only — the e2e-prod suites against a live
       # deployment stay manual. No npm ci needed: node --test type-strips.
       - run: node --test tests/e2e-prod/harness/*.test.ts
-      - run: python3 tests/sdk-monitor/test_monitor.py
+      # monitor.py imports the Python SDK (from e2a.v1 import ...) — install
+      # the repo's SDK so the gate tests this tree, not a published release.
+      - run: |
+          pip install ./sdks/python
+          python3 tests/sdk-monitor/test_monitor.py
 
   go:
     name: Go tests
