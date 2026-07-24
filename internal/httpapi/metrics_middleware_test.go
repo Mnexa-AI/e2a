@@ -182,6 +182,12 @@ func TestMetricsMiddlewareHijackCountsAsUpgrade(t *testing.T) {
 	if got.route != "/v1/agents/{email}/ws" {
 		t.Errorf("route = %q, want %q", got.route, "/v1/agents/{email}/ws")
 	}
+	// A hijacked handler's runtime is the connection lifetime, not a request
+	// latency — the middleware must pass a negative duration ("count only,
+	// no histogram sample") or hours-long WS connections pin the HTTP p99.
+	if got.seconds >= 0 {
+		t.Errorf("seconds = %v, want negative (no duration sample for hijacked connections)", got.seconds)
+	}
 }
 
 func TestMetricsMiddlewareNilMetricsDoesNotPanic(t *testing.T) {

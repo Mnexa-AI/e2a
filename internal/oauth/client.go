@@ -33,13 +33,13 @@ type Client struct {
 // those flows.
 
 func (c *Client) GetID() string                      { return c.ID }
-func (c *Client) GetHashedSecret() []byte             { return c.SecretHash }
-func (c *Client) GetRedirectURIs() []string           { return c.RedirectURIs }
-func (c *Client) GetGrantTypes() fosite.Arguments     { return fosite.Arguments(c.GrantTypeStrings) }
-func (c *Client) GetResponseTypes() fosite.Arguments  { return fosite.Arguments(c.ResponseTypeStrings) }
-func (c *Client) GetScopes() fosite.Arguments         { return fosite.Arguments(c.ScopeStrings) }
-func (c *Client) IsPublic() bool                      { return c.Public }
-func (c *Client) GetAudience() fosite.Arguments       { return fosite.Arguments(c.AudienceStrings) }
+func (c *Client) GetHashedSecret() []byte            { return c.SecretHash }
+func (c *Client) GetRedirectURIs() []string          { return c.RedirectURIs }
+func (c *Client) GetGrantTypes() fosite.Arguments    { return fosite.Arguments(c.GrantTypeStrings) }
+func (c *Client) GetResponseTypes() fosite.Arguments { return fosite.Arguments(c.ResponseTypeStrings) }
+func (c *Client) GetScopes() fosite.Arguments        { return fosite.Arguments(c.ScopeStrings) }
+func (c *Client) IsPublic() bool                     { return c.Public }
+func (c *Client) GetAudience() fosite.Arguments      { return fosite.Arguments(c.AudienceStrings) }
 
 // GetTokenEndpointAuthMethod returns the registered auth method.
 // fosite reads this opportunistically via a runtime type-assert on

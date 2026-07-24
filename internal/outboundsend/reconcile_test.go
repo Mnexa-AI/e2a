@@ -990,8 +990,11 @@ func (s failingTerminalStore) ReleaseSend(context.Context, string, int64) error 
 func (s failingTerminalStore) MarkSent(context.Context, string, int64, int, time.Time, string, string) error {
 	return nil
 }
-func (s failingTerminalStore) MarkFailed(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) error {
-	return s.err
+func (s failingTerminalStore) MarkFailed(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) (delivery.Status, error) {
+	if s.err != nil {
+		return "", s.err
+	}
+	return delivery.StatusFailed, nil
 }
 func (s failingTerminalStore) PreserveTerminalFailure(context.Context, string, int64, int, time.Time, string, delivery.FailureSource, messagelifecycle.ReasonCode, []string) error {
 	return nil

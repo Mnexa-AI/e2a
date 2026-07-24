@@ -35,6 +35,13 @@ func requestMetrics(m RequestMetrics) func(http.Handler) http.Handler {
 			start := time.Now()
 			next.ServeHTTP(sw, r)
 			seconds := time.Since(start).Seconds()
+			// A hijacked connection's handler runtime is the CONNECTION
+			// lifetime (the WS handler blocks in its read loop until
+			// disconnect) — hours, not a request latency. Count the request,
+			// skip the duration sample (negative = no-observe contract).
+			if sw.hijacked {
+				seconds = -1
+			}
 
 			// The route pattern must be read AFTER serving — chi populates
 			// it once it has matched. An empty pattern means chi never

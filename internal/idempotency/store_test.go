@@ -299,11 +299,11 @@ func TestClaim_ConcurrentSameKeyOnlyOneAcquires(t *testing.T) {
 	const N = 25
 
 	var (
-		wg          sync.WaitGroup
-		mu          sync.Mutex
-		acquired    int
-		inflight    int
-		other       int
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		acquired int
+		inflight int
+		other    int
 	)
 	wg.Add(N)
 	for i := 0; i < N; i++ {

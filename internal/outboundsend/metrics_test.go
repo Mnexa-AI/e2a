@@ -53,13 +53,16 @@ func stringsEqual(got, want []string) bool {
 	return true
 }
 
-// timedJob builds a River job whose created_at/attempted_at delta is the
-// given queue wait.
+// timedJob builds a River job whose scheduled_at/attempted_at delta is the
+// given queue wait. created_at is set a full hour earlier: a retried or
+// snoozed job's cumulative age must NOT leak into the wait sample — only the
+// due→pickup delta of THIS attempt counts.
 func timedJob(id string, attempt int, wait time.Duration) *river.Job[outboundsend.OutboundSendArgs] {
 	rj := job(id, attempt)
-	created := time.Now().Add(-wait).UTC()
-	attempted := created.Add(wait)
-	rj.CreatedAt = created
+	scheduled := time.Now().Add(-wait).UTC()
+	attempted := scheduled.Add(wait)
+	rj.CreatedAt = scheduled.Add(-time.Hour)
+	rj.ScheduledAt = scheduled
 	rj.AttemptedAt = &attempted
 	return rj
 }
@@ -185,7 +188,11 @@ func TestSendWorker_MetricsProviderEvidenceSettlesAsSentWithoutAttempt(t *testin
 	}
 }
 
-func TestSendWorker_MetricsFinalAttemptEmitsDeferredTerminal(t *testing.T) {
+func TestSendWorker_MetricsFinalAttemptDeferralEmitsNoTerminal(t *testing.T) {
+	// A deferred final attempt is NOT a terminal outcome: the reconciler
+	// declares (and counts) the real one — sent on provider evidence, failed
+	// otherwise. Emitting here too would double-count the message in
+	// e2a_outbound_terminal_total and inflate every SLI denominator built on it.
 	st := &fakeStore{job: acceptedJob("msg_1")}
 	dl := &fakeDeliverer{out: outboundsend.DeliverOutcome{Err: errors.New("boom 421")}}
 	rec := &recordingMetrics{}
@@ -195,8 +202,11 @@ func TestSendWorker_MetricsFinalAttemptEmitsDeferredTerminal(t *testing.T) {
 	if !stringsEqual(rec.attemptOutcomes(), []string{"temporary_failure"}) {
 		t.Errorf("attempts = %v, want [temporary_failure]", rec.attemptOutcomes())
 	}
-	if !stringsEqual(rec.terminals, []string{"deferred_terminal"}) {
-		t.Errorf("terminals = %v, want [deferred_terminal]", rec.terminals)
+	if len(rec.terminals) != 0 {
+		t.Errorf("terminals = %v, want none (reconciler counts the deferred row later)", rec.terminals)
+	}
+	if len(st.deferred) != 1 {
+		t.Errorf("DeferTerminalFailure calls = %v, want exactly one", st.deferred)
 	}
 }
 

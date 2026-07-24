@@ -15,6 +15,25 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// trashMessage soft-deletes one probe message, best-effort on a fresh
+// context (the scenario's ctx may already be done when deferred cleanup
+// runs). Trash removes the row from lists — including the WS connect-drain's
+// unread query — and the janitor purges it after the retention window.
+func (p *Probe) trashMessage(id string) {
+	if id == "" {
+		return
+	}
+	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	u := p.HTTPBaseURL + "/v1/agents/" + url.PathEscape(p.AgentEmail) + "/messages/" + url.PathEscape(id)
+	req, _ := http.NewRequestWithContext(cctx, http.MethodDelete, u, nil)
+	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	if resp, err := p.httpClient().Do(req); err == nil {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+	}
+}
+
 // scenarioWebSocketRoundTrip exercises the /v1 WebSocket live-tail transport
 // end to end: Bearer-authed handshake, then a loopback self-send carrying a
 // unique nonce, then await the email.received push frame on the socket. The
@@ -59,11 +78,21 @@ func scenarioWebSocketRoundTrip(ctx context.Context, p *Probe) Result {
 	if err != nil {
 		return fail("ws self-send: %v", err)
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	sendRaw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fail("ws self-send: HTTP %d", resp.StatusCode)
 	}
+	var sent struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(sendRaw, &sent)
+	// Best-effort residue cleanup (mirrors agent_lifecycle's deferred
+	// delete): trash both copies of the probe message. Without this every
+	// 30s run leaves one more unread inbound row, and each future connect
+	// re-drains the oldest 100 of them forever — the drained-messages
+	// metric and the drain query would be ~100% prober noise.
+	defer p.trashMessage(sent.ID)
 
 	// Await the frame carrying the nonce, skipping drain backlog. Bounded by
 	// the shared round-trip timeout so a dead push path fails, never hangs.
@@ -77,6 +106,13 @@ func scenarioWebSocketRoundTrip(ctx context.Context, p *Probe) Result {
 				time.Since(start).Round(time.Millisecond), err)
 		}
 		if bytes.Contains(data, []byte(nonce)) {
+			var env struct {
+				Data struct {
+					MessageID string `json:"message_id"`
+				} `json:"data"`
+			}
+			_ = json.Unmarshal(data, &env)
+			p.trashMessage(env.Data.MessageID) // the unread inbound copy — the one drain would replay
 			return pass(fmt.Sprintf("ws connect + live push ok in %s",
 				time.Since(start).Round(time.Millisecond)))
 		}

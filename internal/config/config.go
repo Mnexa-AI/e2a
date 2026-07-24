@@ -426,6 +426,11 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("E2A_METRICS_LISTEN_ADDR"); v != "" {
 		cfg.Metrics.ListenAddr = v
 	}
+	// An explicit empty listen_addr would otherwise bind ":80" (Go's
+	// default) — silently public and usually fatal. Empty means default.
+	if cfg.Metrics.ListenAddr == "" {
+		cfg.Metrics.ListenAddr = "127.0.0.1:9091"
+	}
 	if v := os.Getenv("E2A_INBOUND_MODE"); v != "" {
 		cfg.Inbound.Mode = v
 	}

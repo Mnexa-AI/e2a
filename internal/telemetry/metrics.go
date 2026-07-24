@@ -75,23 +75,30 @@ type Metrics interface {
 
 	// HTTPRequest records one served HTTP request. route is the chi
 	// route pattern (e.g. "/v1/agents/{email}"), NEVER the raw path.
-	// statusClass is "1xx".."5xx".
+	// statusClass is "1xx".."5xx". A negative seconds means "count the
+	// request but record no duration sample" — used for hijacked
+	// (WebSocket) connections, whose handler runtime is the connection
+	// lifetime, not a request latency.
 	HTTPRequest(method, route, statusClass string, seconds float64)
 
-	// SMTPInbound records the terminal outcome of one SMTP intake
-	// decision. outcome ∈ {accepted, accepted_dedup, tempfail,
-	// rejected_unknown_recipient, rejected_unverified_domain,
-	// rejected_quota}. seconds is DATA processing time (0 for
-	// RCPT-stage rejections, which have no DATA phase).
+	// SMTPInbound records one SMTP intake decision. outcome ∈
+	// {accepted, accepted_dedup, tempfail, rejected_unknown_recipient,
+	// rejected_unverified_domain, rejected_quota}. Units differ by
+	// stage: accepted/accepted_dedup/tempfail are per DATA transaction;
+	// rejected_* are per rejected RCPT command (one transaction can
+	// emit several rejections and still accept). seconds is DATA
+	// processing time (0 for RCPT-stage rejections).
 	SMTPInbound(outcome string, seconds float64)
 
-	// OutboundQueueWait records enqueue→worker-pickup latency for one
-	// outbound send attempt (River attempted_at − created_at).
+	// OutboundQueueWait records due→pickup latency for one outbound
+	// send attempt (River attempted_at − scheduled_at; created_at would
+	// count each retry's full backoff as queue wait).
 	OutboundQueueWait(seconds float64)
 
 	// OutboundTerminal records a terminal outcome for an outbound
 	// message. outcome ∈ {sent, failed_suppressed, failed_provider,
-	// failed_local_retries, deferred_terminal}.
+	// failed_local_retries}. Exactly one per message: a deferred final
+	// attempt is counted by the terminal reconciler when it settles.
 	OutboundTerminal(outcome string)
 
 	// OutboundAttempt records one submission attempt to the upstream

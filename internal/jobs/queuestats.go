@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,7 +63,14 @@ func NewQueueStatsWorker(pool *pgxpool.Pool, metrics QueueStatsMetrics) *QueueSt
 }
 
 func (w *QueueStatsWorker) Work(ctx context.Context, _ *river.Job[QueueStatsArgs]) error {
-	return w.Sample(ctx)
+	// Best-effort: a failed sample logs and returns nil instead of feeding
+	// River's retry loop — the next 30s periodic is the retry, and a DB
+	// outage shouldn't error-spam the job table while gauges are frozen
+	// anyway (Sample is all-or-nothing, so stale values stay consistent).
+	if err := w.Sample(ctx); err != nil {
+		log.Printf("[queue-stats] sample failed: %v", err)
+	}
+	return nil
 }
 
 // Sample runs one gauge pass: depth per (queue, state) and the oldest

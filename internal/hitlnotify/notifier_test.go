@@ -105,12 +105,12 @@ func TestNotifierSendsEmailToOwner(t *testing.T) {
 	// token-gated confirm page.
 	data := sent.Data
 	for _, needle := range []string{
-		"bot@send-email.bot.test",      // agent email
-		"alice@example.com",            // recipient
-		"carol@example.com",            // cc
-		"Important draft",              // subject
-		"/v1/approve?t=",               // magic approve link
-		"/v1/reject?t=",                // magic reject link
+		"bot@send-email.bot.test",         // agent email
+		"alice@example.com",               // recipient
+		"carol@example.com",               // cc
+		"Important draft",                 // subject
+		"/v1/approve?t=",                  // magic approve link
+		"/v1/reject?t=",                   // magic reject link
 		"/dashboard/pending?id=" + msg.ID, // dashboard link (query-style; no per-message static route)
 	} {
 		if !strings.Contains(data, needle) {

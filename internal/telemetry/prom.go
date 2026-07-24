@@ -73,7 +73,7 @@ var (
 	smtpSet   = set("accepted", "accepted_dedup", "tempfail",
 		"rejected_unknown_recipient", "rejected_unverified_domain", "rejected_quota")
 	outTermSet = set("sent", "failed_suppressed", "failed_provider",
-		"failed_local_retries", "deferred_terminal")
+		"failed_local_retries")
 	outAttemptSet = set("success", "temporary_failure", "permanent_failure")
 	whSet         = set("delivered", "retryable_failure", "exhausted",
 		"webhook_deleted", "skipped_disabled")
@@ -85,7 +85,8 @@ var (
 	stageSet = set("lease", "list_webhooks", "insert_delivery", "update_status", "publish")
 	scopeSet = set("single", "since")
 	tableSet = set("webhook_events", "webhook_subscriber_deliveries",
-		"webhook_deliveries", "messages", "user_sessions", "oauth")
+		"webhook_deliveries", "messages", "agent_identities",
+		"user_sessions", "oauth")
 )
 
 func set(vals ...string) map[string]struct{} {
@@ -279,7 +280,11 @@ func (p *Prom) HTTPRequest(method, route, statusClass string, seconds float64) {
 	m := enum(methodSet, method)
 	r := p.capped(p.routesSeen, maxRouteSeries, route)
 	p.httpRequests.WithLabelValues(m, r, enum(classSet, statusClass)).Inc()
-	p.httpDuration.WithLabelValues(m, r).Observe(seconds)
+	// seconds < 0 = "no duration sample" (hijacked WS connections: their
+	// handler runtime is the connection lifetime and would pin the p99).
+	if seconds >= 0 {
+		p.httpDuration.WithLabelValues(m, r).Observe(seconds)
+	}
 }
 
 func (p *Prom) SMTPInbound(outcome string, seconds float64) {

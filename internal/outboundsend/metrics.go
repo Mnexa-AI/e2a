@@ -12,7 +12,7 @@ type Metrics interface {
 	OutboundQueueWait(seconds float64)
 	// OutboundTerminal records one terminal outcome for an outbound message.
 	// outcome ∈ {sent, failed_suppressed, failed_provider,
-	// failed_local_retries, deferred_terminal}.
+	// failed_local_retries}.
 	OutboundTerminal(outcome string)
 	// OutboundAttempt records one submission attempt to the upstream relay.
 	// outcome ∈ {success, temporary_failure, permanent_failure}.
@@ -26,7 +26,6 @@ const (
 	terminalFailedSuppressed   = "failed_suppressed"
 	terminalFailedProvider     = "failed_provider"
 	terminalFailedLocalRetries = "failed_local_retries"
-	terminalDeferred           = "deferred_terminal"
 
 	attemptSuccess          = "success"
 	attemptTemporaryFailure = "temporary_failure"

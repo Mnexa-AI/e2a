@@ -56,13 +56,13 @@ SES outage must not knock every instance out of rotation).
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
 | `e2a_http_requests_total` | counter | `method`, `route`, `status_class` | Requests served. `route` is the chi pattern; requests that fall through to the legacy (non-`/v1`) mux appear as `route="/legacy"`; `status_class` ∈ `1xx..5xx` (WebSocket upgrades count as `1xx`). |
-| `e2a_http_request_duration_seconds` | histogram | `method`, `route` | Request latency, timed across auth, Huma, handler, and legacy fallthrough. |
+| `e2a_http_request_duration_seconds` | histogram | `method`, `route` | Request latency, timed across auth, Huma, handler, and legacy fallthrough. Hijacked (WebSocket) connections are **excluded** — their handler runtime is the connection lifetime, which would otherwise pin the p99. |
 
 ### SMTP intake (relay edge)
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `e2a_smtp_inbound_total` | counter | `outcome` | One increment per SMTP transaction decision. `accepted` (250), `accepted_dedup` (250 on a lost-ack retry), `tempfail` (451 — durable persist/enqueue failed), `rejected_unknown_recipient` / `rejected_unverified_domain` (550), `rejected_quota` (552). |
+| `e2a_smtp_inbound_total` | counter | `outcome` | SMTP intake decisions. Units differ by stage: `accepted` (250), `accepted_dedup` (250 on a lost-ack retry), and `tempfail` (451 — durable persist/enqueue failed) are one per DATA transaction; `rejected_unknown_recipient` / `rejected_unverified_domain` (550) and `rejected_quota` (552) are one per rejected RCPT command — a single transaction can emit several rejections and still accept for its remaining recipients. A DATA phase aborted mid-read (client dropped, size limit) records no outcome. |
 | `e2a_smtp_inbound_duration_seconds` | histogram | — | DATA-phase processing time (accepted/tempfail outcomes only; RCPT rejections have no DATA phase). |
 
 Policy rejections (550/552) are *correct* behavior, not failures — the
@@ -72,10 +72,10 @@ acceptance SLI below deliberately excludes them.
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `e2a_outbound_queue_wait_seconds` | histogram | — | Enqueue→worker-pickup wait per attempt (River `attempted_at − created_at`). The queue-health signal. |
+| `e2a_outbound_queue_wait_seconds` | histogram | — | Due→pickup wait per attempt (River `attempted_at − scheduled_at`). Measures worker keep-up, deliberately not cumulative message age: a retry's backoff or a ramp deferral does not count as queue wait. |
 | `e2a_outbound_attempts_total` | counter | `outcome` | Upstream submission attempts: `success`, `temporary_failure`, `permanent_failure`. |
 | `e2a_outbound_attempt_duration_seconds` | histogram | — | Upstream (SES/SMTP relay) submission duration. |
-| `e2a_outbound_terminal_total` | counter | `outcome` | Messages reaching a terminal submission outcome: `sent`, `failed_suppressed`, `failed_provider`, `failed_local_retries`, `deferred_terminal`. |
+| `e2a_outbound_terminal_total` | counter | `outcome` | Messages reaching a terminal submission outcome, **exactly once per message**: `sent`, `failed_suppressed`, `failed_provider`, `failed_local_retries`. A deferred final attempt is counted when the terminal reconciler settles it — as `sent` when provider-accept evidence arrived (never a false failure), else as a failure. |
 
 ### Webhook delivery
 
@@ -96,7 +96,7 @@ acceptance SLI below deliberately excludes them.
 | `e2a_ws_connections_active` | gauge | — | Currently registered connections. |
 | `e2a_ws_connects_total` | counter | — | Accepted + registered connections. |
 | `e2a_ws_disconnects_total` | counter | `reason` | `replaced` (one-conn-per-agent takeover), `ping_timeout`, `client_close`, `error`, `shutdown`. |
-| `e2a_ws_drained_messages_total` | counter | — | Unread messages pushed during connect-drain. |
+| `e2a_ws_drained_messages_total` | counter | — | Unread messages pushed during connect-drain. The prober's WS scenario trashes its own probe messages after each run so this stays customer signal, not prober noise. |
 | `e2a_ws_send_failures_total` | counter | — | Failed pushes to a registered connection. |
 
 ### Async inbound processing (`E2A_INBOUND_MODE=async`)
@@ -172,6 +172,9 @@ pick windows to match your alerting burn rates.
 histogram_quantile(0.99,
   sum by (le) (rate(e2a_http_request_duration_seconds_bucket{route=~"/v1/.*"}[5m])))
 ```
+
+WebSocket upgrades never enter this histogram (see the catalog), so no
+route exclusion is needed.
 
 **SMTP acceptance** — fraction of non-policy DATA transactions accepted
 (tempfails are our failures; 550/552 policy rejections are excluded):
