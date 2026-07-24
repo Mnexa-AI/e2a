@@ -44,6 +44,7 @@ func (p *prober) probe() *selftest.Probe {
 		SMTPAddr:      p.cfg.SMTPAddr,
 		WebhookSecret: p.cfg.WebhookSecret,
 		MCPBaseURL:    p.cfg.MCPBaseURL,
+		RequireMCP:    p.cfg.RequireMCP,
 		Sink:          p.sink,
 		Timeout:       p.cfg.Timeout,
 	}
@@ -229,6 +230,14 @@ func (p *prober) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	for _, res := range last.Results {
 		fmt.Fprintf(w, "e2a_selftest_scenario_success{scenario=%q} %d\n", res.Name, b2i(res.Status == selftest.StatusPass))
 		total += time.Duration(res.DurationMS) * time.Millisecond
+	}
+	// Per-scenario latency: the raw material for the black-box MCP/WS/inbound
+	// SLI aggregations (docs/observability.md) — a scenario can pass while its
+	// latency degrades, and this is where that shows first.
+	fmt.Fprintln(w, "# HELP e2a_selftest_scenario_duration_seconds Per-scenario duration of the last run.")
+	fmt.Fprintln(w, "# TYPE e2a_selftest_scenario_duration_seconds gauge")
+	for _, res := range last.Results {
+		fmt.Fprintf(w, "e2a_selftest_scenario_duration_seconds{scenario=%q} %.3f\n", res.Name, float64(res.DurationMS)/1000)
 	}
 	fmt.Fprintln(w, "# HELP e2a_selftest_duration_seconds Total duration of the last probe run.")
 	fmt.Fprintln(w, "# TYPE e2a_selftest_duration_seconds gauge")

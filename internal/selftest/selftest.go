@@ -58,6 +58,7 @@ type Probe struct {
 	SMTPAddr      string        // host:port of the inbound SMTP listener
 	WebhookSecret string        // signing secret of the probe webhook (HMAC verify)
 	MCPBaseURL    string        // deployed streamable-HTTP MCP endpoint, e.g. http://mcp-server:3000/mcp; empty ⇒ mcp scenario skips
+	RequireMCP    bool          // when true, an empty MCPBaseURL FAILS the mcp scenario instead of skipping — set on stacks where MCP must be probed (prod)
 	Sink          *HTTPSink     // receives the webhook callback for the round-trip
 	HTTP          *http.Client  // nil → defaultHTTPClient
 	Timeout       time.Duration // round-trip await timeout; 0 → defaultRoundTripTimeout
