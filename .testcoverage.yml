@@ -30,9 +30,17 @@ override:
   - threshold: 75
     path: ^internal/outboundsend$
   # Sending-ramp storage + River janitor — pre-provider abuse-control state.
-  - threshold: 70
+  - threshold: 80
     path: ^internal/sendramp$
   # Inbound processing on River — the at-least-once worker + reconciler + retention.
   # (The relay-side ProcessIntake adapter is covered cross-package by relay tests.)
   - threshold: 65
     path: ^internal/inboundprocess$
+  # Webhook delivery on River — SSRF-guarded POST worker, retry/backoff,
+  # signing-secret rotation, and the stranded-delivery reconciler.
+  - threshold: 88
+    path: ^internal/webhookdelivery$
+  # Durable job runtime — River client wiring + the generic stranded-row
+  # reconciler every queue-first flow relies on.
+  - threshold: 82
+    path: ^internal/jobs$

@@ -271,7 +271,8 @@ manually on every API change even though the template won't remind you.
   runs everything with `-tags integration -p 1`. CI additionally race-checks
   `./internal/sendramp` and `./internal/outboundsend` with `-race`.
 - **Coverage ratchet**: `.testcoverage.yml` sets per-package floors (currently
-  webhook, webhookpub, httpapi, outboundsend, sendramp, inboundprocess).
+  webhook, webhookpub, webhookdelivery, httpapi, outboundsend, sendramp,
+  inboundprocess, jobs).
   Ratchet floors UP, never down. `make cover-check` runs the same gate CI
   runs (`vladopajic/go-test-coverage`).
 - **Contract tests**: TS and Python SDK contract tests run against
