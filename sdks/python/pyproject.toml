@@ -46,8 +46,22 @@ Repository = "https://github.com/tokencanopy/e2a"
 Documentation = "https://e2a.dev"
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-httpx", "anyio[trio]", "pyyaml>=6", "build", "twine", "mypy>=1.10,<1.19"]
+dev = ["pytest>=7", "pytest-cov>=5", "pytest-httpx", "anyio[trio]", "pyyaml>=6", "build", "twine", "mypy>=1.10,<1.19"]
 ws = ["websockets>=14"]
+
+# Unit-test coverage gate (pytest-cov). The OpenAPI-Generator client base under
+# e2a/v1/generated is excluded — it is regenerated from the spec, not
+# hand-maintained, and has its own freshness gate in CI.
+[tool.coverage.run]
+source = ["e2a"]
+omit = ["*/e2a/v1/generated/*"]
+
+[tool.pytest.ini_options]
+# Contract tests (tests/test_contract.py) self-skip without E2A_TEST_BASE_URL /
+# E2A_TEST_API_KEY, so plain `pytest tests/` measures unit coverage only. The
+# python-contract CI job overrides addopts (`-o addopts=`) so live-server runs
+# are not coverage-gated.
+addopts = "--cov=e2a --cov-fail-under=90"
 
 [tool.mypy]
 python_version = "3.9"

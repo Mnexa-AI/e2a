@@ -1,0 +1,222 @@
+{
+  "schema": "e2a.doctor/v1",
+  "generated_at": "2026-07-23T12:00:00.000Z",
+  "cli_version": "0.0.0-test",
+  "deployment_url": "https://e2a.dev",
+  "status": "failed",
+  "exit_code": 9,
+  "summary": {
+    "pass": 11,
+    "warn": 3,
+    "fail": 1,
+    "skip": 3
+  },
+  "checks": [
+    {
+      "id": "cli.config",
+      "title": "CLI configuration",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "api key from ~/.e2a/config.json; deployment https://e2a.dev",
+      "evidence": {
+        "deployment_url": "https://e2a.dev",
+        "key_source": "~/.e2a/config.json",
+        "key_scope": "account"
+      }
+    },
+    {
+      "id": "api.reachability",
+      "title": "API reachability",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "server version 1.0.0",
+      "target": "https://e2a.dev",
+      "evidence": {
+        "version": "1.0.0",
+        "shared_domain": "agents.e2a.dev",
+        "public_url": "https://e2a.dev"
+      }
+    },
+    {
+      "id": "api.auth",
+      "title": "API credentials",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "key valid — scope account, plan free",
+      "evidence": {
+        "user_email": "owner@example.com",
+        "scope": "account",
+        "plan_code": "free"
+      }
+    },
+    {
+      "id": "agent.access",
+      "title": "Agent access",
+      "status": "skip",
+      "reason_code": "no_agent_selected",
+      "detail": "skipped: no agent selected",
+      "remediation": "pass --agent, set E2A_AGENT_EMAIL, or run `e2a config set agent_email <email>`"
+    },
+    {
+      "id": "domain.registered",
+      "title": "Domain registration",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "acme.com: registered, verified",
+      "target": "acme.com",
+      "evidence": {
+        "verified": true,
+        "sending_status": "pending",
+        "agent_count": 1
+      }
+    },
+    {
+      "id": "domain.ownership",
+      "title": "Ownership TXT record",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "acme.com: TXT record found at acme.com",
+      "target": "acme.com",
+      "evidence": {
+        "expected": "e2a-verify-tok123",
+        "server_status": "verified"
+      }
+    },
+    {
+      "id": "domain.mx",
+      "title": "Inbound MX record",
+      "status": "fail",
+      "reason_code": "record_mismatch",
+      "detail": "acme.com: MX at acme.com points elsewhere",
+      "target": "acme.com",
+      "evidence": {
+        "expected": "smtp.e2a.dev",
+        "found": [
+          "mail.other.com"
+        ],
+        "server_status": "verified"
+      },
+      "remediation": "add MX record acme.com → smtp.e2a.dev (priority 10)"
+    },
+    {
+      "id": "domain.dkim",
+      "title": "DKIM TXT record",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "acme.com: TXT record found at sel1._domainkey.acme.com",
+      "target": "sel1._domainkey.acme.com",
+      "evidence": {
+        "expected": "v=DKIM1; k=rsa; p=MIIBIjAN",
+        "server_status": "verified"
+      }
+    },
+    {
+      "id": "domain.mailfrom_mx",
+      "title": "MAIL FROM MX record",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "acme.com: MX record found (feedback-smtp.us-east-1.amazonses.com)",
+      "target": "mail.acme.com",
+      "evidence": {
+        "expected": "feedback-smtp.us-east-1.amazonses.com",
+        "server_status": "verified"
+      }
+    },
+    {
+      "id": "domain.spf",
+      "title": "SPF TXT record",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "acme.com: TXT record found at mail.acme.com",
+      "target": "mail.acme.com",
+      "evidence": {
+        "expected": "v=spf1 include:amazonses.com ~all",
+        "server_status": "verified"
+      }
+    },
+    {
+      "id": "domain.dmarc",
+      "title": "DMARC record (advisory)",
+      "status": "warn",
+      "reason_code": "no_dmarc_record",
+      "detail": "acme.com: no DMARC record",
+      "target": "_dmarc.acme.com",
+      "remediation": "add TXT record _dmarc.acme.com with value \"v=DMARC1; p=none;\" and tighten the policy once reports look clean"
+    },
+    {
+      "id": "domain.sending",
+      "title": "Sending status",
+      "status": "warn",
+      "reason_code": "sending_pending",
+      "detail": "acme.com: sending identity still pending",
+      "target": "acme.com",
+      "remediation": "publish the prescribed DNS records and allow time for propagation, then re-run doctor"
+    },
+    {
+      "id": "mcp.reachability",
+      "title": "MCP reachability",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "endpoint responded (HTTP 405)",
+      "target": "https://api.e2a.dev/mcp",
+      "evidence": {
+        "http_status": 405
+      }
+    },
+    {
+      "id": "mcp.auth_metadata",
+      "title": "MCP auth metadata",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "advertises https://api.e2a.dev",
+      "target": "https://api.e2a.dev/.well-known/oauth-protected-resource",
+      "evidence": {
+        "authorization_servers": [
+          "https://api.e2a.dev"
+        ],
+        "scopes_supported": [
+          "agent",
+          "account"
+        ]
+      }
+    },
+    {
+      "id": "webhook.config",
+      "title": "Webhook configuration",
+      "status": "warn",
+      "reason_code": "webhook_disabled",
+      "detail": "wh_1: disabled",
+      "target": "https://hooks.example.com/e2a",
+      "evidence": {
+        "id": "wh_1"
+      },
+      "remediation": "events are not being delivered — re-enable it if that is unintended"
+    },
+    {
+      "id": "webhook.delivery",
+      "title": "Webhook delivery history",
+      "status": "pass",
+      "reason_code": "ok",
+      "detail": "wh_1: latest delivery succeeded",
+      "target": "wh_1",
+      "evidence": {
+        "last_status": "delivered",
+        "last_status_code": 200
+      }
+    },
+    {
+      "id": "webhook.reachability",
+      "title": "Webhook reachability",
+      "status": "skip",
+      "reason_code": "no_safe_probe",
+      "detail": "skipped: no safe non-delivering probe exists (POST /v1/webhooks/{id}/test delivers a real event) — webhook.delivery reflects observed reachability"
+    },
+    {
+      "id": "smtp.config",
+      "title": "Outbound SMTP configuration",
+      "status": "skip",
+      "reason_code": "not_visible",
+      "detail": "no E2A_OUTBOUND_SMTP_* environment visible from this machine (normal for hosted e2a; self-hosted operators should run doctor on the server host)"
+    }
+  ]
+}

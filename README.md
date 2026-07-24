@@ -245,6 +245,7 @@ domains/webhooks in the **web dashboard**.
 |---------|-------------|
 | `e2a login` | Open a browser login and save an account-scoped API key to `~/.e2a/config.json` (does not set a default agent — use `e2a config set agent_email` or `--agent`) |
 | `e2a whoami` | Show the key identity: user, scope, bound agent, plan |
+| `e2a doctor` | Read-only diagnostics of the production email path: config, API, agent access, custom-domain DNS (live), MCP, webhooks, outbound SMTP visibility. Never sends mail or mutates anything; `--json` for a versioned report |
 | `e2a agents list\|create\|get` | Manage inboxes (requires an account-scoped key) |
 | `e2a keys create\|list\|delete` | Mint, list, and revoke API keys (requires an account-scoped key) |
 | `e2a protection get\|set` | Show or update an agent's HITL screening/review config |

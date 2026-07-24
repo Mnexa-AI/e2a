@@ -174,7 +174,7 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm run build --workspace @e2a/sdk
-      - run: npm test --workspace @e2a/sdk
+      - run: npm run test:coverage --workspace @e2a/sdk
 
   agent-framework-examples:
     name: Minimal agent webhook examples
@@ -331,7 +331,7 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm run build --workspace @e2a/sdk
-      - run: npm test --workspace @e2a/cli
+      - run: npm run test:coverage --workspace @e2a/cli
       - run: npm run build --workspace @e2a/cli
 
   deps-sync:
@@ -393,7 +393,7 @@ jobs:
         env:
           MCP_TOOL_BASE: ${{ github.event.before }}:mcp/tool-names.v1.json
         run: node scripts/check-mcp-tool-compat.mjs "$MCP_TOOL_BASE"
-      - run: npm test --workspace @e2a/mcp-server
+      - run: npm run test:coverage --workspace @e2a/mcp-server
       - run: npm run build --workspace @e2a/mcp-server
 
   spec:
@@ -531,7 +531,9 @@ jobs:
           done
 
           cd "$GITHUB_WORKSPACE/sdks/python"
-          pytest tests/test_contract.py -v
+          # `-o addopts=` drops the unit-test coverage gate (pyproject addopts):
+          # live-server contract runs are not coverage-measured.
+          pytest tests/test_contract.py -v -o addopts=
 
   generated-code:
     name: Generated code freshness
